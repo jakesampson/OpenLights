@@ -9,6 +9,8 @@ export function ProjectBar() {
   const [newName, setNewName] = useState('')
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement | null>(null)
   const savedSnapshotRef = useRef<string>(JSON.stringify(useShowStore.getState().show))
   const saveRef = useRef<() => void>(() => undefined)
 
@@ -25,6 +27,16 @@ export function ProjectBar() {
   useEffect(() => {
     refreshList()
   }, [])
+
+  // Close the popover when clicking elsewhere.
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
 
   const handleSave = async () => {
     if (!show || !window.electronAPI) return
@@ -97,6 +109,7 @@ export function ProjectBar() {
       savedSnapshotRef.current = JSON.stringify(loaded)
       setCurrentPath(result.path ?? path)
       setStatus('Loaded')
+      setOpen(false)
     } else {
       setStatus(result.error ?? 'Load failed')
     }
@@ -113,6 +126,7 @@ export function ProjectBar() {
       setCurrentPath(result.path ?? null)
       setStatus('Opened')
       refreshList()
+      setOpen(false)
     } else {
       setStatus(result.error ?? 'Open failed')
     }
@@ -147,64 +161,80 @@ export function ProjectBar() {
   }
 
   return (
-    <section className="mb-6 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-zinc-500">Project:</label>
-          <input
-            value={show?.name ?? ''}
-            onChange={(e) => {
-              if (!show) return
-              setShow({ ...show, name: e.target.value })
-            }}
-            className="rounded bg-zinc-800 px-3 py-1.5 text-sm text-white w-48"
-          />
-        </div>
-        <button onClick={handleSave} className="rounded bg-indigo-600 px-3 py-1.5 text-xs font-medium hover:bg-indigo-500">
-          Save
-        </button>
-        <button onClick={handleSaveAs} className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium hover:bg-zinc-700">
-          Save As
-        </button>
-        <button onClick={handleOpen} className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium hover:bg-zinc-700">
-          Open…
-        </button>
-        <div className="flex items-center gap-2">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="New show name"
-            className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-white w-40 placeholder-zinc-600"
-          />
-          <button onClick={handleNew} className="rounded bg-zinc-800 px-3 py-1.5 text-xs font-medium hover:bg-zinc-700">
-            New
-          </button>
-        </div>
-        <span className="text-[10px] text-zinc-500">
-          {status ?? (currentPath ? `Saved: ${currentPath.split(/[\\/]/).pop()}` : 'Unsaved')}
-        </span>
-      </div>
+    <div className="relative" ref={rootRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`btn-theme text-xs font-medium ${open ? 'on' : ''}`}
+        title="Project menu"
+      >
+        Project
+      </button>
 
-      <div className="mt-4">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">Saved Shows</h3>
-        {shows.length === 0 ? (
-          <div className="text-[11px] text-zinc-600 py-1">No saved shows yet</div>
-        ) : (
-          <ul className="flex flex-col gap-1 max-h-32 overflow-y-auto">
-            {shows.map((s) => (
-              <li key={s.path} className="flex items-center gap-2 rounded border border-zinc-800 bg-zinc-950 px-3 py-1.5 text-xs">
-                <button onClick={() => handleLoad(s.path)} className="flex-1 text-left text-zinc-200 hover:text-white">
-                  {s.name}
-                  <span className="ml-2 text-zinc-600">{new Date(s.updatedAt).toLocaleDateString()}</span>
-                </button>
-                <button onClick={() => handleDelete(s.path)} className="text-zinc-500 hover:text-red-400 text-[10px]">
-                  Delete
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
+      {open && (
+        <div className="absolute left-0 top-full mt-1 z-50 w-80 panel p-3 shadow-2xl">
+          <div className="mb-2">
+            <label className="block text-[9px] uppercase tracking-wider text-dim mb-1">Name</label>
+            <input
+              value={show?.name ?? ''}
+              onChange={(e) => {
+                if (!show) return
+                setShow({ ...show, name: e.target.value })
+              }}
+              className="w-full rounded bg-panel2 border border-line px-2 py-1 text-sm text-white"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-1 mb-2">
+            <button onClick={handleSave} className="btn-theme on text-xs">Save</button>
+            <button onClick={handleSaveAs} className="btn-theme text-xs">Save As</button>
+            <button onClick={handleOpen} className="btn-theme text-xs">Open…</button>
+          </div>
+
+          <div className="flex gap-1 mb-2">
+            <input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="New show name"
+              className="flex-1 rounded bg-panel2 border border-line px-2 py-1 text-xs text-white placeholder:text-dim"
+            />
+            <button onClick={handleNew} className="btn-theme text-xs">New</button>
+          </div>
+
+          <div className="text-[10px] text-dim mb-2 truncate">
+            {status ?? (currentPath ? `Saved: ${currentPath.split(/[\\/]/).pop()}` : 'Unsaved')}
+          </div>
+
+          <div className="border-t border-line pt-2">
+            <div className="text-[9px] uppercase tracking-wider text-dim mb-1">Saved Shows</div>
+            {shows.length === 0 ? (
+              <div className="text-[11px] text-dim py-1">No saved shows yet</div>
+            ) : (
+              <ul className="flex flex-col gap-1 max-h-40 overflow-y-auto">
+                {shows.map((s) => (
+                  <li key={s.path} className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1 text-xs">
+                    <button
+                      onClick={() => handleLoad(s.path)}
+                      className="flex-1 text-left text-text hover:opacity-80 truncate"
+                    >
+                      {s.name}
+                      <span className="ml-2 text-[9px] text-dim">
+                        {new Date(s.updatedAt).toLocaleDateString()}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(s.path)}
+                      className="text-dim hover:text-red-400 text-[10px]"
+                    >
+                      Delete
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
