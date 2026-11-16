@@ -1,0 +1,43 @@
+{
+  "productName": "OpenLights",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "mac": {
+    "target": "dmg",
+    "icon": "build/icon.icns",
+    "identity": null,
+    "gatekeeperAssess": false,
+    "hardenedRuntime": true,
+    "entitlements": "build/entitlements.mac.plist",
+    "entitlementsInherit": "build/entitlements.mac.plist",
+    "extendInfo": {
+      "NSHighResolutionCapable": true,
+      "NSMicrophoneUsageDescription": "Used for audio beat detection.",
+      "com.apple.security.device.audio": true,
+      "com.apple.security.serial": true,
+      "com.apple.security.hid": true
+    }
+  },
+  "win": {
+    "target": "nsis",
+    "icon": "build/icon.ico",
+    "requestedExecutionLevel": "asInvoker"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "jakesampson",
+    "repo": "OpenLights",
+    "publishAutoUpdate": true
+  },
+  "asar": true,
+  "compression": "normal",
+  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+}

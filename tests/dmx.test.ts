@@ -1,0 +1,72 @@
+import { describe, it, expect } from 'vitest'
+import { DMXEngine, buildArtNetPacket } from '../src/shared/dmx'
+
+describe('Art-Net packet', () => {
+  it('builds an ArtDmx packet with protocol, universe and payload', () => {
+    const data = new Uint8Array(512)
+    data[0] = 255
+    data[511] = 42
+    const packet = buildArtNetPacket(0x0102, data, 7)
+
+    expect(packet.length).toBe(18 + 512)
+    expect(packet.subarray(0, 8).toString('ascii')).toBe('Art-Net\0')
+    expect(packet.readUInt16LE(8)).toBe(0x5000)
+    expect(packet.readUInt16BE(10)).toBe(14)
+    expect(packet[12]).toBe(7) // sequence
+    expect(packet[14]).toBe(0x02) // sub-uni
+    expect(packet[15]).toBe(0x01) // net
+    expect(packet.readUInt16BE(16)).toBe(512)
+    expect(packet[18]).toBe(255)
+    expect(packet[18 + 511]).toBe(42)
+  })
+
+  it('uses 0-based universe addressing', () => {
+    const packet = buildArtNetPacket(3, new Uint8Array(512), 1)
+    expect(packet[14]).toBe(3)
+    expect(packet[15]).toBe(0)
+  })
+})
+
+describe('DMXEngine', () => {
+  it('starts in virtual mode', () => {
+    const engine = new DMXEngine()
+    const status = engine.getStatus()
+    expect(status.connected).toBe(false)
+    expect(status.mode).toBe('virtual')
+  })
+
+  it('sets and gets channel values', () => {
+    const engine = new DMXEngine()
+    engine.setChannel(1, 128)
+    engine.setChannel(2, 255)
+    expect(engine.getChannel(1)).toBe(128)
+    expect(engine.getChannel(2)).toBe(255)
+    expect(engine.getChannel(3)).toBe(0) // default
+  })
+
+  it('clamps values to 0-255', () => {
+    const engine = new DMXEngine()
+    engine.setChannel(1, 300)
+    engine.setChannel(2, -50)
+    expect(engine.getChannel(1)).toBe(255)
+    expect(engine.getChannel(2)).toBe(0)
+  })
+
+  it('blackout zeroes all channels', () => {
+    const engine = new DMXEngine()
+    engine.setChannel(1, 128)
+    engine.setChannel(100, 200)
+    engine.blackout()
+    expect(engine.getChannel(1)).toBe(0)
+    expect(engine.getChannel(100)).toBe(0)
+  })
+
+  it('snapshot returns copy of universe', () => {
+    const engine = new DMXEngine()
+    engine.setChannel(1, 42)
+    const snap = engine.snapshot()
+    expect(snap[0]).toBe(42)
+    snap[0] = 99
+    expect(engine.getChannel(1)).toBe(42) // original unchanged
+  })
+})

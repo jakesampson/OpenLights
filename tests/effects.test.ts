@@ -1,0 +1,116 @@
+import { describe, expect, it } from 'vitest'
+import type { EffectDef, FixtureDef } from '../src/shared/types'
+import {
+  computeEffectPatch,
+  effectFrequency,
+  mergeEffects,
+  waveformValue
+} from '../src/renderer/src/lib/effects'
+
+const fixtures: FixtureDef[] = [
+  { id: 'f1', name: 'Front', type: 'par', channelStart: 1, channels: 4 },
+  { id: 'f2', name: 'Head', type: 'moving-head', channelStart: 5, channels: 8 }
+]
+
+function effect(overrides: Partial<EffectDef> = {}): EffectDef {
+  return {
+    id: 'e1',
+    name: 'Sine intensity',
+    fixtureIds: [],
+    attribute: 'intensity',
+    waveform: 'sine',
+    speed: 1,
+    syncToBpm: false,
+    size: 128,
+    offset: 128,
+    phaseSpread: 0,
+    enabled: true,
+    ...overrides
+  }
+}
+
+describe('waveforms', () => {
+  it('produces a full sine cycle', () => {
+    expect(waveformValue('sine', 0)).toBeCloseTo(0)
+    expect(waveformValue('sine', 0.25)).toBeCloseTo(1)
+    expect(waveformValue('sine', 0.5)).toBeCloseTo(0)
+    expect(waveformValue('sine', 0.75)).toBeCloseTo(-1)
+  })
+
+  it('produces triangle, square and saw shapes', () => {
+    expect(waveformValue('triangle', 0)).toBeCloseTo(-1)
+    expect(waveformValue('triangle', 0.5)).toBeCloseTo(1)
+    expect(waveformValue('square', 0.25)).toBe(1)
+    expect(waveformValue('square', 0.75)).toBe(-1)
+    expect(waveformValue('saw', 0)).toBeCloseTo(-1)
+    expect(waveformValue('saw', 0.5)).toBeCloseTo(0)
+  })
+
+  it('steps random values per cycle, stably', () => {
+    const a = waveformValue('random', 1.2, 0)
+    const b = waveformValue('random', 1.8, 0)
+    expect(a).toBe(b)
+    expect(waveformValue('random', 2.1, 0)).not.toBe(a)
+  })
+})
+
+describe('effect frequency', () => {
+  it('syncs cycles to beats, or runs in Hz', () => {
+    expect(effectFrequency(effect({ speed: 2, syncToBpm: true }), 120)).toBe(4)
+    expect(effectFrequency(effect({ speed: 0.5, syncToBpm: false }), 120)).toBe(0.5)
+  })
+})
+
+describe('computeEffectPatch', () => {
+  it('animates the targeted attribute around its offset', () => {
+    const fx = effect()
+    expect(computeEffectPatch(fixtures, [fx], 0, 120)[1]).toBe(128)
+    expect(computeEffectPatch(fixtures, [fx], 0.25, 120)[1]).toBe(255)
+    expect(computeEffectPatch(fixtures, [fx], 0.75, 120)[1]).toBe(0)
+    // Head intensity is channel 5
+    expect(computeEffectPatch(fixtures, [fx], 0.25, 120)[5]).toBe(255)
+    // Untargeted colour channels are absent
+    expect(computeEffectPatch(fixtures, [fx], 0.25, 120)[2]).toBeUndefined()
+  })
+
+  it('only touches the requested fixtures', () => {
+    const patch = computeEffectPatch(fixtures, [effect({ fixtureIds: ['f2'] })], 0.25, 120)
+    expect(patch[5]).toBe(255)
+    expect(patch[1]).toBeUndefined()
+  })
+
+  it('fans out phases across fixtures', () => {
+    const patch = computeEffectPatch(
+      fixtures,
+      [effect({ phaseSpread: 180 })],
+      0.25,
+      120
+    )
+    expect(patch[1]).toBe(255)
+    // Second fixture is half a cycle behind
+    expect(patch[5]).toBe(0)
+  })
+
+  it('scales dimming attributes by master, not pan/tilt', () => {
+    const intensity = computeEffectPatch(fixtures, [effect()], 0.25, 120, 128)
+    expect(intensity[1]).toBe(128)
+    const pan = computeEffectPatch(
+      fixtures,
+      [effect({ attribute: 'pan', offset: 255, size: 0 })],
+      0,
+      120,
+      128
+    )
+    expect(pan[6]).toBe(255)
+  })
+
+  it('skips disabled effects and handles no fixtures', () => {
+    expect(computeEffectPatch(fixtures, [effect({ enabled: false })], 0.25, 120)).toEqual({})
+    expect(computeEffectPatch([], [effect()], 0.25, 120)).toEqual({})
+  })
+
+  it('layers over the base look without dropping channels', () => {
+    const merged = mergeEffects({ 1: 10, 2: 20 }, { 1: 99 })
+    expect(merged).toEqual({ 1: 99, 2: 20 })
+  })
+})

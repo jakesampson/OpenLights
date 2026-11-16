@@ -1,0 +1,314 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useShowStore } from '../stores/showStore'
+import { initMidi, matchMapping, describeMapping, midiAvailable } from '../lib/midi'
+import type { MidiMessage } from '../lib/midi'
+import type { MidiMapping, MidiTargetType } from '@shared/types'
+
+interface LearnTarget {
+  targetType: MidiTargetType
+  targetId: string | null
+  label: string
+}
+
+type MidiState = 'unsupported' | 'requesting' | 'granted' | 'denied' | 'timeout'
+
+export function MidiPanel() {
+  const {
+    scenes,
+    cueLists,
+    midiMappings,
+    goToScene,
+    addMidiMapping,
+    removeMidiMapping,
+    setMaster,
+    toggleBlackout
+  } = useShowStore()
+  const [midiState, setMidiState] = useState<MidiState>('requesting')
+  const [inputs, setInputs] = useState<string[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [learnTarget, setLearnTarget] = useState<LearnTarget | null>(null)
+  const [attempt, setAttempt] = useState(0)
+  const learnRef = useRef<LearnTarget | null>(null)
+
+  // Keep a ref in sync so the MIDI callback always sees the latest arm state
+  useEffect(() => {
+    learnRef.current = learnTarget
+  }, [learnTarget])
+
+  const handleMessage = useCallback(
+    (msg: MidiMessage) => {
+      const target = learnRef.current
+      if (target) {
+        const mapping: MidiMapping = {
+          id: crypto.randomUUID(),
+          targetType: target.targetType,
+          targetId: target.targetId,
+          midiType: msg.type,
+          channel: msg.channel,
+          number: msg.number,
+          name: target.label
+        }
+        addMidiMapping(mapping)
+        setLearnTarget(null)
+        return
+      }
+
+      const match = matchMapping(useShowStore.getState().midiMappings, msg)
+      if (!match) return
+
+      if (match.targetType === 'master') {
+        setMaster(Math.round((msg.value / 127) * 255))
+        return
+      }
+      if (match.targetType === 'blackout') {
+        toggleBlackout()
+        return
+      }
+      if (match.targetType === 'cue-next') {
+        const state = useShowStore.getState()
+        if (!match.targetId) return
+        if (state.activeCueListId === match.targetId && state.cuePlaying) state.cueNext()
+        else state.goToCue(match.targetId, 0)
+        return
+      }
+      if (match.targetType === 'scene' && match.targetId) {
+        goToScene(match.targetId)
+      }
+    },
+    [addMidiMapping, goToScene, setMaster, toggleBlackout]
+  )
+
+  useEffect(() => {
+    if (!midiAvailable()) {
+      setMidiState('unsupported')
+      return
+    }
+
+    let cancelled = false
+    setMidiState('requesting')
+    setError(null)
+
+    // Some environments never settle requestMIDIAccess; guard with a timeout.
+    const timer = window.setTimeout(() => {
+      if (!cancelled) {
+        setMidiState((s) => (s === 'requesting' ? 'timeout' : s))
+        setError('MIDI access timed out. No MIDI device may be connected, or permission was blocked.')
+      }
+    }, 6000)
+
+    initMidi(handleMessage, (names) => {
+      if (!cancelled) {
+        setInputs(names)
+        if (names.length === 0) setMidiState('granted')
+      }
+    })
+      .then((names) => {
+        if (cancelled) return
+        window.clearTimeout(timer)
+        setInputs(names)
+        setMidiState('granted')
+      })
+      .catch((e) => {
+        if (cancelled) return
+        window.clearTimeout(timer)
+        setError(e?.message ?? String(e))
+        setMidiState('denied')
+      })
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [handleMessage, attempt])
+
+  const armedFor = (targetId: string | null, targetType: MidiTargetType) =>
+    learnTarget?.targetType === targetType && learnTarget.targetId === targetId
+
+  const arm = (target: LearnTarget) => setLearnTarget(target)
+  const disarm = () => setLearnTarget(null)
+  const retry = () => setAttempt((n) => n + 1)
+
+  const badge =
+    midiState === 'granted'
+      ? { label: inputs.length > 0 ? 'MIDI Ready' : 'No Devices', cls: 'bg-emerald-500/20 text-emerald-400' }
+      : midiState === 'requesting'
+        ? { label: 'Connecting…', cls: 'bg-amber-500/20 text-amber-400' }
+        : midiState === 'unsupported'
+          ? { label: 'Not Supported', cls: 'bg-zinc-700/40 text-zinc-400' }
+          : { label: 'Unavailable', cls: 'bg-red-500/20 text-red-400' }
+
+  const sceneName = (id: string | null) => scenes.find((s) => s.id === id)?.name ?? 'Scene'
+  const cueListName = (id: string | null) => cueLists.find((l) => l.id === id)?.name ?? 'Cue list'
+
+  const targetLabel = (m: MidiMapping): string => {
+    if (m.targetType === 'blackout') return 'Blackout / Panic'
+    if (m.targetType === 'master') return 'Master intensity'
+    if (m.targetType === 'cue-next') return `Next cue · ${cueListName(m.targetId)}`
+    return sceneName(m.targetId)
+  }
+
+  const learnButton = (target: LearnTarget) => {
+    const armed = armedFor(target.targetId, target.targetType)
+    return (
+      <button
+        onClick={() => (armed ? disarm() : arm(target))}
+        className={`rounded px-3 py-1 text-[10px] font-semibold uppercase tracking-wider ${
+          armed ? 'bg-amber-500 text-black animate-pulse' : 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
+        }`}
+      >
+        {armed ? 'Learning…' : 'Learn'}
+      </button>
+    )
+  }
+
+  const bindRow = (target: LearnTarget) => (
+    <div
+      key={`${target.targetType}:${target.targetId ?? 'none'}`}
+      className="flex items-center justify-between rounded border border-zinc-800 bg-zinc-950 px-3 py-2"
+    >
+      <span className="text-xs font-medium text-zinc-200">{target.label}</span>
+      {learnButton(target)}
+    </div>
+  )
+
+  return (
+    <section className="flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
+          MIDI Mapping
+        </h2>
+        <div className="flex items-center gap-2">
+          {(midiState === 'denied' || midiState === 'timeout') && (
+            <button
+              onClick={retry}
+              className="rounded bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-200 hover:bg-zinc-700"
+            >
+              Retry
+            </button>
+          )}
+          <span className={`text-[10px] px-2 py-1 rounded uppercase tracking-wider ${badge.cls}`}>
+            {badge.label}
+          </span>
+        </div>
+      </div>
+
+      {midiState === 'unsupported' && (
+        <div className="rounded-lg border border-zinc-700 bg-zinc-800/40 px-4 py-3 text-xs text-zinc-400">
+          Web MIDI isn’t available in this environment. Open OpenLights in its desktop app (not a
+          plain browser) and connect a MIDI controller.
+        </div>
+      )}
+
+      {(midiState === 'denied' || midiState === 'timeout') && error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-2">
+          Connected MIDI Devices
+        </h3>
+        {inputs.length === 0 ? (
+          <div className="text-xs text-zinc-500">
+            No MIDI inputs detected. Plug in a controller — the list updates automatically.
+          </div>
+        ) : (
+          <ul className="flex flex-wrap gap-2">
+            {inputs.map((name) => (
+              <li key={name} className="rounded bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200">
+                {name}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-zinc-800 bg-zinc-900 p-4">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500 mb-3">
+          Bind a Control
+        </h3>
+        <p className="text-xs text-zinc-500 mb-3">
+          Click <span className="text-zinc-300">Learn</span> next to a target, then move any control
+          on your MIDI device. Notes and CCs are both supported.
+        </p>
+
+        <div className="flex flex-col gap-4">
+          <div>
+            <h4 className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+              Master
+            </h4>
+            <div className="flex flex-col gap-2">
+              {bindRow({ targetType: 'blackout', targetId: null, label: 'Blackout / Panic' })}
+              {bindRow({ targetType: 'master', targetId: null, label: 'Master intensity (CC)' })}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+              Cue Lists
+            </h4>
+            <div className="flex flex-col gap-2">
+              {cueLists.length === 0 && (
+                <div className="px-3 py-2 text-xs text-zinc-600">No cue lists yet.</div>
+              )}
+              {cueLists.map((list) =>
+                bindRow({
+                  targetType: 'cue-next',
+                  targetId: list.id,
+                  label: `Next cue · ${list.name}`
+                })
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+              Scenes
+            </h4>
+            <div className="flex flex-col gap-2">
+              {scenes.map((scene) =>
+                bindRow({ targetType: 'scene', targetId: scene.id, label: scene.name })
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-h-48 overflow-y-auto rounded-xl border border-zinc-800 bg-zinc-900">
+        <div className="px-4 pt-4 pb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+          Active Mappings ({midiMappings.length})
+        </div>
+        {midiMappings.length === 0 ? (
+          <div className="px-4 pb-4 text-xs text-zinc-600">No mappings yet — learn one above.</div>
+        ) : (
+          <ul className="flex flex-col divide-y divide-zinc-800">
+            {midiMappings.map((m) => (
+              <li key={m.id} className="flex items-center justify-between px-4 py-2">
+                <div>
+                  <div className="text-xs font-medium text-zinc-200">{targetLabel(m)}</div>
+                  <div className="text-[10px] text-zinc-500">{describeMapping(m)}</div>
+                </div>
+                <button
+                  onClick={() => removeMidiMapping(m.id)}
+                  className="text-[10px] text-zinc-500 hover:text-red-400"
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {learnTarget && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-amber-300">
+          Listening for MIDI input for “{learnTarget.label}”… move a control now, or{' '}
+          <button onClick={disarm} className="underline hover:text-amber-200">
+            cancel
+          </button>
+        </div>
+      )}
+    </section>
+  )
+}
