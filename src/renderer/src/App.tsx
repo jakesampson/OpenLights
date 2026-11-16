@@ -81,6 +81,11 @@ export default function App() {
     stopCue
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
+  const [theme, setTheme] = useState<'purple' | 'teal'>('purple')
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme
+  }, [theme])
 
   useEffect(() => {
     configureEffects({
@@ -196,6 +201,14 @@ export default function App() {
           <div className="flex h-7 w-7 items-center justify-center rounded bg-accent text-[10px] font-bold text-[#111]">
             OL
           </div>
+          <button
+            type="button"
+            className="btn-theme text-xs"
+            onClick={() => setTheme((t) => (t === 'purple' ? 'teal' : 'purple'))}
+            title="Toggle theme"
+          >
+            Theme: {theme === 'purple' ? 'Purple' : 'Teal'}
+          </button>
           <ProjectBar />
           <button
             type="button"
