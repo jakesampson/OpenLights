@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenLights layout prototype</title>
+<style>
+:root{color-scheme:dark;--bg:#2a1233;--panel:#3a1b47;--panel2:#47235a;--line:#5d3a72;--accent:#c24bd6;--text:#f1e6f5;--dim:#b79bc4;--sel:#d95bef;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+:root[data-theme=teal]{--bg:#0f3a38;--panel:#144a47;--panel2:#1b5c58;--line:#2b7a73;--accent:#3ee0c0;--text:#e3f7f3;--dim:#8cc7bd;--sel:#4fe8c8}
+*{box-sizing:border-box}html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:13px -apple-system,system-ui,sans-serif;display:flex;flex-direction:column}
+.top{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--panel)}
+.top .title{flex:1;text-align:center;font-weight:600}
+button{font:inherit;color:var(--text);background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;min-height:32px}
+button.on{background:var(--accent);color:#111;border-color:var(--accent)}
+.panic{background:#b3261e;border-color:#e46a62;font-weight:700}
+.main{flex:1;display:grid;grid-template-columns:1fr 260px;gap:8px;padding:8px;min-height:0}
+.stage{background:var(--bg);border:1px solid var(--line);border-radius:8px;min-height:0;display:flex}
+.stage svg{width:100%;height:100%}
+.side{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:auto;padding:6px}
+.grp{padding:6px 4px;color:var(--dim);font-weight:600}
+.item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:5px;cursor:pointer}
+.item:hover{background:var(--panel2)}.item.sel{background:var(--panel2);outline:1px solid var(--sel)}
+.dot{width:10px;height:10px;border-radius:50%}
+.bottom{display:grid;grid-template-columns:1fr 250px;gap:8px;padding:0 8px 8px;height:190px}
+.bp{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px;overflow:auto}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.row{display:flex;gap:14px;align-items:stretch;height:130px}
+.fader{width:44px;background:#f3d9fa;border-radius:6px;display:flex;align-items:flex-end;justify-content:center;color:#222;font-weight:600;padding-bottom:4px}
+.wheel{width:120px;height:120px;border-radius:50%;background:conic-gradient(red,yellow,lime,cyan,blue,magenta,red)}
+.sl{width:10px;background:var(--panel2);border-radius:5px;align-self:stretch}
+.grid{display:grid;grid-template-columns:repeat(4,110px);gap:6px}
+.pad{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:12px 6px;text-align:center;cursor:pointer}
+.pad.act{background:var(--accent);color:#111}
+.sc{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;color:var(--dim)}
+kbd{background:var(--panel2);border:1px solid var(--line);border-radius:4px;padding:0 6px;color:var(--text)}
+.hide{display:none}
+@media(max-width:760px){.main{grid-template-columns:1fr}.side{display:none}.bottom{grid-template-columns:1fr}}
+</style></head><body>
+<div class="top">
+<button id="theme">Theme: Purple</button>
+<div class="title">Sunday Service · OpenLights</div>
+<button class="panic">BLACKOUT</button></div>
+<div class="main">
+<div class="stage"><svg viewBox="0 0 600 320" preserveAspectRatio="xMidYMid meet">
+<g fill="none" stroke="var(--dim)" stroke-width="5"><path d="M60 280 A240 240 0 0 1 540 280"/><path d="M130 280 A170 170 0 0 1 470 280" opacity=".7"/></g>
+<g id="beams" opacity=".35"></g><g id="fx"></g>
+<g fill="var(--dim)" opacity=".5"><circle cx="270" cy="200" r="12"/><rect x="258" y="212" width="24" height="68" rx="10"/><circle cx="335" cy="210" r="11"/><rect x="324" y="221" width="22" height="59" rx="9"/></g></svg></div>
+<div class="side" id="side"></div></div>
+<div class="bottom"><div class="bp">
+<div class="tabs"><button id="tDesign" class="on">Design</button><button id="tLive">Live</button></div>
+<div id="design" class="row"><div class="fader">80%</div><div class="wheel"></div>
+<div class="sl"></div><div class="sl"></div><div class="sl"></div>
+<div><div class="grp">Shutter/Strobe</div><button class="on">Open</button> <button>Closed</button><br><br><button>Strobe</button> <button>Pulse</button></div>
+<div><div class="grp">Movement Speed</div><button>Tracking</button> <button>Vector</button></div></div>
+<div id="live" class="row hide"><div class="fader">Full</div>
+<div><div class="grp">Basic Scenes</div><div class="grid" id="pads"></div></div></div></div>
+<div class="bp"><div class="grp">Shortcuts</div><div class="sc"><kbd>D</kbd>Dimmer<kbd>C</kbd>Colour<kbd>P</kbd>Position<kbd>S</kbd>Shutter<kbd>Z</kbd>Zoom</div></div></div>
+<script>
+const $=s=>document.querySelector(s);
+const cols=[["Red","#e33"],["Turquoise","#2dd"],["Yellow","#ee3"],["Blue","#35f"],["Violet/Magenta","#c3d"],["Red/Yellow","#f93"]];
+$('#side').innerHTML='<div class="grp">Outer Arc › Colours</div>'+cols.map((c,i)=>`<div class="item${i==4?' sel':''}"><span class="dot" style="background:${c[1]}"></span>${c[0]}</div>`).join('')+'<div class="grp">Colour Effects</div><div class="item">Rainbow</div><div class="item">Red Flash</div><div class="grp">Positions</div><div class="item">Gobos</div>';
+document.querySelectorAll('.item').forEach(e=>e.onclick=()=>{document.querySelectorAll('.item').forEach(x=>x.classList.remove('sel'));e.classList.add('sel')});
+let f='',b='';for(let i=0;i<9;i++){const a=Math.PI*(1-i/8),x=300+240*Math.cos(a)*(i%2?.7:1),y=280-240*Math.sin(a)*(i%2?.7:1);f+=`<circle cx="${x}" cy="${y}" r="9" fill="${cols[i%6][1]}" stroke="#fff"/>`;b+=`<path d="M${x} ${y}L${300+(x-300)*.3} 230L${300+(x-300)*.3+40} 230Z" fill="${cols[i%6][1]}"/>`}
+$('#fx').innerHTML=f;$('#beams').innerHTML=b;
+$('#pads').innerHTML=['Green Scene','Purple Scene','Red Scene','Blue Scene','Sunset','Chase 1','Warm','Cool'].map(n=>`<div class="pad">${n}</div>`).join('');
+document.querySelectorAll('.pad').forEach(p=>p.onclick=()=>p.classList.toggle('act'));
+$('#tDesign').onclick=()=>tab(1);$('#tLive').onclick=()=>tab(0);
+function tab(d){$('#design').classList.toggle('hide',!d);$('#live').classList.toggle('hide',!!d);$('#tDesign').classList.toggle('on',!!d);$('#tLive').classList.toggle('on',!d)}
+$('#theme').onclick=()=>{const r=document.documentElement,t=r.dataset.theme=='teal';if(t)delete r.dataset.theme;else r.dataset.theme='teal';$('#theme').textContent='Theme: '+(t?'Purple':'Teal')};
+</script></body></html>

@@ -2,10 +2,260 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme definitions - Purple (Design) and Teal (Live) */
+:root {
+  --bg: #2a1233;
+  --panel: #3a1b47;
+  --panel2: #47235a;
+  --line: #5d3a72;
+  --accent: #c24bd6;
+  --text: #f1e6f5;
+  --dim: #b79bc4;
+  --sel: #d95bef;
+  --panic: #b3261e;
+  --panic-line: #e46a62;
+}
+
+:root[data-theme="teal"] {
+  --bg: #0f3a38;
+  --panel: #144a47;
+  --panel2: #1b5c58;
+  --line: #2b7a73;
+  --accent: #3ee0c0;
+  --text: #e3f7f3;
+  --dim: #8cc7bd;
+  --sel: #4fe8c8;
+  --panic: #b3261e;
+  --panic-line: #e46a62;
+}
+
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
-body { margin: 0; background: #09090b; color: #fafafa; font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Theme-aware scrollbar */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-track { background: #18181b; }
-::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: #52525b; }
+::-webkit-scrollbar-track { background: var(--panel); }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+/* Theme-aware button styles */
+.btn-theme {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  min-height: 32px;
+  color: var(--text);
+  font: inherit;
+}
+
+.btn-theme:hover {
+  background: var(--line);
+}
+
+.btn-theme.on {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+}
+
+.btn-panic {
+  background: var(--panic);
+  border: 1px solid var(--panic-line);
+  font-weight: 700;
+  color: white;
+}
+
+.btn-panic:hover {
+  background: #d32f2f;
+}
+
+/* Theme-aware panel */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+/* Theme-aware selected state */
+.selected {
+  background: var(--panel2);
+  outline: 1px solid var(--sel);
+}
+
+/* Colour dot used in the groups / presets list */
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+/* App shell: top bar + flexible main row + fixed-height bottom row */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex: 0 0 auto;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 12px;
+  padding: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 12px;
+  padding: 0 12px 12px;
+  flex: 0 0 auto;
+  height: 268px;
+  min-height: 0;
+}
+
+/* Stage preview keeps a 16:9 media frame and scales with the window */
+.stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg);
+  padding: 8px;
+}
+
+.stage-frame {
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  max-height: 100%;
+  border-radius: 6px;
+  background:
+    radial-gradient(70% 90% at 50% 100%, rgba(255, 255, 255, 0.06), transparent 70%),
+    linear-gradient(180deg, #241030 0%, #1b0c24 100%);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Vertical fader (dimmer) */
+.fader {
+  position: relative;
+  width: 100%;
+  height: 96px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.fader-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, var(--accent), var(--sel));
+  opacity: 0.85;
+}
+
+/* Vertical channel slider column */
+.chan {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px;
+}
+
+.chan-track {
+  position: relative;
+  flex: 1;
+  min-height: 64px;
+  background: var(--panel);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.chan-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.8;
+}
+
+/* Colour wheel */
+.wheel {
+  width: 108px;
+  height: 108px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: conic-gradient(
+    #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000
+  );
+  position: relative;
+  flex: none;
+}
+
+.wheel::after {
+  content: '';
+  position: absolute;
+  inset: 26%;
+  border-radius: 50%;
+  background: var(--panel);
+}
+
+/* Scene pad button */
+.pad {
+  min-height: 44px;
+  font-weight: 500;
+  user-select: none;
+}
+
+.pad.active {
+  background: var(--accent);
+  color: #111;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+/* Responsive layout */
+@media(max-width: 760px) {
+  .main-grid { grid-template-columns: 1fr !important; }
+  .side-panel { display: none; }
+  .bottom-grid { grid-template-columns: 1fr !important; height: auto; }
+}
