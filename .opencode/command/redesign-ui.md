@@ -48,3 +48,60 @@ OUTPUT: summarise what changed, files touched, and any stubbed or deviating
 elements with reasons.
 
 Extra notes from the user: $ARGUMENTS
+
+---
+
+## STATUS — redesign complete (verified)
+
+Last updated: 2026-11-17. Work committed and pushed to `origin/main`.
+
+### Done and verified
+- **Top bar:** project name centred; Theme toggle (Purple ↔ Teal), Project
+  popover (Save / Save As / Open / New + saved-shows list), Search stub,
+  Overrides stub, DMX settings popover, always-visible BLACKOUT/RESTORE.
+- **Main row:** `StagePreview` renders the patched rig — fixture markers placed
+  along the truss arc (and floor up-lights for extras), truss lines, and beams
+  tinted by each fixture's current colour × dimmer. With no fixtures patched it
+  draws an 8-fixture demo rig so the view is never empty.
+- **Right column (~260px):** `GroupsPresetsPanel` — expandable tree built from
+  real show data: one group per `fixture.group` with child fixtures (dot tinted
+  by fixture type), Presets = real scenes (dot = scene colour, click recalls),
+  Effects = real effects (click toggles `enabled`). Collapsible sections with
+  counts; fills the column.
+- **DMX Connection:** USB/Art-Net mode, port select + Scan/Connect, Art-Net
+  host/universe, Disconnect, and Virtual-mode/connected status now live in the
+  top-bar `DmxConnection` popover (was in the side panel). Errors surface as a
+  bottom-left toast.
+- **Bottom row:** tabbed panel (Design | Live | Edit | Scenes | Cues | Effects |
+  Automation | Patch | MIDI) + Shortcuts panel that follows the tab. Design tab
+  has a taller dimmer fader (140px), colour wheel, taller channel sliders (90px
+  tracks), and Shutter/Movement groups (row wraps at narrow widths). Labels
+  enlarged for at-a-glance reading.
+- **Themes:** single token set in `src/renderer/src/index.css`; teal applied via
+  `:root[data-theme="teal"]` and the top-bar toggle. No duplicated views.
+- **Responsive:** `@media (max-width: 760px)` collapses the side panel and the
+  bottom row to one column. No clipping/overlap at 1200×800 or full screen.
+- **Checks:** `npm run typecheck` clean; `npm test` = **45/45 pass**.
+
+### Stubbed / deviating (by design)
+- Search, Overrides, Strobe, Pulse, Vector, and the Design/Live/Edit "stub"
+  tabs are visibly disabled mockups with no backing feature (per task rule 4).
+- Scene pads / channel values in the Design tab are static mockup values; the
+  live values come from the store elsewhere.
+
+### Files touched
+- `src/renderer/src/App.tsx`
+- `src/renderer/src/index.css`
+- `src/renderer/src/components/StagePreview.tsx` (new)
+- `src/renderer/src/components/GroupsPresetsPanel.tsx` (new)
+- `src/renderer/src/components/DmxConnection.tsx` (new)
+- `src/renderer/src/components/ProjectBar.tsx`
+- `src/renderer/src/components/DesignTab.tsx`
+
+### Next session — optional follow-ups only (nothing blocking)
+1. Optionally drive real dimmer/colour-wheel/channel sliders into the store
+   instead of static mockup values.
+2. Optionally render Live-tab scene pads from `show.scenes` with real recall.
+3. Delete leftover `shot-*.png` debug screenshots in the repo root (already
+   gitignored; safe to remove).
+

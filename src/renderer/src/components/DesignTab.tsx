@@ -43,7 +43,7 @@ export function DesignTab() {
       </div>
       
       {/* Shutter / Strobe + Movement Speed */}
-      <div className="flex gap-4 pt-1.5 border-t border-line">
+      <div className="flex flex-wrap gap-4 pt-1.5 border-t border-line">
         <div className="flex items-center gap-1.5 shrink-0">
           <label className="text-[10px] text-dim uppercase font-medium whitespace-nowrap">Shutter / Strobe</label>
           <div className="flex gap-1">
