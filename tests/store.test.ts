@@ -436,3 +436,106 @@ describe('Live page active-state behaviour (7.2)', () => {
     expect(useShowStore.getState().activeLiveValues).toEqual({})
   })
 })
+
+describe('Live page multi-select and multi-object commands (7.5)', () => {
+  const pageShow = () => ({
+    ...makeShow(),
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      fadeMs: 300,
+      controls: [
+        { id: 'c1', name: 'One', type: 'toggle' as const, presetIds: [], x: 20, y: 20 },
+        { id: 'c2', name: 'Two', type: 'flash' as const, presetIds: [], x: 220, y: 20 }
+      ],
+      cueListWidgets: [{ id: 'w1', cueListId: 'c1', x: 20, y: 120 }],
+      annotations: [{ id: 'a1', type: 'label' as const, text: 'Label', x: 300, y: 200, width: 160, height: 40 }]
+    }]
+  })
+  const page = () => useShowStore.getState().show!.livePages![0]
+
+  it('supports shift-click toggle, marquee selection and clearing', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'c1' }])
+    useShowStore.getState().togglePageObjectSelection({ type: 'cue', id: 'c2' })
+    expect(useShowStore.getState().selectedPageObjects).toEqual([
+      { type: 'cue', id: 'c1' }, { type: 'cue', id: 'c2' }
+    ])
+    useShowStore.getState().togglePageObjectSelection({ type: 'cue', id: 'c1' })
+    expect(useShowStore.getState().selectedPageObjects).toEqual([{ type: 'cue', id: 'c2' }])
+
+    useShowStore.getState().selectPageObjectsInRect({ x: 0, y: 0, width: 200, height: 150 })
+    expect(useShowStore.getState().selectedPageObjects.map((r) => r.id).sort()).toEqual(['c1', 'w1'])
+    useShowStore.getState().clearPageObjectSelection()
+    expect(useShowStore.getState().selectedPageObjects).toEqual([])
+  })
+
+  it('moves several selected objects together and undoes/redoes the move', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'c1' }, { type: 'list', id: 'w1' }])
+    useShowStore.getState().moveSelectedPageObjects(20, 30)
+    expect(page().controls[0]).toMatchObject({ x: 40, y: 50 })
+    expect(page().cueListWidgets![0]).toMatchObject({ x: 40, y: 150 })
+    expect(page().controls[1]).toMatchObject({ x: 220, y: 20 })
+    useShowStore.getState().undo()
+    expect(page().controls[0]).toMatchObject({ x: 20, y: 20 })
+    expect(page().cueListWidgets![0]).toMatchObject({ x: 20, y: 120 })
+    useShowStore.getState().redo()
+    expect(page().controls[0]).toMatchObject({ x: 40, y: 50 })
+  })
+
+  it('deletes several objects, prunes their active levels and undoes the delete', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().setLiveValue('c1', 200)
+    useShowStore.getState().setLiveValue('c2', 100)
+    useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'c1' }, { type: 'annotation', id: 'a1' }])
+    useShowStore.getState().deleteSelectedPageObjects()
+    expect(page().controls.map((c) => c.id)).toEqual(['c2'])
+    expect(page().annotations).toEqual([])
+    expect(useShowStore.getState().activeLiveValues).toEqual({ c2: 100 })
+    expect(useShowStore.getState().selectedPageObjects).toEqual([])
+    useShowStore.getState().undo()
+    expect(page().controls.map((c) => c.id)).toEqual(['c1', 'c2'])
+    expect(page().annotations!.map((a) => a.id)).toEqual(['a1'])
+  })
+
+  it('copies then pastes several objects with fresh ids and supports undo', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'c1' }, { type: 'list', id: 'w1' }])
+    useShowStore.getState().copySelectedPageObjects()
+    useShowStore.getState().pastePageObjects(10, 10)
+    const pasted = useShowStore.getState().selectedPageObjects
+    expect(pasted).toHaveLength(2)
+    expect(pasted.map((r) => r.id)).not.toContain('c1')
+    expect(page().controls).toHaveLength(3)
+    expect(page().controls[2]).toMatchObject({ name: 'One', x: 30, y: 30 })
+    expect(page().cueListWidgets).toHaveLength(2)
+    useShowStore.getState().undo()
+    expect(page().controls).toHaveLength(2)
+    expect(page().cueListWidgets).toHaveLength(1)
+  })
+
+  it('duplicates several objects with fresh ids and supports undo', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'c2' }])
+    useShowStore.getState().duplicateSelectedPageObjects()
+    expect(page().controls).toHaveLength(3)
+    expect(page().controls[2].id).not.toBe('c2')
+    expect(page().controls[2].name).toBe('Two')
+    useShowStore.getState().undo()
+    expect(page().controls).toHaveLength(2)
+  })
+
+  it('does nothing when paste is attempted with an empty clipboard or no selection', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().clearPageObjectSelection()
+    useShowStore.getState().copySelectedPageObjects()
+    useShowStore.getState().pastePageObjects()
+    useShowStore.getState().deleteSelectedPageObjects()
+    useShowStore.getState().duplicateSelectedPageObjects()
+    useShowStore.getState().moveSelectedPageObjects(10, 10)
+    expect(page().controls).toHaveLength(2)
+    expect(page().cueListWidgets).toHaveLength(1)
+    expect(page().controls[0]).toMatchObject({ x: 20, y: 20 })
+  })
+})

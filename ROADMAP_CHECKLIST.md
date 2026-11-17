@@ -267,8 +267,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   Evidence: `lib/pageSwitch.ts` (immutable per-page active-level memory, restore vs deactivate, prune deleted pages), store `pageActiveValues` + `setPageSwitchMode` setting + "Deactivate cues when switching pages" checkbox in Manage pages; `App.tsx` applies the incoming page fade on switch; `tests/pageSwitch.test.ts`, `tests/pageFade.test.ts` (crossfade timing, blackout, project change) and `tests/store.test.ts`; typecheck, 220 tests and build passed; desktop check on Needs Jake.
 - [x] 7.3 Add cue buttons, cue list widgets, text labels and frames to a page, and drag to move them with snap to grid. *(Evidence: `LiveWorkspace.tsx` addControl/addList/addAnnotation, beginDrag.)*
 - [x] 7.4 Drag a preset onto empty page space to create a cue, or onto an existing cue to add it. *(Evidence: `LiveWorkspace.tsx` onDrop handlers.)*
-- [ ] 7.5 Multi-select on the page (Shift-click, marquee), and move, delete, duplicate, copy and paste several objects. Guide: Select objects, p.183, through Delete objects, p.187.
+- [x] 7.5 Multi-select on the page (Shift-click, marquee), and move, delete, duplicate, copy and paste several objects. Guide: Select objects, p.183, through Delete objects, p.187.
   Done when: store tests cover each multi-object command and undo.
+  Evidence: `lib/livePageObjects.ts` (pure selection/marquee/move/delete/copy/paste/duplicate across cues, cue-list widgets and annotations), store `selectedPageObjects`/`pageClipboard` + multi-object actions (history/lock-gated, prune active levels on delete, fresh ids on paste, clear selection on undo/redo), `LiveWorkspace.tsx` Shift-click toggle, marquee drag, group drag, Delete/Ctrl+C/Ctrl+V/Ctrl+D and toolbar buttons; `tests/livePageObjects.test.ts` + `tests/store.test.ts` (each command plus undo/redo); typecheck, 233 tests and build passed; desktop check on Needs Jake."
 - [ ] 7.6 Resize objects with handles, and rename objects inline. Guide: p.185 to 186.
   Done when: cue buttons and frames store width and height (migrated), and tests cover resize clamping.
 - [ ] 7.7 Attach buttons to each other or to a frame so they move together. Guide: Attach buttons, p.184.
@@ -356,6 +357,7 @@ The agent never waits on these. It adds a line here (item number plus what to ch
 - [ ] (Jake) Preset palette Export/Import JSON click-through in Live edit mode: export a palette, import it into a show with renamed fixture ids, and confirm values re-map by name/profile and an unmatched fixture is skipped and reported (6.13).
 - [ ] (Jake) Click "Convert scenes" in the Live palette and confirm presets appear with the same looks while the originals remain in Scenes & cues (6.14).
 - [ ] (Jake) Live page switching click-through (7.2): active cues restore when you return to a page by default, the "Deactivate cues when switching pages" checkbox releases them instead, and the page fade visibly crossfades outgoing/incoming looks (check blackout and opening another project mid-fade).
+- [ ] (Jake) Multi-select click-through in Live edit mode (7.5): Shift-click and marquee-select several cues/labels/frames, drag them together, then try Delete, Duplicate, Copy, Paste (buttons and Del / Ctrl+C / Ctrl+V / Ctrl+D) and undo each one."
 - [ ] (Jake) Multi-window check for Live windows and window restore (after 2.6).
 - [ ] (Jake) Lock mode check on the Live machine (after 2.8).
 

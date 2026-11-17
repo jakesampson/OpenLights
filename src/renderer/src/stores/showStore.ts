@@ -1,6 +1,10 @@
 import type { FanDef } from '@shared/types'
 import { scenesToPresets } from '@shared/sceneConversion'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
+import {
+  copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
+  objectsInRect, pasteObjects, type PageClipboard, type PageObjectRef, type Rect
+} from '../lib/livePageObjects'
 import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
 import { sequenceOrder } from '../lib/sequenceClock'
@@ -62,6 +66,8 @@ interface ShowState {
   activeLiveValues: Record<string, number>
   activeLivePageId: string | null
   pageActiveValues: PageActiveValues
+  selectedPageObjects: PageObjectRef[]
+  pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
   automations: AutomationDef[]
   effects: EffectDef[]
@@ -90,6 +96,15 @@ interface ShowState {
   clearLiveValues: () => void
   selectLivePage: (id: string | null) => void
   setPageSwitchMode: (deactivateOnSwitch: boolean) => void
+  setPageObjectSelection: (refs: PageObjectRef[]) => void
+  togglePageObjectSelection: (ref: PageObjectRef) => void
+  selectPageObjectsInRect: (rect: Rect) => void
+  clearPageObjectSelection: () => void
+  moveSelectedPageObjects: (dx: number, dy: number) => void
+  deleteSelectedPageObjects: () => void
+  duplicateSelectedPageObjects: () => void
+  copySelectedPageObjects: () => void
+  pastePageObjects: (dx?: number, dy?: number) => void
   setManualOverrides: (values: Record<string, number>) => void
   clearManualOverrides: () => void
   releaseManualOverrides: (fixtureIds?: string[], property?: string) => void
@@ -250,6 +265,17 @@ function persistState(
       historyGroupRecorded: state.historyGrouping
     } : {}),
     show: state.show ? { ...state.show, ...showPatch, updatedAt: Date.now() } : null
+  }
+}
+
+function activeLivePage(state: ShowState): LivePage | undefined {
+  return state.show?.livePages?.find((page) => page.id === state.activeLivePageId) ?? state.show?.livePages?.[0]
+}
+
+function saveLivePages(state: ShowState, livePages: LivePage[]): Partial<ShowState> {
+  return {
+    ...persistState(state, { livePages }),
+    pageActiveValues: prunePageValues(state.pageActiveValues, livePages.map((page) => page.id))
   }
 }
 
@@ -490,7 +516,7 @@ const actions: ShowState = {
     const state = get(), previous = state.undoStack.at(-1)
     if (!previous || !state.show) return
     const next = structuredClone(previous)
-    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false })
+    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
     const scene = next.scenes.find((item) => item.id === state.activeSceneId)
     if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
   },
@@ -498,7 +524,7 @@ const actions: ShowState = {
     const state = get(), following = state.redoStack.at(-1)
     if (!following || !state.show) return
     const next = structuredClone(following)
-    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false })
+    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
     const scene = next.scenes.find((item) => item.id === state.activeSceneId)
     if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
   },
@@ -510,6 +536,8 @@ const actions: ShowState = {
   activeLiveValues: {},
   activeLivePageId: null,
   pageActiveValues: {},
+  selectedPageObjects: [],
+  pageClipboard: null,
   manualOverrides: {},
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
@@ -549,6 +577,8 @@ const actions: ShowState = {
       activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       pageActiveValues: {},
+      selectedPageObjects: [],
+      pageClipboard: null,
       manualOverrides: {},
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
@@ -574,10 +604,7 @@ const actions: ShowState = {
     if (!state.show || state.show.startup?.mode !== 'restore') return state.show
     return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, sceneId: state.activeSceneId } }
   },
-  setLivePages: (livePages) => set((state) => ({
-    ...persistState(state, { livePages }),
-    pageActiveValues: prunePageValues(state.pageActiveValues, livePages.map((page) => page.id))
-  })),
+  setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
   updateProject: (patch) => set((state) => persistState(state, patch)),
   setLiveValue: (id, value) => set((state) => ({ activeLiveValues: { ...state.activeLiveValues, [id]: clamp(value) } })),
   clearLiveValues: () => set((state) => {
@@ -585,12 +612,76 @@ const actions: ShowState = {
     if (state.activeLivePageId) delete pageActiveValues[state.activeLivePageId]
     return { activeLiveValues: {}, pageActiveValues }
   }),
-  selectLivePage: (id) => set((state) => switchLivePage(
-    { activeLivePageId: state.activeLivePageId, activeLiveValues: state.activeLiveValues, pageActiveValues: state.pageActiveValues },
-    id,
-    state.show?.deactivateOnPageSwitch === true
-  )),
+  selectLivePage: (id) => set((state) => ({
+    ...switchLivePage(
+      { activeLivePageId: state.activeLivePageId, activeLiveValues: state.activeLiveValues, pageActiveValues: state.pageActiveValues },
+      id,
+      state.show?.deactivateOnPageSwitch === true
+    ),
+    selectedPageObjects: []
+  })),
   setPageSwitchMode: (deactivateOnSwitch) => set((state) => persistState(state, { deactivateOnPageSwitch: deactivateOnSwitch })),
+
+  setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
+  togglePageObjectSelection: (ref) => set((state) => {
+    const exists = state.selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
+    return {
+      selectedPageObjects: exists
+        ? state.selectedPageObjects.filter((item) => !(item.type === ref.type && item.id === ref.id))
+        : [...state.selectedPageObjects, ref]
+    }
+  }),
+  selectPageObjectsInRect: (rect) => set((state) => {
+    const page = activeLivePage(state)
+    return { selectedPageObjects: page ? objectsInRect(page, rect) : [] }
+  }),
+  clearPageObjectSelection: () => set({ selectedPageObjects: [] }),
+
+  moveSelectedPageObjects: (dx, dy) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page || !state.selectedPageObjects.length) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? moveObjects(page, state.selectedPageObjects, dx, dy) : item))
+  }),
+  deleteSelectedPageObjects: () => set((state) => {
+    const page = activeLivePage(state)
+    if (!page || !state.selectedPageObjects.length) return state
+    const deletedIds = new Set(state.selectedPageObjects.filter((ref) => ref.type === 'cue').map((ref) => ref.id))
+    const activeLiveValues = Object.fromEntries(Object.entries(state.activeLiveValues).filter(([id]) => !deletedIds.has(id)))
+    const pageActiveValues = Object.fromEntries(Object.entries(state.pageActiveValues).map(([pageId, values]) =>
+      [pageId, Object.fromEntries(Object.entries(values).filter(([id]) => !deletedIds.has(id)))]
+    ))
+    return {
+      ...saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? deleteObjects(page, state.selectedPageObjects) : item)),
+      activeLiveValues,
+      pageActiveValues,
+      selectedPageObjects: []
+    }
+  }),
+  duplicateSelectedPageObjects: () => set((state) => {
+    const page = activeLivePage(state)
+    if (!page || !state.selectedPageObjects.length) return state
+    let n = 0
+    const { page: next, refs } = duplicateObjects(page, state.selectedPageObjects, () => `page-object-${Date.now()}-${++n}`)
+    return {
+      ...saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? next : item)),
+      selectedPageObjects: refs
+    }
+  }),
+  copySelectedPageObjects: () => set((state) => {
+    const page = activeLivePage(state)
+    return { pageClipboard: page ? copyObjects(page, state.selectedPageObjects) : null }
+  }),
+  pastePageObjects: (dx, dy) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page || isClipboardEmpty(state.pageClipboard)) return state
+    let n = 0
+    const { page: next, refs } = pasteObjects(page, state.pageClipboard!, () => `page-object-${Date.now()}-${++n}`, dx, dy)
+    return {
+      ...saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? next : item)),
+      selectedPageObjects: refs
+    }
+  }),
+
   setManualOverrides: (values) => set((state) => {
     const manualOverrides = { ...state.manualOverrides }
     for (const id of state.selectedFixtureIds) {
@@ -1397,7 +1488,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'moveSelectedPageObjects', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   for (const command of editingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
