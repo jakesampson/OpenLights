@@ -806,3 +806,15 @@ describe('cue modifiers (8.5)', () => {
     expect(useShowStore.getState().getLiveOutputLevels().c).toBe(100)
   })
 })
+
+describe('cue priority (8.6)', () => {
+  it('records activation order and stores explicit priority', () => {
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [] }] }] }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().setLiveValue('b', 255)
+    useShowStore.getState().setLiveValue('a', 255)
+    expect(useShowStore.getState().liveActivationOrder.a).toBeGreaterThan(useShowStore.getState().liveActivationOrder.b)
+    useShowStore.getState().configureCuePriority('b', 20)
+    expect(useShowStore.getState().show!.livePages![0].controls[1].priority).toBe(20)
+  })
+})

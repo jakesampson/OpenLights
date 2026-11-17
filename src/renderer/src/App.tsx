@@ -21,6 +21,7 @@ import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { activeCueSequenceIds } from './lib/liveDrops'
+import { orderedLiveControls } from './lib/cuePriority'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -34,6 +35,7 @@ export default function App() {
     activePresetIds,
     activeSequenceIds,
     activeLiveValues,
+    liveActivationOrder,
     activeLivePageId,
     manualOverrides,
     bpm,
@@ -126,7 +128,7 @@ export default function App() {
   useEffect(() => {
     const patch: Record<number, number> = {}
     const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
-    for (const page of show?.livePages ?? []) for (const control of page.controls) {
+    for (const control of orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)) {
       const level = outputLevels[control.id] ?? 0
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
@@ -143,7 +145,7 @@ export default function App() {
     const activePage = show?.livePages?.find((page) => page.id === activeLivePageId)
     const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? 0)
     configureLiveOutput(patch, changed ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, activeLivePageId, master])
+  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
 
   useEffect(() => {
     configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))

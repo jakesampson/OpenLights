@@ -68,6 +68,8 @@ interface ShowState {
   stopSequences: () => void
   activePresetIds: string[]
   activeLiveValues: Record<string, number>
+  liveActivationOrder: Record<string, number>
+  liveActivationCounter: number
   activeLivePageId: string | null
   pageActiveValues: PageActiveValues
   selectedPageObjects: PageObjectRef[]
@@ -116,6 +118,7 @@ interface ShowState {
   configureCueTiming: (controlId: string, patch: Partial<NonNullable<LiveControl['timing']>>) => void
   configureCueAppearance: (controlId: string, patch: Partial<NonNullable<LiveControl['appearance']>>) => void
   configureCueModifiers: (controlId: string, patch: Partial<NonNullable<LiveControl['modifiers']>>) => void
+  configureCuePriority: (controlId: string, priority: number) => void
   deleteSelectedPageObjects: () => void
   duplicateSelectedPageObjects: () => void
   copySelectedPageObjects: () => void
@@ -549,6 +552,8 @@ const actions: ShowState = {
   activeSequenceIds: [],
   activePresetIds: [],
   activeLiveValues: {},
+  liveActivationOrder: {},
+  liveActivationCounter: 0,
   activeLivePageId: null,
   pageActiveValues: {},
   selectedPageObjects: [],
@@ -590,6 +595,8 @@ const actions: ShowState = {
       presets: show?.presets ?? [],
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
       activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
+      liveActivationOrder: {},
+      liveActivationCounter: 0,
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       pageActiveValues: {},
       selectedPageObjects: [],
@@ -641,7 +648,9 @@ const actions: ShowState = {
       if (page.controls.find((cue) => cue.id === id)?.appearance?.releaseOthers) for (const cue of page.controls) if (cue.id !== id) delete activeLiveValues[cue.id]
       for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
     }
-    return { activeLiveValues }
+    const liveActivationCounter = level > 0 ? state.liveActivationCounter + 1 : state.liveActivationCounter
+    const liveActivationOrder = level > 0 ? { ...state.liveActivationOrder, [id]: liveActivationCounter } : state.liveActivationOrder
+    return { activeLiveValues, liveActivationOrder, liveActivationCounter }
   }),
   getLiveOutputLevels: () => {
     const state = get()
@@ -727,6 +736,11 @@ const actions: ShowState = {
     if (!page) return state
     const clampModifier = (value: number) => Math.max(0, Math.min(200, Number.isFinite(value) ? value : 100))
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, modifiers: Object.fromEntries(Object.entries({ intensity: 100, speed: 100, size: 100, ...control.modifiers, ...patch }).map(([key, value]) => [key, clampModifier(value)])) as NonNullable<LiveControl['modifiers']> } : control) } : item))
+  }),
+  configureCuePriority: (controlId, priority) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, priority: Number.isFinite(priority) ? Math.round(priority) : 0 } : control) } : item))
   }),
   deleteSelectedPageObjects: () => set((state) => {
     const page = activeLivePage(state)
@@ -1576,7 +1590,7 @@ const actions: ShowState = {
  }
   const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
-  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers'] as const
+  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority'] as const
   for (const command of guardedEditingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
     mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }

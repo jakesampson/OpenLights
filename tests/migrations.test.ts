@@ -145,6 +145,7 @@ describe('live cue sequence migration (7.10)', () => {
     expect(controls[0].timing).toEqual({ fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' })
     expect(controls[0].appearance).toEqual({ color: '#47235a', releaseOthers: false })
     expect(controls[0].modifiers).toEqual({ intensity: 100, speed: 100, size: 100 })
+    expect(controls[0].priority).toBe(0)
     expect(controls[1].sequenceIds).toEqual(['s1', 's1']) // migration preserves, drops normalise
     expect(show.livePages[0].annotations[0].sequenceIds).toBeUndefined()
   })

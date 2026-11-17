@@ -183,3 +183,6 @@ Cue appearance stores an OpenLights colour and a release-others flag; the existi
 
 ### 8.5 Cue modifiers
 Each cue has live intensity, speed and size percentages (0–200, legacy default 100). Cue intensity multiplies the control level before its containing frame's intensity, so both modifiers compose and clamp to one DMX byte. Speed and size are persisted and exposed for downstream sequence/effect and movement consumers. Tests: `tests/liveFrames.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.
+
+### 8.6 Cue priority
+Active Live controls are merged in ascending explicit priority and then activation order, making the last activated cue win where priorities are equal and a higher configured priority win regardless of activation time. Activation order is runtime-only; priority is additive persisted data with legacy default zero. Tests: `tests/cuePriority.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.
