@@ -13,14 +13,18 @@ import type {
   SceneDef,
   ShowDef
 } from '@shared/types'
+import type { LivePage } from '@shared/types'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, suppressPresetsForScene } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
 
 interface ShowState {
   show: ShowDef | null
   scenes: SceneDef[]
   presets: PresetDef[]
   activePresetIds: string[]
+  activeLiveValues: Record<string, number>
+  activeLivePageId: string | null
+  manualOverrides: Record<string, Record<string, number>>
   automations: AutomationDef[]
   effects: EffectDef[]
   cueLists: CueListDef[]
@@ -37,6 +41,12 @@ interface ShowState {
   cueRevision: number
 
   setShow: (show: ShowDef | null) => void
+  setLivePages: (pages: LivePage[]) => void
+  setLiveValue: (id: string, value: number) => void
+  clearLiveValues: () => void
+  selectLivePage: (id: string | null) => void
+  setManualOverrides: (values: Record<string, number>) => void
+  clearManualOverrides: () => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
   setIsPlaying: (playing: boolean) => void
@@ -369,6 +379,9 @@ export const useShowStore = create<ShowState>((set, get) => ({
   scenes: defaultShow.scenes,
   presets: defaultShow.presets ?? [],
   activePresetIds: [],
+  activeLiveValues: {},
+  activeLivePageId: null,
+  manualOverrides: {},
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
   cueLists: defaultShow.cueLists ?? [],
@@ -390,6 +403,8 @@ export const useShowStore = create<ShowState>((set, get) => ({
     flashState = null
     suppressPresetsForScene(false)
     configurePresetOutput({})
+    configureLiveOutput({})
+    configureOverrideOutput({})
     setEffectBlackout(false)
     sendImmediate(allZeroPatch())
     set({
@@ -397,6 +412,9 @@ export const useShowStore = create<ShowState>((set, get) => ({
       scenes: show?.scenes ?? [],
       presets: show?.presets ?? [],
       activePresetIds: [],
+      activeLiveValues: {},
+      activeLivePageId: show?.livePages?.[0]?.id ?? null,
+      manualOverrides: {},
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       cueLists: show?.cueLists ?? [],
@@ -412,6 +430,22 @@ export const useShowStore = create<ShowState>((set, get) => ({
       cueRevision: get().cueRevision + 1
     })
   },
+  setLivePages: (livePages) => set((state) => persistState(state, { livePages })),
+  setLiveValue: (id, value) => set((state) => ({ activeLiveValues: { ...state.activeLiveValues, [id]: clamp(value) } })),
+  clearLiveValues: () => set({ activeLiveValues: {} }),
+  selectLivePage: (id) => set((state) => id === state.activeLivePageId ? state : { activeLivePageId: id, activeLiveValues: {} }),
+  setManualOverrides: (values) => set((state) => {
+    const manualOverrides = { ...state.manualOverrides }
+    for (const id of state.selectedFixtureIds) {
+      const fixture = state.show?.fixtures.find((item) => item.id === id)
+      if (!fixture) continue
+      const valid = fixtureAttributes(fixture.type)
+      const entries = Object.entries(values).filter(([key, value]) => valid.includes(key) && Number.isFinite(value)).map(([key, value]) => [key, clamp(value)])
+      if (entries.length) manualOverrides[id] = { ...manualOverrides[id], ...Object.fromEntries(entries) }
+    }
+    return { manualOverrides }
+  }),
+  clearManualOverrides: () => set({ manualOverrides: {} }),
   setBpm: (bpm) =>
     set((state) => {
       const next = Number.isFinite(bpm) ? Math.max(30, Math.min(240, Math.round(bpm))) : 120

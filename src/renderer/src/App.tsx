@@ -11,7 +11,7 @@ import { EditTab } from './components/EditTab'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
-import { configureEffects, configurePresetOutput } from './lib/output'
+import { configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
@@ -59,6 +59,8 @@ export default function App() {
     effects,
     presets,
     activePresetIds,
+    activeLiveValues,
+    manualOverrides,
     bpm,
     activeSceneId,
     master,
@@ -136,6 +138,26 @@ export default function App() {
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master])
+
+  useEffect(() => {
+    const patch: Record<number, number> = {}
+    for (const page of show?.livePages ?? []) for (const control of page.controls) {
+      const level = activeLiveValues[control.id] ?? 0
+      if (!level && !(control.type === 'fader' && control.id in activeLiveValues)) continue
+      const scaledMaster = master * level / 255
+      const scene = scenes.find((item) => item.id === control.sceneId)
+      if (scene && !scene.blackout) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], scene, scaledMaster))
+      for (const id of control.presetIds) {
+        const preset = presets.find((item) => item.id === id)
+        if (preset) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
+      }
+    }
+    configureLiveOutput(patch)
+  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, master])
+
+  useEffect(() => {
+    configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
+  }, [manualOverrides, show?.fixtures, master])
 
   useEffect(() => startCuePlaybackClock(), [])
 

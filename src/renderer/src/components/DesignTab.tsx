@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
@@ -17,6 +18,7 @@ function colorHex(values: Record<string, number>) {
 }
 
 export function DesignTab() {
+  const [manualMode, setManualMode] = useState(false)
   const {
     show,
     scenes,
@@ -24,6 +26,9 @@ export function DesignTab() {
     activePresetIds,
     selectedFixtureIds,
     updateSelectedFixtures,
+    setManualOverrides,
+    manualOverrides,
+    clearManualOverrides,
     goToScene,
     selectFixtures,
     groupSelectedFixtures
@@ -47,12 +52,13 @@ export function DesignTab() {
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
-            (total, fixture) => total + (activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
+            (total, fixture) => total + ((manualMode ? manualOverrides[fixture.id]?.[attribute] : undefined) ?? activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
             0
           ) / selectedFixtures.length
         )
       : 0
-  const dimmer = activeScene ? valueFor('intensity') : 0
+  const dimmer = activeScene || manualMode ? valueFor('intensity') : 0
+  const updateValues = manualMode ? setManualOverrides : updateSelectedFixtures
   const colorValues = {
     red: valueFor('red'),
     green: valueFor('green'),
@@ -64,7 +70,7 @@ export function DesignTab() {
   const wheelPosition = colorWheelPosition(colorValues)
 
   const setColor = (hex: string) => {
-    updateSelectedFixtures({
+    updateValues({
       red: parseInt(hex.slice(1, 3), 16),
       green: parseInt(hex.slice(3, 5), 16),
       blue: parseInt(hex.slice(5, 7), 16)
@@ -86,6 +92,8 @@ export function DesignTab() {
             : 'Select fixture(s) on stage'}
         </span>
         <div className="flex items-center gap-2">
+          <button type="button" className={`rounded px-2 py-1 text-[10px] ${manualMode ? 'bg-accent text-bg' : 'bg-panel2 text-text'}`} aria-pressed={manualMode} onClick={() => setManualMode(!manualMode)}>{manualMode ? 'Manual override' : 'Edit scene'}</button>
+          {Object.keys(manualOverrides).length > 0 && <button type="button" className="text-[10px] text-amber-300 underline" onClick={clearManualOverrides}>Release overrides</button>}
           <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={fixtures.length === 0} onClick={() => selectFixtures(fixtures.map((fixture) => fixture.id))}>Select all</button>
           <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={selectedFixtureIds.length === 0} onClick={() => selectFixtures([])}>Clear</button>
           <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={selectedFixtureIds.length === 0} onClick={() => { const name = prompt('Group name'); if (name) groupSelectedFixtures(name) }}>Group</button>
@@ -94,7 +102,7 @@ export function DesignTab() {
             <option value="">No scene selected</option>
             {scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
           </select>
-          {!activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Changing a control creates a scene</span>}
+          {!manualMode && !activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Changing a control creates a scene</span>}
         </div>
       </div>
 
@@ -111,7 +119,7 @@ export function DesignTab() {
               value={dimmer}
               disabled={!canEdit || !dimmerSupported}
               aria-label="Dimmer for selected fixtures"
-              onChange={(event) => updateSelectedFixtures({ intensity: Number(event.target.value) })}
+              onChange={(event) => updateValues({ intensity: Number(event.target.value) })}
               className="fader-input"
             />
           </div>
@@ -157,7 +165,7 @@ export function DesignTab() {
             </div>
           ) : (
             channelAttributes.map((attribute) => {
-              const value = activeScene ? valueFor(attribute) : 0
+              const value = activeScene || manualMode ? valueFor(attribute) : 0
               return (
                 <div key={attribute} className="chan h-full w-9 shrink-0">
                   <span className="text-center text-[10px] leading-none text-dim">
@@ -173,7 +181,7 @@ export function DesignTab() {
                       disabled={!canEdit}
                       aria-label={`${attributeLabel(attribute)} for selected fixtures`}
                       onChange={(event) =>
-                        updateSelectedFixtures({ [attribute]: Number(event.target.value) })
+                        updateValues({ [attribute]: Number(event.target.value) })
                       }
                       className="chan-input"
                     />

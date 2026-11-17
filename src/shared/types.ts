@@ -100,6 +100,23 @@ export interface PreviewTruss {
   rotation: number
 }
 
+export interface LiveControl {
+  id: string
+  name: string
+  type: 'toggle' | 'flash' | 'fader'
+  sceneId?: string
+  presetIds: string[]
+  x?: number
+  y?: number
+}
+
+export interface LivePage {
+  id: string
+  name: string
+  controls: LiveControl[]
+  cueListWidgets?: { id: string; cueListId: string; x: number; y: number }[]
+}
+
 export interface ShowDef {
   id: string
   name: string
@@ -108,6 +125,7 @@ export interface ShowDef {
   updatedAt: number
   fixtures: FixtureDef[]
   previewTrusses?: PreviewTruss[]
+  livePages?: LivePage[]
   scenes: SceneDef[]
   presets?: PresetDef[]
   automations: AutomationDef[]

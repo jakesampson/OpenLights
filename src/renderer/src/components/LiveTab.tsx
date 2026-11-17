@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { getPresetColor } from '../lib/presetColor'
 import { calculateTapTempo } from '../lib/tapTempo'
+import { LiveWorkspace } from './LiveWorkspace'
 
 export function LiveTab() {
   const {
@@ -34,6 +35,7 @@ export function LiveTab() {
   }
   return (
     <div className="flex flex-col gap-3 p-1">
+      <LiveWorkspace />
       <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-line bg-bg/30 px-3 py-2">
         <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-dim">Live output</span><span className="text-xs text-text">{scenes.find((scene) => scene.id === activeSceneId)?.name ?? 'No scene selected'}</span></div>
         <label className="flex items-center gap-2 text-xs text-dim">Master <input aria-label="Master intensity" type="range" min={0} max={255} value={master} onChange={(event) => setMaster(Number(event.target.value))} className="w-32 accent-[var(--accent)]" /><span className="w-10 text-right font-mono text-text">{Math.round(master / 255 * 100)}%</span></label>
@@ -77,6 +79,10 @@ export function LiveTab() {
               <div className="flex items-center justify-between gap-2">
                 <div><h4 className="text-xs font-semibold text-text">{list.name}</h4><span className="text-[10px] text-dim">{activeCueListId === list.id && activeCueIndex >= 0 ? `Cue ${activeCueIndex + 1} of ${list.steps.length}${cuePlaying ? ' · running' : ' · stopped'}` : 'Press Go to begin'}</span></div>
                 <div className="flex gap-1"><button type="button" className="btn-theme text-xs disabled:opacity-40" disabled={activeCueListId !== list.id || !cuePlaying} onClick={stopCue}>Stop</button><button type="button" className="btn-theme text-xs disabled:opacity-40" disabled={activeCueListId !== list.id || activeCueIndex < 0} onClick={cuePrev}>Back</button><button type="button" className="btn-theme on text-xs disabled:opacity-40" disabled={list.steps.length === 0} onClick={() => activeCueListId === list.id && activeCueIndex >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 rounded bg-bg/40 p-2 text-xs">
+                <div><span className="block text-[10px] uppercase text-dim">Current</span>{activeCueListId === list.id && activeCueIndex >= 0 ? scenes.find((scene) => scene.id === list.steps[activeCueIndex]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</div>
+                <div><span className="block text-[10px] uppercase text-dim">Next</span>{(() => { const index = activeCueListId === list.id ? activeCueIndex + 1 : 0; const step = list.steps[index] ?? (list.loop ? list.steps[0] : undefined); return step ? `${scenes.find((scene) => scene.id === step.sceneId)?.name ?? 'Missing scene'} · ${step.fadeMs / 1000}s fade` : 'End of list' })()}</div>
               </div>
               {activeCueListId === list.id && activeCueIndex >= 0 && <p className="text-[10px] text-dim">Next: {(() => { const next = list.steps[activeCueIndex + 1] ?? (list.loop ? list.steps[0] : undefined); return next ? scenes.find((scene) => scene.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list' })()}</p>}
               {list.steps.length === 0 ? (
