@@ -106,6 +106,7 @@ export interface LiveControl {
   type: 'toggle' | 'flash' | 'fader'
   sceneId?: string
   presetIds: string[]
+  adHocValues?: Record<string, Record<string, number>>
   x?: number
   y?: number
 }
@@ -115,6 +116,8 @@ export interface LivePage {
   name: string
   controls: LiveControl[]
   cueListWidgets?: { id: string; cueListId: string; x: number; y: number }[]
+  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number }[]
+  fadeMs?: number
 }
 
 export interface ShowDef {

@@ -13,6 +13,8 @@ let effectFrame: number | null = null
 let effectStartedAt = 0
 let presets: Record<number, number> = {}
 let live: Record<number, number> = {}
+let liveFadeFrame: number | null = null
+let liveFadeTarget: Record<number, number> | null = null
 let overrides: Record<number, number> = {}
 let presetSuppressed = false
 let previousPresetChannels = new Set<number>()
@@ -173,7 +175,29 @@ export function configurePresetOutput(patch: Record<number, number>) {
   flush()
 }
 
-export function configureLiveOutput(patch: Record<number, number>) { live = { ...patch }; flush() }
+export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
+  if (liveFadeFrame !== null && liveFadeTarget && Object.keys(patch).length === Object.keys(liveFadeTarget).length && Object.entries(patch).every(([channel, value]) => liveFadeTarget?.[Number(channel)] === value)) return
+  if (liveFadeFrame !== null) { cancelAnimationFrame(liveFadeFrame); liveFadeFrame = null }
+  liveFadeTarget = null
+  if (fadeMs <= 0) { live = { ...patch }; flush(); return }
+  const from = { ...live }, target = { ...patch }, start = performance.now()
+  liveFadeTarget = target
+  const channels = new Set([...Object.keys(from), ...Object.keys(target)].map(Number))
+  const tick = (now: number) => {
+    const t = smoothstep(Math.max(0, Math.min(1, (now - start) / fadeMs)))
+    const underneath = mergeEffects(base, effectPatch(now))
+    const next: Record<number, number> = {}
+    for (const channel of channels) {
+      const fallback = underneath[channel] ?? 0
+      next[channel] = Math.round((from[channel] ?? fallback) * (1 - t) + (target[channel] ?? fallback) * t)
+    }
+    live = t >= 1 ? target : next
+    flush(now)
+    liveFadeFrame = t < 1 ? requestAnimationFrame(tick) : null
+    if (t >= 1) liveFadeTarget = null
+  }
+  liveFadeFrame = requestAnimationFrame(tick)
+}
 export function configureOverrideOutput(patch: Record<number, number>) { overrides = { ...patch }; flush() }
 
 /** Blackout scenes suppress preset layers until another scene is recalled. */

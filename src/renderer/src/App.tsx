@@ -60,6 +60,7 @@ export default function App() {
     presets,
     activePresetIds,
     activeLiveValues,
+    activeLivePageId,
     manualOverrides,
     bpm,
     activeSceneId,
@@ -79,6 +80,7 @@ export default function App() {
   const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
 
+  const previousLivePage = useRef<string | null>(null)
   useEffect(() => {
     localStorage.setItem('openlights.adaptiveBackground', String(adaptiveBackground))
     const root = document.documentElement
@@ -151,9 +153,13 @@ export default function App() {
         const preset = presets.find((item) => item.id === id)
         if (preset) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
       }
+      if (control.adHocValues) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
     }
-    configureLiveOutput(patch)
-  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, master])
+    const changed = previousLivePage.current !== activeLivePageId
+    previousLivePage.current = activeLivePageId
+    const pageFade = show?.livePages?.find((page) => page.id === activeLivePageId)?.fadeMs ?? 0
+    configureLiveOutput(patch, changed ? pageFade : 0)
+  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, activeLivePageId, master])
 
   useEffect(() => {
     configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
@@ -428,7 +434,7 @@ export default function App() {
               ))}
             </div>
             <button type="button" role="tab" aria-selected={tab === 'Edit'} onClick={() => setTab('Edit')} className={`absolute right-1 rounded-full px-3 py-1 text-[10px] font-semibold transition-colors ${tab === 'Edit' ? 'bg-text text-bg' : 'bg-panel2 text-dim hover:text-text'}`}>
-              Edit
+              Scenes & cues
             </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">{renderPanel()}</div>
