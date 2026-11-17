@@ -114,6 +114,7 @@ interface ShowState {
   configureFrame: (frameId: string, patch: Partial<FrameConfig>) => void
   editCueContents: (controlId: string, command: CueContentsCommand) => void
   configureCueTiming: (controlId: string, patch: Partial<NonNullable<LiveControl['timing']>>) => void
+  configureCueAppearance: (controlId: string, patch: Partial<NonNullable<LiveControl['appearance']>>) => void
   deleteSelectedPageObjects: () => void
   duplicateSelectedPageObjects: () => void
   copySelectedPageObjects: () => void
@@ -636,6 +637,7 @@ const actions: ShowState = {
     // Activating a cue in an exclusive frame releases the frame's other cues.
     if (level > 0) for (const page of state.show?.livePages ?? []) {
       if (!page.controls.some((cue) => cue.id === id)) continue
+      if (page.controls.find((cue) => cue.id === id)?.appearance?.releaseOthers) for (const cue of page.controls) if (cue.id !== id) delete activeLiveValues[cue.id]
       for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
     }
     return { activeLiveValues }
@@ -713,6 +715,11 @@ const actions: ShowState = {
     const page = activeLivePage(state)
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, timing: { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear', ...control.timing, ...patch } } : control) } : item))
+  }),
+  configureCueAppearance: (controlId, patch) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, appearance: { color: '#47235a', releaseOthers: false, ...control.appearance, ...patch } } : control) } : item))
   }),
   deleteSelectedPageObjects: () => set((state) => {
     const page = activeLivePage(state)
@@ -1562,7 +1569,7 @@ const actions: ShowState = {
  }
   const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
-  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming'] as const
+  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance'] as const
   for (const command of guardedEditingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
     mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }

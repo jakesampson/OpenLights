@@ -47,7 +47,7 @@ export function BottomPlayback({ view }: Props) {
         {page?.controls.map((control) => {
           const level = state.activeLiveValues[control.id] ?? 0
           return control.type === 'fader' ? <label key={control.id}>{control.name}<input type="range" min="0" max="255" value={level} onChange={(event) => state.setLiveValue(control.id, Number(event.target.value))} /></label> :
-            <button key={control.id} type="button" aria-pressed={level > 0} className={level ? 'active' : ''}
+            <button key={control.id} type="button" aria-pressed={level > 0} className={level ? 'active' : ''} style={{ backgroundColor: level ? undefined : control.appearance?.color }}
               onClick={control.type === 'toggle' ? () => state.setLiveValue(control.id, level ? 0 : 255) : undefined}
               onPointerDown={control.type === 'flash' ? () => state.setLiveValue(control.id, 255) : undefined}
               onPointerUp={control.type === 'flash' ? () => state.setLiveValue(control.id, 0) : undefined}

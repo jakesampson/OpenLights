@@ -177,3 +177,6 @@ Cue content changes use a pure command reducer for preset and sequence reference
 
 ### 8.3 Cue timing and fade curves
 Cues now store delay, independent fade-in/fade-out durations and a curve name. Migration fills legacy cues additively with zero-duration linear timing. The pure evaluator covers linear, quadratic ease-in/out, combined ease-in-out and smooth S-curve interpolation, including delayed activation and release. Timing edits are history/lock-gated and exposed with cue contents. No dependency was added. Tests: `tests/fadeCurves.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.
+
+### 8.4 Cue appearance and release behaviour
+Cue appearance stores an OpenLights colour and a release-others flag; the existing cue name remains its editable label and existing type remains toggle/flash/fader. Legacy controls gain neutral colour and disabled release-others additively. Activating a release-others cue clears the other controls on its page before frame exclusivity is applied. The Live playback surface uses the stored colour. Tests: `tests/store.test.ts`, `tests/migrations.test.ts`.

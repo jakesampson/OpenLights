@@ -192,6 +192,7 @@ export interface LiveControl {
   attachedTo?: string
   style?: LiveObjectStyle
   timing?: { fadeInMs: number; fadeOutMs: number; delayMs: number; curve: FadeCurve }
+  appearance?: { color: string; releaseOthers: boolean }
 }
 
 export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'

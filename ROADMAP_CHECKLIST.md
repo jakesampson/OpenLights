@@ -320,8 +320,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.3 Cue timing options (fade in, fade out, delay) and fade curves (linear, ease and the guide's other curves). Guide: p.203, and Fade curves, p.209 to 214.
   Done when: `lib/fadeCurves.ts` is tested at 0, 0.5 and 1 for each curve, and cue timing is applied in the output tests.
   Evidence: additive `LiveControl.timing` migration, `lib/fadeCurves.ts` curve/timed-output evaluator, history/lock-gated `configureCueTiming`, timing inspector fields, `tests/fadeCurves.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`; typecheck, 321 tests and build passed.
-- [ ] 8.4 Button appearance and behaviour (colour, label, toggle/flash/fader, "release others"). Guide: p.204.
+- [x] 8.4 Button appearance and behaviour (colour, label, toggle/flash/fader, "release others"). Guide: p.204.
   Done when: fields are saved, migrated and tested.
+  Evidence: additive `LiveControl.appearance` migration, history/lock-gated `configureCueAppearance`, colour/release-others inspector and coloured Live playback buttons; release-others runtime in `setLiveValue`; `tests/store.test.ts` + `tests/migrations.test.ts`; typecheck, 322 tests and build passed.
 - [ ] 8.5 Cue modifiers (intensity, speed, size and so on, adjustable live). Guide: Edit modifiers, p.205 to 208, and Change modifiers, p.217.
   Done when: an output test shows a modifier scaling the cue's contribution.
 - [ ] 8.6 Cue priority between overlapping cues (latest takes precedence, or an explicit priority), using the 1.5 model.

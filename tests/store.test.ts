@@ -783,3 +783,15 @@ describe('cue timing (8.3)', () => {
     useShowStore.getState().unlockApp()
   })
 })
+
+describe('cue appearance and behaviour (8.4)', () => {
+  it('stores appearance and releases other cues when requested', () => {
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [] }] }] }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().configureCueAppearance('b', { color: '#123456', releaseOthers: true })
+    expect(useShowStore.getState().show!.livePages![0].controls[1].appearance).toEqual({ color: '#123456', releaseOthers: true })
+    useShowStore.getState().setLiveValue('a', 255)
+    useShowStore.getState().setLiveValue('b', 255)
+    expect(useShowStore.getState().activeLiveValues).toEqual({ b: 255 })
+  })
+})
