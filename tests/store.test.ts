@@ -562,7 +562,7 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
   })
 })
 
-describe('attaching page objects (7.7)', () => {
+describe('attaching and styling page objects (7.7, 7.8)', () => {
   const frameShow = () => ({
     ...makeShow(),
     livePages: [{
@@ -608,5 +608,13 @@ describe('attaching page objects (7.7)', () => {
     useShowStore.getState().deleteSelectedPageObjects()
     expect(page().controls[0].attachedTo).toBeUndefined()
     expect(page().controls[1].attachedTo).toBe('c1')
+  })
+
+  it('saves a per-object style patch and supports undo', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().setPageObjectStyle({ type: 'cue', id: 'c1' }, { bold: true, fontSize: 22 })
+    expect(page().controls[0].style).toMatchObject({ bold: true, fontSize: 22 })
+    useShowStore.getState().undo()
+    expect(page().controls[0].style).toMatchObject({ bold: false, fontSize: 12 })
   })
 })

@@ -1,8 +1,8 @@
 /** Missing versions are legacy version 0. */
 export const CURRENT_SCHEMA_VERSION = 1
 import { BUILTIN_PROFILES } from './fixtureProfiles'
-import { LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, validLiveSize } from './liveObjectDefaults'
-import type { ShowDef } from './types'
+import { LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
+import type { LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
@@ -25,23 +25,25 @@ export function migrateShow(raw: unknown): ShowDef {
       doc[key] = []
     }
   }
-  // Live page objects gained explicit width/height; older show files only had
-  // positions. Fill additive defaults without discarding any existing values.
+  // Live page objects gained explicit width/height and text styles; older show
+  // files only had positions. Fill additive defaults without discarding values.
   doc.livePages = (doc.livePages as unknown[]).map((rawPage) => {
     const page = record(rawPage)
-    const withSizes = (raw: unknown, defaults: { width: number; height: number }) => {
+    const pageDefaults = record(page.defaultStyles) as LiveDefaultStyles
+    const decorate = (raw: unknown, size: { width: number; height: number }, kind: LiveObjectKind) => {
       const object = record(raw)
       return {
         ...object,
-        width: validLiveSize(object.width) ? object.width : defaults.width,
-        height: validLiveSize(object.height) ? object.height : defaults.height
+        width: validLiveSize(object.width) ? object.width : size.width,
+        height: validLiveSize(object.height) ? object.height : size.height,
+        style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults)
       }
     }
     return {
       ...page,
-      controls: (Array.isArray(page.controls) ? page.controls : []).map((c) => withSizes(c, LIVE_CUE_SIZE)),
-      ...(Array.isArray(page.cueListWidgets) ? { cueListWidgets: page.cueListWidgets.map((w) => withSizes(w, LIVE_LIST_SIZE)) } : {}),
-      ...(Array.isArray(page.annotations) ? { annotations: page.annotations.map((a) => withSizes(a, LIVE_LABEL_SIZE)) } : {})
+      controls: (Array.isArray(page.controls) ? page.controls : []).map((c) => decorate(c, LIVE_CUE_SIZE, 'cue')),
+      ...(Array.isArray(page.cueListWidgets) ? { cueListWidgets: page.cueListWidgets.map((w) => decorate(w, LIVE_LIST_SIZE, 'list')) } : {}),
+      ...(Array.isArray(page.annotations) ? { annotations: page.annotations.map((a) => decorate(a, LIVE_LABEL_SIZE, record(a).type === 'frame' ? 'frame' as const : 'label' as const)) } : {})
     }
   })
   if (record(doc.startup).mode !== 'restore' && record(doc.startup).mode !== 'none') doc.startup = { ...record(doc.startup), mode: 'none' }

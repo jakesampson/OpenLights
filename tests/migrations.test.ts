@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '../src/shared/migrations'
-import { LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '../src/shared/liveObjectDefaults'
+import { DEFAULT_OBJECT_STYLES, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '../src/shared/liveObjectDefaults'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('cancelAnimationFrame', vi.fn())
 
@@ -60,6 +60,36 @@ describe('live page object size migration (7.6)', () => {
 
   it('does not bump schemaVersion and is idempotent', () => {
     const once: any = migrateShow(legacyShow())
+    expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('live object style migration (7.8)', () => {
+  const styleShow = () => ({
+    ...useShowStore.getState().show!,
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      defaultStyles: { label: { fontSize: 30 } },
+      controls: [{ id: 'c1', name: 'Cue', type: 'toggle', presetIds: [], x: 20, y: 20 }],
+      annotations: [
+        { id: 'l1', type: 'label', text: 'Old', x: 20, y: 100, width: 160, height: 40 },
+        { id: 'f1', type: 'frame', text: 'Old frame', x: 20, y: 200, width: 200, height: 100, style: { italic: true } }
+      ]
+    }]
+  })
+
+  it('fills built-in and page-default styles while keeping existing style fields', () => {
+    const show: any = migrateShow(styleShow())
+    const page = show.livePages[0]
+    expect(page.controls[0].style).toEqual(DEFAULT_OBJECT_STYLES.cue)
+    expect(page.annotations[0].style).toEqual({ ...DEFAULT_OBJECT_STYLES.label, ...page.defaultStyles.label })
+    expect(page.annotations[1].style).toEqual({ ...DEFAULT_OBJECT_STYLES.frame, italic: true })
+  })
+
+  it('is idempotent and does not bump schemaVersion', () => {
+    const once: any = migrateShow(styleShow())
     expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })

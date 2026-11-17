@@ -1,5 +1,7 @@
-import type { LiveControl, LivePage } from '@shared/types'
-import { clampLiveSize, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
+import type { LiveControl, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
+import {
+  clampLiveSize, LIVE_CUE_SIZE, LIVE_FRAME_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor
+} from '@shared/liveObjectDefaults'
 
 export type PageObjectType = 'cue' | 'list' | 'annotation'
 export interface PageObjectRef { type: PageObjectType; id: string }
@@ -10,6 +12,46 @@ const MAX_Y = 440
 const clamp = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value)))
 
 interface Positioned extends PageObjectRef { x: number; y: number; width: number; height: number }
+
+/** Factory helpers: every new object receives the built-in + page default style. */
+export function newCueObject(
+  id: string, x: number, y: number,
+  defaults?: LiveDefaultStyles,
+  extra?: Partial<LiveControl>
+): LiveControl {
+  return { id, name: 'New cue', type: 'toggle', presetIds: [], x, y, style: styleFor('cue', undefined, defaults), ...extra }
+}
+
+export function newWidgetObject(
+  id: string, cueListId: string, x: number, y: number, defaults?: LiveDefaultStyles
+): NonNullable<LivePage['cueListWidgets']>[number] {
+  return { id, cueListId, x, y, style: styleFor('list', undefined, defaults) }
+}
+
+export function newAnnotationObject(
+  id: string, type: 'label' | 'frame', x: number, y: number, defaults?: LiveDefaultStyles
+): NonNullable<LivePage['annotations']>[number] {
+  const size = type === 'frame' ? LIVE_FRAME_SIZE : LIVE_LABEL_SIZE
+  return {
+    id, type, text: type === 'label' ? 'New label' : 'New frame', x, y,
+    width: size.width, height: size.height, style: styleFor(type, undefined, defaults)
+  }
+}
+
+/** Apply a partial style patch to one object. Immutable. */
+export function setObjectStyle(page: LivePage, ref: PageObjectRef, patch: Partial<LiveObjectStyle>): LivePage {
+  const apply = (style: LiveObjectStyle | undefined): LiveObjectStyle => ({ ...style, ...patch })
+  const kind: LiveObjectKind = ref.type === 'annotation'
+    ? (page.annotations?.find((a) => a.id === ref.id)?.type ?? 'label')
+    : ref.type === 'list' ? 'list' : 'cue'
+  const withDefaults = (style: LiveObjectStyle | undefined) => styleFor(kind, apply(style), page.defaultStyles)
+  return {
+    ...page,
+    controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, style: withDefaults(c.style) } : c),
+    cueListWidgets: page.cueListWidgets?.map((w) => ref.type === 'list' && w.id === ref.id ? { ...w, style: withDefaults(w.style) } : w),
+    annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, style: withDefaults(a.style) } : a)
+  }
+}
 
 /** All selectable objects on a page with their current bounds. */
 export function positionedObjects(page: LivePage): Positioned[] {

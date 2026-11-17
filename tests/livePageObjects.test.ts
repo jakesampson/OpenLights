@@ -7,6 +7,9 @@ import {
   emptyClipboard,
   isClipboardEmpty,
   moveObjects,
+  newAnnotationObject,
+  newCueObject,
+  newWidgetObject,
   objectSize,
   objectsInRect,
   pasteObjects,
@@ -14,10 +17,13 @@ import {
   renameObject,
   resizeObject,
   setAttachment,
+  setObjectStyle,
   withAttached,
   type PageObjectRef
 } from '../src/renderer/src/lib/livePageObjects'
-import { clampLiveSize, LIVE_CUE_SIZE, MAX_LIVE_OBJECT_SIZE, MIN_LIVE_OBJECT_SIZE } from '../src/shared/liveObjectDefaults'
+import {
+  clampLiveSize, DEFAULT_OBJECT_STYLES, LIVE_CUE_SIZE, MAX_LIVE_OBJECT_SIZE, MIN_LIVE_OBJECT_SIZE
+} from '../src/shared/liveObjectDefaults'
 
 function makePage(): LivePage {
   return {
@@ -209,5 +215,37 @@ describe('attaching page objects (7.7)', () => {
     const newFrame = pasted.annotations!.find((a) => a.id === 'new-2')!
     expect(newCue.attachedTo).toBe(newFrame.id) // link remapped to the copy
     expect(newCue.attachedTo).not.toBe('a1')
+  })
+})
+
+describe('live object text styles (7.8)', () => {
+  it('gives new objects the built-in default styles', () => {
+    expect(newCueObject('n1', 10, 20).style).toEqual(DEFAULT_OBJECT_STYLES.cue)
+    expect(newWidgetObject('w2', 'list', 0, 0).style).toEqual(DEFAULT_OBJECT_STYLES.list)
+    expect(newAnnotationObject('a3', 'label', 0, 0).style).toEqual(DEFAULT_OBJECT_STYLES.label)
+    expect(newAnnotationObject('a4', 'frame', 0, 0).style).toEqual(DEFAULT_OBJECT_STYLES.frame)
+  })
+
+  it('lets a page override the defaults for new objects', () => {
+    const defaults = { cue: { fontSize: 20, bold: true, color: '#ff0000' } }
+    const cue = newCueObject('n1', 0, 0, defaults)
+    expect(cue.style).toEqual({ ...DEFAULT_OBJECT_STYLES.cue, ...defaults.cue })
+    expect(newAnnotationObject('a', 'label', 0, 0, defaults).style).toEqual(DEFAULT_OBJECT_STYLES.label)
+  })
+
+  it('uses the correct size defaults for new labels and frames', () => {
+    expect(newAnnotationObject('a', 'label', 0, 0)).toMatchObject({ width: 160, height: 40, text: 'New label' })
+    expect(newAnnotationObject('a', 'frame', 0, 0)).toMatchObject({ width: 360, height: 200, text: 'New frame' })
+  })
+
+  it('merges a style patch into an existing object, keeping other style fields', () => {
+    const page = makePage()
+    const styled = setObjectStyle(page, cue('c1'), { bold: true, align: 'right' })
+    expect(styled.controls[0].style).toEqual({ ...DEFAULT_OBJECT_STYLES.cue, bold: true, align: 'right' })
+    expect(styled.controls[0]).toMatchObject({ name: 'One', x: 20, y: 20 })
+    expect(page.controls[0].style).toBeUndefined()
+
+    const frame = setObjectStyle(page, { type: 'annotation', id: 'a1' }, { italic: true })
+    expect(frame.annotations![0].style).toEqual({ ...DEFAULT_OBJECT_STYLES.frame, italic: true })
   })
 })

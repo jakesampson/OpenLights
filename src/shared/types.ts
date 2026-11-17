@@ -153,6 +153,18 @@ export interface PreviewTruss {
   rotation: number
 }
 
+/** Text formatting for Live page objects (7.8). */
+export interface LiveObjectStyle {
+  fontSize?: number
+  bold?: boolean
+  italic?: boolean
+  color?: string
+  align?: 'left' | 'center' | 'right'
+}
+
+export type LiveObjectKind = 'cue' | 'list' | 'label' | 'frame'
+export type LiveDefaultStyles = Partial<Record<LiveObjectKind, LiveObjectStyle>>
+
 export interface LiveControl {
   id: string
   name: string
@@ -166,15 +178,18 @@ export interface LiveControl {
   height?: number
   /** Id of another object on this page; this object moves with it (7.7). */
   attachedTo?: string
+  style?: LiveObjectStyle
 }
 
 export interface LivePage {
   id: string
   name: string
   controls: LiveControl[]
-  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string }[]
-  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string }[]
+  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string; style?: LiveObjectStyle }[]
+  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string; style?: LiveObjectStyle }[]
   fadeMs?: number
+  /** Styles applied to newly created objects on this page (7.8). */
+  defaultStyles?: LiveDefaultStyles
 }
 
 export interface ShowDef {
