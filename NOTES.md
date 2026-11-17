@@ -240,3 +240,6 @@ Legacy `midiMappings` remain the persisted collection; migration only adds expli
 
 ### 10.1 Preferences
 Show preferences add default cue fade, page fade, dark/system appearance and the preferred USB DMX protocol. Existing startup and Live switching preferences are gathered into the same Settings surface. Migration fills defaults additively; old shows retain all data. The default fade is applied when creating a scene, and the appearance selection is reflected on the document root. Tests: `tests/store.test.ts`, `tests/migrations.test.ts`.
+
+### 10.2 Menus
+The Electron application menu and renderer context menus use a shared typed command model and route through the established shortcut dispatcher, avoiding a second action implementation. Fixture, preset, cue and page context surfaces expose relevant existing actions. Native menu appearance remains a Windows desktop check. Tests: `tests/menuCommands.test.ts`.

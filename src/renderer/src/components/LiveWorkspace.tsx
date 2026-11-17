@@ -327,7 +327,7 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const selectedAnnotation = selection?.type === 'annotation' ? page?.annotations?.find((item) => item.id === selection.id) : undefined
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
-  return <section className="flex flex-col gap-2 rounded border border-line bg-bg/30 p-3">
+  return <section data-context-menu="page" className="flex flex-col gap-2 rounded border border-line bg-bg/30 p-3">
     <div className="flex flex-wrap items-center gap-2">
       <label className="text-xs text-dim">Live page <select aria-label="Live page" className="rounded border border-line bg-panel2 px-2 py-1 text-text" value={page?.id ?? ''} onChange={(event) => { selectLivePage(event.target.value); setEditing(false); clearPageObjectSelection() }}><option value="" disabled>{pages.length ? 'Select page' : 'No pages yet'}</option>{pages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       {!locked && !isLiveWindow() && <button type="button" className="btn-theme text-xs" onClick={() => { setManaging(!managing); setDeleteId(null) }}>Manage pages</button>}

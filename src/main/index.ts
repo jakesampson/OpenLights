@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, Menu, type MenuItemConstructorOptions } from 'electron'
 import { migrateShow } from '../shared/migrations'
 import { usbOnlyStatus } from '../shared/outputSettings'
 import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url'
 import * as fs from 'fs'
 import { DMXEngine } from '../shared/dmx'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
+import { WINDOWS_MENU } from '../shared/menuModel'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SHOWS_DIR = path.join(app.getPath('userData'), 'shows')
@@ -55,6 +56,12 @@ function createWindow() {
     },
     frame: false
   })
+  const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
+    label: group.label,
+    submenu: group.items.map((item) => item.role ? { label: item.label, role: item.role } : { label: item.label, click: () => item.command && mainWindow?.webContents.send('menu:command', item.command) })
+  }))
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  mainWindow.setMenuBarVisibility(true)
 
   mainWindow.on('maximize', () => {
     mainWindow?.webContents.send('window:maximized', true)

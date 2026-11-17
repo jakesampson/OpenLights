@@ -284,6 +284,7 @@ export function StagePreview() {
           return (
             <g
               key={f.id}
+              data-context-menu="fixture"
               role={selectable ? 'button' : undefined}
               tabIndex={selectable ? 0 : undefined}
               aria-label={selectable ? f.name : undefined}

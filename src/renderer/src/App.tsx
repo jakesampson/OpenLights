@@ -23,6 +23,7 @@ import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { activeOwnedEffects } from './lib/effectOwnership'
+import { ContextMenu } from './components/ContextMenu'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -198,12 +199,18 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
 
+  useEffect(() => window.electronAPI.onMenuCommand((command) => {
+    const binding = SHORTCUTS.find((item) => item.command === command)
+    if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
+  }), [])
+
   const shortcuts = SHORTCUTS
   const closeToolPanel = () => setToolPanel(null)
 
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
     <div className="app">
+      <ContextMenu />
       {/* Top bar */}
       <header className="top-bar">
         <div className="flex items-center gap-2">

@@ -391,8 +391,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 10.1 Preferences window: timing defaults (default fade, page fade), appearance (the existing themes), startup state, Live switching behaviour (from 7.2), and DMX interface. Guide: appearance and settings references in ch.6.
   Done when: settings are saved and tested.
   Evidence: Settings exposes persisted default/page fade, dark/system appearance, startup restore, Live page deactivation and USB DMX protocol; migration fills additive defaults and new scenes use the saved fade; store test covers persistence/application; typecheck, 374 tests and build passed.
-- [ ] 10.2 Menus and context menus: a Windows menu bar (File, Edit, View, Live, Window, Help) and right-click menus on fixtures, presets, cues and pages, all driven by the 2.9 shortcut table.
+- [x] 10.2 Menus and context menus: a Windows menu bar (File, Edit, View, Live, Window, Help) and right-click menus on fixtures, presets, cues and pages, all driven by the 2.9 shortcut table.
   Done when: a test checks every menu command maps to an existing action.
+  Evidence: shared `WINDOWS_MENU` drives Electron's File/Edit/View/Live/Window/Help application menu; preload forwards commands into the shortcut dispatcher; `ContextMenu.tsx` exposes fixture/preset/cue/page menus from the same command model; `tests/menuCommands.test.ts` verifies every entry maps to the 2.9 shortcut table; typecheck, 375 tests and build passed; Windows visual check added to Needs Jake.
 - [ ] 10.3 Tooltips and accessibility: every icon button has a tooltip and aria-label, focus is visible, and the Live page works from the keyboard.
   Done when: a lint-style test scans components for `<button` without aria-label or text (or this is logged in NOTES if it isn't practical).
 - [ ] 10.4 Remove or merge leftover OpenLights-only panels after their replacements work (old live controls, stub tabs like `EditTab.tsx`, and anything else marked retire in the audit). Keep the audio automation timeline and the DMX test panel unless the audit says otherwise.
@@ -405,6 +406,8 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 ## Needs Jake (human checks; the agent appends here and keeps working)
 
 The agent never waits on these. It adds a line here (item number plus what to check), ticks the item, and carries on.
+
+- 10.2: On Windows, verify the native application menu is visible with File/Edit/View/Live/Window/Help and right-click fixture, preset, Live cue and Live page menus appear at the pointer.
 
 - [ ] (Jake) Desktop click-through of the Live page editor: drag a preset onto empty space and onto an existing cue, drag labels and frames, use the page manager. (From the existing preset palette and drag work.)
 - [ ] (Jake) Enttec Open DMX USB output test with real fixtures: connect, blackout, master, a preset, a cue fade, unplug and replug the interface (after 4.12).
