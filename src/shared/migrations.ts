@@ -58,6 +58,10 @@ export function migrateShow(raw: unknown): ShowDef {
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
   }
   for (const key of ['scenes', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
+  doc.midiMappings = (doc.midiMappings as unknown[]).map((raw) => {
+    const mapping = record(raw)
+    return { ...mapping, trigger: mapping.trigger ?? (mapping.targetType === 'master' && mapping.midiType === 'cc' ? 'value' : 'press') }
+  })
   if (!Array.isArray(doc.presetGroups)) {
     const presets = doc.presets as Record<string, unknown>[]
     doc.presetGroups = [...new Set(presets.map((p) => p.category ?? 'other'))].map((category) => ({ id: `presets:${category}`, name: category, parentId: null, exclusive: false, presetIds: presets.filter((p) => (p.category ?? 'other') === category).map((p) => p.id) }))

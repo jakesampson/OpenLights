@@ -1,7 +1,7 @@
 import type { MidiMapping } from '@shared/types'
 
 export interface MidiMessage {
-  type: 'noteon' | 'cc'
+  type: 'noteon' | 'noteoff' | 'cc'
   channel: number // 1-16
   number: number // note / CC number 0-127
   value: number // 0-127
@@ -36,8 +36,9 @@ function bindInputs() {
       const channel = (status & 0x0f) + 1
       const number = data[1]
       const value = data[2]
-      let type: 'noteon' | 'cc' | null = null
+      let type: MidiMessage['type'] | null = null
       if (command === 0x90 && value > 0) type = 'noteon'
+      else if (command === 0x80 || (command === 0x90 && value === 0)) type = 'noteoff'
       else if (command === 0xb0 && value > 0) type = 'cc'
       if (!type) return
       handler?.({ type, channel, number, value })
@@ -93,6 +94,27 @@ export function matchMapping(mappings: MidiMapping[], msg: MidiMessage): MidiMap
 }
 
 export function describeMapping(m: MidiMapping): string {
-  const kind = m.midiType === 'noteon' ? 'Note' : 'CC'
+  const kind = m.midiType === 'cc' ? 'CC' : m.midiType === 'noteoff' ? 'Note release' : 'Note'
   return `${kind} ${m.number} · ch ${m.channel}`
+}
+
+export interface MidiAction { type: MidiMapping['targetType']; targetId: string | null; value?: number }
+
+export function learnMapping(target: Pick<MidiMapping, 'targetType' | 'targetId' | 'name'>, msg: MidiMessage, id: string): MidiMapping {
+  return {
+    id,
+    ...target,
+    midiType: msg.type,
+    channel: msg.channel,
+    number: msg.number,
+    trigger: target.targetType === 'master' && msg.type === 'cc' ? 'value' : msg.type === 'noteoff' ? 'release' : 'press'
+  }
+}
+
+export function mappingAction(mapping: MidiMapping, msg: MidiMessage): MidiAction | null {
+  if (mapping.midiType !== msg.type || mapping.channel !== msg.channel || mapping.number !== msg.number) return null
+  const trigger = mapping.trigger ?? (mapping.targetType === 'master' && mapping.midiType === 'cc' ? 'value' : 'press')
+  if (trigger === 'press' && msg.type === 'noteoff') return null
+  if (trigger === 'release' && msg.type !== 'noteoff') return null
+  return { type: mapping.targetType, targetId: mapping.targetId, ...(trigger === 'value' ? { value: msg.value / 127 } : {}) }
 }

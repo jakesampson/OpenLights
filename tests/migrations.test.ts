@@ -14,6 +14,19 @@ describe('show schema version', () => {
   })
 })
 
+describe('MIDI mapping migration', () => {
+  it('adds trigger semantics without removing legacy mapping fields', () => {
+    const raw = { ...useShowStore.getState().show!, midiMappings: [
+      { id: 'master', targetType: 'master', targetId: null, midiType: 'cc', channel: 1, number: 7 },
+      { id: 'scene', targetType: 'scene', targetId: 's1', midiType: 'noteon', channel: 1, number: 60 }
+    ] }
+    expect(migrateShow(raw).midiMappings).toEqual([
+      { ...raw.midiMappings[0], trigger: 'value' },
+      { ...raw.midiMappings[1], trigger: 'press' }
+    ])
+  })
+})
+
  describe('migration chain', () => {
   it('round trips and retains unknown content', () => {
     const raw = { ...useShowStore.getState().show!, extra: { untouched: [1, 2, 3] } }; delete raw.schemaVersion

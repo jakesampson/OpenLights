@@ -382,8 +382,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.11 Freeze output: hold the current DMX frame while cues change underneath, then resume. Guide: Freeze output, p.222.
   Done when: output tests show the frame frozen and resume fading to the current state.
   Evidence: runtime Freeze captures the composed DMX frame while all playback state continues, then interpolates every channel to the current state over 300ms; active toolbar toggle and `tests/outputFreeze.test.ts`; typecheck, 359 tests and build passed.
-- [ ] 9.12 External control: extend `MidiPanel` and `midi.ts` towards the guide's bindings, triggers and actions model (MIDI only), with quick assign (learn). Guide: ch.16, p.277 to 293. OSC, ProPresenter and VirtualDJ triggers are out of scope for now.
+- [x] 9.12 External control: extend `MidiPanel` and `midi.ts` towards the guide's bindings, triggers and actions model (MIDI only), with quick assign (learn). Guide: ch.16, p.277 to 293. OSC, ProPresenter and VirtualDJ triggers are out of scope for now.
   Done when: there's a migration from existing `midiMappings`, plus tests for learn and for each action type.
+  Evidence: non-destructive mapping migration adds press/release/value triggers; note-on/off and CC learn; typed scene/preset/sequence/Live cue/blackout/Blind/Freeze/cuelist/tempo/master actions; `tests/midiActions.test.ts` covers learn, triggers and all action types, with migration coverage; typecheck, 373 tests and build passed.
 
 ## 10. Settings, help and finish
 

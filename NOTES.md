@@ -234,3 +234,6 @@ Entering Blind captures the composed physical output frame. Editing continues to
 
 ### 9.11 Freeze output
 Freeze captures the fully composed output while cue, sequence, effect and manual state continue underneath. Release crossfades every present or released channel from the captured frame to the current composition over 300ms. Blackout remains immediate and takes precedence. Tests: `tests/outputFreeze.test.ts`, `tests/outputModel.test.ts`.
+
+### 9.12 MIDI bindings
+Legacy `midiMappings` remain the persisted collection; migration only adds explicit press/value semantics, preserving every old field. Bindings now understand note press, note release and CC value triggers and can target scenes, presets, sequences, Live cues, blackout, Blind, Freeze, cuelist next/previous, tap tempo and master. Quick learn derives trigger semantics from the incoming message. OSC, ProPresenter and VirtualDJ remain out of scope. Tests: `tests/midiActions.test.ts`, `tests/migrations.test.ts`.

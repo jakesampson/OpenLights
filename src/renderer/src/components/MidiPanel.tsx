@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
-import { initMidi, matchMapping, describeMapping, midiAvailable } from '../lib/midi'
+import { initMidi, matchMapping, describeMapping, learnMapping, mappingAction, midiAvailable } from '../lib/midi'
 import type { MidiMessage } from '../lib/midi'
 import type { MidiMapping, MidiTargetType } from '@shared/types'
 import { MidiBeatClock } from '../lib/beatGrid'
+import { calculateTapTempo } from '../lib/tapTempo'
 
 interface LearnTarget {
   targetType: MidiTargetType
@@ -23,7 +24,7 @@ export function MidiPanel() {
     removeMidiMapping,
     setMaster,
     toggleBlackout
-    , setBpm
+    , setBpm, toggleBlind, toggleFreeze, togglePreset, toggleSequence, setLiveValue, cuePrev
   } = useShowStore()
   const [midiState, setMidiState] = useState<MidiState>('requesting')
   const [inputs, setInputs] = useState<string[]>([])
@@ -32,6 +33,7 @@ export function MidiPanel() {
   const [attempt, setAttempt] = useState(0)
   const learnRef = useRef<LearnTarget | null>(null)
   const clock = useRef(new MidiBeatClock())
+  const taps = useRef<number[]>([])
 
   // Keep a ref in sync so the MIDI callback always sees the latest arm state
   useEffect(() => {
@@ -42,15 +44,7 @@ export function MidiPanel() {
     (msg: MidiMessage) => {
       const target = learnRef.current
       if (target) {
-        const mapping: MidiMapping = {
-          id: crypto.randomUUID(),
-          targetType: target.targetType,
-          targetId: target.targetId,
-          midiType: msg.type,
-          channel: msg.channel,
-          number: msg.number,
-          name: target.label
-        }
+        const mapping = learnMapping({ targetType: target.targetType, targetId: target.targetId, name: target.label }, msg, crypto.randomUUID())
         addMidiMapping(mapping)
         setLearnTarget(null)
         return
@@ -58,15 +52,24 @@ export function MidiPanel() {
 
       const match = matchMapping(useShowStore.getState().midiMappings, msg)
       if (!match) return
+      const action = mappingAction(match, msg)
+      if (!action) return
 
-      if (match.targetType === 'master') {
-        setMaster(Math.round((msg.value / 127) * 255))
+      if (action.type === 'master') {
+        setMaster(Math.round((action.value ?? msg.value / 127) * 255))
         return
       }
-      if (match.targetType === 'blackout') {
+      if (action.type === 'blackout') {
         toggleBlackout()
         return
       }
+      if (action.type === 'blind') { toggleBlind(); return }
+      if (action.type === 'freeze') { toggleFreeze(); return }
+      if (action.type === 'cue-prev') { cuePrev(); return }
+      if (action.type === 'tap-tempo') { const result = calculateTapTempo(taps.current, performance.now()); taps.current = result.taps; if (result.bpm !== null) setBpm(result.bpm); return }
+      if (action.type === 'preset' && action.targetId) { togglePreset(action.targetId); return }
+      if (action.type === 'sequence' && action.targetId) { toggleSequence(action.targetId); return }
+      if (action.type === 'live-cue' && action.targetId) { const value = useShowStore.getState().activeLiveValues[action.targetId] ? 0 : 1; setLiveValue(action.targetId, value); return }
       if (match.targetType === 'cue-next') {
         const state = useShowStore.getState()
         if (!match.targetId) return
@@ -78,7 +81,7 @@ export function MidiPanel() {
         goToScene(match.targetId)
       }
     },
-    [addMidiMapping, goToScene, setMaster, toggleBlackout]
+    [addMidiMapping, cuePrev, goToScene, setBpm, setLiveValue, setMaster, toggleBlackout, toggleBlind, toggleFreeze, togglePreset, toggleSequence]
   )
 
   useEffect(() => {

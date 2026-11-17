@@ -92,13 +92,14 @@ export interface AutomationPoint {
   v: number // 0-255
 }
 
-export type MidiTargetType = 'scene' | 'blackout' | 'cue-next' | 'master'
+export type MidiTargetType = 'scene' | 'preset' | 'sequence' | 'live-cue' | 'blackout' | 'blind' | 'freeze' | 'cue-next' | 'cue-prev' | 'tap-tempo' | 'master'
 
 export interface MidiMapping {
   id: string
   targetType: MidiTargetType
   targetId: string | null // scene id / cue list id, null for blackout & master
-  midiType: 'noteon' | 'cc'
+  midiType: 'noteon' | 'noteoff' | 'cc'
+  trigger?: 'press' | 'release' | 'value'
   channel: number // 1-16
   number: number // note / CC number 0-127
   name?: string
