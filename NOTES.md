@@ -222,3 +222,6 @@ Jellyfish varies a centred bell's position and width, while snakes runs two wrap
 
 ### 9.6 Movement effects
 Movement paths use normalized pan/tilt coordinates. Built-in circle, figure-eight and line paths share the same evaluator as cyclic, linearly interpolated custom control points; scale, rotation and offset are applied after generation. Tests: `tests/movementEffects.test.ts`.
+
+### 9.7 Effect editing, layering and templates
+Effects have a runtime clipboard for copy/paste, while reusable templates are saved in the show document. Pasted and template-created effects receive fresh ids. The optional replace/add/max blend mode preserves replace as the legacy default and clamps additive output. Tests: `tests/store.test.ts`, `tests/effects.test.ts`.

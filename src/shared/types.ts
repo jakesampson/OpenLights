@@ -145,6 +145,7 @@ export interface EffectDef {
   customFixtureOrder?: string[]
   minValue?: number
   maxValue?: number
+  blendMode?: 'replace' | 'add' | 'max'
   enabled: boolean
 }
 
@@ -244,6 +245,7 @@ export interface ShowDef {
   cueLists?: CueListDef[]
   midiMappings?: MidiMapping[]
   effects?: EffectDef[]
+  effectTemplates?: EffectDef[]
   masterIntensity?: number // 0-255
   bpm?: number
   audioPath?: string

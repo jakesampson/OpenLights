@@ -134,4 +134,13 @@ describe('computeEffectPatch', () => {
     const merged = mergeEffects({ 1: 10, 2: 20 }, { 1: 99 })
     expect(merged).toEqual({ 1: 99, 2: 20 })
   })
+
+  it('overlays additive and maximum effects on the same property', () => {
+    const patch = computeEffectPatch(fixtures, [
+      effect({ id: 'base', size: 0, offset: 40 }),
+      effect({ id: 'add', size: 0, offset: 30, blendMode: 'add' }),
+      effect({ id: 'max', size: 0, offset: 90, blendMode: 'max' })
+    ], 0, 120)
+    expect(patch[1]).toBe(90)
+  })
 })

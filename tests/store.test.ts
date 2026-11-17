@@ -69,6 +69,33 @@ beforeEach(() => {
   useShowStore.getState().setShow(makeShow())
 })
 
+describe('effect editing', () => {
+  const effect = {
+    id: 'fx1', name: 'Pulse', fixtureIds: ['f1'], attribute: 'intensity', waveform: 'square' as const,
+    speed: 1, syncToBpm: false, size: 100, offset: 100, phaseSpread: 0, enabled: true
+  }
+
+  it('copies, pastes and deletes effects with independent ids', () => {
+    useShowStore.getState().addEffect(effect)
+    useShowStore.getState().copyEffect('fx1')
+    const pasted = useShowStore.getState().pasteEffect()
+    expect(pasted).not.toBe('fx1')
+    expect(useShowStore.getState().effects).toHaveLength(2)
+    useShowStore.getState().removeEffect('fx1')
+    expect(useShowStore.getState().effects.map((item) => item.id)).toEqual([pasted])
+  })
+
+  it('saves and reapplies an effect template', () => {
+    useShowStore.getState().addEffect(effect)
+    useShowStore.getState().saveEffectTemplate('fx1')
+    const template = useShowStore.getState().show?.effectTemplates?.[0]
+    expect(template?.name).toBe('Pulse')
+    const applied = useShowStore.getState().applyEffectTemplate(template!.id)
+    expect(applied).toBeTruthy()
+    expect(useShowStore.getState().effects).toHaveLength(2)
+  })
+})
+
 describe('development show template', () => {
   it('uses the ShowBuddy fixture patch as the dev startup show', () => {
     if (!import.meta.env.DEV) return

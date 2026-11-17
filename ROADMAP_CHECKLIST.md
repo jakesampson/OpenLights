@@ -369,8 +369,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.
   Done when: path generators are tested for pan/tilt at set times.
   Evidence: pure `movementPoint` generates circle/figure-eight/line or interpolated custom paths and applies independent scaling, rotation and pan/tilt offsets; fixed-time and transform tests in `tests/movementEffects.test.ts`; typecheck, 352 tests and build passed.
-- [ ] 9.7 Copy/paste and delete effects, overlay (layering) effects, and effect templates. Guide: p.172 to 174.
+- [x] 9.7 Copy/paste and delete effects, overlay (layering) effects, and effect templates. Guide: p.172 to 174.
   Done when: store tests cover each, plus an output test for two overlaid effects.
+  Evidence: store-backed effect clipboard, fresh-id paste/delete and persisted templates; replace/add/max channel blending with a three-layer output test; `tests/store.test.ts` covers editing/template commands; typecheck, 355 tests and build passed.
 - [x] 9.8 Tap tempo and BPM. *(Evidence: `lib/tapTempo.ts`, `lib/bpm.ts`, `tests/tapTempo.test.ts`.)*
 - [ ] 9.9 Beat grid: set it by tapping, by an exact value, or by MIDI Beat Clock; beat-controlled sequences and effects follow it, with a beat indicator. Guide: ch.12, p.225 to 228. Ableton Link and OS2L are out of scope.
   Done when: a MIDI clock parsing test (24 ppq to BPM) and a beat-phase test pass.

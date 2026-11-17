@@ -82,11 +82,17 @@ export function computeEffectPatch(
       const value = effect.minValue !== undefined || effect.maxValue !== undefined
         ? Math.max(0, Math.min(255, effect.minValue ?? 0)) + ((wave + 1) / 2) * (Math.max(0, Math.min(255, effect.maxValue ?? 255)) - Math.max(0, Math.min(255, effect.minValue ?? 0)))
         : offset + wave * size
-      channels[fixture.channelStart + channelOffset] = scaleAttribute(
+      const channel = fixture.channelStart + channelOffset
+      const next = scaleAttribute(
         effect.attribute,
         value,
         master
       )
+      channels[channel] = effect.blendMode === 'add'
+        ? Math.min(255, (channels[channel] ?? 0) + next)
+        : effect.blendMode === 'max'
+          ? Math.max(channels[channel] ?? 0, next)
+          : next
     })
   }
 
