@@ -219,3 +219,6 @@ Sparkle uses seeded threshold noise and fire uses seeded ranged flicker. Both qu
 
 ### 9.5d Organic patterns
 Jellyfish varies a centred bell's position and width, while snakes runs two wrapped heads with fading tails. Both are pure normalized functions over time and fixture order. Tests: `tests/patternEffects.test.ts`.
+
+### 9.6 Movement effects
+Movement paths use normalized pan/tilt coordinates. Built-in circle, figure-eight and line paths share the same evaluator as cyclic, linearly interpolated custom control points; scale, rotation and offset are applied after generation. Tests: `tests/movementEffects.test.ts`.

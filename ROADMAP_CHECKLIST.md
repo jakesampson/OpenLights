@@ -366,8 +366,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.5d Pattern effects: Jellyfish and Snakes. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
   Evidence: pure breathing jellyfish and dual-head snakes evaluators with set-time fixture-level tests; typecheck, 350 tests and build passed.
-- [ ] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.
+- [x] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.
   Done when: path generators are tested for pan/tilt at set times.
+  Evidence: pure `movementPoint` generates circle/figure-eight/line or interpolated custom paths and applies independent scaling, rotation and pan/tilt offsets; fixed-time and transform tests in `tests/movementEffects.test.ts`; typecheck, 352 tests and build passed.
 - [ ] 9.7 Copy/paste and delete effects, overlay (layering) effects, and effect templates. Guide: p.172 to 174.
   Done when: store tests cover each, plus an output test for two overlaid effects.
 - [x] 9.8 Tap tempo and BPM. *(Evidence: `lib/tapTempo.ts`, `lib/bpm.ts`, `tests/tapTempo.test.ts`.)*
