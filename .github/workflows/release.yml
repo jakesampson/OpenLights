@@ -22,8 +22,13 @@ jobs:
         include:
           - os: windows-latest
             script: dist:win
-          - os: macos-latest
+            artifact: windows-x64
+          - os: macos-26
             script: dist:mac
+            artifact: mac-arm64
+          - os: macos-15-intel
+            script: dist:mac
+            artifact: mac-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -35,10 +40,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run ${{ matrix.script }} -- --publish never
+      - name: Avoid conflicting Intel macOS update metadata
+        if: matrix.artifact == 'mac-x64'
+        run: rm -f release/latest-mac.yml
       - uses: actions/upload-artifact@v4
         with:
-          name: release-${{ runner.os }}
-          path: release/*
+          name: release-${{ matrix.artifact }}
+          path: |
+            release/*
+            !release/builder-debug.yml
           if-no-files-found: error
           retention-days: 7
 
