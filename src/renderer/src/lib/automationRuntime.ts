@@ -5,11 +5,49 @@ export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = {
   'led-wash': { intensity: 0, red: 1, green: 2, blue: 3, white: 4, amber: 5, uv: 6 },
   'moving-head': { intensity: 0, pan: 1, tilt: 2, red: 3, green: 4, blue: 5, gobo: 6, strobe: 7 },
   dimmer: { intensity: 0 },
-  'generic-led': { intensity: 0 }
+  'generic-led': { intensity: 0 },
+  'pixel-bar-17ch': {
+    red: 0,
+    green: 1,
+    blue: 2,
+    red2: 3,
+    green2: 4,
+    blue2: 5,
+    red3: 6,
+    green3: 7,
+    blue3: 8,
+    red4: 9,
+    green4: 10,
+    blue4: 11,
+    intensity: 12,
+    strobe: 13,
+    function: 14,
+    speed: 15,
+    listType: 16
+  },
+  'rgba-4ch': { red: 0, green: 1, blue: 2, amber: 3 },
+  'rgbw-4ch': { red: 0, green: 1, blue: 2, white: 3 }
 }
 
 /** Attributes that respond to the master intensity fader. */
-const DIMMER_ATTRIBUTES = new Set(['intensity', 'red', 'green', 'blue', 'white', 'amber', 'uv'])
+const DIMMER_ATTRIBUTES = new Set([
+  'intensity',
+  'red',
+  'green',
+  'blue',
+  'white',
+  'amber',
+  'uv',
+  'red2',
+  'green2',
+  'blue2',
+  'red3',
+  'green3',
+  'blue3',
+  'red4',
+  'green4',
+  'blue4'
+])
 
 /** List valid attributes for a fixture type, in channel order. */
 export function fixtureAttributes(type: FixtureDef['type']): string[] {

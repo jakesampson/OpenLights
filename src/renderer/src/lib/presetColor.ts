@@ -9,12 +9,14 @@ export function getPresetColor(scene: SceneDef): string {
   let count = 0
 
   for (const values of Object.values(scene.fixtureValues)) {
-    const intensity = clampByte(values.intensity ?? 0) / 255
+    const intensity = clampByte(values.intensity ?? 255) / 255
     if (intensity === 0) continue
 
-    red += clampByte(values.red ?? 0) * intensity
-    green += clampByte(values.green ?? 0) * intensity
-    blue += clampByte(values.blue ?? 0) * intensity
+    const white = clampByte(values.white ?? 0)
+    const amber = clampByte(values.amber ?? 0)
+    red += clampByte((values.red ?? 0) + white + amber) * intensity
+    green += clampByte((values.green ?? 0) + white + amber * 0.45) * intensity
+    blue += clampByte((values.blue ?? 0) + white) * intensity
     count++
   }
 

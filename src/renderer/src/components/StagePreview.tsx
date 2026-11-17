@@ -13,12 +13,27 @@ function clamp(v: number, min = 0, max = 255) {
   return Math.max(min, Math.min(max, v))
 }
 
+function averageAttribute(values: Record<string, number>, attribute: string) {
+  const attributes = [
+    attribute,
+    `${attribute}2`,
+    `${attribute}3`,
+    `${attribute}4`
+  ].filter((key) => typeof values[key] === 'number')
+  if (attributes.length === 0) return 0
+  return attributes.reduce((total, key) => total + values[key], 0) / attributes.length
+}
+
 function fixtureColor(values?: Record<string, number>): string {
   if (!values) return '#5d3a72'
-  const dim = clamp(values.intensity ?? 0, 0, 255) / 255
-  const r = Math.round(clamp(values.red ?? 0) * dim)
-  const g = Math.round(clamp(values.green ?? 0) * dim)
-  const b = Math.round(clamp(values.blue ?? 0) * dim)
+  const dim = clamp(values.intensity ?? 255, 0, 255) / 255
+  const white = values.white ?? 0
+  const amber = values.amber ?? 0
+  const r = Math.round(clamp(averageAttribute(values, 'red') + white + amber) * dim)
+  const g = Math.round(
+    clamp(averageAttribute(values, 'green') + white + amber * 0.45) * dim
+  )
+  const b = Math.round(clamp(averageAttribute(values, 'blue') + white) * dim)
   const hex = (n: number) => n.toString(16).padStart(2, '0')
   return `#${hex(r)}${hex(g)}${hex(b)}`
 }
@@ -64,7 +79,7 @@ export function StagePreview() {
         return {
           ...f,
           pos: { x: pos.x, y: pos.y },
-          intensity: values?.intensity ?? (activeScene ? 0 : 140),
+          intensity: values?.intensity ?? (activeScene ? 255 : 140),
           color: values ? fixtureColor(values) : '#b79bc4'
         }
       }

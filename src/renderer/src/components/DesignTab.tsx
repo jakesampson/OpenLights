@@ -36,6 +36,7 @@ export function DesignTab() {
     ? commonAttributes.filter((attribute) => attribute !== 'intensity')
     : EMPTY_CHANNELS
   const canEdit = Boolean(activeScene && selectedFixtures.length > 0)
+  const dimmerSupported = commonAttributes.includes('intensity')
   const valueFor = (attribute: string) =>
     selectedFixtures.length > 0
       ? Math.round(
@@ -84,14 +85,14 @@ export function DesignTab() {
               min={0}
               max={255}
               value={dimmer}
-              disabled={!canEdit}
+              disabled={!canEdit || !dimmerSupported}
               aria-label="Dimmer for selected fixtures"
               onChange={(event) => updateSelectedFixtures({ intensity: Number(event.target.value) })}
               className="fader-input"
             />
           </div>
           <span className="font-mono text-[12px] text-white">
-            {selectedFixtures.length > 0 ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
+            {dimmerSupported ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
           </span>
         </div>
 

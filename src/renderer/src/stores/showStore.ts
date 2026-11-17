@@ -128,7 +128,7 @@ function persistState(
   }
 }
 
-const defaultShow: ShowDef = {
+const productionDefaultShow: ShowDef = {
   id: 'demo-1',
   name: 'Demo Show',
   description: 'Starter worship set',
@@ -197,6 +197,155 @@ const defaultShow: ShowDef = {
   midiMappings: [],
   masterIntensity: 255
 }
+
+const showBuddyFixtures: FixtureDef[] = [
+  {
+    id: 'pan-4x1x30',
+    name: 'PAN 4X1X30',
+    type: 'pixel-bar-17ch',
+    channelStart: 1,
+    channels: 17,
+    group: 'Stage'
+  },
+  { id: 'dimmer-1', name: 'Dimmer 1', type: 'dimmer', channelStart: 18, channels: 1 },
+  { id: 'dimmer-2', name: 'Dimmer 2', type: 'dimmer', channelStart: 19, channels: 1 },
+  ...Array.from({ length: 4 }, (_, index) => ({
+    id: `simger-q12bt-${index + 1}`,
+    name: `Simger Q12BT Channel ${index + 1}`,
+    type: 'rgba-4ch' as const,
+    channelStart: 20 + index * 4,
+    channels: 4,
+    group: 'Front'
+  })),
+  ...Array.from({ length: 4 }, (_, index) => ({
+    id: `corepar-q120-${index + 1}`,
+    name: `COREpar Q120 ILS ${index + 1}`,
+    type: 'rgbw-4ch' as const,
+    channelStart: 36 + index * 4,
+    channels: 4,
+    group: 'Back'
+  }))
+]
+
+interface TemplateLook {
+  red: number
+  green: number
+  blue: number
+  white: number
+  amber: number
+  intensity: number
+}
+
+function showBuddySceneValues(look: TemplateLook): Record<string, Record<string, number>> {
+  const values: Record<string, Record<string, number>> = {
+    'pan-4x1x30': {
+      red: look.red,
+      green: look.green,
+      blue: look.blue,
+      red2: look.red,
+      green2: look.green,
+      blue2: look.blue,
+      red3: look.red,
+      green3: look.green,
+      blue3: look.blue,
+      red4: look.red,
+      green4: look.green,
+      blue4: look.blue,
+      intensity: look.intensity,
+      strobe: 0,
+      function: 0,
+      speed: 0,
+      listType: 0
+    },
+    'dimmer-1': { intensity: look.intensity },
+    'dimmer-2': { intensity: look.intensity }
+  }
+
+  for (let index = 1; index <= 4; index++) {
+    values[`simger-q12bt-${index}`] = {
+      red: look.red,
+      green: look.green,
+      blue: look.blue,
+      amber: look.amber
+    }
+    values[`corepar-q120-${index}`] = {
+      red: look.red,
+      green: look.green,
+      blue: look.blue,
+      white: look.white
+    }
+  }
+
+  return values
+}
+
+const developmentDefaultShow: ShowDef = {
+  id: 'showbuddyactive-demo',
+  name: 'ShowBuddyActive Demo',
+  description: 'Development patch based on the supplied image; inferred addresses 1–51',
+  createdAt: Date.now(),
+  updatedAt: Date.now(),
+  fixtures: showBuddyFixtures,
+  scenes: [
+    {
+      id: 's1',
+      name: 'Warm Welcome',
+      fixtureValues: showBuddySceneValues({
+        red: 220,
+        green: 110,
+        blue: 30,
+        white: 24,
+        amber: 36,
+        intensity: 128
+      }),
+      fadeMs: 1200
+    },
+    {
+      id: 's2',
+      name: 'Sermon Focus',
+      fixtureValues: showBuddySceneValues({
+        red: 50,
+        green: 110,
+        blue: 220,
+        white: 110,
+        amber: 0,
+        intensity: 150
+      }),
+      fadeMs: 800
+    },
+    {
+      id: 's3',
+      name: 'Communion Glow',
+      fixtureValues: showBuddySceneValues({
+        red: 180,
+        green: 50,
+        blue: 20,
+        white: 12,
+        amber: 160,
+        intensity: 100
+      }),
+      fadeMs: 2000
+    }
+  ],
+  automations: [],
+  effects: [],
+  cueLists: [
+    {
+      id: 'c1',
+      name: 'Sunday Set',
+      steps: [
+        { id: 'cs1', sceneId: 's1', fadeMs: 1500, holdMs: 0 },
+        { id: 'cs2', sceneId: 's2', fadeMs: 1000, holdMs: 0 },
+        { id: 'cs3', sceneId: 's3', fadeMs: 2000, holdMs: 0 }
+      ],
+      loop: false
+    }
+  ],
+  midiMappings: [],
+  masterIntensity: 255
+}
+
+const defaultShow = import.meta.env.DEV ? developmentDefaultShow : productionDefaultShow
 
 export const useShowStore = create<ShowState>((set, get) => ({
   show: defaultShow,

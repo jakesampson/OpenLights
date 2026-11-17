@@ -34,4 +34,10 @@ describe('preset tree colors', () => {
       '#777777'
     )
   })
+
+  it('shows color-only RGBW presets when no dimmer attribute exists', () => {
+    expect(getPresetColor(scene({ rgbw: { red: 0, green: 0, blue: 0, white: 255 } }))).toBe(
+      '#dcdcdc'
+    )
+  })
 })

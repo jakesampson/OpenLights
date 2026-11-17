@@ -9,7 +9,10 @@ const TYPE_COLORS: Record<FixtureDef['type'], string> = {
   'led-wash': '#8ad3e8',
   'moving-head': '#c24bd6',
   dimmer: '#ffd700',
-  'generic-led': '#a4f4a6'
+  'generic-led': '#a4f4a6',
+  'pixel-bar-17ch': '#ffdf74',
+  'rgba-4ch': '#ef9bff',
+  'rgbw-4ch': '#a4f4a6'
 }
 
 interface Child {

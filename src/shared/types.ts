@@ -1,4 +1,12 @@
-export type FixtureType = 'par' | 'led-wash' | 'moving-head' | 'dimmer' | 'generic-led'
+export type FixtureType =
+  | 'par'
+  | 'led-wash'
+  | 'moving-head'
+  | 'dimmer'
+  | 'generic-led'
+  | 'pixel-bar-17ch'
+  | 'rgba-4ch'
+  | 'rgbw-4ch'
 
 export interface FixtureDef {
   id: string
@@ -113,5 +121,8 @@ export const FIXTURE_PRESETS: FixturePreset[] = [
   { id: 'wash-rgbaw', name: 'LED Wash (RGBAW+UV)', type: 'led-wash', channels: 7 },
   { id: 'head-8ch', name: 'Moving Head (8ch)', type: 'moving-head', channels: 8 },
   { id: 'dimmer-1ch', name: 'Single Dimmer', type: 'dimmer', channels: 1 },
-  { id: 'led-simple', name: 'Generic LED (dim + RGB)', type: 'generic-led', channels: 4 }
+  { id: 'led-simple', name: 'Generic LED (dim + RGB)', type: 'generic-led', channels: 4 },
+  { id: 'pan-4x1x30-17ch', name: 'PAN 4x1x30 (17ch)', type: 'pixel-bar-17ch', channels: 17 },
+  { id: 'simger-q12bt-rgba-4ch', name: 'Simger Q12BT (RGBA 4ch)', type: 'rgba-4ch', channels: 4 },
+  { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch', channels: 4 }
 ]

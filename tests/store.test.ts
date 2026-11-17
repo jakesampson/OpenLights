@@ -11,6 +11,8 @@ const setChannels = vi.fn()
 // Imported after the globals exist.
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 
+const startupShow = useShowStore.getState().show
+
 function makeShow(): ShowDef {
   return {
     id: 'show-test',
@@ -63,6 +65,34 @@ const lastPatch = () => setChannels.mock.calls[setChannels.mock.calls.length - 1
 beforeEach(() => {
   setChannels.mockClear()
   useShowStore.getState().setShow(makeShow())
+})
+
+describe('development show template', () => {
+  it('uses the ShowBuddy fixture patch as the dev startup show', () => {
+    if (!import.meta.env.DEV) return
+
+    expect(startupShow?.name).toBe('ShowBuddyActive Demo')
+    expect(
+      startupShow?.fixtures.map(({ id, type, channelStart, channels }) => [
+        id,
+        type,
+        channelStart,
+        channels
+      ])
+    ).toEqual([
+      ['pan-4x1x30', 'pixel-bar-17ch', 1, 17],
+      ['dimmer-1', 'dimmer', 18, 1],
+      ['dimmer-2', 'dimmer', 19, 1],
+      ['simger-q12bt-1', 'rgba-4ch', 20, 4],
+      ['simger-q12bt-2', 'rgba-4ch', 24, 4],
+      ['simger-q12bt-3', 'rgba-4ch', 28, 4],
+      ['simger-q12bt-4', 'rgba-4ch', 32, 4],
+      ['corepar-q120-1', 'rgbw-4ch', 36, 4],
+      ['corepar-q120-2', 'rgbw-4ch', 40, 4],
+      ['corepar-q120-3', 'rgbw-4ch', 44, 4],
+      ['corepar-q120-4', 'rgbw-4ch', 48, 4]
+    ])
+  })
 })
 
 describe('scene output', () => {

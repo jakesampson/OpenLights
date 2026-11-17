@@ -9,7 +9,10 @@ const TYPE_LABELS: Record<FixtureType, string> = {
   'led-wash': 'LED wash',
   'moving-head': 'Moving head',
   dimmer: 'Dimmer',
-  'generic-led': 'Generic LED'
+  'generic-led': 'Generic LED',
+  'pixel-bar-17ch': 'PAN 4x1x30 (17ch)',
+  'rgba-4ch': 'RGBA PAR (4ch)',
+  'rgbw-4ch': 'RGBW PAR (4ch)'
 }
 
 export function PatchPanel() {

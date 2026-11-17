@@ -34,4 +34,22 @@ describe('stage-driven theme', () => {
   it('defaults to purple before a scene is active', () => {
     expect(getStageTheme(null, fixtures)).toBe('purple')
   })
+
+  it('recognizes color-only RGBW fixtures without a dimmer channel', () => {
+    const rgbwFixture: FixtureDef = {
+      id: 'rgbw',
+      name: 'COREpar',
+      type: 'rgbw-4ch',
+      channelStart: 1,
+      channels: 4
+    }
+    const rgbwScene: SceneDef = {
+      id: 'rgbw-look',
+      name: 'RGBW look',
+      fadeMs: 0,
+      fixtureValues: { rgbw: { red: 20, green: 180, blue: 40, white: 0 } }
+    }
+
+    expect(getStageTheme(rgbwScene, [rgbwFixture])).toBe('teal')
+  })
 })

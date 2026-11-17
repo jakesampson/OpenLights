@@ -63,6 +63,77 @@ describe('computeSceneChannels', () => {
     )
     expect(channels).toEqual({ 1: 10, 9: 20 })
   })
+
+  it('maps the ShowBuddy fixture profiles to the shown 1-based addresses', () => {
+    const showBuddyFixtures: FixtureDef[] = [
+      { id: 'bar', name: 'PAN bar', type: 'pixel-bar-17ch', channelStart: 1, channels: 17 },
+      { id: 'dimmer-1', name: 'Dimmer 1', type: 'dimmer', channelStart: 18, channels: 1 },
+      { id: 'dimmer-2', name: 'Dimmer 2', type: 'dimmer', channelStart: 19, channels: 1 }
+    ]
+    const fixtureValues: SceneDef['fixtureValues'] = {
+      bar: {
+        red: 1,
+        green: 2,
+        blue: 3,
+        red2: 4,
+        green2: 5,
+        blue2: 6,
+        red3: 7,
+        green3: 8,
+        blue3: 9,
+        red4: 10,
+        green4: 11,
+        blue4: 12,
+        intensity: 13,
+        strobe: 14,
+        function: 15,
+        speed: 16,
+        listType: 17
+      },
+      'dimmer-1': { intensity: 18 },
+      'dimmer-2': { intensity: 19 }
+    }
+
+    for (let index = 0; index < 4; index++) {
+      const rgbaStart = 20 + index * 4
+      const rgbaId = `rgba-${index + 1}`
+      showBuddyFixtures.push({
+        id: rgbaId,
+        name: `Q12BT ${index + 1}`,
+        type: 'rgba-4ch',
+        channelStart: rgbaStart,
+        channels: 4
+      })
+      fixtureValues[rgbaId] = {
+        red: rgbaStart,
+        green: rgbaStart + 1,
+        blue: rgbaStart + 2,
+        amber: rgbaStart + 3
+      }
+
+      const rgbwStart = 36 + index * 4
+      const rgbwId = `rgbw-${index + 1}`
+      showBuddyFixtures.push({
+        id: rgbwId,
+        name: `COREpar ${index + 1}`,
+        type: 'rgbw-4ch',
+        channelStart: rgbwStart,
+        channels: 4
+      })
+      fixtureValues[rgbwId] = {
+        red: rgbwStart,
+        green: rgbwStart + 1,
+        blue: rgbwStart + 2,
+        white: rgbwStart + 3
+      }
+    }
+
+    const channels = computeSceneChannels(showBuddyFixtures, scene(fixtureValues))
+
+    expect(channels).toEqual(
+      Object.fromEntries(Array.from({ length: 51 }, (_, index) => [index + 1, index + 1]))
+    )
+  })
 })
 
 describe('evaluateAutomation', () => {
