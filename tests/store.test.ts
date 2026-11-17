@@ -377,3 +377,18 @@ describe('patch and persistence sync', () => {
     expect(state.master).toBe(255)
   })
 })
+
+describe('convert scenes to presets (6.14)', () => {
+  it('appends equivalent presets, keeps the originals and is idempotent', () => {
+    useShowStore.getState().setShow(makeShow())
+    const before = useShowStore.getState().scenes
+    const added = useShowStore.getState().convertScenesToPresets()
+    expect(added).toBe(2)
+    const state = useShowStore.getState()
+    expect(state.presets).toHaveLength(2)
+    expect(state.presets[0].fixtureValues).toEqual(before[0].fixtureValues)
+    expect(state.scenes).toEqual(before)
+    expect(useShowStore.getState().convertScenesToPresets()).toBe(0)
+    expect(useShowStore.getState().presets).toHaveLength(2)
+  })
+})

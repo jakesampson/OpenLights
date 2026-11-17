@@ -255,8 +255,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 6.13 Export and import Preset Palette items as JSON, with fixture matching by name and profile. Guide: p.144.
   Done when: there's a round-trip test, including a fixture that isn't found and gets skipped and logged.
   Evidence: `lib/presetPaletteIo.ts` (portable export doc + fixture descriptors, import re-maps values/fans by name+profile, skips+logs unmatched), Export/Import JSON buttons in `LiveWorkspace.tsx` palette, `tests/presetPaletteIo.test.ts` (round-trip, id re-map, unmatched fixture skipped+logged); typecheck, 202 tests and build passed; UI check on Needs Jake.
-- [ ] 6.14 Convert existing scenes into presets or sequences (one-way, keeping the originals until 8.9). This feeds the retirement of the Scenes & cues editor.
+- [x] 6.14 Convert existing scenes into presets or sequences (one-way, keeping the originals until 8.9). This feeds the retirement of the Scenes & cues editor.
   Done when: a migration helper converts every `SceneDef` to an equivalent preset with identical DMX output (tested).
+  Evidence: `shared/sceneConversion.ts` (stable id, deep-copied values/fans, profile-based category inference), store `convertScenesToPresets` action (idempotent, keeps scenes) + "Convert scenes" button in the Live palette, `tests/sceneConversion.test.ts` (identical `computeSceneChannels` output for every scene at multiple master levels) and `tests/store.test.ts`; typecheck, 208 tests and build passed; UI check on Needs Jake.
 
 ## 7. Live view pages (guide ch.11, p.177 to 190)
 
@@ -352,6 +353,7 @@ The agent never waits on these. It adds a line here (item number plus what to ch
 - [ ] (Jake) Visual comparison of the toolbar, Design view, Preview and Live view against the guide's layout.
 - [ ] (Jake) Visual check of the bottom-centre Design/Live switch against `docs/reference/lightkey-design-live-switch.png`: placement on the Preview/bottom divider, segmented look in Design view, chevron dropdown in Live view, and page manager pick/add/rename/reorder (2.4a).
 - [ ] (Jake) Preset palette Export/Import JSON click-through in Live edit mode: export a palette, import it into a show with renamed fixture ids, and confirm values re-map by name/profile and an unmatched fixture is skipped and reported (6.13).
+- [ ] (Jake) Click "Convert scenes" in the Live palette and confirm presets appear with the same looks while the originals remain in Scenes & cues (6.14).
 - [ ] (Jake) Multi-window check for Live windows and window restore (after 2.6).
 - [ ] (Jake) Lock mode check on the Live machine (after 2.8).
 
