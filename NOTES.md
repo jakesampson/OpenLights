@@ -246,3 +246,6 @@ The Electron application menu and renderer context menus use a shared typed comm
 
 ### 10.3 Accessibility
 All interactive HTML controls now share a visible two-pixel focus ring. Icon-only cuelist transport controls expose both accessible names and hover tooltips. A source lint test recursively checks every renderer TSX button for visible text or an aria-label and applies the stricter aria-label-plus-title rule to literal icon-only content. Existing Live keyboard activation and editing shortcuts remain covered by Live object tests. Tests: `tests/accessibility.test.ts`.
+
+### 10.4 Cleanup and USB-only enforcement
+Unused legacy editor components were removed after their replacement store and Live workflows shipped. The audio automation timeline and raw USB DMX test panel remain intentionally. The dormant Art-Net packet builder, UDP socket runtime, IPC handler and preload bridge were also removed so output is physically USB DMX or virtual only. Legacy Art-Net-shaped status data remains sanitizable by `outputSettings.ts`; this preserves compatibility without exposing network output. Tests: `tests/cleanup.test.ts`, `tests/outputSettings.test.ts`.

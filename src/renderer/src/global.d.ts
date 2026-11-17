@@ -40,7 +40,6 @@ declare global {
       >
       blackout: () => Promise<IpcResult>
       setDmxPort: (port: string, protocol: SerialDmxProtocol) => Promise<IpcResult & { status?: DmxStatus }>
-      connectArtNet: (host: string, universe?: number) => Promise<IpcResult & { status?: DmxStatus }>
       getDmxStatus: () => Promise<DmxStatus>
       getChannels: () => Promise<number[]>
       startDmxTest: () => Promise<void>

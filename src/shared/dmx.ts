@@ -1,12 +1,10 @@
 import { SerialPort } from 'serialport'
-import { createSocket, type Socket as UdpSocket } from 'node:dgram'
 import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from './types'
 
 const DMX_CHANNELS = 512
 const OPEN_DMX_BAUD_RATE = 250000
 const ENTTEC_PRO_BAUD_RATE = 57600
 const ENTTEC_PRO_OUTPUT_LABEL = 6
-const ARTNET_PORT = 6454
 
 export function buildOpenDmxFrame(data: Uint8Array): Buffer {
   const frame = Buffer.alloc(DMX_CHANNELS + 1)
@@ -55,29 +53,6 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
 }
 
-/**
- * Build an ArtDMX packet (Art-Net 4). `universe` is 0-based: Net + SubUni.
- * Exported so the packet layout can be unit tested without a network.
- */
-export function buildArtNetPacket(
-  universe: number,
-  data: Uint8Array,
-  sequence = 0
-): Buffer {
-  const size = Math.min(DMX_CHANNELS, data.length)
-  const buffer = Buffer.alloc(18 + size)
-  buffer.write('Art-Net\0', 0, 'ascii')
-  buffer.writeUInt16LE(0x5000, 8) // OpDmx
-  buffer.writeUInt16BE(14, 10) // protocol version
-  buffer[12] = sequence & 0xff
-  buffer[13] = 0 // physical
-  buffer[14] = universe & 0xff // sub-uni
-  buffer[15] = (universe >> 8) & 0x7f // net
-  buffer.writeUInt16BE(size, 16)
-  Buffer.from(data.subarray(0, size)).copy(buffer, 18)
-  return buffer
-}
-
 export class DMXEngine {
   private port: SerialPort | null = null
   private portPath: string | null = null
@@ -95,12 +70,6 @@ export class DMXEngine {
   private reconnectTimer: NodeJS.Timeout | null = null
   private connectionGeneration = 0
   private onStatusChange: ((status: DmxStatus) => void) | null = null
-
-  private artnetSocket: UdpSocket | null = null
-  private artnetHost: string | null = null
-  private artnetUniverse = 0
-  private artnetConnected = false
-  private sequence = 0
 
   constructor() {
     this.startFramePump()
@@ -164,26 +133,6 @@ export class DMXEngine {
     }
   }
 
-  /** Send DMX over Art-Net to a node or lighting console. */
-  async connectArtNet(host: string, universe = 0): Promise<void> {
-    await this.disconnectAll()
-    if (!host.trim()) throw new Error('Art-Net host is required')
-
-    this.artnetHost = host.trim()
-    this.artnetUniverse = Math.max(0, Math.min(32767, Math.round(universe)))
-    this.error = null
-    this.artnetSocket = createSocket({ type: 'udp4', reuseAddr: true })
-    await new Promise<void>((resolve, reject) => {
-      this.artnetSocket!.once('error', reject)
-      this.artnetSocket!.bind(() => {
-        this.artnetSocket!.off('error', reject)
-        resolve()
-      })
-    })
-    this.artnetConnected = true
-    this.emitStatus()
-  }
-
   async disconnect(): Promise<void> {
     this.connectionGeneration++
     this.reconnectTarget = null
@@ -211,19 +160,6 @@ export class DMXEngine {
       this.port = null
       await new Promise<void>((resolve) => {
         port.close(() => resolve())
-      })
-    }
-    this.artnetConnected = false
-    this.artnetHost = null
-    if (this.artnetSocket) {
-      const socket = this.artnetSocket
-      this.artnetSocket = null
-      await new Promise<void>((resolve) => {
-        try {
-          socket.close(() => resolve())
-        } catch {
-          resolve()
-        }
       })
     }
     this.emitStatus()
@@ -306,26 +242,6 @@ export class DMXEngine {
       return
     }
 
-    if (this.artnetSocket && this.artnetConnected && this.artnetHost) {
-      const packet = buildArtNetPacket(
-        this.artnetUniverse,
-        this.snapshot(),
-        ++this.sequence
-      )
-      this.artnetSocket.send(packet, ARTNET_PORT, this.artnetHost, (err) => {
-        if (err) {
-          this.error = err.message
-          this.emitStatus()
-        } else {
-          this.sentFrames++
-          this.lastFrameAt = Date.now()
-          this.error = null
-          this.emitStatus()
-        }
-      })
-      return
-    }
-
     this.sentFrames++
     this.lastFrameAt = Date.now()
     this.emitStatus()
@@ -371,25 +287,17 @@ export class DMXEngine {
   }
 
   getStatus(): DmxStatus {
-    const mode: DmxStatus['mode'] = this.connected
-      ? 'serial'
-      : this.artnetConnected
-        ? 'artnet'
-        : 'virtual'
+    const mode: DmxStatus['mode'] = this.connected ? 'serial' : 'virtual'
     return {
-      connected: this.connected || this.artnetConnected,
-      port: this.connected ? this.portPath : this.artnetHost,
+      connected: this.connected,
+      port: this.portPath,
       baudRate: this.baudRate,
       lastFrameAt: this.lastFrameAt,
       frameCount: this.sentFrames,
       universe: 1,
       error: this.error,
       mode,
-      serialProtocol: this.connected ? this.serialProtocol ?? undefined : undefined,
-      artnet:
-        this.artnetConnected && this.artnetHost
-          ? { host: this.artnetHost, universe: this.artnetUniverse }
-          : undefined
+      serialProtocol: this.connected ? this.serialProtocol ?? undefined : undefined
     }
   }
 

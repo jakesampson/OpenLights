@@ -142,16 +142,6 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('connect-artnet', async () => {
-  try {
-    console.warn('Legacy network DMX request ignored; falling back to virtual output.')
-    await dmxEngine.disconnect()
-    return { success: true, status: dmxEngine.getStatus() }
-  } catch (e: any) {
-    return { success: false, error: e.message, status: dmxEngine.getStatus() }
-  }
-})
-
 ipcMain.handle('get-dmx-status', async () => usbOnlyStatus(dmxEngine.getStatus()))
 
 ipcMain.handle('get-channels', async () => Array.from(dmxEngine.snapshot()))

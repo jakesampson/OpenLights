@@ -25,8 +25,8 @@ Reference: `Lightkey-User-Guide.pdf`, repository edition (351 pages). This is a 
 | Feature | Status | Recommendation | Reason |
 |---|---|---|---|
 | Audio automation timeline | OpenLights-only | Keep | Explicit checklist exception; retain existing shows and audio workflows. |
-| Scenes & cues editor | OpenLights-only | Retire after migration | Move authoring into presets, sequences and Live inspectors before removal. |
-| Separate MIDI panel | partial | Merge | Keep MIDI support, move toward unified binding, trigger and action configuration. |
+| Scenes & cues editor | retired | Retired | Authoring moved into presets, sequences and Live inspectors; legacy show data remains migration-readable. |
+| Separate MIDI panel | merged | Retained as External Control | MIDI bindings, triggers, actions and learn share one external-control surface. |
 | DMX test panel | partial | Keep | Necessary USB diagnostics; retain independently of cue programming. |
 
 ## Verification

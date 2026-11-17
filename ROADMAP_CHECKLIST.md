@@ -397,8 +397,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 10.3 Tooltips and accessibility: every icon button has a tooltip and aria-label, focus is visible, and the Live page works from the keyboard.
   Done when: a lint-style test scans components for `<button` without aria-label or text (or this is logged in NOTES if it isn't practical).
   Evidence: global high-contrast `:focus-visible` treatment, icon transport tooltips/labels, existing Live keyboard controls retained, and `tests/accessibility.test.ts` recursively scans renderer TSX for unlabeled/textless buttons and incomplete icon controls; typecheck, 376 tests and build passed.
-- [ ] 10.4 Remove or merge leftover OpenLights-only panels after their replacements work (old live controls, stub tabs like `EditTab.tsx`, and anything else marked retire in the audit). Keep the audio automation timeline and the DMX test panel unless the audit says otherwise.
+- [x] 10.4 Remove or merge leftover OpenLights-only panels after their replacements work (old live controls, stub tabs like `EditTab.tsx`, and anything else marked retire in the audit). Keep the audio automation timeline and the DMX test panel unless the audit says otherwise.
   Done when: the dead components are removed, the build passes, and the audit is updated.
+  Evidence: removed unused `EffectsPanel`, `PresetEditor` and `SequenceEditor` after their workflows moved into active surfaces (earlier retired Edit/Scene/Cue panels remain absent); merged MIDI status recorded in the audit; audio automation and USB DMX test retained; removed all callable Art-Net/network-DMX runtime paths; `tests/cleanup.test.ts`; typecheck, 376 tests and build passed.
 - [ ] 10.5 Final audit pass: update `docs/lightkey-audit.md` with every status after the work. List the remaining gaps in NOTES, don't mark partial features as matching.
   Done when: there are no rows with stale statuses.
 
