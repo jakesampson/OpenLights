@@ -106,7 +106,20 @@ export interface DmxStatus {
   universe: number
   error: string | null
   mode: 'virtual' | 'serial' | 'artnet'
+  serialProtocol?: SerialDmxProtocol
   artnet?: { host: string; universe: number }
+}
+
+export type SerialDmxProtocol = 'open-dmx-usb' | 'enttec-usb-pro'
+
+export interface DmxPortInfo {
+  path: string
+  manufacturer?: string
+  serialNumber?: string
+  pnpId?: string
+  locationId?: string
+  productId?: string
+  vendorId?: string
 }
 
 export interface FixturePreset {

@@ -1,10 +1,59 @@
 import { SerialPort } from 'serialport'
 import { createSocket, type Socket as UdpSocket } from 'node:dgram'
-import type { DmxStatus } from './types'
+import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from './types'
 
 const DMX_CHANNELS = 512
+const OPEN_DMX_BAUD_RATE = 250000
+const ENTTEC_PRO_BAUD_RATE = 57600
 const ENTTEC_PRO_OUTPUT_LABEL = 6
 const ARTNET_PORT = 6454
+
+export function buildOpenDmxFrame(data: Uint8Array): Buffer {
+  const frame = Buffer.alloc(DMX_CHANNELS + 1)
+  Buffer.from(data.subarray(0, DMX_CHANNELS)).copy(frame, 1)
+  return frame
+}
+
+export function buildEnttecProFrame(data: Uint8Array): Buffer {
+  const messageLength = Math.min(DMX_CHANNELS, data.length) + 1
+  const frame = Buffer.alloc(messageLength + 5)
+  frame[0] = 0x7e
+  frame[1] = ENTTEC_PRO_OUTPUT_LABEL
+  frame[2] = messageLength & 0xff
+  frame[3] = (messageLength >> 8) & 0xff
+  frame[4] = 0x00
+  Buffer.from(data.subarray(0, DMX_CHANNELS)).copy(frame, 5)
+  frame[messageLength + 4] = 0xe7
+  return frame
+}
+
+function setBreak(port: SerialPort, active: boolean): Promise<void> {
+  return new Promise((resolve, reject) => {
+    port.set({ brk: active }, (error) => {
+      if (error) reject(error)
+      else resolve()
+    })
+  })
+}
+
+function writeAndDrain(port: SerialPort, frame: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    port.write(frame, (writeError) => {
+      if (writeError) {
+        reject(writeError)
+        return
+      }
+      port.drain((drainError) => {
+        if (drainError) reject(drainError)
+        else resolve()
+      })
+    })
+  })
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds))
+}
 
 /**
  * Build an ArtDMX packet (Art-Net 4). `universe` is 0-based: Net + SubUni.
@@ -32,7 +81,9 @@ export function buildArtNetPacket(
 export class DMXEngine {
   private port: SerialPort | null = null
   private portPath: string | null = null
-  private baudRate = 57600
+  private baudRate = ENTTEC_PRO_BAUD_RATE
+  private serialProtocol: SerialDmxProtocol | null = null
+  private serialFrameInProgress = false
   private universe = new Uint8Array(DMX_CHANNELS)
   private timer: NodeJS.Timeout | null = null
   private sentFrames = 0
@@ -55,17 +106,22 @@ export class DMXEngine {
     this.onStatusChange = cb
   }
 
-  async connect(path: string, baudRate = 57600): Promise<void> {
+  async connect(path: string, protocol: SerialDmxProtocol = 'enttec-usb-pro'): Promise<void> {
+    if (protocol !== 'open-dmx-usb' && protocol !== 'enttec-usb-pro') {
+      throw new Error(`Unsupported USB-DMX protocol: ${protocol}`)
+    }
+
     await this.disconnectAll()
 
     this.portPath = path
-    this.baudRate = baudRate
+    this.serialProtocol = protocol
+    this.baudRate = protocol === 'open-dmx-usb' ? OPEN_DMX_BAUD_RATE : ENTTEC_PRO_BAUD_RATE
     this.error = null
 
     try {
       this.port = new SerialPort({
         path,
-        baudRate,
+        baudRate: this.baudRate,
         dataBits: 8,
         stopBits: 2,
         parity: 'none',
@@ -117,6 +173,7 @@ export class DMXEngine {
   private async disconnectAll(): Promise<void> {
     this.connected = false
     this.portPath = null
+    this.serialProtocol = null
     if (this.port) {
       const port = this.port
       this.port = null
@@ -140,9 +197,17 @@ export class DMXEngine {
     this.emitStatus()
   }
 
-  async listPorts(): Promise<Array<{ path: string; manufacturer?: string }>> {
+  async listPorts(): Promise<DmxPortInfo[]> {
     const ports = await SerialPort.list()
-    return ports.map((p) => ({ path: p.path, manufacturer: p.manufacturer }))
+    return ports.map((port) => ({
+      path: port.path,
+      manufacturer: port.manufacturer,
+      serialNumber: port.serialNumber,
+      pnpId: port.pnpId,
+      locationId: port.locationId,
+      productId: port.productId,
+      vendorId: port.vendorId
+    }))
   }
 
   setChannel(channel1Based: number, value: number) {
@@ -176,17 +241,13 @@ export class DMXEngine {
 
   private pushFrame() {
     if (this.port && this.connected) {
-      const messageLength = DMX_CHANNELS + 1
-      const buffer = Buffer.alloc(messageLength + 5)
-      buffer[0] = 0x7e
-      buffer[1] = ENTTEC_PRO_OUTPUT_LABEL
-      buffer[2] = messageLength & 0xff
-      buffer[3] = (messageLength >> 8) & 0xff
-      buffer[4] = 0x00
-      Buffer.from(this.universe).copy(buffer, 5)
-      buffer[messageLength + 4] = 0xe7
+      const port = this.port
+      if (this.serialProtocol === 'open-dmx-usb') {
+        void this.pushOpenDmxFrame(port)
+        return
+      }
 
-      this.port.write(buffer, (err) => {
+      port.write(buildEnttecProFrame(this.universe), (err) => {
         if (err) {
           this.error = err.message
           this.connected = false
@@ -226,6 +287,44 @@ export class DMXEngine {
     this.emitStatus()
   }
 
+  private async pushOpenDmxFrame(port: SerialPort): Promise<void> {
+    if (this.serialFrameInProgress) return
+    this.serialFrameInProgress = true
+
+    try {
+      await setBreak(port, true)
+      await delay(1)
+      await setBreak(port, false)
+      await delay(1)
+      if (this.port !== port || !this.connected) return
+
+      await writeAndDrain(port, buildOpenDmxFrame(this.universe))
+      if (this.port !== port || !this.connected) return
+
+      this.sentFrames++
+      this.lastFrameAt = Date.now()
+      this.error = null
+      this.emitStatus()
+    } catch (error) {
+      let message = error instanceof Error ? error.message : String(error)
+      if (port.isOpen) {
+        try {
+          await setBreak(port, false)
+        } catch (clearError) {
+          const clearMessage = clearError instanceof Error ? clearError.message : String(clearError)
+          message = `${message}; failed to clear DMX break: ${clearMessage}`
+        }
+      }
+      if (this.port === port) {
+        this.connected = false
+        this.error = message
+        this.emitStatus()
+      }
+    } finally {
+      this.serialFrameInProgress = false
+    }
+  }
+
   getStatus(): DmxStatus {
     const mode: DmxStatus['mode'] = this.connected
       ? 'serial'
@@ -241,6 +340,7 @@ export class DMXEngine {
       universe: 1,
       error: this.error,
       mode,
+      serialProtocol: this.connected ? this.serialProtocol ?? undefined : undefined,
       artnet:
         this.artnetConnected && this.artnetHost
           ? { host: this.artnetHost, universe: this.artnetUniverse }

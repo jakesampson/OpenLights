@@ -1,4 +1,5 @@
 import { ipcRenderer, contextBridge } from 'electron'
+import type { SerialDmxProtocol } from '../shared/types'
 
 // Expose protected methods that the renderer can call
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -11,8 +12,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteShow: (path: string) => ipcRenderer.invoke('delete-show', path),
   loadAudio: (path?: string) => ipcRenderer.invoke('load-audio', path),
   blackout: () => ipcRenderer.invoke('blackout'),
-  setDmxPort: (port: string, baudRate: number) =>
-    ipcRenderer.invoke('set-dmx-port', port, baudRate),
+  setDmxPort: (port: string, protocol: SerialDmxProtocol) =>
+    ipcRenderer.invoke('set-dmx-port', port, protocol),
   connectArtNet: (host: string, universe?: number) =>
     ipcRenderer.invoke('connect-artnet', host, universe),
   getDmxStatus: () => ipcRenderer.invoke('get-dmx-status'),

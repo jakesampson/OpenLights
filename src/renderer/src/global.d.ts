@@ -1,4 +1,4 @@
-import type { DmxStatus } from '@shared/types'
+import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from '@shared/types'
 
 export {}
 
@@ -29,12 +29,12 @@ declare global {
         IpcResult & { name?: string; dataUrl?: string; path?: string }
       >
       blackout: () => Promise<IpcResult>
-      setDmxPort: (port: string, baudRate: number) => Promise<IpcResult & { status?: DmxStatus }>
+      setDmxPort: (port: string, protocol: SerialDmxProtocol) => Promise<IpcResult & { status?: DmxStatus }>
       connectArtNet: (host: string, universe?: number) => Promise<IpcResult & { status?: DmxStatus }>
       getDmxStatus: () => Promise<DmxStatus>
       getChannels: () => Promise<number[]>
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
-      getDmxPorts: () => Promise<string[]>
+      getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void
       minimizeWindow: () => void
       toggleWindowMaximize: () => void

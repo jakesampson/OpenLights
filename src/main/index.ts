@@ -3,8 +3,8 @@ import { autoUpdater } from 'electron-updater'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import * as fs from 'fs'
-import { SerialPort } from 'serialport'
 import { DMXEngine } from '../shared/dmx'
+import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SHOWS_DIR = path.join(app.getPath('userData'), 'shows')
@@ -91,25 +91,19 @@ app.on('window-all-closed', () => {
 })
 
 // DMX port handling
-ipcMain.handle('get-dmx-ports', async () => {
-  const ports = await SerialPort.list()
-  return ports
-    .filter((p) => {
-      const manufacturer = (p.manufacturer ?? '').toLowerCase()
-      const portPath = (p.path ?? '').toLowerCase()
-      return manufacturer.includes('ftdi') || manufacturer.includes('enttec') || portPath.includes('usb')
-    })
-    .map((p) => p.path)
-})
+ipcMain.handle('get-dmx-ports', async (): Promise<DmxPortInfo[]> => dmxEngine.listPorts())
 
-ipcMain.handle('set-dmx-port', async (_, portPath: string, baudRate: number) => {
-  try {
-    await dmxEngine.connect(portPath, baudRate)
-    return { success: true, status: dmxEngine.getStatus() }
-  } catch (e: any) {
-    return { success: false, error: e.message, status: dmxEngine.getStatus() }
+ipcMain.handle(
+  'set-dmx-port',
+  async (_, portPath: string, protocol: SerialDmxProtocol) => {
+    try {
+      await dmxEngine.connect(portPath, protocol)
+      return { success: true, status: dmxEngine.getStatus() }
+    } catch (e: any) {
+      return { success: false, error: e.message, status: dmxEngine.getStatus() }
+    }
   }
-})
+)
 
 ipcMain.handle('connect-artnet', async (_, host: string, universe?: number) => {
   try {

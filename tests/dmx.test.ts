@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { DMXEngine, buildArtNetPacket } from '../src/shared/dmx'
+import {
+  DMXEngine,
+  buildArtNetPacket,
+  buildEnttecProFrame,
+  buildOpenDmxFrame
+} from '../src/shared/dmx'
 
 describe('Art-Net packet', () => {
   it('builds an ArtDmx packet with protocol, universe and payload', () => {
@@ -24,6 +29,30 @@ describe('Art-Net packet', () => {
     const packet = buildArtNetPacket(3, new Uint8Array(512), 1)
     expect(packet[14]).toBe(3)
     expect(packet[15]).toBe(0)
+  })
+})
+
+describe('USB DMX frames', () => {
+  it('builds a raw Open DMX USB frame with a start code and 512 channel slots', () => {
+    const data = new Uint8Array(512)
+    data[0] = 128
+    data[511] = 64
+    const frame = buildOpenDmxFrame(data)
+
+    expect(frame).toHaveLength(513)
+    expect(frame[0]).toBe(0)
+    expect(frame[1]).toBe(128)
+    expect(frame[512]).toBe(64)
+  })
+
+  it('retains the ENTTEC USB Pro packet framing', () => {
+    const frame = buildEnttecProFrame(new Uint8Array(512))
+
+    expect(frame).toHaveLength(518)
+    expect(frame[0]).toBe(0x7e)
+    expect(frame[1]).toBe(6)
+    expect(frame[4]).toBe(0)
+    expect(frame[517]).toBe(0xe7)
   })
 })
 
