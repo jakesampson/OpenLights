@@ -45,6 +45,12 @@ let previousPresetChannels = new Set<number>()
 let blind = false
 let blindFrame: Record<number, number> | null = null
 let lastOutput: Record<number, number> = {}
+let freeze = false
+let freezeFrame: Record<number, number> | null = null
+let thawFrame: number | null = null
+let thawFrom: Record<number, number> | null = null
+let thawStartedAt = 0
+let thawDuration = 0
 
 interface EffectRuntime {
   effects: EffectDef[]
@@ -82,9 +88,22 @@ function effectPatch(now: number): Record<number, number> {
   )
 }
 
+export function interpolateOutputFrame(from: Record<number, number>, to: Record<number, number>, progress: number): Record<number, number> {
+  const amount = Math.max(0, Math.min(1, progress))
+  return Object.fromEntries([...new Set([...Object.keys(from), ...Object.keys(to)])].map((key) => {
+    const channel = Number(key)
+    return [channel, Math.round((from[channel] ?? 0) + ((to[channel] ?? 0) - (from[channel] ?? 0)) * amount)]
+  }))
+}
+
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, heldFrame: blindFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  let output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  if (!runtime.blackout && thawFrom && thawDuration > 0) {
+    const progress = (now - thawStartedAt) / thawDuration
+    output = interpolateOutputFrame(thawFrom, output, progress)
+    if (progress >= 1) thawFrom = null
+  }
   previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
   push(output)
 }
@@ -96,6 +115,31 @@ export function setBlindOutput(active: boolean) {
   blind = active
   if (!active) blindFrame = null
   flush()
+}
+
+/** Freeze the composed frame while playback changes, then crossfade to the current state. */
+export function setFreezeOutput(active: boolean, resumeFadeMs = 300) {
+  if (active === freeze) return
+  if (thawFrame !== null) { cancelAnimationFrame(thawFrame); thawFrame = null }
+  if (active) {
+    freezeFrame = { ...lastOutput }
+    thawFrom = null
+    freeze = true
+    flush()
+    return
+  }
+  freeze = false
+  thawFrom = freezeFrame ? { ...freezeFrame } : null
+  freezeFrame = null
+  thawStartedAt = performance.now()
+  thawDuration = Math.max(0, resumeFadeMs)
+  const tick = (now: number) => {
+    flush(now)
+    if (thawFrom) thawFrame = requestAnimationFrame(tick)
+    else thawFrame = null
+  }
+  if (thawDuration > 0) thawFrame = requestAnimationFrame(tick)
+  else { thawFrom = null; flush() }
 }
 
 export function cancelFade() {

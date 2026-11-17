@@ -231,3 +231,6 @@ The existing exact BPM and tap-tempo paths remain authoritative. Web MIDI now re
 
 ### 9.10 Blind mode
 Entering Blind captures the composed physical output frame. Editing continues to update the internal base/live/preset/effect layers and Preview, but every DMX write receives the captured frame. Exiting Blind commits the current edited look immediately (rather than discarding it), matching OpenLights' non-destructive editing model. Blackout still overrides Blind. Tests: `tests/outputBlind.test.ts`, `tests/outputModel.test.ts`.
+
+### 9.11 Freeze output
+Freeze captures the fully composed output while cue, sequence, effect and manual state continue underneath. Release crossfades every present or released channel from the captured frame to the current composition over 300ms. Blackout remains immediate and takes precedence. Tests: `tests/outputFreeze.test.ts`, `tests/outputModel.test.ts`.

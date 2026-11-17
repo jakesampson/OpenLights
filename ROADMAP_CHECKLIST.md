@@ -379,8 +379,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.10 Blind mode: edit without changing live output; the Preview shows the blind state and a clear indicator marks blind. Guide: Blind mode, p.221.
   Done when: output-model tests show edits in blind not reaching DMX and committing them on exit (or discarding, per the guide; log it).
   Evidence: output runtime captures and holds the current physical frame while underlying edits continue, then commits the current look on exit; toolbar toggle and Preview BLIND indicator; `tests/outputBlind.test.ts`; typecheck, 358 tests and build passed.
-- [ ] 9.11 Freeze output: hold the current DMX frame while cues change underneath, then resume. Guide: Freeze output, p.222.
+- [x] 9.11 Freeze output: hold the current DMX frame while cues change underneath, then resume. Guide: Freeze output, p.222.
   Done when: output tests show the frame frozen and resume fading to the current state.
+  Evidence: runtime Freeze captures the composed DMX frame while all playback state continues, then interpolates every channel to the current state over 300ms; active toolbar toggle and `tests/outputFreeze.test.ts`; typecheck, 359 tests and build passed.
 - [ ] 9.12 External control: extend `MidiPanel` and `midi.ts` towards the guide's bindings, triggers and actions model (MIDI only), with quick assign (learn). Guide: ch.16, p.277 to 293. OSC, ProPresenter and VirtualDJ triggers are out of scope for now.
   Done when: there's a migration from existing `midiMappings`, plus tests for learn and for each action type.
 
