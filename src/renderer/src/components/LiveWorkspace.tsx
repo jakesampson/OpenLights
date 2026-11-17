@@ -16,7 +16,7 @@ import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 type Selection = PageObjectRef
 const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.floor(index / 4) * 90 })
 
-export function LiveWorkspace() {
+export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boolean } = {}) {
   const {
     locked, show, scenes, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
@@ -26,7 +26,7 @@ export function LiveWorkspace() {
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject,
     attachPageObject, setPageObjectStyle, configureFrame, dropOnLivePage
   } = useShowStore()
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(initialEditing)
   const [managing, setManaging] = useState(false)
   const [name, setName] = useState('')
   const [deleteId, setDeleteId] = useState<string | null>(null)
@@ -163,7 +163,7 @@ export function LiveWorkspace() {
   const addPage = () => {
     if (!name.trim()) return
     const next: LivePage = { id: crypto.randomUUID(), name: name.trim(), controls: [] }
-    setLivePages([...pages, next]); selectLivePage(next.id); setName(''); setEditing(false)
+    setLivePages([...pages, next]); selectLivePage(next.id); setName(''); setEditing(initialEditing)
   }
   const addControl = () => {
     if (!page) return
@@ -173,6 +173,15 @@ export function LiveWorkspace() {
       adHocValues: Object.fromEntries(Object.entries(manualOverrides).map(([id, values]) => [id, { ...values }]))
     })
     savePage({ ...page, controls: [...page.controls, control] }); setPageObjectSelection([{ type: 'cue', id: control.id }])
+  }
+  const addSceneControl = (sceneId: string) => {
+    if (!page) return
+    const scene = scenes.find((item) => item.id === sceneId)
+    if (!scene) return
+    const at = position(page.controls.length + (page.cueListWidgets?.length ?? 0))
+    const control = newCueObject(crypto.randomUUID(), at.x, at.y, page.defaultStyles, { name: scene.name, sceneId: scene.id })
+    savePage({ ...page, controls: [...page.controls, control] })
+    setPageObjectSelection([{ type: 'cue', id: control.id }])
   }
   // Palette drag sources: clicking selects several presets/sequences, and
   // dragging a selected chip carries the whole selection (7.10).
@@ -335,7 +344,7 @@ export function LiveWorkspace() {
     </div>}
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     {!page ? <p className="text-xs text-dim">Open Manage pages to create your first Live page.</p> : <>
-      {editing && !locked && <div className="flex flex-wrap items-center gap-2"><button type="button" className="btn-theme text-xs" onClick={addControl}>+ Cue control</button><button type="button" className="btn-theme text-xs" onClick={addList} disabled={!cueLists.length}>+ Cue list</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('label')}>+ Label</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('frame')}>+ Frame</button>
+      {editing && !locked && <div className="flex flex-wrap items-center gap-2"><label className="btn-theme text-xs">+ Scene button <select aria-label="Add scene button" defaultValue="" onChange={(event) => { if (event.target.value) addSceneControl(event.target.value); event.target.value = '' }} className="ml-1 bg-transparent"><option value="" disabled>Choose scene…</option>{scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}</select></label><button type="button" className="btn-theme text-xs" onClick={addControl}>+ Custom cue</button><button type="button" className="btn-theme text-xs" onClick={addList} disabled={!cueLists.length}>+ Cue list</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('label')}>+ Label</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('frame')}>+ Frame</button>
         {selectedPageObjects.length > 0 && <><span className="text-xs text-dim">{selectedPageObjects.length} selected</span><button type="button" className="btn-theme text-xs" onClick={duplicateSelectedPageObjects}>Duplicate</button><button type="button" className="btn-theme text-xs" onClick={copySelectedPageObjects}>Copy</button><button type="button" className="btn-theme text-xs text-red-300" onClick={deleteSelectedPageObjects}>Delete</button></>}
         {!isClipboardEmpty(pageClipboard) && <button type="button" className="btn-theme text-xs" onClick={() => pastePageObjects()}>Paste</button>}
         <span className="text-xs text-dim">Shift-click or drag on empty space to select several. Drag to move them together. Use "Attached to" in the inspector so a button follows a frame. Del / Ctrl+C / Ctrl+V / Ctrl+D.</span></div>}

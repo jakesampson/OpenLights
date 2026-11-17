@@ -258,6 +258,8 @@ body {
 .playback-master strong, .playback-master button { width: 100%; border-radius: 4px; background: var(--panel2); padding: 4px; text-align: center; color: var(--text); }
 .playback-content { min-width: 0; min-height: 0; overflow: auto; padding-top: 12px; }
 .scene-playback-grid, .live-playback-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 6px; }
+.live-playback-stack { display: grid; gap: 8px; }
+.fixture-controls-bottom { height: 100%; min-height: 0; overflow: auto; padding-right: 4px; }
 .scene-playback-grid button, .live-playback-grid button, .live-playback-grid label { display: flex; min-height: 54px; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 5px; background: color-mix(in srgb, var(--scene-colour, var(--panel2)) 28%, var(--panel2)); color: var(--text); }
 .scene-playback-grid button span { font-size: 9px; color: var(--dim); }
 .scene-playback-grid button.active, .live-playback-grid button.active { background: var(--text); color: var(--bg); }

@@ -8,8 +8,8 @@ import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
 import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
-import { DesignTab } from './components/DesignTab'
 import { LiveTab } from './components/LiveTab'
+import { LiveWorkspace } from './components/LiveWorkspace'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
@@ -51,6 +51,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
+  const [liveEditorOpen, setLiveEditorOpen] = useState(false)
   const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
 
@@ -339,7 +340,7 @@ export default function App() {
       <WorkspaceToolbar view={tab} onView={(view) => { if (view !== 'Edit') setTab(view) }} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack"><StagePreview />{tab === 'Design' && useShowStore.getState().selectedFixtureIds.length > 0 && <div className="design-property-overlay"><DesignTab /></div>}</div>}
+        {show?.layout?.preview !== false && <div className="preview-stack"><StagePreview /></div>}
 
         <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
@@ -358,7 +359,7 @@ export default function App() {
       {/* Bottom row */}
       <div className="bottom-grid">
         <div className="panel playback-shell">
-          <button type="button" className="bottom-edit" onClick={() => window.dispatchEvent(new CustomEvent('openlights-edit-sidebar', { detail: tab }))}>Edit</button>
+          {tab === 'Live' && <button type="button" className="bottom-edit" onClick={() => setLiveEditorOpen(true)}>Edit</button>}
           <BottomPlayback view={tab} />
         </div>
 
@@ -381,6 +382,12 @@ export default function App() {
           </div>
         </div>
       </div>
+      {liveEditorOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLiveEditorOpen(false) }}>
+        <section role="dialog" aria-modal="true" aria-label="Edit Live page" className="panel flex max-h-[94vh] w-full max-w-[1200px] flex-col overflow-hidden shadow-2xl">
+          <header className="flex items-center justify-between border-b border-line px-4 py-3"><h2 className="text-sm font-semibold">Edit Live page</h2><button type="button" className="btn-theme" onClick={() => setLiveEditorOpen(false)}>Done</button></header>
+          <div className="min-h-0 overflow-auto p-3"><LiveWorkspace initialEditing /></div>
+        </section>
+      </div>}
       {toolPanel && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
