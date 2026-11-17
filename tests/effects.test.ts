@@ -45,6 +45,10 @@ describe('waveforms', () => {
     expect(waveformValue('square', 0.75)).toBe(-1)
     expect(waveformValue('saw', 0)).toBeCloseTo(-1)
     expect(waveformValue('saw', 0.5)).toBeCloseTo(0)
+    expect(waveformValue('cosine', 0)).toBeCloseTo(1)
+    expect(waveformValue('pulse', 0.1)).toBe(1)
+    expect(waveformValue('pulse', 0.3)).toBe(-1)
+    expect(waveformValue('smooth', 0.5)).toBeCloseTo(0)
   })
 
   it('steps random values per cycle, stably', () => {
@@ -113,6 +117,12 @@ describe('computeEffectPatch', () => {
       128
     )
     expect(pan[6]).toBe(255)
+  })
+
+  it('maps every curve to explicit minimum and maximum values on any property', () => {
+    const low = computeEffectPatch(fixtures, [effect({ waveform: 'square', minValue: 40, maxValue: 200, attribute: 'red' })], 0.75, 120)
+    const high = computeEffectPatch(fixtures, [effect({ waveform: 'square', minValue: 40, maxValue: 200, attribute: 'red' })], 0.25, 120)
+    expect(low[2]).toBe(40); expect(high[2]).toBe(200)
   })
 
   it('skips disabled effects and handles no fixtures', () => {

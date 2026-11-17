@@ -127,7 +127,7 @@ export interface CueListDef {
   loop?: boolean
 }
 
-export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random'
+export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random' | 'cosine' | 'pulse' | 'smooth'
 
 export interface EffectDef {
   id: string
@@ -143,6 +143,8 @@ export interface EffectDef {
   phaseSpread: number // degrees of fan-out across targeted fixtures
   fixtureOrder?: 'forward' | 'reverse' | 'random' | 'custom'
   customFixtureOrder?: string[]
+  minValue?: number
+  maxValue?: number
   enabled: boolean
 }
 

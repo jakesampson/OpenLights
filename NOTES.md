@@ -204,3 +204,6 @@ Effects may optionally name a preset, sequence or cue owner. Missing ownership p
 
 ### 9.3 Effect timing and fixture order
 The existing Hz/beat multiplier and degree phase spread now operate over an explicit fixture order: patch order, reverse, deterministic pseudo-random, or a saved custom id list. Deterministic random order avoids reshuffling every output frame. Tests: `tests/effects.test.ts`.
+
+### 9.4 Curve effects
+Curve effects now include cosine, pulse and smooth shapes alongside the existing waveforms. Optional min/max values map the normalized curve directly to an arbitrary fixture property; effects without them retain the existing offset/size calculation for show compatibility. Tests: `tests/effects.test.ts`.

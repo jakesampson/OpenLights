@@ -351,8 +351,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.3 Effect timing (speed, phase, beat-synced rate multipliers) and fixture order editing (forward, reverse, random, custom). Guide: p.150 to 152.
   Done when: tests cover phase per fixture for each order.
   Evidence: existing speed/BPM/phase spread extended with persisted forward/reverse/stable-random/custom fixture order in `effects.ts`; ordering and phase output tests in `tests/effects.test.ts`; typecheck, 341 tests and build passed.
-- [ ] 9.4 Curve effects to full parity (curve shapes, min/max, applied to any property). Guide: p.147 and p.161 to 164.
+- [x] 9.4 Curve effects to full parity (curve shapes, min/max, applied to any property). Guide: p.147 and p.161 to 164.
   Done when: there are curve shape tests.
+  Evidence: `lib/effects.ts` supports sine, cosine, triangle, square, pulse, saw, random and smooth curve shapes with optional explicit min/max mapping on every fixture property; `tests/effects.test.ts` covers the added shapes and non-intensity property range output; typecheck, 342 tests and build passed.
 - [ ] 9.5 Pattern effects: Chase, Scanner, Yo-yo, Fill, Rain, Meteor, Sparkle, Fire, Jellyfish, Snakes. Guide: p.153 to 160. Split into 9.5a to 9.5d.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests (seeded random).
 - [ ] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.

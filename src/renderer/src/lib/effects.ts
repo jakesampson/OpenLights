@@ -14,12 +14,18 @@ export function waveformValue(wave: EffectDef['waveform'], phase: number, seed =
   switch (wave) {
     case 'sine':
       return Math.sin(t * Math.PI * 2)
+    case 'cosine':
+      return Math.cos(t * Math.PI * 2)
     case 'triangle':
       return 1 - 4 * Math.abs(t - 0.5)
     case 'square':
       return t < 0.5 ? 1 : -1
     case 'saw':
       return 2 * t - 1
+    case 'pulse':
+      return t < 0.2 ? 1 : -1
+    case 'smooth':
+      return (t * t * (3 - 2 * t)) * 2 - 1
     case 'random': {
       // Stable per cycle and per fixture, so it steps instead of shimmering
       // at frame rate.
@@ -73,7 +79,9 @@ export function computeEffectPatch(
         timeSeconds * frequency +
         (targets.length > 1 ? spread * (index / (targets.length - 1)) : 0)
       const wave = waveformValue(effect.waveform, phase, index)
-      const value = offset + wave * size
+      const value = effect.minValue !== undefined || effect.maxValue !== undefined
+        ? Math.max(0, Math.min(255, effect.minValue ?? 0)) + ((wave + 1) / 2) * (Math.max(0, Math.min(255, effect.maxValue ?? 255)) - Math.max(0, Math.min(255, effect.minValue ?? 0)))
+        : offset + wave * size
       channels[fixture.channelStart + channelOffset] = scaleAttribute(
         effect.attribute,
         value,
