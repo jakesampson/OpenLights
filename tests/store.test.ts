@@ -538,4 +538,26 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
     expect(page().cueListWidgets).toHaveLength(1)
     expect(page().controls[0]).toMatchObject({ x: 20, y: 20 })
   })
+
+  it('resizes a page object with clamping and supports undo/redo', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().resizePageObject({ type: 'cue', id: 'c1' }, 213, 5000)
+    expect(page().controls[0]).toMatchObject({ width: 210, height: 900 })
+    useShowStore.getState().undo()
+    expect(page().controls[0]).toMatchObject({ width: 160, height: 90 })
+    useShowStore.getState().redo()
+    expect(page().controls[0]).toMatchObject({ width: 210, height: 900 })
+  })
+
+  it('renames a cue and an annotation inline and supports undo', () => {
+    useShowStore.getState().setShow(pageShow())
+    useShowStore.getState().renamePageObject({ type: 'cue', id: 'c1' }, '  New name  ')
+    useShowStore.getState().renamePageObject({ type: 'annotation', id: 'a1' }, 'Stage left')
+    expect(page().controls[0].name).toBe('New name')
+    expect(page().annotations![0].text).toBe('Stage left')
+    useShowStore.getState().undo()
+    expect(page().annotations![0].text).toBe('Label')
+    useShowStore.getState().undo()
+    expect(page().controls[0].name).toBe('One')
+  })
 })

@@ -7,11 +7,15 @@ import {
   emptyClipboard,
   isClipboardEmpty,
   moveObjects,
+  objectSize,
   objectsInRect,
   pasteObjects,
   positionedObjects,
+  renameObject,
+  resizeObject,
   type PageObjectRef
 } from '../src/renderer/src/lib/livePageObjects'
+import { clampLiveSize, LIVE_CUE_SIZE, MAX_LIVE_OBJECT_SIZE, MIN_LIVE_OBJECT_SIZE } from '../src/shared/liveObjectDefaults'
 
 function makePage(): LivePage {
   return {
@@ -38,7 +42,7 @@ describe('live page multi-object logic (7.5)', () => {
   it('selects objects intersecting a marquee rect, including negative drag direction', () => {
     const page = makePage()
     expect(objectsInRect(page, { x: 0, y: 0, width: 200, height: 100 }).map((o) => o.id)).toEqual(['c1'])
-    expect(objectsInRect(page, { x: 210, y: 0, width: 400, height: 400 }).map((o) => o.id).sort()).toEqual(['a1', 'c2'])
+    expect(objectsInRect(page, { x: 210, y: 0, width: 400, height: 400 }).map((o) => o.id).sort()).toEqual(['a1', 'c2', 'w1'])
     // Dragging up-left (negative width/height) must behave the same.
     const forward = objectsInRect(page, { x: 0, y: 0, width: 250, height: 150 }).map((o) => o.id).sort()
     const reverse = objectsInRect(page, { x: 250, y: 150, width: -250, height: -150 }).map((o) => o.id).sort()
@@ -100,5 +104,47 @@ describe('live page multi-object logic (7.5)', () => {
     expect(next.controls.map((c) => c.id)).toEqual(['c1', 'c2', 'dup-1'])
     expect(next.controls[2].name).toBe('Two')
     expect(next.controls[2].x).not.toBe(next.controls[1].x)
+  })
+})
+
+describe('live page object resize and rename (7.6)', () => {
+  it('clamps resize dimensions to the allowed range and snaps to the 10px grid', () => {
+    expect(clampLiveSize(MIN_LIVE_OBJECT_SIZE - 100)).toBe(MIN_LIVE_OBJECT_SIZE)
+    expect(clampLiveSize(MAX_LIVE_OBJECT_SIZE + 100)).toBe(MAX_LIVE_OBJECT_SIZE)
+    expect(clampLiveSize(143)).toBe(140)
+    expect(clampLiveSize(146)).toBe(150)
+    expect(clampLiveSize(Number.NaN)).toBe(MIN_LIVE_OBJECT_SIZE)
+  })
+
+  it('stores width and height on a cue, immutably', () => {
+    const page = makePage()
+    const next = resizeObject(page, cue('c1'), 213, 307)
+    expect(next.controls[0]).toMatchObject({ width: 210, height: 310 })
+    expect(page.controls[0].width).toBeUndefined()
+    expect(next.controls[1]).toEqual(page.controls[1])
+    expect(next.annotations).toEqual(page.annotations)
+  })
+
+  it('resizes cue-list widgets and annotations through the same helper', () => {
+    const page = makePage()
+    expect(resizeObject(page, { type: 'list', id: 'w1' }, 300, 250).cueListWidgets![0]).toMatchObject({ width: 300, height: 250 })
+    expect(resizeObject(page, { type: 'annotation', id: 'a1' }, 500, 400).annotations![0]).toMatchObject({ width: 500, height: 400 })
+  })
+
+  it('reports an object\'s current size, falling back to defaults', () => {
+    const page = makePage()
+    expect(objectSize(page, cue('c1'))).toEqual(LIVE_CUE_SIZE)
+    expect(objectSize(page, { type: 'annotation', id: 'a1' })).toEqual({ width: 200, height: 100 })
+    expect(objectSize(page, cue('missing'))).toEqual(LIVE_CUE_SIZE)
+  })
+
+  it('renames cues and annotation text, trimming and applying a fallback', () => {
+    const page = makePage()
+    expect(renameObject(page, cue('c1'), '  Dance floor  ').controls[0].name).toBe('Dance floor')
+    expect(renameObject(page, cue('c1'), '   ').controls[0].name).toBe('Untitled cue')
+    expect(renameObject(page, { type: 'annotation', id: 'a1' }, '  Stage left  ').annotations![0].text).toBe('Stage left')
+    expect(renameObject(page, { type: 'annotation', id: 'a1' }, '  ').annotations![0].text).toBe('Label')
+    expect(renameObject(page, { type: 'list', id: 'w1' }, 'ignored')).toEqual(page)
+    expect(page.controls[0].name).toBe('One')
   })
 })

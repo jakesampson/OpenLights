@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { LiveControl, LivePage } from '@shared/types'
+import { clampLiveSize, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
 import { isClipboardEmpty, type PageObjectRef, type Rect } from '../lib/livePageObjects'
@@ -15,7 +16,7 @@ export function LiveWorkspace() {
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, updateProject, convertScenesToPresets,
     setPageSwitchMode, selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
-    duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects
+    duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject
   } = useShowStore()
   const [editing, setEditing] = useState(false)
   const [managing, setManaging] = useState(false)
@@ -25,6 +26,9 @@ export function LiveWorkspace() {
   const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null)
   const marquee = useRef<{ startX: number; startY: number } | null>(null)
+  const resize = useRef<{ ref: PageObjectRef; startX: number; startY: number; width: number; height: number } | null>(null)
+  const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number; height: number } | null>(null)
+  const [renaming, setRenaming] = useState<{ ref: PageObjectRef; value: string } | null>(null)
   const paletteFile = useRef<HTMLInputElement>(null)
   const [paletteNote, setPaletteNote] = useState('')
 
@@ -32,6 +36,42 @@ export function LiveWorkspace() {
   // handled entirely by the store's multi-object commands.
   const selection: Selection | null = selectedPageObjects.length === 1 ? selectedPageObjects[0] : null
   const isSelected = (ref: Selection) => selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
+
+  const commitRename = () => {
+    if (renaming) renamePageObject(renaming.ref, renaming.value)
+    setRenaming(null)
+  }
+
+  const beginResize = (event: React.PointerEvent, ref: PageObjectRef, width: number, height: number) => {
+    if (!editing || locked || event.button !== 0) return
+    event.preventDefault(); event.stopPropagation(); event.currentTarget.setPointerCapture(event.pointerId)
+    resize.current = { ref, startX: event.clientX, startY: event.clientY, width, height }
+    setPageObjectSelection([ref])
+  }
+  const moveResize = (event: React.PointerEvent) => {
+    if (!resize.current) return
+    const r = resize.current
+    setResizeDraft({
+      id: r.ref.id,
+      width: clampLiveSize(r.width + event.clientX - r.startX),
+      height: clampLiveSize(r.height + event.clientY - r.startY)
+    })
+  }
+  const endResize = () => {
+    const r = resize.current
+    if (r && resizeDraft) resizePageObject(r.ref, resizeDraft.width, resizeDraft.height)
+    resize.current = null; setResizeDraft(null)
+  }
+
+  const resizeHandle = (ref: PageObjectRef, width: number, height: number) =>
+    editing && !locked && isSelected(ref) ? <div role="button" aria-label="Resize object" className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize rounded-tl border-l-2 border-t-2 border-[var(--accent)] bg-[var(--accent)]/30" style={{ pointerEvents: 'auto' }} onPointerDown={(e) => beginResize(e, ref, width, height)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={() => { resize.current = null; setResizeDraft(null) }} /> : null
+
+  const renameInput = (ref: PageObjectRef, ariaLabel: string) =>
+    <input autoFocus aria-label={ariaLabel} value={renaming!.value}
+      onChange={(e) => setRenaming({ ref, value: e.target.value })}
+      onBlur={commitRename}
+      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') setRenaming(null) }}
+      className="w-full rounded bg-bg px-1 text-xs" />
 
   const exportPalette = () => {
     try {
@@ -195,26 +235,42 @@ export function LiveWorkspace() {
       {editing && !locked && show?.layout?.palette !== false && <div className="rounded border border-line bg-panel2 p-2 text-xs"><div className="flex flex-wrap items-center gap-2"><strong>Preset palette</strong><span className="text-dim">Drag a preset onto the page to create a cue, or onto an existing cue to add it.</span><button type="button" className="btn-theme" onClick={exportPalette} disabled={!presets.length}>Export JSON</button><button type="button" className="btn-theme" onClick={() => paletteFile.current?.click()}>Import JSON</button><button type="button" className="btn-theme" disabled={!scenes.length} onClick={() => { const added = convertScenesToPresets(); setPaletteNote(added ? `Converted ${added} scene${added === 1 ? '' : 's'} to presets (originals kept).` : 'Scenes already converted.') }}>Convert scenes</button><input ref={paletteFile} type="file" accept="application/json,.json" aria-label="Import preset palette JSON" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) await importPalette(await file.text()) }} />{paletteNote && <span className="text-dim" role="status">{paletteNote}</span>}</div><div className="mt-2 flex flex-wrap gap-1">{presets.map((preset) => <span key={preset.id} draggable onDragStart={(event) => { event.dataTransfer.setData('application/x-openlights-preset', preset.id); event.dataTransfer.effectAllowed = 'copy' }} className="cursor-grab rounded border border-line bg-bg px-2 py-1">{preset.name}</span>)}{!presets.length && <span className="text-dim">Capture presets in Scenes & cues first, or import a palette.</span>}</div></div>}
       <div className="overflow-auto rounded border border-line"><div className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-preset')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }} onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-preset'); if (!id) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); addPresetControl(id, event.clientX - rect.left, event.clientY - rect.top) }}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
-        {(page.annotations ?? []).map((item) => <div key={item.id} className={`absolute ${item.type === 'frame' ? 'border border-line rounded' : ''} ${editing && !locked && isSelected({ type: 'annotation', id: item.id }) ? 'outline outline-1 outline-[var(--accent)]' : ''}`} style={{ left: draft?.id === item.id ? draft.x : item.x, top: draft?.id === item.id ? draft.y : item.y, width: item.width, height: item.height, pointerEvents: 'none' }}><div className={`px-2 py-1 text-xs text-dim ${editing ? 'cursor-grab bg-panel2' : ''}`} style={{ pointerEvents: editing ? 'auto' : 'none' }} onPointerDown={(e) => beginDrag(e, { type: 'annotation', id: item.id }, item.x, item.y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{item.text}</div></div>)}
+        {(page.annotations ?? []).map((item) => {
+          const ref: PageObjectRef = { type: 'annotation', id: item.id }
+          const w = resizeDraft?.id === item.id ? resizeDraft.width : item.width
+          const h = resizeDraft?.id === item.id ? resizeDraft.height : item.height
+          return <div key={item.id} className={`absolute ${item.type === 'frame' ? 'border border-line rounded' : ''} ${editing && !locked && isSelected(ref) ? 'outline outline-1 outline-[var(--accent)]' : ''}`} style={{ left: draft?.id === item.id ? draft.x : item.x, top: draft?.id === item.id ? draft.y : item.y, width: w, height: h, pointerEvents: 'none' }}>
+            <div className={`px-2 py-1 text-xs text-dim ${editing ? 'cursor-grab bg-panel2' : ''}`} style={{ pointerEvents: editing ? 'auto' : 'none' }} onPointerDown={(e) => beginDrag(e, ref, item.x, item.y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => editing && !locked && setRenaming({ ref, value: item.text })}>{renaming?.ref.type === 'annotation' && renaming.ref.id === item.id ? renameInput(ref, `${item.type} text`) : item.text}</div>
+            {resizeHandle(ref, item.width, item.height)}
+          </div>
+        })}
         {page.controls.map((control, index) => {
           const p = position(index), x = draft?.id === control.id ? draft.x : control.x ?? p.x, y = draft?.id === control.id ? draft.y : control.y ?? p.y
+          const ref: PageObjectRef = { type: 'cue', id: control.id }
+          const cw = control.width ?? LIVE_CUE_SIZE.width, ch = control.height ?? LIVE_CUE_SIZE.height
+          const w = resizeDraft?.id === control.id ? resizeDraft.width : cw, h = resizeDraft?.id === control.id ? resizeDraft.height : ch
           const level = activeLiveValues[control.id] ?? 0
-          return <div key={control.id} data-project-id={control.id} className={`absolute w-40 rounded border ${isSelected({ type: 'cue', id: control.id }) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y }} onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-preset')) event.preventDefault() }} onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-preset'); if (!presets.some((preset) => preset.id === id)) return; event.preventDefault(); event.stopPropagation(); if (!control.presetIds.includes(id)) patchControl(control.id, { presetIds: [...control.presetIds, id] }); setPageObjectSelection([{ type: 'cue', id: control.id }]) }}>
-            {editing ? <button type="button" className="w-full cursor-grab rounded bg-bg px-2 py-2 text-left" onPointerDown={(e) => beginDrag(e, { type: 'cue', id: control.id }, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>↕ {control.name}</button> : control.type === 'fader' ? <label className="block p-1 text-center"><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} className={`pad w-full rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>}
+          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-preset')) event.preventDefault() }} onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-preset'); if (!presets.some((preset) => preset.id === id)) return; event.preventDefault(); event.stopPropagation(); if (!control.presetIds.includes(id)) patchControl(control.id, { presetIds: [...control.presetIds, id] }); setPageObjectSelection([{ type: 'cue', id: control.id }]) }}>
+            {editing ? (renaming?.ref.type === 'cue' && renaming.ref.id === control.id ? renameInput(ref, 'Cue name') : <button type="button" className="w-full cursor-grab rounded bg-bg px-2 py-2 text-left" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => setRenaming({ ref, value: control.name })}>↕ {control.name}</button>) : control.type === 'fader' ? <label className="block p-1 text-center"><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} className={`pad w-full rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>}
+            {resizeHandle(ref, cw, ch)}
           </div>
         })}
         {(page.cueListWidgets ?? []).map((widget) => {
           const list = cueLists.find((item) => item.id === widget.cueListId), x = draft?.id === widget.id ? draft.x : widget.x, y = draft?.id === widget.id ? draft.y : widget.y, current = activeCueListId === list?.id ? activeCueIndex : -1, next = list?.steps[current + 1] ?? (list?.loop ? list.steps[0] : undefined)
-          return <div key={widget.id} className={`absolute w-60 rounded border ${isSelected({ type: 'list', id: widget.id }) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y }}>
-            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} onPointerDown={(e) => beginDrag(e, { type: 'list', id: widget.id }, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
+          const ref: PageObjectRef = { type: 'list', id: widget.id }
+          const lw = widget.width ?? LIVE_LIST_SIZE.width, lh = widget.height ?? LIVE_LIST_SIZE.height
+          const w = resizeDraft?.id === widget.id ? resizeDraft.width : lw, h = resizeDraft?.id === widget.id ? resizeDraft.height : lh
+          return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
+            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? scenes.find((s) => s.id === list?.steps[current]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</p><p className="text-dim">Next: {next ? scenes.find((s) => s.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list'}</p>
             {!editing && list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
+            {resizeHandle(ref, lw, lh)}
           </div>
         })}
       </div></div>
       {editing && !locked && show?.layout?.inspector !== false && selectedControl && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="block rounded bg-bg p-1" /></label><label>Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="block rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Hold to flash</option><option value="fader">Fader</option></select></label><label>Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="block rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><details><summary>Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>{Object.keys(selectedControl.adHocValues ?? {}).length > 0 && <button type="button" className="text-dim" onClick={() => patchControl(selectedControl.id, { adHocValues: {} })}>Remove captured overrides</button>}<button type="button" className="text-red-300" onClick={() => { setLiveValue(selectedControl.id, 0); savePage({ ...page, controls: page.controls.filter((c) => c.id !== selectedControl.id) }); clearPageObjectSelection() }}>Remove</button></div>}
       {editing && !locked && show?.layout?.inspector !== false && selectedList && <div className="flex gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Cue list <select aria-label="Widget cue list" value={selectedList.cueListId} onChange={(e) => savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).map((w) => w.id === selectedList.id ? { ...w, cueListId: e.target.value } : w) })} className="rounded bg-bg p-1">{cueLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label><button type="button" className="text-red-300" onClick={() => { savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).filter((w) => w.id !== selectedList.id) }); clearPageObjectSelection() }}>Remove</button></div>}
-      {editing && !locked && show?.layout?.inspector !== false && selectedAnnotation && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs">{(['text', 'width', 'height'] as const).map((key) => <label key={key} className="capitalize">{key}<input aria-label={`${selectedAnnotation.type} ${key}`} type={key === 'text' ? 'text' : 'number'} min={key === 'text' ? undefined : 20} value={selectedAnnotation[key]} onChange={(e) => { const value = key === 'text' ? e.target.value : Math.max(20, Math.min(900, Number(e.target.value))); savePage({ ...page, annotations: (page.annotations ?? []).map((a) => a.id === selectedAnnotation.id ? { ...a, [key]: value } : a) }) }} className="block w-32 rounded bg-bg p-1" /></label>)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button></div>}
+      {editing && !locked && show?.layout?.inspector !== false && selectedAnnotation && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs">{(['text', 'width', 'height'] as const).map((key) => <label key={key} className="capitalize">{key}<input aria-label={`${selectedAnnotation.type} ${key}`} type={key === 'text' ? 'text' : 'number'} min={key === 'text' ? undefined : 20} value={selectedAnnotation[key]} onChange={(e) => { const ref: PageObjectRef = { type: 'annotation', id: selectedAnnotation.id }; if (key === 'text') renamePageObject(ref, e.target.value); else { const other = key === 'width' ? selectedAnnotation.height : selectedAnnotation.width; resizePageObject(ref, key === 'width' ? Number(e.target.value) : other, key === 'height' ? Number(e.target.value) : other) } }} className="block w-32 rounded bg-bg p-1" /></label>)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button></div>}
     </>}
   </section>
 }

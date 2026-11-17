@@ -1,10 +1,10 @@
 import type { LiveControl, LivePage } from '@shared/types'
+import { clampLiveSize, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
 
 export type PageObjectType = 'cue' | 'list' | 'annotation'
 export interface PageObjectRef { type: PageObjectType; id: string }
 export interface Rect { x: number; y: number; width: number; height: number }
 
-const DEFAULT_SIZE = { width: 160, height: 90 }
 const MAX_X = 740
 const MAX_Y = 440
 const clamp = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value)))
@@ -14,10 +14,37 @@ interface Positioned extends PageObjectRef { x: number; y: number; width: number
 /** All selectable objects on a page with their current bounds. */
 export function positionedObjects(page: LivePage): Positioned[] {
   return [
-    ...page.controls.map((c) => ({ type: 'cue' as const, id: c.id, x: c.x ?? 0, y: c.y ?? 0, ...DEFAULT_SIZE })),
-    ...(page.cueListWidgets ?? []).map((w) => ({ type: 'list' as const, id: w.id, x: w.x, y: w.y, ...DEFAULT_SIZE })),
+    ...page.controls.map((c) => ({ type: 'cue' as const, id: c.id, x: c.x ?? 0, y: c.y ?? 0, width: c.width ?? LIVE_CUE_SIZE.width, height: c.height ?? LIVE_CUE_SIZE.height })),
+    ...(page.cueListWidgets ?? []).map((w) => ({ type: 'list' as const, id: w.id, x: w.x, y: w.y, width: w.width ?? LIVE_LIST_SIZE.width, height: w.height ?? LIVE_LIST_SIZE.height })),
     ...(page.annotations ?? []).map((a) => ({ type: 'annotation' as const, id: a.id, x: a.x, y: a.y, width: a.width, height: a.height }))
   ]
+}
+
+/** Current size of one object (used to seed a resize drag). */
+export function objectSize(page: LivePage, ref: PageObjectRef): { width: number; height: number } {
+  const object = positionedObjects(page).find((o) => o.type === ref.type && o.id === ref.id)
+  return object ? { width: object.width, height: object.height } : { ...LIVE_CUE_SIZE }
+}
+
+/** Resize one object, clamping and snapping both dimensions. Immutable. */
+export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, height: number): LivePage {
+  const w = clampLiveSize(width), h = clampLiveSize(height)
+  return {
+    ...page,
+    controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, width: w, height: h } : c),
+    cueListWidgets: page.cueListWidgets?.map((widget) => ref.type === 'list' && widget.id === ref.id ? { ...widget, width: w, height: h } : widget),
+    annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, width: w, height: h } : a)
+  }
+}
+
+/** Rename a cue or label/frame inline (widgets take their name from the cue list). */
+export function renameObject(page: LivePage, ref: PageObjectRef, name: string): LivePage {
+  const value = name.trim()
+  return {
+    ...page,
+    controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, name: value || 'Untitled cue' } : c),
+    annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, text: value || 'Label' } : a)
+  }
 }
 
 const indexRefs = (refs: PageObjectRef[]) => ({

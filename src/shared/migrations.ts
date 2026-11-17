@@ -1,6 +1,7 @@
 /** Missing versions are legacy version 0. */
 export const CURRENT_SCHEMA_VERSION = 1
 import { BUILTIN_PROFILES } from './fixtureProfiles'
+import { LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, validLiveSize } from './liveObjectDefaults'
 import type { ShowDef } from './types'
 
 type Document = Record<string, unknown>
@@ -24,6 +25,25 @@ export function migrateShow(raw: unknown): ShowDef {
       doc[key] = []
     }
   }
+  // Live page objects gained explicit width/height; older show files only had
+  // positions. Fill additive defaults without discarding any existing values.
+  doc.livePages = (doc.livePages as unknown[]).map((rawPage) => {
+    const page = record(rawPage)
+    const withSizes = (raw: unknown, defaults: { width: number; height: number }) => {
+      const object = record(raw)
+      return {
+        ...object,
+        width: validLiveSize(object.width) ? object.width : defaults.width,
+        height: validLiveSize(object.height) ? object.height : defaults.height
+      }
+    }
+    return {
+      ...page,
+      controls: (Array.isArray(page.controls) ? page.controls : []).map((c) => withSizes(c, LIVE_CUE_SIZE)),
+      ...(Array.isArray(page.cueListWidgets) ? { cueListWidgets: page.cueListWidgets.map((w) => withSizes(w, LIVE_LIST_SIZE)) } : {}),
+      ...(Array.isArray(page.annotations) ? { annotations: page.annotations.map((a) => withSizes(a, LIVE_LABEL_SIZE)) } : {})
+    }
+  })
   if (record(doc.startup).mode !== 'restore' && record(doc.startup).mode !== 'none') doc.startup = { ...record(doc.startup), mode: 'none' }
   doc.layout = { preview: true, palette: true, inspector: true, ...record(doc.layout) }
   if (!Array.isArray(doc.stageObjects)) doc.stageObjects = (Array.isArray(doc.previewTrusses) ? doc.previewTrusses : []).map((raw) => { const truss = record(raw); return { ...truss, kind: 'truss', trussShape: truss.shape, fill: 'none', opacity: 1 } })

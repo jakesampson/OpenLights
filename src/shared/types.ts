@@ -162,13 +162,15 @@ export interface LiveControl {
   adHocValues?: Record<string, Record<string, number>>
   x?: number
   y?: number
+  width?: number
+  height?: number
 }
 
 export interface LivePage {
   id: string
   name: string
   controls: LiveControl[]
-  cueListWidgets?: { id: string; cueListId: string; x: number; y: number }[]
+  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number }[]
   annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number }[]
   fadeMs?: number
 }
