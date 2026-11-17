@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
-import { CueListPanel } from './components/CueListPanel'
 import { EffectsPanel } from './components/EffectsPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
 import { ProjectBar } from './components/ProjectBar'
-import { SceneGrid } from './components/SceneGrid'
 import { DesignTab } from './components/DesignTab'
 import { LiveTab } from './components/LiveTab'
 import { EditTab } from './components/EditTab'
@@ -14,6 +12,7 @@ import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
 import { configureEffects } from './lib/output'
+import { getStageTheme } from './lib/stageTheme'
 
 type Tab = 'Design' | 'Live' | 'Edit'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -67,11 +66,12 @@ export default function App() {
     stopCue
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
-  const [theme, setTheme] = useState<'purple' | 'teal'>('purple')
   const [windowMaximized, setWindowMaximized] = useState(false)
-  const [toolsOpen, setToolsOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const titleClickTimeout = useRef<number | null>(null)
+  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const theme = getStageTheme(activeScene, show?.fixtures ?? [])
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -135,6 +135,10 @@ export default function App() {
           setToolPanel(null)
           return
         }
+        if (settingsOpen) {
+          setSettingsOpen(false)
+          return
+        }
         stopCue()
         return
       }
@@ -171,9 +175,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tab, toolPanel, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
-
-  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
 
   const renderPanel = () => {
     switch (tab) {
@@ -211,14 +213,6 @@ export default function App() {
           <div className="flex h-7 w-7 items-center justify-center rounded bg-accent text-[10px] font-bold text-[#111]">
             OL
           </div>
-          <button
-            type="button"
-            className="btn-theme text-xs"
-            onClick={() => setTheme((t) => (t === 'purple' ? 'teal' : 'purple'))}
-            title="Toggle theme"
-          >
-            Theme: {theme === 'purple' ? 'Purple' : 'Teal'}
-          </button>
           <ProjectBar />
           <button
             type="button"
@@ -230,20 +224,30 @@ export default function App() {
           <div className="relative">
             <button
               type="button"
-              className={`btn-theme text-xs ${toolsOpen ? 'on' : ''}`}
-              aria-expanded={toolsOpen}
-              onClick={() => setToolsOpen((open) => !open)}
+              className={`btn-theme text-xs ${settingsOpen ? 'on' : ''}`}
+              aria-expanded={settingsOpen}
+              onClick={() => setSettingsOpen((open) => !open)}
             >
-              Tools
+              Settings
             </button>
-            {toolsOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 flex w-40 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
+            {settingsOpen && (
+              <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
+                <div className="flex items-center justify-between gap-3 px-3 py-2">
+                  <div>
+                    <div className="text-xs font-medium text-text">Appearance</div>
+                    <div className="text-[10px] text-dim">Follows the active stage preview</div>
+                  </div>
+                  <span className="rounded bg-panel2 px-2 py-1 text-[10px] font-semibold uppercase text-text">
+                    {theme}
+                  </span>
+                </div>
+                <div className="my-1 border-t border-line" />
                 <button
                   type="button"
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
                   onClick={() => {
                     setToolPanel('Automation')
-                    setToolsOpen(false)
+                    setSettingsOpen(false)
                   }}
                 >
                   Automation
@@ -253,7 +257,7 @@ export default function App() {
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
                   onClick={() => {
                     setToolPanel('MIDI')
-                    setToolsOpen(false)
+                    setSettingsOpen(false)
                   }}
                 >
                   MIDI
@@ -261,14 +265,6 @@ export default function App() {
               </div>
             )}
           </div>
-          <button
-            type="button"
-            className="btn-theme text-xs opacity-50 cursor-not-allowed"
-            disabled
-            title="Search is not implemented yet"
-          >
-            Search…
-          </button>
         </div>
 
         <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
@@ -295,14 +291,6 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           <DmxConnection />
-          <button
-            type="button"
-            className="btn-theme text-xs opacity-50 cursor-not-allowed"
-            disabled
-            title="Overrides are not implemented yet"
-          >
-            Overrides
-          </button>
           <button
             onClick={handleBlackout}
             className={`btn-panic rounded px-5 py-2 text-xs font-bold uppercase tracking-wider ${
