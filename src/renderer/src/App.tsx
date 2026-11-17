@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { CueListPanel } from './components/CueListPanel'
@@ -82,10 +82,27 @@ export default function App() {
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
   const [theme, setTheme] = useState<'purple' | 'teal'>('purple')
+  const [windowMaximized, setWindowMaximized] = useState(false)
+  const titleClickTimeout = useRef<number | null>(null)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
+
+  useEffect(() => {
+    let active = true
+    window.electronAPI
+      .getWindowMaximized()
+      .then((maximized) => {
+        if (active) setWindowMaximized(maximized)
+      })
+      .catch((error) => console.error('Failed to get window state', error))
+    const unsubscribe = window.electronAPI.onWindowMaximized(setWindowMaximized)
+    return () => {
+      active = false
+      unsubscribe()
+    }
+  }, [])
 
   useEffect(() => {
     configureEffects({
@@ -221,9 +238,24 @@ export default function App() {
         </div>
 
         <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
-          {show?.name ?? 'OpenLights'}
-          <span className="ml-2 text-[10px] font-normal text-dim">
-            {blackout ? '· Blackout' : activeScene ? `· ${activeScene.name}` : '· No scene'}
+          <span
+            className="window-title"
+            onClick={() => {
+              if (titleClickTimeout.current !== null) {
+                window.clearTimeout(titleClickTimeout.current)
+                titleClickTimeout.current = null
+                window.electronAPI.toggleWindowMaximize()
+              } else {
+                titleClickTimeout.current = window.setTimeout(() => {
+                  titleClickTimeout.current = null
+                }, 500)
+              }
+            }}
+          >
+            {show?.name ?? 'OpenLights'}
+            <span className="ml-2 text-[10px] font-normal text-dim">
+              {blackout ? '· Blackout' : activeScene ? `· ${activeScene.name}` : '· No scene'}
+            </span>
           </span>
         </div>
 
@@ -245,6 +277,47 @@ export default function App() {
           >
             {blackout ? 'RESTORE' : 'BLACKOUT'}
           </button>
+          <div className="window-controls">
+            <button
+              type="button"
+              className="window-control"
+              aria-label="Minimize window"
+              title="Minimize"
+              onClick={() => window.electronAPI.minimizeWindow()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="M3 8h10" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="window-control"
+              aria-label={windowMaximized ? 'Restore window' : 'Maximize window'}
+              title={windowMaximized ? 'Restore' : 'Maximize'}
+              onClick={() => window.electronAPI.toggleWindowMaximize()}
+            >
+              {windowMaximized ? (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M5 5h8v8H5zM3 11H2V2h9v1" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" aria-hidden="true">
+                  <path d="M3 3h10v10H3z" />
+                </svg>
+              )}
+            </button>
+            <button
+              type="button"
+              className="window-control window-control-close"
+              aria-label="Close window"
+              title="Close"
+              onClick={() => window.electronAPI.closeWindow()}
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path d="m4 4 8 8m0-8-8 8" />
+              </svg>
+            </button>
+          </div>
         </div>
       </header>
 

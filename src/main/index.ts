@@ -28,8 +28,14 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true
     },
-    titleBarStyle: 'hidden',
-    trafficLightPosition: { x: 18, y: 18 }
+    frame: false
+  })
+
+  mainWindow.on('maximize', () => {
+    mainWindow?.webContents.send('window:maximized', true)
+  })
+  mainWindow.on('unmaximize', () => {
+    mainWindow?.webContents.send('window:maximized', false)
   })
 
   if (process.env.NODE_ENV === 'development') {
@@ -43,6 +49,15 @@ function createWindow() {
     mainWindow = null
   })
 }
+
+ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
+ipcMain.on('window:minimize', () => mainWindow?.minimize())
+ipcMain.on('window:toggle-maximize', () => {
+  if (!mainWindow) return
+  if (mainWindow.isMaximized()) mainWindow.unmaximize()
+  else mainWindow.maximize()
+})
+ipcMain.on('window:close', () => mainWindow?.close())
 
 app.whenReady().then(async () => {
   // Grant MIDI permission so Web MIDI API works in the renderer

@@ -19,5 +19,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getChannels: () => ipcRenderer.invoke('get-channels'),
   disconnectDmx: () => ipcRenderer.invoke('disconnect-dmx'),
   getDmxPorts: () => ipcRenderer.invoke('get-dmx-ports'),
-  setChannels: (values: Record<number, number>) => ipcRenderer.send('set-channels', values)
+  setChannels: (values: Record<number, number>) => ipcRenderer.send('set-channels', values),
+  minimizeWindow: () => ipcRenderer.send('window:minimize'),
+  toggleWindowMaximize: () => ipcRenderer.send('window:toggle-maximize'),
+  closeWindow: () => ipcRenderer.send('window:close'),
+  getWindowMaximized: () => ipcRenderer.invoke('window:is-maximized') as Promise<boolean>,
+  onWindowMaximized: (callback: (maximized: boolean) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, maximized: boolean) => callback(maximized)
+    ipcRenderer.on('window:maximized', listener)
+    return () => ipcRenderer.removeListener('window:maximized', listener)
+  }
 })

@@ -119,6 +119,59 @@ body {
   background: var(--panel);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
+  -webkit-app-region: drag;
+}
+
+.top-bar button,
+.top-bar input,
+.top-bar select,
+.top-bar textarea,
+.top-bar a,
+.top-bar [role="button"] {
+  -webkit-app-region: no-drag;
+}
+
+.window-title {
+  -webkit-app-region: no-drag;
+}
+
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.window-control {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.window-control:hover {
+  background: var(--panel2);
+  color: var(--text);
+}
+
+.window-control svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+}
+
+.window-control-close:hover {
+  background: #c42b1c;
+  color: white;
 }
 
 .main-grid {
