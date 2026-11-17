@@ -9,13 +9,13 @@ export function DesignTab() {
   ];
 
   return (
-    <div className="flex flex-col gap-2 min-h-0">
+    <div className="flex h-full min-h-0 flex-col gap-2">
       {/* Fader + colour wheel + channel sliders */}
-      <div className="flex gap-3 items-stretch min-h-0">
+      <div className="flex min-h-[140px] flex-1 items-stretch gap-3">
         {/* Vertical dimmer fader */}
-        <div className="flex flex-col items-center gap-0.5 w-14 shrink-0">
+        <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
           <span className="text-[11px] text-dim uppercase font-medium">Dimmer</span>
-          <div className="fader flex-1 min-h-[100px]">
+          <div className="fader flex-1">
             <div className="fader-fill" style={{ height: '85%' }} />
           </div>
           <span className="font-mono text-[12px] text-white">80%</span>
@@ -29,7 +29,7 @@ export function DesignTab() {
         </div>
         
         {/* Vertical channel sliders */}
-        <div className="flex gap-1 flex-1 min-w-0 overflow-x-auto">
+        <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
           {channels.map((c) => (
             <div key={c.label} className="chan w-9 shrink-0">
               <span className="text-[10px] text-dim text-center leading-none">{c.label}</span>
