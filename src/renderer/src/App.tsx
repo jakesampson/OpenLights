@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
-import { EffectsPanel } from './components/EffectsPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
 import { ProjectBar } from './components/ProjectBar'
@@ -11,11 +10,11 @@ import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
 import { DesignTab } from './components/DesignTab'
 import { LiveTab } from './components/LiveTab'
-import { EditTab } from './components/EditTab'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
 import { ViewSwitch } from './components/ViewSwitch'
+import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
@@ -23,14 +22,8 @@ import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { activeCueSequenceIds } from './lib/liveDrops'
 
-type Tab = 'Design' | 'Live' | 'Edit'
+type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
-
-const bottomTabs: Array<{ id: Tab; label: string }> = [
-  { id: 'Design', label: 'Design' },
-  { id: 'Live', label: 'Live' },
-  { id: 'Edit', label: 'Edit' }
-]
 
 export default function App() {
   const {
@@ -197,34 +190,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
 
-  const renderPanel = () => {
-    if (useShowStore.getState().locked) return <LiveTab />
-    switch (tab) {
-      case 'Design':
-        return (
-          <div className="flex h-full min-h-0 flex-col gap-2">
-            <div className="min-h-0 flex-1">
-              <DesignTab />
-            </div>
-            <details className="shrink-0 rounded-lg border border-line bg-panel p-2">
-              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-dim">
-                Effects
-              </summary>
-              <div className="pt-3">
-                <EffectsPanel />
-              </div>
-            </details>
-          </div>
-        )
-      case 'Live':
-        return <LiveTab />
-      case 'Edit':
-        return <EditTab />
-      default:
-        return null
-    }
-  }
-
   const shortcuts = SHORTCUTS
   const closeToolPanel = () => setToolPanel(null)
 
@@ -242,7 +207,7 @@ export default function App() {
             const state = useShowStore.getState()
             if (result.type === 'fixture' || result.type === 'group') { state.selectFixtures(result.type === 'fixture' ? [result.id] : (state.show?.fixtures ?? []).filter((f) => f.group === result.id).map((f) => f.id)); setTab('Design') }
             else if (result.type === 'page' || result.pageId) { state.selectLivePage(result.pageId ?? result.id); setTab('Live') }
-            else { if (result.listId || result.type === 'cueList') state.setActiveCueList(result.listId ?? result.id); setTab('Edit') }
+            else if (result.listId || result.type === 'cueList') { state.setActiveCueList(result.listId ?? result.id); setTab('Live') }
             requestAnimationFrame(() => {
               const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(result.id)}"]`)
               if (!target) return
@@ -371,10 +336,10 @@ export default function App() {
         </div>
       </header>
 
-      <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
+      <WorkspaceToolbar view={tab} onView={(view) => { if (view !== 'Edit') setTab(view) }} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <StagePreview />}
+        {show?.layout?.preview !== false && <div className="preview-stack"><StagePreview />{tab === 'Design' && useShowStore.getState().selectedFixtureIds.length > 0 && <div className="design-property-overlay"><DesignTab /></div>}</div>}
 
         <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
@@ -388,12 +353,13 @@ export default function App() {
       </div>
 
       {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
-      <ViewSwitch view={tab} onView={setTab} />
+      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') setTab(view) }} />
 
       {/* Bottom row */}
       <div className="bottom-grid">
-        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
-          <div className="flex-1 min-h-0 overflow-auto" onPointerDownCapture={() => useShowStore.getState().beginHistoryGroup()} onPointerUp={() => useShowStore.getState().endHistoryGroup()} onPointerCancel={() => useShowStore.getState().endHistoryGroup()}>{renderPanel()}</div>
+        <div className="panel playback-shell">
+          <button type="button" className="bottom-edit" onClick={() => window.dispatchEvent(new CustomEvent('openlights-edit-sidebar', { detail: tab }))}>Edit</button>
+          <BottomPlayback view={tab} />
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">

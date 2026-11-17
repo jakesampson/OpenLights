@@ -184,7 +184,7 @@ body {
   gap: 12px;
   padding: 0 12px 12px;
   flex: 0 0 auto;
-  height: 340px;
+  height: 260px;
   min-height: 0;
 }
 
@@ -229,24 +229,46 @@ body {
 .view-switch-segment {
   position: relative;
   z-index: 6;
-  min-height: 30px;
-  padding: 4px 22px;
-  border: 1px solid var(--line);
-  background: var(--panel2);
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 0;
+  background: var(--panel);
   color: var(--text);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
   cursor: pointer;
   transform: translateY(-50%);
 }
 
-.view-switch-segment:first-child { border-radius: 8px 0 0 8px; }
-.view-switch-segment:last-of-type { border-radius: 0 8px 8px 0; border-left: none; }
-.view-switch-segment.on { background: var(--accent); color: #111; border-color: var(--accent); }
+.view-switch-segment:first-child { border-radius: 5px 0 0 5px; }
+.view-switch-segment:last-of-type { border-radius: 0 5px 5px 0; }
+.view-switch-segment.on { background: var(--text); color: var(--bg); }
 .view-switch-segment:focus-visible { outline: 2px solid var(--sel); outline-offset: 1px; }
 .view-switch-caret { margin-left: 6px; font-size: 10px; }
+
+.preview-stack { position: relative; min-height: 0; overflow: hidden; }
+.preview-stack > .stage { height: 100%; }
+.design-property-overlay { position: absolute; left: 12px; bottom: 12px; z-index: 20; width: min(720px, calc(100% - 24px)); max-height: 42%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); padding: 8px; box-shadow: 0 8px 30px #0008; }
+.playback-shell { position: relative; min-height: 0; overflow: hidden; padding: 10px; }
+.bottom-edit { position: absolute; right: 12px; top: 5px; z-index: 3; color: var(--dim); font-size: 11px; }
+.playback-panel { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; }
+.playback-master { display: grid; grid-template-rows: auto 1fr auto auto; justify-items: center; min-height: 0; gap: 3px; color: var(--dim); font-size: 10px; }
+.playback-master input { appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 38px; min-height: 70px; accent-color: var(--text); }
+.playback-master strong, .playback-master button { width: 100%; border-radius: 4px; background: var(--panel2); padding: 4px; text-align: center; color: var(--text); }
+.playback-content { min-width: 0; min-height: 0; overflow: auto; padding-top: 12px; }
+.scene-playback-grid, .live-playback-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 6px; }
+.scene-playback-grid button, .live-playback-grid button, .live-playback-grid label { display: flex; min-height: 54px; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 5px; background: color-mix(in srgb, var(--scene-colour, var(--panel2)) 28%, var(--panel2)); color: var(--text); }
+.scene-playback-grid button span { font-size: 9px; color: var(--dim); }
+.scene-playback-grid button.active, .live-playback-grid button.active { background: var(--text); color: var(--bg); }
+.cuelist-playback { position: relative; display: grid; gap: 1px; padding-right: 58px; font-size: 11px; }
+.cuelist-head, .cuelist-playback > button { display: grid; grid-template-columns: 1fr 100px 100px; gap: 8px; padding: 4px 8px; text-align: left; }
+.cuelist-head { color: var(--dim); border-bottom: 1px solid var(--line); }
+.cuelist-playback > button.active { background: var(--panel2); }
+.cuelist-transport { position: absolute; right: 4px; top: 2px; display: grid; gap: 5px; }
+.cuelist-transport button { width: 42px; height: 32px; border-radius: 5px; background: var(--panel2); }
+.scene-tree-edit { opacity: 0; }
+.group:hover > .scene-tree-edit, .scene-tree-edit:focus-visible { opacity: 1; }
 
 .view-switch-pages {
   position: absolute;

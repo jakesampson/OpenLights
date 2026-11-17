@@ -4,7 +4,7 @@ import { FixtureGroups } from './FixtureGroups'
 import { useShowStore } from '../stores/showStore'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { getPresetColor } from '../lib/presetColor'
-import type { EffectDef, FixtureDef } from '@shared/types'
+import type { EffectDef, FixtureDef, SceneDef } from '@shared/types'
 
 const TYPE_COLORS: Record<FixtureDef['type'], string> = {
   par: '#ffa07a',
@@ -25,6 +25,7 @@ interface Child {
   active?: boolean
   activeLabel?: string
   onSelect?: (shiftKey: boolean) => void
+  onEdit?: () => void
 }
 
 interface Section {
@@ -50,10 +51,13 @@ export function GroupsPresetsPanel() {
     selectFixtures,
     updateEffect,
     addScene,
-    duplicateScene
+    duplicateScene,
+    updateScene,
+    deleteScene
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const [search, setSearch] = useState('')
+  const [editingScene, setEditingScene] = useState<SceneDef | null>(null)
   const [open, setOpen] = useState<Record<string, boolean>>({
     groups: true,
     scenes: true,
@@ -100,7 +104,8 @@ export function GroupsPresetsPanel() {
         dot: getPresetColor(s),
         hint: s.blackout ? 'blackout' : `${s.fadeMs}ms`,
         active: s.id === activeSceneId,
-        onSelect: () => goToScene(s.id)
+        onSelect: () => goToScene(s.id),
+        onEdit: () => setEditingScene(structuredClone(s))
       }))
     }
 
@@ -186,11 +191,12 @@ export function GroupsPresetsPanel() {
           {expanded && (
             <div className="flex flex-col gap-0.5 py-0.5 pl-4">
               {items.map((child) => (
+                <div className="group flex items-center gap-1 pr-1">
                 <button
                   key={child.id}
                   type="button"
                   onClick={(event) => child.onSelect?.(event.shiftKey)}
-                  className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
+                  className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
                     child.active ? 'selected' : 'hover:bg-panel2'
                   } ${child.onSelect ? 'cursor-pointer' : 'cursor-default'}`}
                   title={child.hint}
@@ -203,6 +209,8 @@ export function GroupsPresetsPanel() {
                     </span>
                   )}
                 </button>
+                {child.onEdit && <button type="button" aria-label={`Edit ${child.label}`} title={`Edit ${child.label}`} onClick={child.onEdit} className="scene-tree-edit rounded px-1.5 py-1 text-[10px] text-dim">Edit</button>}
+                </div>
               ))}
               {items.length === 0 && (
                 <div className="px-2 py-1 text-[10px] text-dim">— empty —</div>
@@ -211,6 +219,18 @@ export function GroupsPresetsPanel() {
           )}
         </div>
       )})}
+      {editingScene && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingScene(null) }}>
+        <section role="dialog" aria-modal="true" aria-label="Edit scene" className="panel w-full max-w-md p-4 shadow-2xl">
+          <header className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">Edit scene</h2><button type="button" onClick={() => setEditingScene(null)}>Close</button></header>
+          <div className="space-y-3 text-xs">
+            <label className="block">Name<input aria-label="Scene name" className="mt-1 w-full rounded border border-line bg-bg p-2" value={editingScene.name} onChange={(event) => setEditingScene({ ...editingScene, name: event.target.value })} /></label>
+            <label className="block">Fade time (ms)<input aria-label="Scene fade time" type="number" min="0" className="mt-1 w-full rounded border border-line bg-bg p-2" value={editingScene.fadeMs} onChange={(event) => setEditingScene({ ...editingScene, fadeMs: Math.max(0, Number(event.target.value)) })} /></label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={editingScene.blackout === true} onChange={(event) => setEditingScene({ ...editingScene, blackout: event.target.checked })} />Blackout scene</label>
+            <p className="text-dim">Fixture properties are adjusted from the floating Preview controls. Existing scene data is preserved.</p>
+          </div>
+          <footer className="mt-4 flex justify-between"><button type="button" className="text-red-300" onClick={() => { if (confirm(`Delete scene “${editingScene.name}”?`)) { deleteScene(editingScene.id); setEditingScene(null) } }}>Delete</button><button type="button" className="btn-theme on" onClick={() => { updateScene(editingScene.id, { name: editingScene.name.trim() || 'Untitled scene', fadeMs: editingScene.fadeMs, blackout: editingScene.blackout, fixtureValues: editingScene.fixtureValues }); setEditingScene(null) }}>Save</button></footer>
+        </section>
+      </div>}
     </div>
   )
 }
