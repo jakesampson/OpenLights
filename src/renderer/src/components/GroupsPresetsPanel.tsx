@@ -30,6 +30,7 @@ interface Section {
   title: string
   open: boolean
   children: Child[]
+  onSelectAll?: () => void
 }
 
 export function GroupsPresetsPanel() {
@@ -41,6 +42,7 @@ export function GroupsPresetsPanel() {
     selectedFixtureIds,
     goToScene,
     selectFixture,
+    selectFixtures,
     updateEffect
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
@@ -67,6 +69,7 @@ export function GroupsPresetsPanel() {
       id: `group-${name}`,
       title: `${name} · ${list.length}`,
       open: open[`group-${name}`] ?? gi === 0,
+      onSelectAll: () => selectFixtures(list.map((fixture) => fixture.id)),
       children: list.map((f) => ({
         id: f.id,
         label: f.name,
@@ -118,6 +121,7 @@ export function GroupsPresetsPanel() {
     selectedFixtureIds,
     goToScene,
     selectFixture,
+    selectFixtures,
     updateEffect
   ])
 
@@ -146,6 +150,7 @@ export function GroupsPresetsPanel() {
               {section.children.length}
             </span>
           </button>
+          {section.onSelectAll && section.open && <button type="button" onClick={section.onSelectAll} className="ml-4 self-start rounded px-2 py-1 text-[10px] text-dim hover:bg-panel2 hover:text-text">Select group</button>}
           {section.open && (
             <div className="flex flex-col gap-0.5 py-0.5 pl-4">
               {section.children.map((child) => (

@@ -15,6 +15,7 @@ export interface FixtureDef {
   channelStart: number // 1-based DMX channel
   channels: number
   group?: string
+  previewPosition?: { x: number; y: number }
 }
 
 export interface SceneDef {

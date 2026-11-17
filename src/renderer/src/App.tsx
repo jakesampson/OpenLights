@@ -365,16 +365,17 @@ export default function App() {
       {/* Bottom row */}
       <div className="bottom-grid">
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
-          <div className="flex flex-wrap gap-1 min-w-0 overflow-x-auto">
-            {bottomTabs.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => setTab(t.id)}
-                className={`btn-theme text-xs font-medium flex-shrink-0 ${tab === t.id ? 'on' : ''}`}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="relative flex h-7 shrink-0 items-center justify-center px-1" role="tablist" aria-label="Lighting workspace">
+            <div className="flex items-center gap-1 rounded-full bg-bg/40 p-0.5">
+              {bottomTabs.filter((item) => item.id !== 'Edit').map((item) => (
+                <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`rounded-full px-3 py-0.5 text-[11px] font-semibold transition-colors ${tab === item.id ? 'bg-text text-bg shadow-sm' : 'text-dim hover:text-text'}`}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            <button type="button" role="tab" aria-selected={tab === 'Edit'} onClick={() => setTab('Edit')} className={`absolute right-1 rounded-full px-3 py-1 text-[10px] font-semibold transition-colors ${tab === 'Edit' ? 'bg-text text-bg' : 'bg-panel2 text-dim hover:text-text'}`}>
+              Edit
+            </button>
           </div>
           <div className="flex-1 min-h-0 overflow-auto">{renderPanel()}</div>
         </div>

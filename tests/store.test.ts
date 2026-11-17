@@ -180,6 +180,26 @@ describe('scene output', () => {
 })
 
 describe('fixture selection and design controls', () => {
+  it('saves a preview position without changing live DMX output', () => {
+    setChannels.mockClear()
+    useShowStore.getState().setFixturePosition('f1', { x: 300, y: 120 })
+    expect(useShowStore.getState().show?.fixtures[0].previewPosition).toEqual({ x: 300, y: 120 })
+    expect(setChannels).not.toHaveBeenCalled()
+  })
+
+  it('stores a dimmer preview colour without sending extra DMX channels', () => {
+    const show = makeShow()
+    show.fixtures = [{ id: 'd', name: 'Dimmer', type: 'dimmer', channelStart: 20, channels: 1 }]
+    show.scenes[0].fixtureValues = { d: { intensity: 255 } }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().goToScene('s1')
+    useShowStore.getState().selectFixture('d')
+    useShowStore.getState().updateSelectedFixtures({ red: 200, green: 50, blue: 10 })
+    expect(useShowStore.getState().scenes[0].fixtureValues.d).toEqual({ intensity: 255, red: 200, green: 50, blue: 10 })
+    expect(lastPatch()[20]).toBe(255)
+    expect(lastPatch()[21]).toBeUndefined()
+  })
+
   it('replaces selection on click and adds unique fixtures on additive selection', () => {
     const store = useShowStore.getState()
     store.selectFixture('f1')

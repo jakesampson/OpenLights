@@ -40,6 +40,7 @@ interface ShowState {
   toggleBlackout: () => void
 
   selectFixture: (id: string, additive?: boolean) => void
+  selectFixtures: (ids: string[]) => void
   updateSelectedFixtures: (values: Record<string, number>) => void
   goToScene: (id: string) => void
   flashScene: (id: string) => void
@@ -51,6 +52,7 @@ interface ShowState {
 
   addFixture: (preset: FixturePreset, name?: string, group?: string) => void
   updateFixture: (id: string, patch: Partial<FixtureDef>) => void
+  setFixturePosition: (id: string, position: { x: number; y: number }) => void
   removeFixture: (id: string) => void
 
   addAutomation: (automation: AutomationDef) => void
@@ -436,6 +438,11 @@ export const useShowStore = create<ShowState>((set, get) => ({
       return { selectedFixtureIds }
     }),
 
+  selectFixtures: (ids) => set((state) => {
+    const validIds = new Set(state.show?.fixtures.map((fixture) => fixture.id) ?? [])
+    return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)) }
+  }),
+
   goToScene: (id) =>
     set((state) => {
       const scene = state.scenes.find((s) => s.id === id)
@@ -599,6 +606,15 @@ export const useShowStore = create<ShowState>((set, get) => ({
       if (active && !state.blackout) {
         sendImmediate(sceneOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
       }
+      return persistState(state, { fixtures })
+    }),
+
+  setFixturePosition: (id, position) =>
+    set((state) => {
+      if (!state.show || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return state
+      const fixtures = state.show.fixtures.map((fixture) => fixture.id === id
+        ? { ...fixture, previewPosition: { x: Math.max(0, Math.min(800, position.x)), y: Math.max(0, Math.min(340, position.y)) } }
+        : fixture)
       return persistState(state, { fixtures })
     }),
 

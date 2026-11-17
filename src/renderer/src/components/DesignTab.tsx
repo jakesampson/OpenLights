@@ -23,7 +23,8 @@ export function DesignTab() {
     activeSceneId,
     selectedFixtureIds,
     updateSelectedFixtures,
-    goToScene
+    goToScene,
+    selectFixtures
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
@@ -39,11 +40,12 @@ export function DesignTab() {
     : EMPTY_CHANNELS
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
+  const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
   const valueFor = (attribute: string) =>
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
-            (total, fixture) => total + (activeScene?.fixtureValues[fixture.id]?.[attribute] ?? 0),
+            (total, fixture) => total + (activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
             0
           ) / selectedFixtures.length
         )
@@ -54,7 +56,7 @@ export function DesignTab() {
     green: valueFor('green'),
     blue: valueFor('blue')
   }
-  const colorSupported = ['red', 'green', 'blue'].every((attribute) =>
+  const colorSupported = previewOnlyColor || ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
   )
   const wheelPosition = colorWheelPosition(colorValues)
@@ -82,6 +84,8 @@ export function DesignTab() {
             : 'Select fixture(s) on stage'}
         </span>
         <div className="flex items-center gap-2">
+          <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={fixtures.length === 0} onClick={() => selectFixtures(fixtures.map((fixture) => fixture.id))}>Select all</button>
+          <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={selectedFixtureIds.length === 0} onClick={() => selectFixtures([])}>Clear</button>
           <label htmlFor="design-scene" className="text-[10px] text-dim">Scene</label>
           <select id="design-scene" value={activeSceneId ?? ''} onChange={(e) => { if (e.target.value) goToScene(e.target.value) }} className="max-w-40 rounded border border-line bg-panel2 px-2 py-1 text-xs text-text">
             <option value="">No scene selected</option>
@@ -113,7 +117,7 @@ export function DesignTab() {
         </div>
 
         <div className="flex shrink-0 flex-col items-center gap-0.5">
-          <span className="text-[11px] font-medium uppercase text-dim">Colour</span>
+          <span className="text-[11px] font-medium uppercase text-dim">{previewOnlyColor ? 'Preview colour' : 'Colour'}</span>
           <div className="wheel relative" style={{ width: 84, height: 84 }}>
             <input
               type="color"
@@ -145,7 +149,7 @@ export function DesignTab() {
         <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
           {channelAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
-              No common channels
+              {selectedFixtures.length > 0 ? 'No additional common channels' : 'Select fixtures in the preview to access controls'}
             </div>
           ) : (
             channelAttributes.map((attribute) => {

@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { previewFixtureValues } from '../lib/previewOutput'
 import { useShowStore } from '../stores/showStore'
 import type { FixtureDef, SceneDef } from '@shared/types'
 
@@ -24,8 +25,11 @@ function averageAttribute(values: Record<string, number>, attribute: string) {
   return attributes.reduce((total, key) => total + values[key], 0) / attributes.length
 }
 
-function fixtureColor(values?: Record<string, number>): string {
+export function fixtureColor(values?: Record<string, number>, dimmerOnly = false): string {
   if (!values) return '#5d3a72'
+  if (dimmerOnly && !['red', 'green', 'blue'].some((attribute) => typeof values?.[attribute] === 'number')) {
+    values = { ...values, red: 255, green: 255, blue: 255 }
+  }
   const dim = clamp(values.intensity ?? 255, 0, 255) / 255
   const white = values.white ?? 0
   const amber = values.amber ?? 0
@@ -63,7 +67,37 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview() {
-  const { show, activeSceneId, selectedFixtureIds, selectFixture } = useShowStore()
+  const { show, activeSceneId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePosition } = useShowStore()
+  const [editing, setEditing] = useState(false)
+  const [outputChannels, setOutputChannels] = useState<number[]>([])
+  useEffect(() => {
+    let alive = true
+    let pending = false
+    const readOutput = async () => {
+      if (pending || !window.electronAPI?.getChannels) return
+      pending = true
+      try { const values = await window.electronAPI.getChannels(); if (alive) setOutputChannels(values) }
+      catch { /* Keep the last known output if the bridge is unavailable. */ }
+      finally { pending = false }
+    }
+    void readOutput()
+    const timer = window.setInterval(readOutput, 100)
+    return () => { alive = false; window.clearInterval(timer) }
+  }, [])
+  const [zoom, setZoom] = useState(1)
+  const [dragPosition, setDragPosition] = useState<{ id: string; position: Pos } | null>(null)
+  const svgRef = useRef<SVGSVGElement>(null)
+  const dragRef = useRef<{ id: string; position: Pos } | null>(null)
+  const pointAt = (event: React.PointerEvent) => {
+    const svg = svgRef.current
+    const matrix = svg?.getScreenCTM()
+    if (!svg || !matrix) return null
+    const point = svg.createSVGPoint()
+    point.x = event.clientX
+    point.y = event.clientY
+    const result = point.matrixTransform(matrix.inverse())
+    return { x: Math.round(clamp(result.x, 0, 800)), y: Math.round(clamp(result.y, 0, 340)) }
+  }
   const fixtures: FixtureDef[] = show?.fixtures ?? []
   const scenes: SceneDef[] = show?.scenes ?? []
   const activeScene = activeSceneId ? scenes.find((s) => s.id === activeSceneId) : null
@@ -75,12 +109,12 @@ export function StagePreview() {
     return positions.map((pos, i) => {
       if (fixtures.length > 0) {
         const f = fixtures[i]
-        const values = activeScene?.fixtureValues[f.id]
+        const values = previewFixtureValues(f, outputChannels, activeScene?.fixtureValues[f.id])
         return {
           ...f,
-          pos: { x: pos.x, y: pos.y },
-          intensity: values?.intensity ?? (activeScene ? 255 : 140),
-          color: values ? fixtureColor(values) : '#b79bc4'
+          pos: dragPosition?.id === f.id ? dragPosition.position : f.previewPosition ?? pos,
+          intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
+          color: fixtureColor(values, f.type === 'dimmer')
         }
       }
       return {
@@ -94,13 +128,27 @@ export function StagePreview() {
         color: '#c24bd6'
       }
     })
-  }, [fixtures, activeScene])
+  }, [fixtures, activeScene, dragPosition, outputChannels])
 
   return (
     <div className="panel stage min-h-0 overflow-hidden relative bg-bg p-2">
+      <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
+        <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span>
+        <button type="button" onClick={() => { setEditing(!editing); setDragPosition(null); dragRef.current = null }} className={`rounded px-2 py-1 text-xs ${editing ? 'bg-text text-bg' : 'bg-panel2 text-text'}`} aria-pressed={editing}>{editing ? 'Done' : 'Edit layout'}</button>
+        {editing && <span className="rounded bg-bg/80 px-2 py-1 text-[10px] text-dim">Drag fixtures to position them</span>}
+      </div>
+      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded bg-bg/80 p-1">
+        <button type="button" aria-label="Zoom out preview" onClick={() => setZoom((z) => Math.max(1, z - 0.25))} className="px-2 text-sm text-text">−</button>
+        <button type="button" onClick={() => setZoom(1)} className="px-1 text-[10px] text-dim" title="Reset preview zoom">{Math.round(zoom * 100)}%</button>
+        <button type="button" aria-label="Zoom in preview" onClick={() => setZoom((z) => Math.min(2, z + 0.25))} className="px-2 text-sm text-text">+</button>
+      </div>
       <svg
+        ref={svgRef}
         className="h-full w-full"
-        viewBox="0 0 800 340"
+        viewBox={`${400 - 400 / zoom} ${170 - 170 / zoom} ${800 / zoom} ${340 / zoom}`}
+        onPointerMove={(event) => { if (!dragRef.current) return; const position = pointAt(event); if (position) { dragRef.current = { ...dragRef.current, position }; setDragPosition(dragRef.current) } }}
+        onPointerUp={(event) => { if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPosition(null); setFixturePosition(drag.id, drag.position); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+        onPointerCancel={() => { dragRef.current = null; setDragPosition(null) }}
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Stage glow background */}
@@ -110,7 +158,7 @@ export function StagePreview() {
             <stop offset="100%" stopColor="var(--bg)" stopOpacity="0" />
           </radialGradient>
         </defs>
-        <rect x="0" y="0" width="800" height="340" fill="url(#stageGlow)" />
+        <rect x="0" y="0" width="800" height="340" fill="url(#stageGlow)" onClick={() => { if (!editing) selectFixtures([]) }} />
 
         {/* Truss curves */}
         <path d="M 40 80 Q 400 38 760 80" fill="none" stroke="var(--line)" strokeWidth="3" />
@@ -137,12 +185,13 @@ export function StagePreview() {
               tabIndex={selectable ? 0 : undefined}
               aria-label={selectable ? f.name : undefined}
               aria-pressed={selectable ? selected : undefined}
-              style={selectable ? { cursor: 'pointer' } : undefined}
+              style={selectable ? { cursor: editing ? 'grab' : 'pointer', touchAction: 'none' } : undefined}
+              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); const position = pointAt(event); if (position) { dragRef.current = { id: f.id, position }; setDragPosition(dragRef.current); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
               onClick={
                 selectable
                   ? (event) => {
                       event.stopPropagation()
-                      selectFixture(f.id, event.shiftKey)
+                      if (!editing) selectFixture(f.id, event.shiftKey)
                     }
                   : undefined
               }
@@ -166,6 +215,7 @@ export function StagePreview() {
                   strokeWidth="1"
                 />
               )}
+              {selectable && <text x={x} y={y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.name}</text>}
               {selected && (
                 <circle
                   cx={x}
@@ -218,3 +268,4 @@ export function StagePreview() {
     </div>
   )
 }
+
