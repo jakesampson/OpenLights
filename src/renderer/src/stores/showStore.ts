@@ -1,6 +1,7 @@
-import type { FanDef, LiveObjectStyle } from '@shared/types'
+import type { FanDef, FrameConfig, LiveObjectStyle } from '@shared/types'
 import { scenesToPresets } from '@shared/sceneConversion'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
+import { exclusiveSiblings, liveOutputLevels, setFrameConfig } from '../lib/liveFrames'
 import {
   copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
   objectsInRect, pasteObjects, renameObject, resizeObject, setAttachment, setObjectStyle,
@@ -94,6 +95,7 @@ interface ShowState {
   showForSave: () => ShowDef | null
   setLivePages: (pages: LivePage[]) => void
   setLiveValue: (id: string, value: number) => void
+  getLiveOutputLevels: () => Record<string, number>
   clearLiveValues: () => void
   selectLivePage: (id: string | null) => void
   setPageSwitchMode: (deactivateOnSwitch: boolean) => void
@@ -106,6 +108,7 @@ interface ShowState {
   renamePageObject: (ref: PageObjectRef, name: string) => void
   attachPageObject: (ref: PageObjectRef, targetId: string | null) => void
   setPageObjectStyle: (ref: PageObjectRef, patch: Partial<LiveObjectStyle>) => void
+  configureFrame: (frameId: string, patch: Partial<FrameConfig>) => void
   deleteSelectedPageObjects: () => void
   duplicateSelectedPageObjects: () => void
   copySelectedPageObjects: () => void
@@ -611,7 +614,20 @@ const actions: ShowState = {
   },
   setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
   updateProject: (patch) => set((state) => persistState(state, patch)),
-  setLiveValue: (id, value) => set((state) => ({ activeLiveValues: { ...state.activeLiveValues, [id]: clamp(value) } })),
+  setLiveValue: (id, value) => set((state) => {
+    const level = clamp(value)
+    const activeLiveValues = { ...state.activeLiveValues, [id]: level }
+    // Activating a cue in an exclusive frame releases the frame's other cues.
+    if (level > 0) for (const page of state.show?.livePages ?? []) {
+      if (!page.controls.some((cue) => cue.id === id)) continue
+      for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
+    }
+    return { activeLiveValues }
+  }),
+  getLiveOutputLevels: () => {
+    const state = get()
+    return liveOutputLevels(state.show?.livePages, state.activeLiveValues)
+  },
   clearLiveValues: () => set((state) => {
     const pageActiveValues = { ...state.pageActiveValues }
     if (state.activeLivePageId) delete pageActiveValues[state.activeLivePageId]
@@ -666,6 +682,11 @@ const actions: ShowState = {
     const page = activeLivePage(state)
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? setObjectStyle(page, ref, patch) : item))
+  }),
+  configureFrame: (frameId, patch) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? setFrameConfig(page, frameId, patch) : item))
   }),
   deleteSelectedPageObjects: () => set((state) => {
     const page = activeLivePage(state)
@@ -1513,7 +1534,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   for (const command of editingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown

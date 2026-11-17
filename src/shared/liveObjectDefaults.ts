@@ -1,4 +1,4 @@
-import type { LiveDefaultStyles, LiveObjectKind, LiveObjectStyle } from './types'
+import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle } from './types'
 
 /** Default and bounds for Live page object sizes (in page pixels). */
 export const LIVE_CUE_SIZE = { width: 160, height: 90 }
@@ -33,4 +33,23 @@ export function styleFor(
   pageDefaults?: LiveDefaultStyles
 ): LiveObjectStyle {
   return { ...DEFAULT_OBJECT_STYLES[kind], ...pageDefaults?.[kind], ...style }
+}
+
+/** Built-in frame configuration; a frame with no config behaves as a normal group. */
+export const DEFAULT_FRAME_CONFIG: Required<FrameConfig> = { exclusive: false, intensity: 100, speed: 100 }
+
+/** Clamp a modifier percentage into the supported 0–200 range. */
+export function clampModifier(value: number): number {
+  if (!Number.isFinite(value)) return 100
+  return Math.max(0, Math.min(200, Math.round(value)))
+}
+
+/** Merge built-in frame defaults with a frame's own configuration. */
+export function frameConfigFor(config: FrameConfig | undefined): Required<FrameConfig> {
+  return {
+    ...DEFAULT_FRAME_CONFIG,
+    ...config,
+    intensity: clampModifier(config?.intensity ?? 100),
+    speed: clampModifier(config?.speed ?? 100)
+  }
 }

@@ -94,3 +94,32 @@ describe('live object style migration (7.8)', () => {
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })
 })
+
+describe('frame configuration migration (7.9)', () => {
+  const frameShow = () => ({
+    ...useShowStore.getState().show!,
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      controls: [{ id: 'c1', name: 'Cue', type: 'toggle', presetIds: [], x: 20, y: 20 }],
+      annotations: [
+        { id: 'f1', type: 'frame', text: 'Frame', x: 20, y: 100, width: 200, height: 100 },
+        { id: 'f2', type: 'frame', text: 'Configured', x: 20, y: 250, width: 200, height: 100, frame: { exclusive: true, intensity: 42 } }
+      ]
+    }]
+  })
+
+  it('fills frame defaults while keeping existing configuration', () => {
+    const show: any = migrateShow(frameShow())
+    const annotations = show.livePages[0].annotations
+    expect(annotations[0].frame).toEqual({ exclusive: false, intensity: 100, speed: 100 })
+    expect(annotations[1].frame).toEqual({ exclusive: true, intensity: 42, speed: 100 })
+    expect(show.livePages[0].controls[0].frame).toBeUndefined()
+  })
+
+  it('is idempotent and does not bump schemaVersion', () => {
+    const once: any = migrateShow(frameShow())
+    expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})

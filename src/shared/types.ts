@@ -165,6 +165,16 @@ export interface LiveObjectStyle {
 export type LiveObjectKind = 'cue' | 'list' | 'label' | 'frame'
 export type LiveDefaultStyles = Partial<Record<LiveObjectKind, LiveObjectStyle>>
 
+/** Configuration for a frame annotation (7.9). Percentages default to 100. */
+export interface FrameConfig {
+  /** When true, activating one cue in the frame releases the others. */
+  exclusive?: boolean
+  /** Intensity modifier applied to cues in the frame, as a percentage (0–200). */
+  intensity?: number
+  /** Speed modifier for effects on cues in the frame, as a percentage (0–200). */
+  speed?: number
+}
+
 export interface LiveControl {
   id: string
   name: string
@@ -186,7 +196,7 @@ export interface LivePage {
   name: string
   controls: LiveControl[]
   cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string; style?: LiveObjectStyle }[]
-  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string; style?: LiveObjectStyle }[]
+  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string; style?: LiveObjectStyle; frame?: FrameConfig }[]
   fadeMs?: number
   /** Styles applied to newly created objects on this page (7.8). */
   defaultStyles?: LiveDefaultStyles

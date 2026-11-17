@@ -1,8 +1,8 @@
 /** Missing versions are legacy version 0. */
 export const CURRENT_SCHEMA_VERSION = 1
 import { BUILTIN_PROFILES } from './fixtureProfiles'
-import { LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
-import type { LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
+import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
+import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
@@ -25,8 +25,9 @@ export function migrateShow(raw: unknown): ShowDef {
       doc[key] = []
     }
   }
-  // Live page objects gained explicit width/height and text styles; older show
-  // files only had positions. Fill additive defaults without discarding values.
+  // Live page objects gained explicit width/height, text styles and frame
+  // configuration; older show files only had positions. Fill additive defaults
+  // without discarding values.
   doc.livePages = (doc.livePages as unknown[]).map((rawPage) => {
     const page = record(rawPage)
     const pageDefaults = record(page.defaultStyles) as LiveDefaultStyles
@@ -36,7 +37,8 @@ export function migrateShow(raw: unknown): ShowDef {
         ...object,
         width: validLiveSize(object.width) ? object.width : size.width,
         height: validLiveSize(object.height) ? object.height : size.height,
-        style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults)
+        style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults),
+        ...(kind === 'frame' ? { frame: frameConfigFor(record(object.frame) as FrameConfig | undefined) } : {})
       }
     }
     return {

@@ -20,6 +20,7 @@ import { configureSequences, configureEffects, configurePresetOutput, configureL
 import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
+import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 
 type Tab = 'Design' | 'Live' | 'Edit'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -124,9 +125,10 @@ export default function App() {
 
   useEffect(() => {
     const patch: Record<number, number> = {}
+    const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
     for (const page of show?.livePages ?? []) for (const control of page.controls) {
-      const level = activeLiveValues[control.id] ?? 0
-      if (!level && !(control.type === 'fader' && control.id in activeLiveValues)) continue
+      const level = outputLevels[control.id] ?? 0
+      if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const scene = scenes.find((item) => item.id === control.sceneId)
       if (scene && !scene.blackout) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], scene, scaledMaster))
@@ -138,7 +140,8 @@ export default function App() {
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
-    const pageFade = show?.livePages?.find((page) => page.id === activeLivePageId)?.fadeMs ?? 0
+    const activePage = show?.livePages?.find((page) => page.id === activeLivePageId)
+    const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? 0)
     configureLiveOutput(patch, changed ? pageFade : 0)
   }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, activeLivePageId, master])
 

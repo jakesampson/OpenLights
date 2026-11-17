@@ -618,3 +618,70 @@ describe('attaching and styling page objects (7.7, 7.8)', () => {
     expect(page().controls[0].style).toMatchObject({ bold: false, fontSize: 12 })
   })
 })
+
+describe('frame exclusivity and modifiers (7.9)', () => {
+  const frameShow = () => ({
+    ...makeShow(),
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      controls: [
+        { id: 'in1', name: 'In one', type: 'toggle' as const, presetIds: [], x: 100, y: 100 },
+        { id: 'in2', name: 'In two', type: 'toggle' as const, presetIds: [], x: 120, y: 200 },
+        { id: 'out', name: 'Outside', type: 'toggle' as const, presetIds: [], x: 400, y: 100 }
+      ],
+      annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 100, y: 100, width: 200, height: 200 }]
+    }]
+  })
+  const page = () => useShowStore.getState().show!.livePages![0]
+  const values = () => useShowStore.getState().activeLiveValues
+
+  it('releases sibling cues when activating a cue in an exclusive frame', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().configureFrame('frame', { exclusive: true })
+    useShowStore.getState().setLiveValue('in1', 255)
+    useShowStore.getState().setLiveValue('in2', 255)
+    expect(values().in2).toBe(255)
+    expect(values().in1).toBeUndefined()
+    expect(values().out).toBeUndefined()
+    // A cue outside the frame is unaffected by exclusivity.
+    useShowStore.getState().setLiveValue('out', 200)
+    useShowStore.getState().setLiveValue('in2', 200)
+    expect(values().out).toBe(200)
+    expect(values().in1).toBeUndefined()
+  })
+
+  it('does not release siblings in a non-exclusive frame', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().setLiveValue('in1', 255)
+    useShowStore.getState().setLiveValue('in2', 255)
+    expect(values().in1).toBe(255)
+    expect(values().in2).toBe(255)
+  })
+
+  it('deactivating a cue (level 0) does not release siblings', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().configureFrame('frame', { exclusive: true })
+    useShowStore.getState().setLiveValue('in1', 255)
+    useShowStore.getState().setLiveValue('in1', 0)
+    expect(values().in1).toBe(0)
+    expect(values().in2).toBeUndefined()
+  })
+
+  it('scales output levels by a frame intensity modifier without changing raw levels', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().configureFrame('frame', { intensity: 50 })
+    useShowStore.getState().setLiveValue('in1', 200)
+    useShowStore.getState().setLiveValue('out', 200)
+    expect(useShowStore.getState().getLiveOutputLevels()).toMatchObject({ in1: 100, out: 200 })
+    expect(values().in1).toBe(200)
+  })
+
+  it('stores frame configuration through a history-gated action', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().configureFrame('frame', { exclusive: true, intensity: 60, speed: 120 })
+    expect(page().annotations![0].frame).toEqual({ exclusive: true, intensity: 60, speed: 120 })
+    useShowStore.getState().undo()
+    expect(page().annotations![0].frame).toEqual({ exclusive: false, intensity: 100, speed: 100 })
+  })
+})
