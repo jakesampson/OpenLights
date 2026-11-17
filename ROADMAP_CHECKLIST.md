@@ -262,8 +262,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 ## 7. Live view pages (guide ch.11, p.177 to 190)
 
 - [x] 7.1 Page manager: add, rename, reorder (up/down), duplicate, delete with confirm, and per-page fade time. *(Evidence: `LiveWorkspace.tsx`, commit `9513318`.)*
-- [ ] 7.2 Active-state behaviour when switching pages: by default restore each page's active cues when you return to it, with a show setting to deactivate cues when switching; crossfade outgoing and incoming page output using the page fade. Guide: Live view pages, p.177 to 178. (Right now `selectLivePage` clears `activeLiveValues`, so cues are deactivated.)
+- [x] 7.2 Active-state behaviour when switching pages: by default restore each page's active cues when you return to it, with a show setting to deactivate cues when switching; crossfade outgoing and incoming page output using the page fade. Guide: Live view pages, p.177 to 178. (Right now `selectLivePage` clears `activeLiveValues`, so cues are deactivated.)
   Done when: store and output tests cover restore on, restore off, crossfade timing, and blackout and project change during a page fade.
+  Evidence: `lib/pageSwitch.ts` (immutable per-page active-level memory, restore vs deactivate, prune deleted pages), store `pageActiveValues` + `setPageSwitchMode` setting + "Deactivate cues when switching pages" checkbox in Manage pages; `App.tsx` applies the incoming page fade on switch; `tests/pageSwitch.test.ts`, `tests/pageFade.test.ts` (crossfade timing, blackout, project change) and `tests/store.test.ts`; typecheck, 220 tests and build passed; desktop check on Needs Jake.
 - [x] 7.3 Add cue buttons, cue list widgets, text labels and frames to a page, and drag to move them with snap to grid. *(Evidence: `LiveWorkspace.tsx` addControl/addList/addAnnotation, beginDrag.)*
 - [x] 7.4 Drag a preset onto empty page space to create a cue, or onto an existing cue to add it. *(Evidence: `LiveWorkspace.tsx` onDrop handlers.)*
 - [ ] 7.5 Multi-select on the page (Shift-click, marquee), and move, delete, duplicate, copy and paste several objects. Guide: Select objects, p.183, through Delete objects, p.187.
@@ -354,6 +355,7 @@ The agent never waits on these. It adds a line here (item number plus what to ch
 - [ ] (Jake) Visual check of the bottom-centre Design/Live switch against `docs/reference/lightkey-design-live-switch.png`: placement on the Preview/bottom divider, segmented look in Design view, chevron dropdown in Live view, and page manager pick/add/rename/reorder (2.4a).
 - [ ] (Jake) Preset palette Export/Import JSON click-through in Live edit mode: export a palette, import it into a show with renamed fixture ids, and confirm values re-map by name/profile and an unmatched fixture is skipped and reported (6.13).
 - [ ] (Jake) Click "Convert scenes" in the Live palette and confirm presets appear with the same looks while the originals remain in Scenes & cues (6.14).
+- [ ] (Jake) Live page switching click-through (7.2): active cues restore when you return to a page by default, the "Deactivate cues when switching pages" checkbox releases them instead, and the page fade visibly crossfades outgoing/incoming looks (check blackout and opening another project mid-fade).
 - [ ] (Jake) Multi-window check for Live windows and window restore (after 2.6).
 - [ ] (Jake) Lock mode check on the Live machine (after 2.8).
 

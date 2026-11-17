@@ -182,6 +182,8 @@ export interface ShowDef {
   favoriteProfileIds?: string[]
   stageObjects?: StageObject[]
   layout?: { preview: boolean; palette: boolean; inspector: boolean }
+  /** When true, switching Live pages releases cues instead of restoring that page's active levels. */
+  deactivateOnPageSwitch?: boolean
   startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; sceneId?: string | null }
   schemaVersion?: number // Missing in legacy version-0 project inputs.
   id: string

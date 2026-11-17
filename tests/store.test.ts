@@ -392,3 +392,47 @@ describe('convert scenes to presets (6.14)', () => {
     expect(useShowStore.getState().presets).toHaveLength(2)
   })
 })
+
+describe('Live page active-state behaviour (7.2)', () => {
+  const pagesShow = () => ({
+    ...makeShow(),
+    livePages: [
+      { id: 'a', name: 'A', controls: [{ id: 'c1', name: 'One', type: 'toggle' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 },
+      { id: 'b', name: 'B', controls: [{ id: 'c2', name: 'Two', type: 'toggle' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 }
+    ]
+  })
+
+  it('restores each page\'s active cues by default', () => {
+    useShowStore.getState().setShow(pagesShow())
+    useShowStore.getState().setLiveValue('c1', 200)
+    useShowStore.getState().selectLivePage('b')
+    expect(useShowStore.getState().activeLiveValues).toEqual({})
+    useShowStore.getState().setLiveValue('c2', 90)
+    useShowStore.getState().selectLivePage('a')
+    expect(useShowStore.getState().activeLiveValues).toEqual({ c1: 200 })
+    useShowStore.getState().selectLivePage('b')
+    expect(useShowStore.getState().activeLiveValues).toEqual({ c2: 90 })
+  })
+
+  it('deactivates and forgets cues when the show setting is on', () => {
+    useShowStore.getState().setShow(pagesShow())
+    useShowStore.getState().setPageSwitchMode(true)
+    useShowStore.getState().setLiveValue('c1', 200)
+    useShowStore.getState().selectLivePage('b')
+    expect(useShowStore.getState().activeLiveValues).toEqual({})
+    expect(useShowStore.getState().pageActiveValues.a).toBeUndefined()
+    useShowStore.getState().selectLivePage('a')
+    expect(useShowStore.getState().activeLiveValues).toEqual({})
+    expect(useShowStore.getState().show?.deactivateOnPageSwitch).toBe(true)
+  })
+
+  it('clears remembered levels on a project change', () => {
+    useShowStore.getState().setShow(pagesShow())
+    useShowStore.getState().setLiveValue('c1', 200)
+    useShowStore.getState().selectLivePage('b')
+    expect(Object.keys(useShowStore.getState().pageActiveValues)).toContain('a')
+    useShowStore.getState().setShow(pagesShow())
+    expect(useShowStore.getState().pageActiveValues).toEqual({})
+    expect(useShowStore.getState().activeLiveValues).toEqual({})
+  })
+})

@@ -1,5 +1,6 @@
 import type { FanDef } from '@shared/types'
 import { scenesToPresets } from '@shared/sceneConversion'
+import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
 import { sequenceOrder } from '../lib/sequenceClock'
@@ -60,6 +61,7 @@ interface ShowState {
   activePresetIds: string[]
   activeLiveValues: Record<string, number>
   activeLivePageId: string | null
+  pageActiveValues: PageActiveValues
   manualOverrides: Record<string, Record<string, number>>
   automations: AutomationDef[]
   effects: EffectDef[]
@@ -87,6 +89,7 @@ interface ShowState {
   setLiveValue: (id: string, value: number) => void
   clearLiveValues: () => void
   selectLivePage: (id: string | null) => void
+  setPageSwitchMode: (deactivateOnSwitch: boolean) => void
   setManualOverrides: (values: Record<string, number>) => void
   clearManualOverrides: () => void
   releaseManualOverrides: (fixtureIds?: string[], property?: string) => void
@@ -506,6 +509,7 @@ const actions: ShowState = {
   activePresetIds: [],
   activeLiveValues: {},
   activeLivePageId: null,
+  pageActiveValues: {},
   manualOverrides: {},
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
@@ -544,6 +548,7 @@ const actions: ShowState = {
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
       activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
+      pageActiveValues: {},
       manualOverrides: {},
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
@@ -569,11 +574,23 @@ const actions: ShowState = {
     if (!state.show || state.show.startup?.mode !== 'restore') return state.show
     return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, sceneId: state.activeSceneId } }
   },
-  setLivePages: (livePages) => set((state) => persistState(state, { livePages })),
+  setLivePages: (livePages) => set((state) => ({
+    ...persistState(state, { livePages }),
+    pageActiveValues: prunePageValues(state.pageActiveValues, livePages.map((page) => page.id))
+  })),
   updateProject: (patch) => set((state) => persistState(state, patch)),
   setLiveValue: (id, value) => set((state) => ({ activeLiveValues: { ...state.activeLiveValues, [id]: clamp(value) } })),
-  clearLiveValues: () => set({ activeLiveValues: {} }),
-  selectLivePage: (id) => set((state) => id === state.activeLivePageId ? state : { activeLivePageId: id, activeLiveValues: {} }),
+  clearLiveValues: () => set((state) => {
+    const pageActiveValues = { ...state.pageActiveValues }
+    if (state.activeLivePageId) delete pageActiveValues[state.activeLivePageId]
+    return { activeLiveValues: {}, pageActiveValues }
+  }),
+  selectLivePage: (id) => set((state) => switchLivePage(
+    { activeLivePageId: state.activeLivePageId, activeLiveValues: state.activeLiveValues, pageActiveValues: state.pageActiveValues },
+    id,
+    state.show?.deactivateOnPageSwitch === true
+  )),
+  setPageSwitchMode: (deactivateOnSwitch) => set((state) => persistState(state, { deactivateOnPageSwitch: deactivateOnSwitch })),
   setManualOverrides: (values) => set((state) => {
     const manualOverrides = { ...state.manualOverrides }
     for (const id of state.selectedFixtureIds) {
