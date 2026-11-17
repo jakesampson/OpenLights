@@ -27,9 +27,9 @@ export function buildEnttecProFrame(data: Uint8Array): Buffer {
   return frame
 }
 
-function setBreak(port: SerialPort, active: boolean): Promise<void> {
+export function setOpenDmxBreak(port: Pick<SerialPort, 'set'>, active: boolean): Promise<void> {
   return new Promise((resolve, reject) => {
-    port.set({ brk: active }, (error) => {
+    port.set({ brk: active, rts: false }, (error) => {
       if (error) reject(error)
       else resolve()
     })
@@ -136,12 +136,15 @@ export class DMXEngine {
         })
       })
 
+      if (protocol === 'open-dmx-usb') await setOpenDmxBreak(this.port, false)
       this.connected = true
       this.emitStatus()
     } catch (e: any) {
       this.connected = false
       this.error = e?.message ?? String(e)
+      const failedPort = this.port
       this.port = null
+      if (failedPort?.isOpen) await new Promise<void>((resolve) => failedPort.close(() => resolve()))
       this.emitStatus()
       throw e
     }
@@ -303,9 +306,9 @@ export class DMXEngine {
     this.serialFrameInProgress = true
 
     try {
-      await setBreak(port, true)
+      await setOpenDmxBreak(port, true)
       await delay(1)
-      await setBreak(port, false)
+      await setOpenDmxBreak(port, false)
       await delay(1)
       if (this.port !== port || !this.connected) return
 
@@ -320,7 +323,7 @@ export class DMXEngine {
       let message = error instanceof Error ? error.message : String(error)
       if (port.isOpen) {
         try {
-          await setBreak(port, false)
+          await setOpenDmxBreak(port, false)
         } catch (clearError) {
           const clearMessage = clearError instanceof Error ? clearError.message : String(clearError)
           message = `${message}; failed to clear DMX break: ${clearMessage}`

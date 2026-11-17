@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
   DMXEngine,
   buildArtNetPacket,
   buildEnttecProFrame,
-  buildOpenDmxFrame
+  buildOpenDmxFrame,
+  setOpenDmxBreak
 } from '../src/shared/dmx'
 
 describe('Art-Net packet', () => {
@@ -121,4 +122,16 @@ it('clears test output on blackout and rejects invalid test channels', () => {
   expect(engine.snapshot()[0]).toBe(255)
   engine.blackout()
   expect(engine.snapshot().every((value) => value === 0)).toBe(true)
+})
+
+
+it('keeps RTS cleared while switching the Open DMX break', async () => {
+  const set = vi.fn((_options, callback) => callback(null))
+  const port = { set } as unknown as Parameters<typeof setOpenDmxBreak>[0]
+  await setOpenDmxBreak(port, true)
+  await setOpenDmxBreak(port, false)
+  expect(set.mock.calls.map(([options]) => options)).toEqual([
+    { brk: true, rts: false },
+    { brk: false, rts: false }
+  ])
 })
