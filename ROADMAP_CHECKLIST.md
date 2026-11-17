@@ -335,8 +335,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.8 Cuelist playback: Go, Back, jump to any cue, auto-advance with follow times, loop, cue groups, and a manual crossfade fader. Guide: Cuelist timing, p.193, Cue groups, p.192, and Live control with cuelists, p.218 to 220. (Next/prev, hold and loop exist in `showStore` and `cuePlaybackClock.ts`; extend them.)
   Done when: clock tests cover auto-follow, loop, a jump while fading, and a manual crossfade at 50%.
   Evidence: existing Go/Back/jump/follow/loop store+clock extended with cue `groupId`, manual-crossfade operator state/UI and pure `cueListPlayback.ts` patch blend/group bounds; clock jump/loop tests and `tests/cueListPlayback.test.ts`; typecheck, 335 tests and build passed.
-- [ ] 8.9 Retire the separate Scenes & cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate scenes to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.
+- [x] 8.9 Retire the separate Scenes & cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate scenes to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.
   Done when: a test opens the demo show and a version-0 show, migrates them, and gets identical DMX output for each former scene and cue step. Add a Needs Jake check on a real show.
+  Evidence: removed `EditTab.tsx`, `SceneGrid.tsx`, `CueListPanel.tsx` and toolbar entry; retained non-destructive scene→preset conversion and cuelist migration paths; `tests/editorRetirement.test.ts` verifies demo/version-0 scene and cue-step output equivalence; typecheck, 337 tests and build passed; real-show check remains on Needs Jake.
 - [ ] 8.10 Step through buttons in a frame (next/previous button), and continue effects across cues. Guide: p.216 to 217 and p.221.
   Done when: store tests cover both.
 

@@ -192,3 +192,6 @@ The selected Live cuelist widget exposes add/remove/reorder/copy/paste, scene re
 
 ### 8.8 Cuelist playback
 The existing Go/Back/direct jump, follow timer and loop behavior remain the playback authority. Follow timers are revision-keyed so a jump during an active fade/hold cancels the stale advance. Cue steps can share an optional group id. The Live cuelist transport now exposes a runtime-only manual crossfade position; the pure channel blender defines the exact 0–1 mix and is tested at 50%. Tests: `tests/cuePlaybackClock.test.ts`, `tests/cueListPlayback.test.ts`, `tests/store.test.ts`.
+
+### 8.9 Retired Scenes & cues tab
+The separate editor components and toolbar entry are removed. Scene data remains in old shows and the tested 6.14 conversion produces equivalent presets without deleting originals; legacy cue steps already migrate into the retained cuelist model. This intentionally favours non-destructive compatibility over erasing legacy arrays. Tests open both the demo and a version-0 document and compare former scene/cue-step output. A real-show reopen remains on Needs Jake. Tests: `tests/editorRetirement.test.ts`.

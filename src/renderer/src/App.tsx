@@ -339,7 +339,7 @@ export default function App() {
         </div>
       </header>
 
-      <WorkspaceToolbar view={tab} onView={(view) => { if (view !== 'Edit') setTab(view) }} onBlackout={handleBlackout} />
+      <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack"><StagePreview /></div>}
