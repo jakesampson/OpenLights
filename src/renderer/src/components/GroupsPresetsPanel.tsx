@@ -1,27 +1,8 @@
 import { useMemo, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { fixtureAttributes } from '../lib/automationRuntime'
-import type { EffectDef, FixtureDef, SceneDef } from '@shared/types'
-
-const clampByte = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
-
-function sceneColor(scene: SceneDef): string {
-  let r = 0
-  let g = 0
-  let b = 0
-  let count = 0
-  for (const values of Object.values(scene.fixtureValues)) {
-    if (!values) continue
-    const dim = clampByte(values.intensity ?? 0) / 255
-    r += (values.red ?? 0) * dim
-    g += (values.green ?? 0) * dim
-    b += (values.blue ?? 0) * dim
-    count++
-  }
-  if (!count) return '#888888'
-  const hex = (n: number) => Math.round(n / count).toString(16).padStart(2, '0')
-  return `#${hex(r)}${hex(g)}${hex(b)}`
-}
+import { getPresetColor } from '../lib/presetColor'
+import type { EffectDef, FixtureDef } from '@shared/types'
 
 const TYPE_COLORS: Record<FixtureDef['type'], string> = {
   par: '#ffa07a',
@@ -81,7 +62,7 @@ export function GroupsPresetsPanel() {
       }))
     }))
 
-    // Presets: real scenes, child dot tinted by the scene's average colour.
+    // Presets: real scenes, child dot tinted by their active RGB output.
     const sceneSection: Section = {
       id: 'scenes',
       title: `Presets · ${scenes.length}`,
@@ -89,7 +70,7 @@ export function GroupsPresetsPanel() {
       children: scenes.map((s) => ({
         id: s.id,
         label: s.name,
-        dot: sceneColor(s),
+        dot: getPresetColor(s),
         hint: s.blackout ? 'blackout' : `${s.fadeMs}ms`,
         active: s.id === activeSceneId,
         onSelect: () => goToScene(s.id)
