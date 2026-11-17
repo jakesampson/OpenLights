@@ -3,6 +3,7 @@ import { useShowStore } from '../stores/showStore'
 import { initMidi, matchMapping, describeMapping, midiAvailable } from '../lib/midi'
 import type { MidiMessage } from '../lib/midi'
 import type { MidiMapping, MidiTargetType } from '@shared/types'
+import { MidiBeatClock } from '../lib/beatGrid'
 
 interface LearnTarget {
   targetType: MidiTargetType
@@ -22,6 +23,7 @@ export function MidiPanel() {
     removeMidiMapping,
     setMaster,
     toggleBlackout
+    , setBpm
   } = useShowStore()
   const [midiState, setMidiState] = useState<MidiState>('requesting')
   const [inputs, setInputs] = useState<string[]>([])
@@ -29,6 +31,7 @@ export function MidiPanel() {
   const [learnTarget, setLearnTarget] = useState<LearnTarget | null>(null)
   const [attempt, setAttempt] = useState(0)
   const learnRef = useRef<LearnTarget | null>(null)
+  const clock = useRef(new MidiBeatClock())
 
   // Keep a ref in sync so the MIDI callback always sees the latest arm state
   useEffect(() => {
@@ -101,6 +104,9 @@ export function MidiPanel() {
         setInputs(names)
         if (names.length === 0) setMidiState('granted')
       }
+    }, (timestamp) => {
+      const bpm = clock.current.push(timestamp)
+      if (bpm !== null) setBpm(bpm)
     })
       .then((names) => {
         if (cancelled) return
@@ -119,7 +125,7 @@ export function MidiPanel() {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [handleMessage, attempt])
+  }, [handleMessage, attempt, setBpm])
 
   const armedFor = (targetId: string | null, targetType: MidiTargetType) =>
     learnTarget?.targetType === targetType && learnTarget.targetId === targetId

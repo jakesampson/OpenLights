@@ -373,8 +373,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   Done when: store tests cover each, plus an output test for two overlaid effects.
   Evidence: store-backed effect clipboard, fresh-id paste/delete and persisted templates; replace/add/max channel blending with a three-layer output test; `tests/store.test.ts` covers editing/template commands; typecheck, 355 tests and build passed.
 - [x] 9.8 Tap tempo and BPM. *(Evidence: `lib/tapTempo.ts`, `lib/bpm.ts`, `tests/tapTempo.test.ts`.)*
-- [ ] 9.9 Beat grid: set it by tapping, by an exact value, or by MIDI Beat Clock; beat-controlled sequences and effects follow it, with a beat indicator. Guide: ch.12, p.225 to 228. Ableton Link and OS2L are out of scope.
+- [x] 9.9 Beat grid: set it by tapping, by an exact value, or by MIDI Beat Clock; beat-controlled sequences and effects follow it, with a beat indicator. Guide: ch.12, p.225 to 228. Ableton Link and OS2L are out of scope.
   Done when: a MIDI clock parsing test (24 ppq to BPM) and a beat-phase test pass.
+  Evidence: exact/tap tempo feed the existing shared BPM runtime, Web MIDI now accepts `0xF8` clock pulses through `MidiBeatClock`, and the toolbar renders beat phase; `tests/beatGrid.test.ts` verifies 24 PPQ→120 BPM and anchored phase; typecheck, 357 tests and build passed.
 - [ ] 9.10 Blind mode: edit without changing live output; the Preview shows the blind state and a clear indicator marks blind. Guide: Blind mode, p.221.
   Done when: output-model tests show edits in blind not reaching DMX and committing them on exit (or discarding, per the guide; log it).
 - [ ] 9.11 Freeze output: hold the current DMX frame while cues change underneath, then resume. Guide: Freeze output, p.222.

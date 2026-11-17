@@ -9,10 +9,12 @@ export interface MidiMessage {
 
 type MessageHandler = (msg: MidiMessage) => void
 type DeviceChangeHandler = (inputs: string[]) => void
+type ClockHandler = (timestampMs: number) => void
 
 let access: MIDIAccess | null = null
 let handler: MessageHandler | null = null
 let deviceChangeHandler: DeviceChangeHandler | null = null
+let clockHandler: ClockHandler | null = null
 
 function inputNames(): string[] {
   if (!access) return []
@@ -26,7 +28,9 @@ function bindInputs() {
   access.inputs.forEach((input) => {
     input.onmidimessage = (event: MIDIMessageEvent) => {
       const data = event.data
-      if (!data || data.length < 3) return
+      if (!data || data.length === 0) return
+      if (data[0] === 0xf8) { clockHandler?.(event.timeStamp); return }
+      if (data.length < 3) return
       const status = data[0]
       const command = status & 0xf0
       const channel = (status & 0x0f) + 1
@@ -49,10 +53,12 @@ function bindInputs() {
  */
 export async function initMidi(
   onMessage: MessageHandler,
-  onDevicesChange?: DeviceChangeHandler
+  onDevicesChange?: DeviceChangeHandler,
+  onClock?: ClockHandler
 ): Promise<string[]> {
   handler = onMessage
   deviceChangeHandler = onDevicesChange ?? null
+  clockHandler = onClock ?? null
   if (!midiAvailable()) {
     throw new Error('Web MIDI is not available in this environment')
   }

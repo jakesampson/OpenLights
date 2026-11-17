@@ -225,3 +225,6 @@ Movement paths use normalized pan/tilt coordinates. Built-in circle, figure-eigh
 
 ### 9.7 Effect editing, layering and templates
 Effects have a runtime clipboard for copy/paste, while reusable templates are saved in the show document. Pasted and template-created effects receive fresh ids. The optional replace/add/max blend mode preserves replace as the legacy default and clamps additive output. Tests: `tests/store.test.ts`, `tests/effects.test.ts`.
+
+### 9.9 Beat grid
+The existing exact BPM and tap-tempo paths remain authoritative. Web MIDI now recognizes real-time `0xF8` messages even though they are one-byte messages, averages up to four beats at 24 PPQ and updates that same BPM. The toolbar indicator derives a stable phase from the shared tempo, so beat-controlled sequences and effects remain on one clock. Ableton Link and OS2L remain out of scope. Tests: `tests/beatGrid.test.ts`.
