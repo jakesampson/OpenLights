@@ -48,7 +48,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview() {
-  const { show, activeSceneId } = useShowStore()
+  const { show, activeSceneId, selectedFixtureIds, selectFixture } = useShowStore()
   const fixtures: FixtureDef[] = show?.fixtures ?? []
   const scenes: SceneDef[] = show?.scenes ?? []
   const activeScene = activeSceneId ? scenes.find((s) => s.id === activeSceneId) : null
@@ -113,8 +113,34 @@ export function StagePreview() {
           const floorFixture = y > 200
           const top = floorFixture ? y - 4 : y + 4
           const bottom = floorFixture ? y - 150 : y + 150
+          const selectable = fixtures.length > 0
+          const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
-            <g key={f.id}>
+            <g
+              key={f.id}
+              role={selectable ? 'button' : undefined}
+              tabIndex={selectable ? 0 : undefined}
+              aria-label={selectable ? f.name : undefined}
+              aria-pressed={selectable ? selected : undefined}
+              style={selectable ? { cursor: 'pointer' } : undefined}
+              onClick={
+                selectable
+                  ? (event) => {
+                      event.stopPropagation()
+                      selectFixture(f.id, event.shiftKey)
+                    }
+                  : undefined
+              }
+              onKeyDown={
+                selectable
+                  ? (event) => {
+                      if (event.key !== 'Enter' && event.key !== ' ') return
+                      event.preventDefault()
+                      selectFixture(f.id, event.shiftKey)
+                    }
+                  : undefined
+              }
+            >
               {on && (
                 <polygon
                   points={`${x - 7},${top} ${x + 7},${top} ${x + 34},${bottom} ${x - 34},${bottom}`}
@@ -125,7 +151,25 @@ export function StagePreview() {
                   strokeWidth="1"
                 />
               )}
-              <circle cx={x} cy={y} r="5" fill={on ? f.color : 'var(--panel2)'} stroke="var(--line)" strokeWidth="1.5" />
+              {selected && (
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="9"
+                  fill="var(--accent)"
+                  fillOpacity="0.22"
+                  stroke="var(--accent)"
+                  strokeWidth="2"
+                />
+              )}
+              <circle
+                cx={x}
+                cy={y}
+                r="5"
+                fill={on ? f.color : 'var(--panel2)'}
+                stroke={selected ? 'var(--accent)' : 'var(--line)'}
+                strokeWidth={selected ? '2' : '1.5'}
+              />
             </g>
           )
         })}

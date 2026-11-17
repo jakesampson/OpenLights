@@ -25,6 +25,7 @@ interface ShowState {
   bpm: number
   isPlaying: boolean
   activeSceneId: string | null
+  selectedFixtureIds: string[]
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
@@ -38,6 +39,8 @@ interface ShowState {
   setBlackout: (active: boolean) => void
   toggleBlackout: () => void
 
+  selectFixture: (id: string, additive?: boolean) => void
+  updateSelectedFixtures: (values: Record<string, number>) => void
   goToScene: (id: string) => void
   flashScene: (id: string) => void
   endFlash: () => void
@@ -207,6 +210,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
   bpm: 120,
   isPlaying: false,
   activeSceneId: null,
+  selectedFixtureIds: [],
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
   activeCueIndex: -1,
   cuePlaying: false,
@@ -228,6 +232,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
       blackout: false,
       bpm: show?.bpm ?? 120,
       activeSceneId: null,
+      selectedFixtureIds: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
       cuePlaying: false
@@ -270,6 +275,17 @@ export const useShowStore = create<ShowState>((set, get) => ({
     }),
 
   toggleBlackout: () => get().setBlackout(!get().blackout),
+
+  selectFixture: (id, additive = false) =>
+    set((state) => {
+      if (!state.show?.fixtures.some((fixture) => fixture.id === id)) return state
+      const selectedFixtureIds = additive
+        ? state.selectedFixtureIds.includes(id)
+          ? state.selectedFixtureIds
+          : [...state.selectedFixtureIds, id]
+        : [id]
+      return { selectedFixtureIds }
+    }),
 
   goToScene: (id) =>
     set((state) => {
@@ -343,6 +359,34 @@ export const useShowStore = create<ShowState>((set, get) => ({
       if (updated && state.activeSceneId === id && !state.blackout) {
         sendImmediate(sceneOutput(state, updated))
       }
+      return persistState(state, { scenes }, { scenes })
+    }),
+
+  updateSelectedFixtures: (values) =>
+    set((state) => {
+      const activeScene = state.scenes.find((scene) => scene.id === state.activeSceneId)
+      const selectedFixtureIds = state.selectedFixtureIds.filter((id) =>
+        state.show?.fixtures.some((fixture) => fixture.id === id)
+      )
+      if (!activeScene || selectedFixtureIds.length === 0) return state
+
+      const patch: Record<string, number> = {}
+      for (const [attribute, value] of Object.entries(values)) {
+        if (Number.isFinite(value)) patch[attribute] = clamp(value)
+      }
+      if (Object.keys(patch).length === 0) return state
+
+      const selected = new Set(selectedFixtureIds)
+      const scenes = state.scenes.map((scene) => {
+        if (scene.id !== activeScene.id) return scene
+        const fixtureValues = { ...scene.fixtureValues }
+        for (const fixtureId of selected) {
+          fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...patch }
+        }
+        return { ...scene, fixtureValues }
+      })
+      const updatedScene = scenes.find((scene) => scene.id === activeScene.id)
+      if (updatedScene && !state.blackout) sendImmediate(sceneOutput(state, updatedScene))
       return persistState(state, { scenes }, { scenes })
     }),
 
@@ -438,7 +482,12 @@ export const useShowStore = create<ShowState>((set, get) => ({
       return persistState(
         state,
         { fixtures, scenes, automations, effects },
-        { scenes, automations, effects }
+        {
+          scenes,
+          automations,
+          effects,
+          selectedFixtureIds: state.selectedFixtureIds.filter((fixtureId) => fixtureId !== id)
+        }
       )
     }),
 

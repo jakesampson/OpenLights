@@ -149,6 +149,49 @@ describe('scene output', () => {
   })
 })
 
+describe('fixture selection and design controls', () => {
+  it('replaces selection on click and adds unique fixtures on additive selection', () => {
+    const store = useShowStore.getState()
+    store.selectFixture('f1')
+    store.selectFixture('f2', true)
+    store.selectFixture('f2', true)
+
+    expect(useShowStore.getState().selectedFixtureIds).toEqual(['f1', 'f2'])
+
+    useShowStore.getState().selectFixture('f2')
+    expect(useShowStore.getState().selectedFixtureIds).toEqual(['f2'])
+  })
+
+  it('clears a fixture from selection when it is removed from the patch', () => {
+    const store = useShowStore.getState()
+    store.selectFixture('f1')
+    store.removeFixture('f1')
+
+    expect(useShowStore.getState().selectedFixtureIds).toEqual([])
+  })
+
+  it('updates only selected fixtures in the active scene and live output', () => {
+    const store = useShowStore.getState()
+    store.goToScene('s1')
+    store.selectFixture('f2')
+    store.updateSelectedFixtures({ intensity: 300, pan: 255 })
+
+    const activeScene = useShowStore.getState().scenes.find((scene) => scene.id === 's1')
+    expect(activeScene?.fixtureValues.f1?.intensity).toBe(255)
+    expect(activeScene?.fixtureValues.f2?.intensity).toBe(255)
+    expect(activeScene?.fixtureValues.f2?.pan).toBe(255)
+    expect(lastPatch()[5]).toBe(255)
+  })
+
+  it('does not edit a fixture until a scene is active', () => {
+    const store = useShowStore.getState()
+    store.selectFixture('f1')
+    store.updateSelectedFixtures({ intensity: 100 })
+
+    expect(useShowStore.getState().scenes[0].fixtureValues.f1?.intensity).toBe(255)
+  })
+})
+
 describe('cue lists', () => {  it('runs from go to next and stops at the end', () => {
     const store = useShowStore.getState()
     store.goToCue('c1', 0)

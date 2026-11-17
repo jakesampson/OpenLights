@@ -18,7 +18,8 @@ interface Child {
   dot: string
   hint?: string
   active?: boolean
-  onSelect?: () => void
+  activeLabel?: string
+  onSelect?: (shiftKey: boolean) => void
 }
 
 interface Section {
@@ -29,7 +30,16 @@ interface Section {
 }
 
 export function GroupsPresetsPanel() {
-  const { show, scenes, effects, activeSceneId, goToScene, updateEffect } = useShowStore()
+  const {
+    show,
+    scenes,
+    effects,
+    activeSceneId,
+    selectedFixtureIds,
+    goToScene,
+    selectFixture,
+    updateEffect
+  } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const [open, setOpen] = useState<Record<string, boolean>>({
     groups: true,
@@ -58,7 +68,10 @@ export function GroupsPresetsPanel() {
         id: f.id,
         label: f.name,
         dot: TYPE_COLORS[f.type] ?? '#888888',
-        hint: `ch ${f.channelStart}–${f.channelStart + f.channels - 1} · ${fixtureAttributes(f.type).length} attrs`
+        hint: `ch ${f.channelStart}–${f.channelStart + f.channels - 1} · ${fixtureAttributes(f.type).length} attrs`,
+        active: selectedFixtureIds.includes(f.id),
+        activeLabel: 'selected',
+        onSelect: (shiftKey) => selectFixture(f.id, shiftKey)
       }))
     }))
 
@@ -93,7 +106,17 @@ export function GroupsPresetsPanel() {
     }
 
     return [...groupSections, sceneSection, effectSection]
-  }, [fixtures, scenes, effects, open, activeSceneId, goToScene, updateEffect])
+  }, [
+    fixtures,
+    scenes,
+    effects,
+    open,
+    activeSceneId,
+    selectedFixtureIds,
+    goToScene,
+    selectFixture,
+    updateEffect
+  ])
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1">
@@ -126,7 +149,7 @@ export function GroupsPresetsPanel() {
                 <button
                   key={child.id}
                   type="button"
-                  onClick={child.onSelect}
+                  onClick={(event) => child.onSelect?.(event.shiftKey)}
                   className={`flex items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${
                     child.active ? 'selected' : 'hover:bg-panel2'
                   } ${child.onSelect ? 'cursor-pointer' : 'cursor-default'}`}
@@ -135,7 +158,9 @@ export function GroupsPresetsPanel() {
                   <span className="dot" style={{ backgroundColor: child.dot }} />
                   <span className="truncate">{child.label}</span>
                   {child.active && (
-                    <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>
+                    <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">
+                      {child.activeLabel ?? 'on'}
+                    </span>
                   )}
                 </button>
               ))}
