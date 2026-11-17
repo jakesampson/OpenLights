@@ -242,7 +242,8 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 6.9 Sequence timing: manual (fade/hold in seconds) and beat-controlled (steps per beat, using the existing BPM and tap tempo). Guide: p.134 to 138.
   Evidence: manual/beat step clock, per-step beat lengths and timing controls, `tests/sequenceClock.test.ts`; typecheck, 177 tests and build passed. Commit blocked by Git permissions.
   Done when: step-clock tests cover both modes at 120 BPM.
-- [ ] 6.10 Fixture movements with sequences (position steps with fades). Guide: p.139 to 140.
+- [x] 6.10 Fixture movements with sequences (position steps with fades). Guide: p.139 to 140.
+  Evidence: 16-bit paired interpolation in `sequenceClock.ts`, `tests/sequenceMovement.test.ts`; typecheck, 180 tests and build passed.
   Done when: a test covers interpolated pan/tilt between steps.
 - [x] 6.11 Preset Palette shown in Live edit mode. *(Evidence: `LiveWorkspace.tsx` preset palette block.)*
 - [ ] 6.12 Split the Preset Palette, filter it (by name, type, fixtures in the selection), and find related cues (which cues use this preset). Guide: p.143 to 144.

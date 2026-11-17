@@ -40,6 +40,10 @@ export function sequenceStepValues(step: SequenceStep | undefined, presets: Pres
   for (const [id, patch] of Object.entries(step.fixtureValues)) values[id] = { ...values[id], ...patch }
   return values
 }
+/** Fine-channel pairs for 16-bit position interpolation. */
+const FINE_PAIRS: Record<string, string> = { pan: 'panFine', tilt: 'tiltFine' }
+const FINE_TO_COARSE: Record<string, string> = { panFine: 'pan', tiltFine: 'tilt' }
+
 export function sequenceValues(sequence: SequenceDef, presets: PresetDef[], fixtures: FixtureDef[], elapsedMs: number, seed = 1, bpm = 120): Record<string, Record<string, number>> {
   const position = sequencePosition(sequence, elapsedMs, seed, bpm), from = sequenceStepValues(sequence.steps[position.index], presets), to = sequenceStepValues(sequence.steps[position.nextIndex], presets)
   if (!position.mix) return from
@@ -47,9 +51,24 @@ export function sequenceValues(sequence: SequenceDef, presets: PresetDef[], fixt
   for (const id of new Set([...Object.keys(from), ...Object.keys(to)])) {
     const fixture = fixtures.find((f) => f.id === id), channels = fixture ? fixtureMode(fixture)?.channels : []
     values[id] = {}
+    const handled = new Set<string>()
     for (const attribute of new Set([...Object.keys(from[id] ?? {}), ...Object.keys(to[id] ?? {})])) {
+      if (handled.has(attribute)) continue
       const a = from[id]?.[attribute], b = to[id]?.[attribute], channel = channels?.find((c) => c.attribute === attribute)
       const discrete = channel?.control === 'options' || Boolean(channel?.slots?.length)
+      // 16-bit paired interpolation for position attributes
+      const fineAttr = FINE_PAIRS[attribute]
+      if (fineAttr && channels?.some((c) => c.attribute === fineAttr)) {
+        const aFine = from[id]?.[fineAttr] ?? 0, bFine = to[id]?.[fineAttr] ?? 0
+        const a16 = ((a ?? 128) << 8) | aFine, b16 = ((b ?? 128) << 8) | bFine
+        const interp16 = a !== undefined && b !== undefined ? Math.round(a16 + (b16 - a16) * position.mix) : position.mix < 0.5 ? a16 : b16
+        values[id][attribute] = (interp16 >> 8) & 255
+        values[id][fineAttr] = interp16 & 255
+        handled.add(fineAttr)
+        continue
+      }
+      // Skip fine channels already handled as part of a pair
+      if (FINE_TO_COARSE[attribute] && handled.has(FINE_TO_COARSE[attribute])) continue
       const value = a !== undefined && b !== undefined && !discrete ? Math.round(a + (b - a) * position.mix) : position.mix < 0.5 ? a : b
       if (value !== undefined) values[id][attribute] = value
     }
