@@ -513,11 +513,11 @@ export const useShowStore = create<ShowState>((set, get) => ({
 
   updateSelectedFixtures: (values) =>
     set((state) => {
-      const activeScene = state.scenes.find((scene) => scene.id === state.activeSceneId)
+      const existingScene = state.scenes.find((scene) => scene.id === state.activeSceneId)
       const selectedFixtureIds = state.selectedFixtureIds.filter((id) =>
         state.show?.fixtures.some((fixture) => fixture.id === id)
       )
-      if (!activeScene || selectedFixtureIds.length === 0) return state
+      if (!state.show || selectedFixtureIds.length === 0) return state
 
       const patch: Record<string, number> = {}
       for (const [attribute, value] of Object.entries(values)) {
@@ -525,8 +525,13 @@ export const useShowStore = create<ShowState>((set, get) => ({
       }
       if (Object.keys(patch).length === 0) return state
 
+      const activeScene: SceneDef = existingScene ?? {
+        id: crypto.randomUUID(), name: `Scene ${state.scenes.length + 1}`, fadeMs: 1000,
+        fixtureValues: Object.fromEntries(state.show.fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)]))
+      }
       const selected = new Set(selectedFixtureIds)
-      const scenes = state.scenes.map((scene) => {
+      const sourceScenes = existingScene ? state.scenes : [...state.scenes, activeScene]
+      const scenes = sourceScenes.map((scene) => {
         if (scene.id !== activeScene.id) return scene
         const fixtureValues = { ...scene.fixtureValues }
         for (const fixtureId of selected) {
@@ -536,7 +541,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
       })
       const updatedScene = scenes.find((scene) => scene.id === activeScene.id)
       if (updatedScene && !state.blackout) sendImmediate(sceneOutput(state, updatedScene))
-      return persistState(state, { scenes }, { scenes })
+      return persistState(state, { scenes }, { scenes, activeSceneId: activeScene.id, cuePlaying: false })
     }),
 
   deleteScene: (id) =>

@@ -213,12 +213,16 @@ describe('fixture selection and design controls', () => {
     expect(lastPatch()[5]).toBe(255)
   })
 
-  it('does not edit a fixture until a scene is active', () => {
+  it('creates and activates a scene when editing without an active scene', () => {
     const store = useShowStore.getState()
     store.selectFixture('f1')
     store.updateSelectedFixtures({ intensity: 100 })
 
-    expect(useShowStore.getState().scenes[0].fixtureValues.f1?.intensity).toBe(255)
+    const state = useShowStore.getState()
+    const created = state.scenes.find((scene) => scene.id === state.activeSceneId)
+    expect(created?.fixtureValues.f1?.intensity).toBe(100)
+    expect(state.scenes).toHaveLength(3)
+    expect(lastPatch()[1]).toBe(100)
   })
 })
 

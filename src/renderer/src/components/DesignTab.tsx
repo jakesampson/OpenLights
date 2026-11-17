@@ -22,7 +22,8 @@ export function DesignTab() {
     scenes,
     activeSceneId,
     selectedFixtureIds,
-    updateSelectedFixtures
+    updateSelectedFixtures,
+    goToScene
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
@@ -36,7 +37,7 @@ export function DesignTab() {
   const channelAttributes = selectedFixtures.length
     ? commonAttributes.filter((attribute) => attribute !== 'intensity')
     : EMPTY_CHANNELS
-  const canEdit = Boolean(activeScene && selectedFixtures.length > 0)
+  const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
   const valueFor = (attribute: string) =>
     selectedFixtures.length > 0
@@ -47,7 +48,7 @@ export function DesignTab() {
           ) / selectedFixtures.length
         )
       : 0
-  const dimmer = canEdit ? valueFor('intensity') : 0
+  const dimmer = activeScene ? valueFor('intensity') : 0
   const colorValues = {
     red: valueFor('red'),
     green: valueFor('green'),
@@ -80,9 +81,14 @@ export function DesignTab() {
             ? `${selectedFixtures.length} fixture${selectedFixtures.length === 1 ? '' : 's'} selected`
             : 'Select fixture(s) on stage'}
         </span>
-        {selectedFixtures.length > 0 && !activeScene && (
-          <span className="text-[10px] text-dim">Select a scene to edit values</span>
-        )}
+        <div className="flex items-center gap-2">
+          <label htmlFor="design-scene" className="text-[10px] text-dim">Scene</label>
+          <select id="design-scene" value={activeSceneId ?? ''} onChange={(e) => { if (e.target.value) goToScene(e.target.value) }} className="max-w-40 rounded border border-line bg-panel2 px-2 py-1 text-xs text-text">
+            <option value="">No scene selected</option>
+            {scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+          </select>
+          {!activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Changing a control creates a scene</span>}
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
@@ -143,7 +149,7 @@ export function DesignTab() {
             </div>
           ) : (
             channelAttributes.map((attribute) => {
-              const value = canEdit ? valueFor(attribute) : 0
+              const value = activeScene ? valueFor(attribute) : 0
               return (
                 <div key={attribute} className="chan h-full w-9 shrink-0">
                   <span className="text-center text-[10px] leading-none text-dim">
@@ -174,34 +180,7 @@ export function DesignTab() {
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-wrap gap-4 border-t border-line pt-1.5">
-        <div className="flex shrink-0 items-center gap-1.5">
-          <label className="whitespace-nowrap text-[10px] font-medium uppercase text-dim">
-            Shutter / Strobe
-          </label>
-          <div className="flex gap-1">
-            <button className="btn-theme on px-2 text-[10px]">Open</button>
-            <button className="btn-theme px-2 text-[10px]">Closed</button>
-            <button className="btn-theme px-2 text-[10px]" disabled title="Not implemented">
-              Strobe
-            </button>
-            <button className="btn-theme px-2 text-[10px]" disabled title="Not implemented">
-              Pulse
-            </button>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <label className="whitespace-nowrap text-[10px] font-medium uppercase text-dim">
-            Movement Speed
-          </label>
-          <div className="flex gap-1">
-            <button className="btn-theme on px-2 text-[10px]">Tracking</button>
-            <button className="btn-theme px-2 text-[10px]" disabled title="Not implemented">
-              Vector
-            </button>
-          </div>
-        </div>
-      </div>
+
     </div>
   )
 }

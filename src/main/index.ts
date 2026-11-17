@@ -139,7 +139,7 @@ ipcMain.handle('load-show', async (_, showPath?: string) => {
 })
 
 function safeShowFileName(name: string): string {
-  return name.trim().replace(/[^a-zA-Z0-9-_ ]+/g, '').replace(/\s+/g, '-').toLowerCase() || `show-${Date.now()}`
+  return name.trim().replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/[. ]+$/g, '') || `Show ${Date.now()}`
 }
 
 ipcMain.handle('open-show', async () => {
@@ -163,7 +163,7 @@ ipcMain.handle('save-show', async (_, data: any, targetPath?: string) => {
   try {
     const filePath =
       targetPath || path.join(SHOWS_DIR, `${safeShowFileName(data.name || '')}.json`)
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+    fs.writeFileSync(filePath, JSON.stringify({ ...data, name: path.parse(filePath).name }, null, 2))
     return { success: true, path: filePath }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -177,7 +177,7 @@ ipcMain.handle('save-show-as', async (_, data: any, suggestedPath?: string) => {
     filters: [{ name: 'OpenLights Show', extensions: ['json'] }]
   })
   if (canceled || !filePath) return { success: false, canceled: true }
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2))
+  fs.writeFileSync(filePath, JSON.stringify({ ...data, name: path.parse(filePath).name }, null, 2))
   return { success: true, path: filePath }
 })
 
@@ -188,13 +188,7 @@ ipcMain.handle('list-shows', async () => {
       .map((f) => {
         const fullPath = path.join(SHOWS_DIR, f)
         const stat = fs.statSync(fullPath)
-        let name = f.replace(/\.json$/, '')
-        try {
-          const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'))
-          if (typeof parsed?.name === 'string' && parsed.name.trim()) name = parsed.name.trim()
-        } catch {
-          /* fall back to file name */
-        }
+        const name = path.parse(f).name
         return { name, path: fullPath, updatedAt: stat.mtimeMs }
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)

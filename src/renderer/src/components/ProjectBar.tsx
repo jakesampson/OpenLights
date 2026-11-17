@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import type { ShowDef } from '@shared/types'
 import type { ShowMeta } from '../global'
+import { projectNameFromPath } from '../lib/projectName'
 
 export function ProjectBar() {
   const { show, setShow } = useShowStore()
@@ -13,6 +14,14 @@ export function ProjectBar() {
   const rootRef = useRef<HTMLDivElement | null>(null)
   const savedSnapshotRef = useRef<string>(JSON.stringify(useShowStore.getState().show))
   const saveRef = useRef<() => void>(() => undefined)
+
+  const applySavedName = (path: string, showId: string) => {
+    const current = useShowStore.getState().show
+    if (current?.id === showId) {
+      const name = projectNameFromPath(path)
+      if (name && current.name !== name) useShowStore.setState({ show: { ...current, name } })
+    }
+  }
 
   const refreshList = async () => {
     if (!window.electronAPI?.listShows) return
@@ -45,6 +54,7 @@ export function ProjectBar() {
       currentPath ?? undefined
     )
     if (result.success) {
+      if (result.path) applySavedName(result.path, show.id)
       savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
       setCurrentPath(result.path ?? null)
       setStatus('Saved')
@@ -80,6 +90,7 @@ export function ProjectBar() {
         currentPath ?? undefined
       )
       if (result.success) {
+        if (result.path) applySavedName(result.path, snapshot.id)
         savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
         if (result.path) setCurrentPath(result.path)
         setStatus('Autosaved')
@@ -93,6 +104,7 @@ export function ProjectBar() {
     if (!show || !window.electronAPI) return
     const result = await window.electronAPI.saveShowAs(show, currentPath ?? undefined)
     if (result.success && !result.canceled) {
+      if (result.path) applySavedName(result.path, show.id)
       savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
       setCurrentPath(result.path ?? null)
       setStatus('Saved')
@@ -104,7 +116,8 @@ export function ProjectBar() {
     if (!window.electronAPI) return
     const result = await window.electronAPI.loadShow(path)
     if (result.success && result.data) {
-      const loaded = result.data as ShowDef
+      const data = result.data as ShowDef
+      const loaded = { ...data, name: projectNameFromPath(result.path ?? path) || data.name }
       setShow(loaded)
       savedSnapshotRef.current = JSON.stringify(loaded)
       setCurrentPath(result.path ?? path)
@@ -120,7 +133,8 @@ export function ProjectBar() {
     const result = await window.electronAPI.openShow()
     if (result.canceled) return
     if (result.success && result.data) {
-      const loaded = result.data as ShowDef
+      const data = result.data as ShowDef
+      const loaded = { ...data, name: result.path ? projectNameFromPath(result.path) : data.name }
       setShow(loaded)
       savedSnapshotRef.current = JSON.stringify(loaded)
       setCurrentPath(result.path ?? null)
@@ -177,12 +191,15 @@ export function ProjectBar() {
             <label className="block text-[9px] uppercase tracking-wider text-dim mb-1">Name</label>
             <input
               value={show?.name ?? ''}
+              readOnly={Boolean(currentPath)}
+              title={currentPath ? 'Use Save As to change the project filename' : 'Project name'}
               onChange={(e) => {
-                if (!show) return
-                setShow({ ...show, name: e.target.value })
+                if (!show || currentPath) return
+                useShowStore.setState({ show: { ...show, name: e.target.value } })
               }}
               className="w-full rounded bg-panel2 border border-line px-2 py-1 text-sm text-white"
             />
+            {currentPath && <p className="mt-1 text-[10px] text-dim">Use Save As to choose a different name.</p>}
           </div>
 
           <div className="flex flex-wrap gap-1 mb-2">
