@@ -100,6 +100,7 @@ interface ShowState {
 
   setShow: (show: ShowDef | null) => void
   updateProject: (patch: Partial<ShowDef>) => void
+  updatePreferences: (patch: Partial<NonNullable<ShowDef['preferences']>>) => void
   setStartupMode: (mode: 'none' | 'restore') => void
   showForSave: () => ShowDef | null
   setLivePages: (pages: LivePage[]) => void
@@ -667,6 +668,7 @@ const actions: ShowState = {
     }
   }),
   updateProject: (patch) => set((state) => persistState(state, patch)),
+  updatePreferences: (patch) => set((state) => persistState(state, { preferences: { defaultFadeMs: 1000, pageFadeMs: 500, theme: 'dark', dmxProtocol: 'open-dmx-usb', ...state.show?.preferences, ...patch } })),
   setLiveValue: (id, value) => set((state) => {
     const level = clamp(value)
     const activeLiveValues = { ...state.activeLiveValues, [id]: level }
@@ -1172,7 +1174,7 @@ const actions: ShowState = {
         id: crypto.randomUUID(),
         name: `Scene ${state.scenes.length + 1}`,
         fixtureValues,
-        fadeMs: 1000
+        fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
       }
       const scenes = [...state.scenes, newScene]
       return persistState(state, { scenes }, { scenes })

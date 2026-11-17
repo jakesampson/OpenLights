@@ -250,6 +250,12 @@ export interface ShowDef {
   masterIntensity?: number // 0-255
   bpm?: number
   audioPath?: string
+  preferences?: {
+    defaultFadeMs: number
+    pageFadeMs: number
+    theme: 'dark' | 'system'
+    dmxProtocol: SerialDmxProtocol
+  }
 }
 
 export interface FixtureGroup { id: string; name: string; parentId?: string | null; fixtureIds: string[] }

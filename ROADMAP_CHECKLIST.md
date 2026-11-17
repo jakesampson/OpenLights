@@ -388,8 +388,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 
 ## 10. Settings, help and finish
 
-- [ ] 10.1 Preferences window: timing defaults (default fade, page fade), appearance (the existing themes), startup state, Live switching behaviour (from 7.2), and DMX interface. Guide: appearance and settings references in ch.6.
+- [x] 10.1 Preferences window: timing defaults (default fade, page fade), appearance (the existing themes), startup state, Live switching behaviour (from 7.2), and DMX interface. Guide: appearance and settings references in ch.6.
   Done when: settings are saved and tested.
+  Evidence: Settings exposes persisted default/page fade, dark/system appearance, startup restore, Live page deactivation and USB DMX protocol; migration fills additive defaults and new scenes use the saved fade; store test covers persistence/application; typecheck, 374 tests and build passed.
 - [ ] 10.2 Menus and context menus: a Windows menu bar (File, Edit, View, Live, Window, Help) and right-click menus on fixtures, presets, cues and pages, all driven by the 2.9 shortcut table.
   Done when: a test checks every menu command maps to an existing action.
 - [ ] 10.3 Tooltips and accessibility: every icon button has a tooltip and aria-label, focus is visible, and the Live page works from the keyboard.

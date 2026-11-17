@@ -96,6 +96,17 @@ describe('effect editing', () => {
   })
 })
 
+describe('saved preferences', () => {
+  it('persists timing, appearance and USB DMX defaults and applies the default scene fade', () => {
+    useShowStore.getState().updatePreferences({ defaultFadeMs: 2300, pageFadeMs: 700, theme: 'system', dmxProtocol: 'enttec-usb-pro' })
+    useShowStore.getState().setPageSwitchMode(true)
+    expect(useShowStore.getState().show?.preferences).toEqual({ defaultFadeMs: 2300, pageFadeMs: 700, theme: 'system', dmxProtocol: 'enttec-usb-pro' })
+    expect(useShowStore.getState().show?.deactivateOnPageSwitch).toBe(true)
+    useShowStore.getState().addScene()
+    expect(useShowStore.getState().scenes.at(-1)?.fadeMs).toBe(2300)
+  })
+})
+
 describe('development show template', () => {
   it('uses the ShowBuddy fixture patch as the dev startup show', () => {
     if (!import.meta.env.DEV) return

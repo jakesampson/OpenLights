@@ -237,3 +237,6 @@ Freeze captures the fully composed output while cue, sequence, effect and manual
 
 ### 9.12 MIDI bindings
 Legacy `midiMappings` remain the persisted collection; migration only adds explicit press/value semantics, preserving every old field. Bindings now understand note press, note release and CC value triggers and can target scenes, presets, sequences, Live cues, blackout, Blind, Freeze, cuelist next/previous, tap tempo and master. Quick learn derives trigger semantics from the incoming message. OSC, ProPresenter and VirtualDJ remain out of scope. Tests: `tests/midiActions.test.ts`, `tests/migrations.test.ts`.
+
+### 10.1 Preferences
+Show preferences add default cue fade, page fade, dark/system appearance and the preferred USB DMX protocol. Existing startup and Live switching preferences are gathered into the same Settings surface. Migration fills defaults additively; old shows retain all data. The default fade is applied when creating a scene, and the appearance selection is reflected on the document root. Tests: `tests/store.test.ts`, `tests/migrations.test.ts`.

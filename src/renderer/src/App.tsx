@@ -58,6 +58,9 @@ export default function App() {
   const [liveEditorOpen, setLiveEditorOpen] = useState(false)
   const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  useEffect(() => {
+    document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
+  }, [show?.preferences?.theme])
 
   const previousLivePage = useRef<string | null>(null)
   useEffect(() => {
@@ -245,6 +248,11 @@ export default function App() {
                   <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />
                 </label>
                 <label className="px-3 py-2 text-xs">On project open<select aria-label="Project startup state" value={show?.startup?.mode ?? 'none'} onChange={(event) => useShowStore.getState().setStartupMode(event.target.value as 'none' | 'restore')} className="mt-1 w-full rounded bg-panel2 p-1"><option value="none">No active looks</option><option value="restore">Restore saved looks</option></select></label>
+                <label className="px-3 py-2 text-xs">Default fade (ms)<input aria-label="Default fade milliseconds" type="number" min="0" value={show?.preferences?.defaultFadeMs ?? 1000} onChange={(event) => useShowStore.getState().updatePreferences({ defaultFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
+                <label className="px-3 py-2 text-xs">Page fade (ms)<input aria-label="Page fade milliseconds" type="number" min="0" value={show?.preferences?.pageFadeMs ?? 500} onChange={(event) => useShowStore.getState().updatePreferences({ pageFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
+                <label className="px-3 py-2 text-xs">Appearance<select aria-label="Application appearance" value={show?.preferences?.theme ?? 'dark'} onChange={(event) => useShowStore.getState().updatePreferences({ theme: event.target.value as 'dark' | 'system' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="dark">Dark</option><option value="system">System</option></select></label>
+                <label className="px-3 py-2 text-xs">Default USB DMX interface<select aria-label="Default USB DMX interface" value={show?.preferences?.dmxProtocol ?? 'open-dmx-usb'} onChange={(event) => useShowStore.getState().updatePreferences({ dmxProtocol: event.target.value as 'open-dmx-usb' | 'enttec-usb-pro' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="open-dmx-usb">Open DMX USB</option><option value="enttec-usb-pro">DMX USB Pro</option></select></label>
+                <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
                 <div className="my-1 border-t border-line" />
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
