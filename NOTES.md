@@ -249,3 +249,6 @@ All interactive HTML controls now share a visible two-pixel focus ring. Icon-onl
 
 ### 10.4 Cleanup and USB-only enforcement
 Unused legacy editor components were removed after their replacement store and Live workflows shipped. The audio automation timeline and raw USB DMX test panel remain intentionally. The dormant Art-Net packet builder, UDP socket runtime, IPC handler and preload bridge were also removed so output is physically USB DMX or virtual only. Legacy Art-Net-shaped status data remains sanitizable by `outputSettings.ts`; this preserves compatibility without exposing network output. Tests: `tests/cleanup.test.ts`, `tests/outputSettings.test.ts`.
+
+### 10.5 Remaining audited gaps
+The final guide audit is current. Three areas intentionally remain partial rather than being labelled matching: effects still need a unified visual pattern/curve/movement-path editor; external control still lacks MIDI configurations, shift layers, routing/send and a log; and Lightkey's full shortcut/gesture catalogue is broader than OpenLights' tested shared command table. Ableton Link, OS2L, OSC, ProPresenter, VirtualDJ, smart lights and every network-DMX protocol remain out of scope. Visual, interaction, real-show and USB hardware checks remain in Needs Jake.
