@@ -830,3 +830,12 @@ describe('cuelist editing (8.7)', () => {
     expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before)
   })
 })
+
+describe('cuelist manual crossfade (8.8)', () => {
+  it('clamps the operator fader without adding undo history', () => {
+    useShowStore.getState().setManualCrossfade(0.5)
+    expect(useShowStore.getState().manualCrossfade).toBe(0.5)
+    useShowStore.getState().setManualCrossfade(2)
+    expect(useShowStore.getState().manualCrossfade).toBe(1)
+  })
+})

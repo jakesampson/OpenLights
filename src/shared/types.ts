@@ -117,6 +117,7 @@ export interface CueStepDef {
   sceneId: string
   fadeMs: number
   holdMs: number // time to wait before auto-advancing
+  groupId?: string
 }
 
 export interface CueListDef {

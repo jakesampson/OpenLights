@@ -93,6 +93,7 @@ interface ShowState {
   activeCueIndex: number
   cuePlaying: boolean
   cueRevision: number
+  manualCrossfade: number
 
   setShow: (show: ShowDef | null) => void
   updateProject: (patch: Partial<ShowDef>) => void
@@ -225,6 +226,7 @@ interface ShowState {
   goToCue: (listId: string, index: number) => void
   cueNext: () => void
   cuePrev: () => void
+  setManualCrossfade: (value: number) => void
   stopCue: () => void
 
   setMidiMappings: (mappings: MidiMapping[]) => void
@@ -575,6 +577,7 @@ const actions: ShowState = {
   activeCueIndex: -1,
   cuePlaying: false,
   cueRevision: 0,
+  manualCrossfade: 1,
 
   setShow: (show) => {
     if (show) show = migrateShow(show)
@@ -617,7 +620,8 @@ const actions: ShowState = {
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
       cuePlaying: false,
-      cueRevision: get().cueRevision + 1
+      cueRevision: get().cueRevision + 1,
+      manualCrossfade: 1
     })
     const restored = get().scenes.find((scene) => scene.id === get().activeSceneId)
     if (restored) sendImmediate(sceneOutput(get(), restored))
@@ -1580,6 +1584,7 @@ const actions: ShowState = {
     }),
 
   stopCue: () => set({ cuePlaying: false }),
+  setManualCrossfade: (value) => set({ manualCrossfade: Math.max(0, Math.min(1, value)) }),
 
   setMidiMappings: (mappings) =>
     set((state) => persistState(state, { midiMappings: mappings }, { midiMappings: mappings })),

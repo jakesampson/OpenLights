@@ -189,3 +189,6 @@ Active Live controls are merged in ascending explicit priority and then activati
 
 ### 8.7 Live cuelist editing
 The selected Live cuelist widget exposes add/remove/reorder/copy/paste, scene reassignment and name filtering. Pure immutable commands back the history/lock-gated store action. A separate status helper resolves current, next (including loop wrap) and remaining fade+hold time without UI timing assumptions. Tests: `tests/cueListEditing.test.ts`, `tests/store.test.ts`.
+
+### 8.8 Cuelist playback
+The existing Go/Back/direct jump, follow timer and loop behavior remain the playback authority. Follow timers are revision-keyed so a jump during an active fade/hold cancels the stale advance. Cue steps can share an optional group id. The Live cuelist transport now exposes a runtime-only manual crossfade position; the pure channel blender defines the exact 0–1 mix and is tested at 50%. Tests: `tests/cuePlaybackClock.test.ts`, `tests/cueListPlayback.test.ts`, `tests/store.test.ts`.

@@ -36,4 +36,17 @@ describe('cue playback clock', () => {
     vi.advanceTimersByTime(2000)
     expect(useShowStore.getState().activeCueIndex).toBe(0)
   })
+  it('cancels the old follow timer when jumping while a cue is active', () => {
+    useShowStore.getState().goToCue('list', 0)
+    vi.advanceTimersByTime(500)
+    useShowStore.getState().goToCue('list', 1)
+    vi.advanceTimersByTime(1000)
+    expect(useShowStore.getState().activeCueIndex).toBe(1)
+  })
+  it('loops from the last cue when the list loops', () => {
+    useShowStore.getState().updateCueList('list', { loop: true })
+    useShowStore.getState().goToCue('list', 1)
+    useShowStore.getState().cueNext()
+    expect(useShowStore.getState().activeCueIndex).toBe(0)
+  })
 })

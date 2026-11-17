@@ -35,7 +35,7 @@ export function BottomPlayback({ view }: Props) {
           <span>{String(index + 1).padStart(3, '0')} {state.scenes.find((scene) => scene.id === step.sceneId)?.name ?? 'Missing scene'}</span>
           <span>{(step.holdMs / 1000).toFixed(1)}s</span><span>{(step.fadeMs / 1000).toFixed(1)}s</span>
         </button>)}
-        <div className="cuelist-transport"><button onClick={state.stopCue} aria-label="Stop">■</button><button onClick={state.cuePrev} aria-label="Previous cue">Ⅱ</button><button onClick={state.cueNext} aria-label="Next cue">»</button></div>
+        <div className="cuelist-transport"><input aria-label="Manual crossfade" title="Manual crossfade" type="range" min="0" max="1" step="0.01" value={state.manualCrossfade} onChange={(event) => state.setManualCrossfade(Number(event.target.value))} /><button onClick={state.stopCue} aria-label="Stop">■</button><button onClick={state.cuePrev} aria-label="Previous cue">Ⅱ</button><button onClick={state.cueNext} aria-label="Next cue">»</button></div>
       </div> : <div className="live-playback-stack">
         <div className="scene-playback-grid" aria-label="Scene buttons">
           {state.scenes.map((scene) => <button key={scene.id} type="button" aria-pressed={scene.id === state.activeSceneId}
