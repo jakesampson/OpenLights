@@ -1,6 +1,17 @@
-import type { DmxPortInfo } from './types'
+import type { DmxPortInfo, SerialDmxProtocol } from './types'
 
 export type DmxPortMatch = 'enttec' | 'ftdi' | 'other'
+
+export function isDmxPortInfoList(value: unknown): value is DmxPortInfo[] {
+  if (!Array.isArray(value)) return false
+  return value.every(
+    (port: unknown) =>
+      typeof port === 'object' &&
+      port !== null &&
+      'path' in port &&
+      typeof port.path === 'string'
+  )
+}
 
 export function identifyDmxPort(port: DmxPortInfo): DmxPortMatch {
   const descriptors = `${port.manufacturer ?? ''} ${port.pnpId ?? ''}`.toLowerCase()
@@ -16,6 +27,19 @@ export function identifyDmxPort(port: DmxPortInfo): DmxPortMatch {
   }
 
   return 'other'
+}
+
+export function serialProtocolForDmxPort(port: DmxPortInfo): SerialDmxProtocol {
+  const descriptors = `${port.manufacturer ?? ''} ${port.pnpId ?? ''}`.toLowerCase()
+  if (
+    descriptors.includes('usb pro') ||
+    descriptors.includes('dmx pro') ||
+    descriptors.includes('usbpro')
+  ) {
+    return 'enttec-usb-pro'
+  }
+
+  return identifyDmxPort(port) === 'other' ? 'enttec-usb-pro' : 'open-dmx-usb'
 }
 
 export function formatDmxPortLabel(port: DmxPortInfo): string {

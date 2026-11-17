@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from '@shared/types'
+import type { DmxPortInfo, DmxStatus } from '@shared/types'
 import {
   formatDmxPortLabel,
   identifyDmxPort,
+  isDmxPortInfoList,
   preferredDmxPortPath
 } from '@shared/dmxPorts'
 
@@ -13,8 +14,6 @@ export function DmxConnection() {
   const [status, setStatus] = useState<DmxStatus | null>(null)
   const [dmxError, setDmxError] = useState<string | null>(null)
   const [outputMode, setOutputMode] = useState<'usb' | 'artnet'>('usb')
-  const [serialProtocol, setSerialProtocol] =
-    useState<SerialDmxProtocol>('open-dmx-usb')
   const [artnetHost, setArtnetHost] = useState('255.255.255.255')
   const [artnetUniverse, setArtnetUniverse] = useState(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
@@ -23,7 +22,14 @@ export function DmxConnection() {
   const scanPorts = useCallback(async () => {
     if (!window.electronAPI) return
     try {
-      const result = await window.electronAPI.getDmxPorts()
+      const result: unknown = await window.electronAPI.getDmxPorts()
+      if (!isDmxPortInfoList(result)) {
+        setPorts([])
+        setPort('')
+        setDmxError('Restart OpenLights to update its USB device scan.')
+        return
+      }
+
       setPorts(result)
       setPort((current) => preferredDmxPortPath(result, current))
       setDmxError(null)
@@ -71,7 +77,7 @@ export function DmxConnection() {
   const connectDMX = async () => {
     if (!window.electronAPI) return
     try {
-      const result = await window.electronAPI.setDmxPort(port, serialProtocol)
+      const result = await window.electronAPI.setDmxPort(port)
       if (result.status) setStatus(result.status)
       if (result.success) setDmxError(null)
       else setDmxError(result.error ?? 'Could not open DMX port')
@@ -197,22 +203,6 @@ export function DmxConnection() {
                       : 'No ENTTEC or FTDI identifier found'}
                 </div>
               )}
-              <label className="text-[9px] uppercase text-dim">USB protocol</label>
-              <select
-                value={serialProtocol}
-                onChange={(e) => {
-                  if (
-                    e.target.value === 'open-dmx-usb' ||
-                    e.target.value === 'enttec-usb-pro'
-                  ) {
-                    setSerialProtocol(e.target.value)
-                  }
-                }}
-                className="rounded border border-line bg-panel2 px-2 py-1 text-xs text-white"
-              >
-                <option value="open-dmx-usb">ENTTEC Open DMX USB · raw DMX / FTDI</option>
-                <option value="enttec-usb-pro">ENTTEC DMX USB Pro · Pro packet</option>
-              </select>
               <div className="flex gap-1">
                 <button onClick={scanPorts} className="btn-theme flex-1 text-xs">
                   Scan USB

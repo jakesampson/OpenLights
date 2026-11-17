@@ -4,7 +4,8 @@ import * as path from 'path'
 import { fileURLToPath } from 'url'
 import * as fs from 'fs'
 import { DMXEngine } from '../shared/dmx'
-import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
+import { serialProtocolForDmxPort } from '../shared/dmxPorts'
+import type { DmxPortInfo } from '../shared/types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const SHOWS_DIR = path.join(app.getPath('userData'), 'shows')
@@ -95,9 +96,12 @@ ipcMain.handle('get-dmx-ports', async (): Promise<DmxPortInfo[]> => dmxEngine.li
 
 ipcMain.handle(
   'set-dmx-port',
-  async (_, portPath: string, protocol: SerialDmxProtocol) => {
+  async (_, portPath: string) => {
     try {
-      await dmxEngine.connect(portPath, protocol)
+      const device = (await dmxEngine.listPorts()).find((port) => port.path === portPath)
+      if (!device) throw new Error(`USB device ${portPath} is no longer available. Scan again.`)
+
+      await dmxEngine.connect(portPath, serialProtocolForDmxPort(device))
       return { success: true, status: dmxEngine.getStatus() }
     } catch (e: any) {
       return { success: false, error: e.message, status: dmxEngine.getStatus() }
