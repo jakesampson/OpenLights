@@ -1,0 +1,10 @@
+import { useRef, useState } from 'react'
+import { exportFixtureCsv, importFixtureCsv, printablePatch } from '@shared/fixtureExchange'
+import { migrateShow } from '@shared/migrations'
+import { useShowStore } from '../stores/showStore'
+export function FixtureExchange() {
+  const { show, updateProject } = useShowStore(), input = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState('')
+  const download = (text: string, filename: string, mime: string) => { const url = URL.createObjectURL(new Blob([text], { type: mime })), a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url) }
+  return <div className="flex flex-wrap gap-2 text-xs"><button className="btn-theme" onClick={() => download(exportFixtureCsv(show?.fixtures ?? []), 'fixture-patch.csv', 'text/csv')}>Export CSV</button><button className="btn-theme" onClick={() => download(JSON.stringify(show?.fixtures ?? [], null, 2), 'fixture-patch.json', 'application/json')}>Export JSON</button><button className="btn-theme" onClick={() => input.current?.click()}>Import patch</button><button className="btn-theme" onClick={() => void window.electronAPI.printPatch(printablePatch(show?.fixtures ?? []))}>Print patch</button><input ref={input} type="file" accept=".csv,.json" aria-label="Import fixture patch file" className="hidden" onChange={async (e) => { const file = e.target.files?.[0]; if (!file) return; try { const text = await file.text(), raw = file.name.endsWith('.csv') ? importFixtureCsv(text) : JSON.parse(text); if (!Array.isArray(raw)) throw new Error('A patch must contain a fixture array'); const imported = migrateShow({ fixtures: raw }).fixtures, used = new Set(show?.fixtures.map((f) => f.id)); updateProject({ fixtures: [...(show?.fixtures ?? []), ...imported.map((f) => ({ ...f, id: used.has(f.id) ? crypto.randomUUID() : f.id, inStorage: true }))] }); setError('') } catch (error) { setError(String(error)) } }} />{error && <span role="alert" className="text-red-300">{error}</span>}</div>
+}

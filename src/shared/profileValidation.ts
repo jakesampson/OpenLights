@@ -14,6 +14,7 @@ export function validateProfile(raw: unknown): string[] {
       if (!Number.isInteger(c.number) || c.number < 0 || c.number > 511 || numbers.has(c.number)) errors.push('Channel numbers must be unique and inside 1–512'); numbers.add(c.number)
       if (!c.attribute || attributes.has(c.attribute)) errors.push('Channel properties must be unique'); attributes.add(c.attribute)
       if (![c.min, c.max, c.defaultValue, c.highlightValue].every((v) => Number.isFinite(v) && v >= 0 && v <= 255) || c.min > c.max || c.defaultValue < c.min || c.defaultValue > c.max || c.highlightValue < c.min || c.highlightValue > c.max) errors.push('Channel ranges and values must be inside 0–255')
+      if (c.slots?.some((s) => !Number.isFinite(s.from) || !Number.isFinite(s.to) || s.from < c.min || s.to > c.max || s.from > s.to)) errors.push('Wheel slot ranges must fit the channel range')
       if (!['intensity', 'color', 'position', 'other'].includes(c.propertyType)) errors.push('Choose a supported property type')
     }
   }

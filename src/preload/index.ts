@@ -2,6 +2,7 @@ import { ipcRenderer, contextBridge } from 'electron'
 
 // Expose protected methods that the renderer can call
 contextBridge.exposeInMainWorld('electronAPI', {
+  printPatch: (html: string) => ipcRenderer.invoke('print-patch', html),
   toggleFullscreen: () => ipcRenderer.invoke('window:fullscreen'),
   openLiveWindow: (pageId: string | null) => ipcRenderer.invoke('window:open-live', pageId),
   publishLiveWindowState: (state: Record<string, unknown>) => ipcRenderer.send('live-window:state', state),

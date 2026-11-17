@@ -85,3 +85,15 @@ The supported universe selector is fixed to universe 1 for USB-only output. Batc
 
 ### 4.6 Profile reassignment
 Programming values are keyed by property name, so compatible properties map to the new channel layout automatically. Unsupported old properties remain in the original presets/scenes and are ignored by output instead of being deleted; assigning the original profile restores their usefulness.
+
+### 4.7 Custom profiles
+Built-in profiles are immutable; Duplicate/new creates a project-owned copy. Deleting a custom library entry keeps embedded fixture profiles intact, so an existing patch does not lose its channel definitions. Import/export uses OpenLights JSON.
+
+### 4.12 USB reconnect
+The engine retries the last explicitly selected port/protocol at one-second intervals after loss or write failure; explicit disconnect cancels retry. A connection generation rejects stale async opens. The universe remains in memory and is resent by the normal frame pump. Hardware validation is still required. Port renumbering by Windows is not automatically identity-matched.
+
+### 5.4 Colour mixing
+White and amber are extracted from visible RGB where those emitters exist; CMY uses subtractive complements. UV defaults to zero for a visible colour pick because visible RGB does not determine ultraviolet output; its dedicated property remains adjustable. Different selected fixture types are mixed independently.
+
+### 5.9 Startup clear regression
+The regression suite requires project loading with no active looks to clear all 512 channels. Preserve that behaviour; profile defaults apply to released/missing programmed properties and the default output layer after programming, while an explicit startup clear or blackout remains authoritative.

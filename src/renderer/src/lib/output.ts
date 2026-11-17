@@ -7,6 +7,7 @@
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
+import { computeSceneChannels } from './automationRuntime'
 
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null
@@ -59,7 +60,7 @@ function effectPatch(now: number): Record<number, number> {
 
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  const output = composeOutput({ base, effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
   previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate)].map(Number))
   push(output)
 }

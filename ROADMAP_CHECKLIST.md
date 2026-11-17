@@ -160,40 +160,55 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 4.6 Reassign fixture profile or mode, keeping the values that can be mapped. Guide: Reassign fixture profiles, p.245.
   Evidence: store reassignment, profile selector and `tests/fixtureEditing.test.ts`; typecheck, 148 tests and build passed; commit blocked by Git permissions.
   Done when: a test reassigns RGB to RGBW and keeps the colour and dimmer values in presets.
-- [ ] 4.7 Fixture profile editor: create, duplicate, edit and delete user profiles, saved in the project with export/import as JSON. Guide: Work with fixture profiles, p.250 to 252.
+- [x] 4.7 Fixture profile editor: create, duplicate, edit and delete user profiles, saved in the project with export/import as JSON. Guide: Work with fixture profiles, p.250 to 252.
+  Evidence: project profile editor/CRUD/import/export, shared validation, browser integration, `tests/profileValidation.test.ts`; typecheck, 150 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover a profile round trip and validation (no duplicate channel numbers, ranges inside 0 to 255).
-- [ ] 4.8 Export and import fixtures (patch list as CSV and JSON), and a printable patch list (HTML or PDF via the Electron print dialog). Guide: p.247 to 250.
+- [x] 4.8 Export and import fixtures (patch list as CSV and JSON), and a printable patch list (HTML or PDF via the Electron print dialog). Guide: p.247 to 250.
+  Evidence: patch exchange UI, CSV/JSON helpers and print IPC, `tests/fixtureExchange.test.ts`; typecheck, 151 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover a CSV export and import round trip.
-- [ ] 4.9 Fixture groups: create from selection, rename, reorder, delete, and nested groups; select a group from the palette. Guide: Step 5, Group fixtures, p.35 and p.64. (`groupSelectedFixtures` exists; extend it.)
+- [x] 4.9 Fixture groups: create from selection, rename, reorder, delete, and nested groups; select a group from the palette. Guide: Step 5, Group fixtures, p.35 and p.64. (`groupSelectedFixtures` exists; extend it.)
+  Evidence: nested group model/migration/store commands and palette tree, `tests/fixtureGroups.test.ts`; typecheck, 152 tests and build passed; commit blocked by Git permissions.
   Done when: store tests cover each command and undo.
-- [ ] 4.10 Multi-beam fixtures (like the PAN 4x1x30 17ch pixel bar): treat each cell as a selectable beam. Guide: Select light beams, p.74.
+- [x] 4.10 Multi-beam fixtures (like the PAN 4x1x30 17ch pixel bar): treat each cell as a selectable beam. Guide: Select light beams, p.74.
+  Evidence: profile beam property maps, cell selection/rendering and Design editing, `tests/fixtureBeams.test.ts`; typecheck, 153 tests and build passed; commit blocked by Git permissions.
   Done when: the profile supports sub-beams, a cell can be selected and set alone, and a test checks the DMX channel each cell maps to.
 - [x] 4.11 USB DMX interface: Enttec Open DMX USB discovery, protocol detection, a connection status label and a DMX test panel. *(Evidence: `shared/dmxPorts.ts`, `DmxConnection.tsx`, `DmxTestPanel.tsx`, `tests/dmxPorts.test.ts`, `tests/dmxStatusLabel.test.ts`, commits `300f0b2`, `0a506df`.)*
-- [ ] 4.12 USB reconnection: detect an unplugged interface, show it in the status, and reconnect automatically when it comes back, resending the current frame. Guide: DMX Output settings, Open DMX interfaces, p.253 to 254.
+- [x] 4.12 USB reconnection: detect an unplugged interface, show it in the status, and reconnect automatically when it comes back, resending the current frame. Guide: DMX Output settings, Open DMX interfaces, p.253 to 254.
+  Evidence: serial loss listeners, guarded retry/cancellation and `tests/dmxReconnect.test.ts`; typecheck, 154 tests and build passed; hardware check on Needs Jake; commit blocked by Git permissions.
   Done when: a test with a mocked serial port covers disconnect, the status change, reconnect and the frame being resent.
-- [ ] 4.13 Monitor DMX output: a 512-channel grid showing the live value, with the fixture name for each channel. Guide: Monitor DMX output, p.265. (`DmxMonitor.tsx` exists; check it against the guide.)
+- [x] 4.13 Monitor DMX output: a 512-channel grid showing the live value, with the fixture name for each channel. Guide: Monitor DMX output, p.265. (`DmxMonitor.tsx` exists; check it against the guide.)
+  Evidence: 512-channel monitor with fixture/property names, `channelLabels.ts`, `tests/channelLabels.test.ts`; typecheck, 155 tests and build passed; commit blocked by Git permissions.
   Done when: a pure channel-to-fixture label map is tested.
 
 ## 5. Design view: fixture properties (guide ch.8)
 
-- [ ] 5.1 Selection tools: Select All, select by type, select by name (search), and select by location (left/right/front/back halves of the stage). Guide: Select fixtures, p.72 to 73.
+- [x] 5.1 Selection tools: Select All, select by type, select by name (search), and select by location (left/right/front/back halves of the stage). Guide: Select fixtures, p.72 to 73.
+  Evidence: selection helper and Design selection tools, `tests/fixtureSelection.test.ts`; typecheck, 156 tests and build passed; location filters use explicitly placed fixture coordinates; commit blocked by Git permissions.
   Done when: there are pure selection helpers with tests for each.
-- [ ] 5.2 Property panel driven by the fixture profile's property types: only show the controls the selected fixtures support. Guide: Fixture properties, p.77 to 80.
+- [x] 5.2 Property panel driven by the fixture profile's property types: only show the controls the selected fixtures support. Guide: Fixture properties, p.77 to 80.
+  Evidence: profile property intersection and Design integration, `tests/availableProperties.test.ts`; typecheck, 157 tests and build passed; commit blocked by Git permissions.
   Done when: a pure `availableProperties(fixtures)` is tested for a mixed selection.
 - [x] 5.3 Dimmer control and master dimmer. *(Evidence: `DesignTab.tsx`, `showStore.setMaster`, commit `62e1b21`.)* (verify that master behaves as on p.82)
-- [ ] 5.4 Colour: a colour picker that maps to RGB, RGBW, RGBA, RGBAW+UV and CMY (white/amber/UV extraction), plus colour favourites. Guide: Colour, p.83 to 86. (The colour wheel UI exists.)
+- [x] 5.4 Colour: a colour picker that maps to RGB, RGBW, RGBA, RGBAW+UV and CMY (white/amber/UV extraction), plus colour favourites. Guide: Colour, p.83 to 86. (The colour wheel UI exists.)
+  Evidence: emitter mixing, per-fixture colour programming/favourites and Design controls, `tests/colorMix.test.ts`; typecheck, 159 tests and build passed; commit blocked by Git permissions.
   Done when: `lib/colorMix.ts` is tested for each emitter set, and favourites are saved.
-- [ ] 5.5 Colour wheel and gobo wheel properties (slots from the profile, plus spin/scroll modes). Guide: p.87 to 90.
+- [x] 5.5 Colour wheel and gobo wheel properties (slots from the profile, plus spin/scroll modes). Guide: p.87 to 90.
+  Evidence: profile wheel ranges/editor, Design wheel controls, `tests/wheelProperties.test.ts`; typecheck, 160 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover slot-to-DMX mapping and mode values.
-- [ ] 5.6 Position: a pan/tilt pad, fine channels, and invert or swap per fixture. Guide: Position, p.91 to 96.
+- [x] 5.6 Position: a pan/tilt pad, fine channels, and invert or swap per fixture. Guide: Position, p.91 to 96.
+  Evidence: position pad, per-fixture inversion/swap settings, fine-channel mapping, `tests/position.test.ts`; typecheck, 161 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover 16-bit pan/tilt splitting and inversion.
-- [ ] 5.7 Remaining standard properties: On/Off, Shutter/Strobe, Movement Speed, Prism, Focus, Zoom, Iris, Frost, Fog, Lamp, Command. Guide: p.97 to 113. Split into 5.7a to 5.7c if needed.
+- [x] 5.7 Remaining standard properties: On/Off, Shutter/Strobe, Movement Speed, Prism, Focus, Zoom, Iris, Frost, Fog, Lamp, Command. Guide: p.97 to 113. Split into 5.7a to 5.7c if needed.
+  Evidence: standard property controls and range/option mapping, `tests/propertyValues.test.ts`; typecheck, 162 tests and build passed; manufacturer-specific commands require explicit profile ranges; commit blocked by Git permissions.
   Done when: each property kind maps from profile to DMX, with a test for each.
-- [ ] 5.8 Custom properties (slider or list of options), with reorder and hide. Guide: p.110 to 112.
+- [x] 5.8 Custom properties (slider or list of options), with reorder and hide. Guide: p.110 to 112.
+  Evidence: profile custom slider/option controls, hidden/order settings, `tests/customProperties.test.ts`; typecheck, 163 tests and build passed; commit blocked by Git permissions.
   Done when: the profile supports custom properties, and tests cover the mapping and the saved order.
-- [ ] 5.9 Default values per property, from the profile and overridable in the project. Guide: Default values, p.114.
+- [x] 5.9 Default values per property, from the profile and overridable in the project. Guide: Default values, p.114.
+  Evidence: fixture profile/project defaults, output fallback layer and controls, `tests/propertyDefaults.test.ts`; startup clear regression corrected; typecheck, 165 tests and build passed; commit blocked by Git permissions.
   Done when: a test shows a released property going back to its default value.
-- [ ] 5.10 Copy and paste fixture properties between fixtures, with type-safe mapping. Guide: p.114.
+- [x] 5.10 Copy and paste fixture properties between fixtures, with type-safe mapping. Guide: p.114.
+  Evidence: `copyProperties.ts`, store and Design controls, `tests/copyProperties.test.ts`; typecheck, 165 tests and build passed. Commit blocked by Git permissions.
   Done when: there's a store test for copy/paste across different profiles.
 - [ ] 5.11 Overridden properties: show which properties are manually overridden (per fixture, per property), with Clear for all, for the selection, or for one property. Guide: View overridden fixture properties, p.116, and Clear fixture properties, p.116.
   Done when: store tests cover selective clearing and the output falling back to the layer below (using the 1.5 output model).

@@ -91,6 +91,9 @@ export class DMXEngine {
   private lastFrameAt: number | null = null
   private error: string | null = null
   private connected = false
+  private reconnectTarget: { path: string; protocol: SerialDmxProtocol } | null = null
+  private reconnectTimer: NodeJS.Timeout | null = null
+  private connectionGeneration = 0
   private onStatusChange: ((status: DmxStatus) => void) | null = null
 
   private artnetSocket: UdpSocket | null = null
@@ -112,7 +115,12 @@ export class DMXEngine {
       throw new Error(`Unsupported USB-DMX protocol: ${protocol}`)
     }
 
+    const generation = ++this.connectionGeneration
+    this.reconnectTarget = { path, protocol }
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
     await this.disconnectAll()
+    if (generation !== this.connectionGeneration) return
 
     this.portPath = path
     this.serialProtocol = protocol
@@ -128,24 +136,30 @@ export class DMXEngine {
         parity: 'none',
         autoOpen: false
       })
+      const port = this.port
+      port.on('close', () => { if (this.port === port && this.reconnectTarget) { this.connected = false; this.error = 'USB interface disconnected; waiting to reconnect'; this.emitStatus(); this.scheduleReconnect() } })
+      port.on('error', (error: Error) => { if (this.port === port) { this.connected = false; this.error = error.message; this.emitStatus(); this.scheduleReconnect() } })
 
       await new Promise<void>((resolve, reject) => {
-        this.port!.open((err) => {
+        port.open((err) => {
           if (err) reject(err)
           else resolve()
         })
       })
+      if (generation !== this.connectionGeneration) { if (port.isOpen) port.close(() => {}); return }
 
       if (protocol === 'open-dmx-usb') await setOpenDmxBreak(this.port, false)
       this.connected = true
       this.emitStatus()
     } catch (e: any) {
+      if (generation !== this.connectionGeneration) return
       this.connected = false
       this.error = e?.message ?? String(e)
       const failedPort = this.port
       this.port = null
       if (failedPort?.isOpen) await new Promise<void>((resolve) => failedPort.close(() => resolve()))
       this.emitStatus()
+      this.scheduleReconnect()
       throw e
     }
   }
@@ -171,7 +185,21 @@ export class DMXEngine {
   }
 
   async disconnect(): Promise<void> {
+    this.connectionGeneration++
+    this.reconnectTarget = null
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = null
     await this.disconnectAll()
+  }
+
+  private scheduleReconnect() {
+    if (!this.reconnectTarget || this.reconnectTimer) return
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      const target = this.reconnectTarget
+      if (target) void this.connect(target.path, target.protocol).catch(() => {})
+    }, 1000)
+    this.reconnectTimer.unref?.()
   }
 
   private async disconnectAll(): Promise<void> {
@@ -262,10 +290,12 @@ export class DMXEngine {
       }
 
       port.write(buildEnttecProFrame(this.snapshot()), (err) => {
+        if (this.port !== port) return
         if (err) {
           this.error = err.message
           this.connected = false
           this.emitStatus()
+          this.scheduleReconnect()
         } else {
           this.sentFrames++
           this.lastFrameAt = Date.now()
@@ -333,6 +363,7 @@ export class DMXEngine {
         this.connected = false
         this.error = message
         this.emitStatus()
+        this.scheduleReconnect()
       }
     } finally {
       this.serialFrameInProgress = false

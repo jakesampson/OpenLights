@@ -1,4 +1,5 @@
-import { BUILTIN_PROFILES, fixtureChannelMap } from '@shared/fixtureProfiles'
+import { transformPosition } from './position'
+import { BUILTIN_PROFILES, fixtureChannelMap, fixtureMode } from '@shared/fixtureProfiles'
 import type { AutomationDef, FixtureDef, SceneDef, ShowDef } from '@shared/types'
 
 export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = Object.fromEntries(BUILTIN_PROFILES.map((profile) => [profile.legacyType, Object.fromEntries(profile.modes[0].channels.map((c) => [c.attribute, c.number]))]))
@@ -55,13 +56,14 @@ export function computeSceneChannels(
   const channels: Record<number, number> = {}
 
   for (const fixture of fixtures) {
-    const attrs = scene.fixtureValues[fixture.id] ?? {}
+    const attrs = transformPosition(scene.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
     const map = fixtureChannelMap(fixture)
     if (fixture.disabled) { for (const offset of Object.values(map)) channels[fixture.channelStart + offset] = 0; continue }
 
     if (zeroMissing) {
       for (const attr of Object.keys(map)) {
-        channels[fixture.channelStart + map[attr]] = 0
+        const channel = fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)
+        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, master)
       }
     }
 

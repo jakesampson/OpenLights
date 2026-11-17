@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { FixtureGroups } from './FixtureGroups'
 import { useShowStore } from '../stores/showStore'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { getPresetColor } from '../lib/presetColor'
@@ -126,9 +127,10 @@ export function GroupsPresetsPanel() {
       }))
     }
 
-    return [...groupSections, sceneSection, presetSection, effectSection]
+    return [...(show?.fixtureGroups?.length ? [] : groupSections), sceneSection, presetSection, effectSection]
   }, [
     fixtures,
+    show?.fixtureGroups,
     scenes,
     presets,
     activePresetIds,
@@ -154,6 +156,7 @@ export function GroupsPresetsPanel() {
           Patch fixtures and save scenes to populate this tree.
         </div>
       )}
+      <FixtureGroups />
       {sections.map((section) => {
         const query = search.trim().toLowerCase()
         const items = query ? section.children.filter((child) => child.label.toLowerCase().includes(query) || section.title.toLowerCase().includes(query)) : section.children

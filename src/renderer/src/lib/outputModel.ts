@@ -6,6 +6,7 @@
  */
 export type OutputPatch = Record<number, number>
 export interface OutputLayers {
+  defaults?: OutputPatch
   base?: OutputPatch
   sequences?: OutputPatch
   effects?: OutputPatch
@@ -25,7 +26,7 @@ export interface OutputLayers {
 export function composeOutput(layers: OutputLayers): OutputPatch {
   if (layers.blackout) return Object.fromEntries(Array.from({ length: 512 }, (_, i) => [i + 1, 0]))
   if ((layers.blind || layers.freeze) && layers.heldFrame) return { ...layers.heldFrame }
-  const result = { ...layers.base, ...layers.sequences, ...layers.effects, ...layers.live, ...layers.presets, ...layers.overrides, ...layers.locate }
+  const result = { ...layers.defaults, ...layers.base, ...layers.sequences, ...layers.effects, ...layers.live, ...layers.presets, ...layers.overrides, ...layers.locate }
   for (const channel of layers.previousChannels ?? []) if (!(channel in result)) result[channel] = 0
   for (const channel of layers.disabledChannels ?? []) result[channel] = 0
   const intensity = new Set(layers.intensityChannels ?? [])

@@ -159,6 +159,11 @@ ipcMain.handle('rename-show', async (_, showPath: string, name: string) => {
   try { return { success: true, path: renameProjectFile(showPath, name) } }
   catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) } }
 })
+ipcMain.handle('print-patch', async (_, html: string) => {
+  const printWindow = new BrowserWindow({ show: false, webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } })
+  await printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`)
+  return new Promise((resolve) => printWindow.webContents.print({ silent: false, printBackground: true }, (success, reason) => { printWindow.close(); resolve({ success, error: reason }) }))
+})
 ipcMain.handle('duplicate-show', async (_, showPath: string) => {
   try { return { success: true, path: duplicateProjectFile(showPath) } }
   catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) } }

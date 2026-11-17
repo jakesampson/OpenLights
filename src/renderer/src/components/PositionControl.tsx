@@ -1,0 +1,10 @@
+import type { FixtureDef } from '@shared/types'
+import { fixtureAttributes } from '../lib/automationRuntime'
+import { positionValues } from '../lib/position'
+import { useShowStore } from '../stores/showStore'
+export function PositionControl({ fixtures, update }: { fixtures: FixtureDef[]; update: (values: Record<string, number>) => void }) {
+  if (!fixtures.length || !fixtures.every((f) => ['pan', 'tilt'].every((key) => fixtureAttributes(f).includes(key)))) return null
+  const first = fixtures[0]
+  const setPosition = (event: React.PointerEvent<HTMLDivElement>) => { const rect = event.currentTarget.getBoundingClientRect(); update(positionValues((event.clientX - rect.left) / rect.width, (event.clientY - rect.top) / rect.height, fixtureAttributes(first))) }
+  return <div className="flex flex-wrap items-center gap-2 text-xs"><div role="slider" aria-label="Pan and tilt position pad" aria-valuemin={0} aria-valuemax={255} tabIndex={0} className="h-20 w-28 cursor-crosshair rounded border border-line bg-panel2" style={{ touchAction: 'none', backgroundImage: 'linear-gradient(transparent 49%, var(--line) 50%, transparent 51%),linear-gradient(90deg, transparent 49%, var(--line) 50%, transparent 51%)' }} onPointerDown={(e) => { useShowStore.getState().beginHistoryGroup(); e.currentTarget.setPointerCapture(e.pointerId); setPosition(e) }} onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture(e.pointerId)) setPosition(e) }} onPointerUp={() => useShowStore.getState().endHistoryGroup()} onPointerCancel={() => useShowStore.getState().endHistoryGroup()} onKeyDown={(e) => { if (e.key === 'Home') { e.preventDefault(); update(positionValues(0.5, 0.5, fixtureAttributes(first))) } }} />{(['invertPan', 'invertTilt', 'swapPanTilt'] as const).map((key) => <label key={key}><input type="checkbox" checked={first.positionOptions?.[key] ?? false} onChange={(e) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const f of fixtures) state.updateFixture(f.id, { positionOptions: { ...f.positionOptions, [key]: e.target.checked } }); state.endHistoryGroup() }} /> {key}</label>)}</div>
+}

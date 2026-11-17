@@ -13,6 +13,10 @@ export interface FixtureDef {
   universe?: number
   notes?: string
   disabled?: boolean
+  positionOptions?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }
+  propertyOrder?: string[]
+  hiddenProperties?: string[]
+  defaultValues?: Record<string, number>
   profileId?: string
   modeId?: string
   profile?: FixtureProfile
@@ -133,6 +137,8 @@ export interface LivePage {
 }
 
 export interface ShowDef {
+  colorFavorites?: string[]
+  fixtureGroups?: FixtureGroup[]
   fixtureProfiles?: FixtureProfile[]
   favoriteProfileIds?: string[]
   stageObjects?: StageObject[]
@@ -157,6 +163,8 @@ export interface ShowDef {
   bpm?: number
   audioPath?: string
 }
+
+export interface FixtureGroup { id: string; name: string; parentId?: string | null; fixtureIds: string[] }
 
 export interface StageObject {
   id: string
@@ -211,6 +219,8 @@ export interface FixturePreset {
 }
 
 export interface FixtureChannel {
+  control?: 'slider' | 'color-wheel' | 'gobo-wheel' | 'options'
+  slots?: { id: string; name: string; from: number; to: number; kind: 'slot' | 'spin' | 'scroll' }[]
   number: number // zero-based offset within the fixture mode
   attribute: string
   propertyType: 'intensity' | 'color' | 'position' | 'other'
@@ -224,7 +234,7 @@ export interface FixtureProfile {
   name: string
   manufacturer: string
   legacyType: FixtureType
-  modes: { id: string; name: string; channels: FixtureChannel[] }[]
+  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[] }[]
 }
 
 export const FIXTURE_PRESETS: FixturePreset[] = BUILTIN_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))

@@ -23,6 +23,11 @@ import type { FixtureProfile } from '@shared/types'
 import { allocateFixtures, type PatchOptions } from '../lib/patch'
 import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
+import { fixtureMode } from '@shared/fixtureProfiles'
+import { canParentGroup, syncFixtureGroups } from '../lib/fixtureGroups'
+import { mixColor, type RgbColor } from '../lib/colorMix'
+import { mapCopiedProperties } from '../lib/copyProperties'
+import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
 
@@ -55,6 +60,9 @@ interface ShowState {
   isPlaying: boolean
   activeSceneId: string | null
   selectedFixtureIds: string[]
+  selectedBeams: { fixtureId: string; beamId: string }[]
+  selectFixtureBeam: (fixtureId: string, beamId: string, additive?: boolean) => void
+  updateSelectedBeamValues: (values: Record<string, number>, manual?: boolean) => void
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
@@ -70,6 +78,7 @@ interface ShowState {
   selectLivePage: (id: string | null) => void
   setManualOverrides: (values: Record<string, number>) => void
   clearManualOverrides: () => void
+  releaseManualOverrides: (fixtureIds?: string[], property?: string) => void
   locateFixtures: (ids: string[]) => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
@@ -82,7 +91,16 @@ interface ShowState {
   selectFixture: (id: string, additive?: boolean) => void
   selectFixtures: (ids: string[]) => void
   groupSelectedFixtures: (name: string) => void
+  createFixtureGroup: (name: string, parentId?: string | null) => string
+  renameFixtureGroup: (id: string, name: string) => void
+  parentFixtureGroup: (id: string, parentId: string | null) => void
+  moveFixtureGroup: (id: string, direction: -1 | 1) => void
+  removeFixtureGroup: (id: string) => void
   updateSelectedFixtures: (values: Record<string, number>) => void
+  setSelectedColor: (color: RgbColor, manual?: boolean) => void
+  propertyClipboard: { fixture: FixtureDef; values: Record<string, number> } | null
+  copyFixtureProperties: () => void
+  pasteFixtureProperties: (manual?: boolean) => void
   goToScene: (id: string) => void
   flashScene: (id: string) => void
   endFlash: () => void
@@ -157,7 +175,7 @@ export function nextFreeChannel(fixtures: FixtureDef[]): number {
 export function defaultFixtureValues(fixture: FixtureDef): Record<string, number> {
   const values: Record<string, number> = {}
   for (const attr of fixtureAttributes(fixture)) {
-    values[attr] = attr === 'pan' || attr === 'tilt' ? 128 : 0
+    values[attr] = fixture.defaultValues?.[attr] ?? fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)?.defaultValue ?? 0
   }
   return values
 }
@@ -188,6 +206,7 @@ function persistState(
   showPatch: Partial<ShowDef>,
   statePatch: Partial<ShowState> = {}
 ): Partial<ShowState> {
+  if (showPatch.fixtures && !showPatch.fixtureGroups) showPatch = { ...showPatch, fixtureGroups: syncFixtureGroups(state.show?.fixtureGroups ?? [], showPatch.fixtures) }
   return {
     ...statePatch,
     ...(state.show && JSON.stringify({ ...state.show, ...showPatch }) !== JSON.stringify(state.show) ? {
@@ -424,6 +443,8 @@ let sessionPasscode = ''
 export const useShowStore = create<ShowState>((set, get) => {
 const actions: ShowState = {
   locked: false,
+  propertyClipboard: null,
+  selectedBeams: [],
   stageClipboard: [],
   lockApp: (passcode = '') => { if (get().locked) return; sessionPasscode = passcode; set({ locked: true }) },
   unlockApp: (passcode = '') => { if (passcode !== sessionPasscode) return false; sessionPasscode = ''; set({ locked: false }); return true },
@@ -498,6 +519,7 @@ const actions: ShowState = {
       bpm: show?.bpm ?? 120,
       activeSceneId: show?.startup?.mode === 'restore' && show.scenes.some((s) => s.id === show.startup?.sceneId) ? show.startup.sceneId ?? null : null,
       selectedFixtureIds: [],
+      selectedBeams: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
       cuePlaying: false,
@@ -529,6 +551,38 @@ const actions: ShowState = {
     return { manualOverrides }
   }),
   clearManualOverrides: () => set({ manualOverrides: {} }),
+  releaseManualOverrides: (fixtureIds, property) => set((state) => ({ manualOverrides: releaseOverrides(state.manualOverrides, fixtureIds, property) })),
+  copyFixtureProperties: () => {
+    const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
+    if (!fixture) return
+    const values = { ...state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues[fixture.id] }
+    for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
+    Object.assign(values, state.manualOverrides[fixture.id])
+    set({ propertyClipboard: { fixture: structuredClone(fixture), values } })
+  },
+  pasteFixtureProperties: (manual = false) => {
+    const state = get(), clipboard = state.propertyClipboard
+    if (!clipboard) return
+    const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
+    if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
+    if (!state.activeSceneId) get().addScene()
+    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
+    if (!scene) return
+    const fixtureValues = { ...scene.fixtureValues }
+    for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
+    get().updateScene(scene.id, { fixtureValues })
+  },
+  setSelectedColor: (color, manual = false) => {
+    const state = get(), patch: Record<string, Record<string, number>> = {}
+    for (const id of state.selectedFixtureIds) { const f = state.show?.fixtures.find((f) => f.id === id); if (f) patch[id] = f.type === 'dimmer' ? { ...color } : mixColor(color, fixtureAttributes(f)) }
+    if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
+    if (!state.activeSceneId) get().addScene()
+    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
+    if (!scene) return
+    const fixtureValues = { ...scene.fixtureValues }
+    for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
+    get().updateScene(scene.id, { fixtureValues })
+  },
   locateFixtures: (ids) => { const state = get(); if (!state.blackout) configureLocateOutput(locateFixturePatch(state.show?.fixtures ?? [], ids, state.master)) },
   setBpm: (bpm) =>
     set((state) => {
@@ -576,19 +630,63 @@ const actions: ShowState = {
           ? state.selectedFixtureIds
           : [...state.selectedFixtureIds, id]
         : [id]
-      return { selectedFixtureIds }
+      return { selectedFixtureIds, selectedBeams: [] }
     }),
 
   selectFixtures: (ids) => set((state) => {
     const validIds = new Set(state.show?.fixtures.map((fixture) => fixture.id) ?? [])
-    return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)) }
+    return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)), selectedBeams: [] }
   }),
+  selectFixtureBeam: (fixtureId, beamId, additive = false) => set((state) => {
+    const fixture = state.show?.fixtures.find((f) => f.id === fixtureId)
+    if (!fixture || !fixtureMode(fixture)?.beams?.some((b) => b.id === beamId)) return state
+    const selectedBeams = additive ? [...state.selectedBeams.filter((b) => b.fixtureId !== fixtureId || b.beamId !== beamId), { fixtureId, beamId }] : [{ fixtureId, beamId }]
+    return { selectedBeams, selectedFixtureIds: [...new Set(selectedBeams.map((b) => b.fixtureId))] }
+  }),
+  updateSelectedBeamValues: (values, manual = false) => {
+    const state = get(), patch: Record<string, Record<string, number>> = {}
+    for (const selected of state.selectedBeams) {
+      const fixture = state.show?.fixtures.find((f) => f.id === selected.fixtureId), beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === selected.beamId)
+      if (!beam) continue
+      for (const [attribute, value] of Object.entries(values)) if (beam.properties[attribute] && Number.isFinite(value)) patch[selected.fixtureId] = { ...patch[selected.fixtureId], [beam.properties[attribute]]: clamp(value) }
+    }
+    if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
+    if (!state.activeSceneId) get().addScene()
+    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
+    if (!scene) return
+    const fixtureValues = { ...scene.fixtureValues }
+    for (const [id, attributes] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...attributes }
+    get().updateScene(scene.id, { fixtureValues })
+  },
 
   groupSelectedFixtures: (name) => set((state) => {
     if (!state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
     const selected = new Set(state.selectedFixtureIds)
     const fixtures = state.show.fixtures.map((fixture) => selected.has(fixture.id) ? { ...fixture, group: name.trim() } : fixture)
     return persistState(state, { fixtures })
+  }),
+  createFixtureGroup: (name, parentId = null) => {
+    if (!name.trim()) return ''
+    const id = crypto.randomUUID(), state = get()
+    if (parentId && !state.show?.fixtureGroups?.some((g) => g.id === parentId)) return ''
+    set(persistState(state, { fixtureGroups: [...(state.show?.fixtureGroups ?? []), { id, name: name.trim(), parentId, fixtureIds: [...state.selectedFixtureIds] }] }))
+    return id
+  },
+  renameFixtureGroup: (id, name) => set((state) => !name.trim() ? state : persistState(state, { fixtureGroups: (state.show?.fixtureGroups ?? []).map((g) => g.id === id ? { ...g, name: name.trim() } : g) })),
+  parentFixtureGroup: (id, parentId) => set((state) => canParentGroup(state.show?.fixtureGroups ?? [], id, parentId) ? persistState(state, { fixtureGroups: (state.show?.fixtureGroups ?? []).map((g) => g.id === id ? { ...g, parentId } : g) }) : state),
+  moveFixtureGroup: (id, direction) => set((state) => {
+    const groups = [...(state.show?.fixtureGroups ?? [])], index = groups.findIndex((g) => g.id === id)
+    if (index < 0) return state
+    const siblings = groups.map((g, i) => ({ g, i })).filter(({ g }) => g.parentId === groups[index].parentId), at = siblings.findIndex(({ g }) => g.id === id), swap = siblings[at + direction]?.i
+    if (swap === undefined) return state
+    ;[groups[index], groups[swap]] = [groups[swap], groups[index]]
+    return persistState(state, { fixtureGroups: groups })
+  }),
+  removeFixtureGroup: (id) => set((state) => {
+    const group = state.show?.fixtureGroups?.find((g) => g.id === id)
+    const groups = (state.show?.fixtureGroups ?? []).filter((g) => g.id !== id).map((g) => g.parentId === id ? { ...g, parentId: group?.parentId } : g)
+    const fixtures = (state.show?.fixtures ?? []).map((f) => group?.fixtureIds.includes(f.id) && !groups.some((g) => g.fixtureIds.includes(f.id)) ? { ...f, group: 'Ungrouped' } : f)
+    return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
   }),
 
   goToScene: (id) =>
@@ -1126,7 +1224,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   for (const command of editingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown

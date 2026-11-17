@@ -1,3 +1,12 @@
+import { fixtureMode } from '@shared/fixtureProfiles'
+import { FixtureSelectionTools } from './FixtureSelectionTools'
+import { PositionControl } from './PositionControl'
+import { StandardProperties } from './StandardProperties'
+import { CustomProperties } from './CustomProperties'
+import { OverrideProperties } from './OverrideProperties'
+import { STANDARD_PROPERTIES } from '../lib/propertyValues'
+import { WheelControls } from './WheelControls'
+import { availableProperties } from '../lib/availableProperties'
 import { useState } from 'react'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
@@ -25,7 +34,13 @@ export function DesignTab() {
     activeSceneId,
     activePresetIds,
     selectedFixtureIds,
+    selectedBeams,
+    updateSelectedBeamValues,
     updateSelectedFixtures,
+    setSelectedColor,
+    copyFixtureProperties,
+    pasteFixtureProperties,
+    propertyClipboard,
     setManualOverrides,
     manualOverrides,
     clearManualOverrides,
@@ -36,19 +51,15 @@ export function DesignTab() {
   const fixtures = show?.fixtures ?? []
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
-  const commonAttributes =
-    selectedFixtures.length > 0
-      ? fixtureAttributes(selectedFixtures[0]).filter((attribute) =>
-          selectedFixtures.every((fixture) => fixtureAttributes(fixture).includes(attribute))
-        )
-      : []
+  const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
+  const commonAttributes = beamProperties.length ? Object.keys(beamProperties[0]).filter((key) => beamProperties.every((b) => key in b)) : availableProperties(selectedFixtures).map((property) => property.attribute)
   const channelAttributes = selectedFixtures.length
-    ? commonAttributes.filter((attribute) => attribute !== 'intensity')
+    ? commonAttributes.filter((attribute) => attribute !== 'intensity' && !(STANDARD_PROPERTIES as readonly string[]).includes(attribute))
     : EMPTY_CHANNELS
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
   const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
-  const valueFor = (attribute: string) =>
+  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? (manualMode ? manualOverrides[b.fixtureId]?.[key] : undefined) ?? activeScene?.fixtureValues[b.fixtureId]?.[key] ?? 0 : 0) }, 0) / selectedBeams.length) :
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
@@ -58,27 +69,33 @@ export function DesignTab() {
         )
       : 0
   const dimmer = activeScene || manualMode ? valueFor('intensity') : 0
-  const updateValues = manualMode ? setManualOverrides : updateSelectedFixtures
+  const updateValues = selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, manualMode) : manualMode ? setManualOverrides : updateSelectedFixtures
   const colorValues = {
-    red: valueFor('red'),
-    green: valueFor('green'),
-    blue: valueFor('blue')
+    red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : Math.min(255, valueFor('red') + valueFor('white') + valueFor('amber')),
+    green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : Math.min(255, valueFor('green') + valueFor('white') + valueFor('amber') * 0.45),
+    blue: commonAttributes.includes('yellow') ? 255 - valueFor('yellow') : Math.min(255, valueFor('blue') + valueFor('white'))
   }
-  const colorSupported = previewOnlyColor || ['red', 'green', 'blue'].every((attribute) =>
+  const colorSupported = previewOnlyColor || ['cyan', 'magenta', 'yellow'].every((a) => commonAttributes.includes(a)) || ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
   )
   const wheelPosition = colorWheelPosition(colorValues)
 
   const setColor = (hex: string) => {
-    updateValues({
-      red: parseInt(hex.slice(1, 3), 16),
-      green: parseInt(hex.slice(3, 5), 16),
-      blue: parseInt(hex.slice(5, 7), 16)
-    })
+    const rgb = { red: parseInt(hex.slice(1, 3), 16), green: parseInt(hex.slice(3, 5), 16), blue: parseInt(hex.slice(5, 7), 16) }
+    if (selectedBeams.length) updateSelectedBeamValues(rgb, manualMode)
+    else setSelectedColor(rgb, manualMode)
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
+      <FixtureSelectionTools />
+      <OverrideProperties />
+      <div className="flex gap-2 text-xs"><button type="button" disabled={!selectedFixtures.length} className="btn-theme" onClick={copyFixtureProperties}>Copy properties</button><button type="button" disabled={!selectedFixtures.length || !propertyClipboard} className="btn-theme" onClick={() => pasteFixtureProperties(manualMode)}>Paste properties</button></div>
+      <PositionControl fixtures={selectedFixtures} update={updateValues} />
+      <StandardProperties channels={availableProperties(selectedFixtures)} valueFor={valueFor} update={updateValues} />
+      <CustomProperties fixtures={selectedFixtures} valueFor={valueFor} update={updateValues} />
+      <WheelControls channels={availableProperties(selectedFixtures)} update={updateValues} valueFor={valueFor} />
+      <div className="flex flex-wrap items-center gap-1 text-[10px] text-dim">Colour favourites{(show?.colorFavorites ?? []).map((hex) => <button key={hex} type="button" aria-label={`Apply colour ${hex}`} title={hex} onClick={() => setColor(hex)} className="h-4 w-4 rounded border border-line" style={{ backgroundColor: hex }} />)}<button type="button" disabled={!selectedFixtures.length} onClick={() => { const hex = colorHex(colorValues); useShowStore.getState().updateProject({ colorFavorites: [...new Set([...(show?.colorFavorites ?? []), hex])] }) }} className="rounded bg-panel2 px-2 py-1">+ Current colour</button></div>
       <div className="flex shrink-0 items-center justify-between gap-2">
         <span
           className={

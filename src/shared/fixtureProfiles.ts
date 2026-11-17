@@ -40,6 +40,9 @@ export const BUILTIN_PROFILES: FixtureProfile[] = [
   { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch' as FixtureType },
 ].map((preset) => ({ id: preset.id, name: preset.name, manufacturer: 'Generic', legacyType: preset.type, modes: [{ id: 'default', name: 'Default mode', channels: Object.entries(LEGACY_CHANNELS[preset.type]).map(([attribute, number]) => ({ number, attribute, propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue|white|amber|uv)/.test(attribute) ? 'color' as const : attribute === 'pan' || attribute === 'tilt' ? 'position' as const : 'other' as const, min: 0, max: 255, defaultValue: attribute === 'pan' || attribute === 'tilt' ? 128 : 0, highlightValue: /^(intensity|red|green|blue|white|amber|uv)/.test(attribute) ? 255 : attribute === 'pan' || attribute === 'tilt' ? 128 : 0 })) }] }))
 
+const pixel = BUILTIN_PROFILES.find((p) => p.legacyType === 'pixel-bar-17ch')!
+pixel.modes[0].beams = Array.from({ length: 4 }, (_, index) => ({ id: `cell-${index + 1}`, name: `Cell ${index + 1}`, properties: Object.fromEntries(['red', 'green', 'blue'].map((attribute) => [attribute, `${attribute}${index === 0 ? '' : index + 1}`])) }))
+
 export function fixtureProfile(fixture: FixtureDef): FixtureProfile | undefined { return fixture.profile ?? BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type) }
 export function fixtureMode(fixture: FixtureDef) { const profile = fixtureProfile(fixture); return profile?.modes.find((m) => m.id === fixture.modeId) ?? profile?.modes[0] }
 export function fixtureChannelMap(fixture: FixtureDef): Record<string, number> { return Object.fromEntries((fixtureMode(fixture)?.channels ?? []).filter((c) => c.number < fixture.channels).map((c) => [c.attribute, c.number])) }

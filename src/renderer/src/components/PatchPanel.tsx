@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { nextFreeChannel, useShowStore } from '../stores/showStore'
 import { FixtureProfileEditor } from './FixtureProfileEditor'
+import { FixtureExchange } from './FixtureExchange'
 import { DmxMonitor } from './DmxMonitor'
 import { FIXTURE_PRESETS } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
@@ -57,6 +58,7 @@ export function PatchPanel() {
   return (
     <section className="flex flex-col gap-4">
       <FixtureProfileEditor />
+      <FixtureExchange />
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-widest text-zinc-400">
           Fixture Patch
