@@ -66,13 +66,21 @@ export function DesignTab() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex shrink-0 items-center justify-between gap-2 text-[10px] text-dim">
-        <span>
+      <div className="flex shrink-0 items-center justify-between gap-2">
+        <span
+          className={
+            selectedFixtures.length > 0
+              ? 'text-sm font-semibold text-white'
+              : 'text-[10px] text-dim'
+          }
+        >
           {selectedFixtures.length > 0
             ? `${selectedFixtures.length} fixture${selectedFixtures.length === 1 ? '' : 's'} selected`
             : 'Select fixture(s) on stage'}
         </span>
-        {selectedFixtures.length > 0 && !activeScene && <span>Select a scene to edit values</span>}
+        {selectedFixtures.length > 0 && !activeScene && (
+          <span className="text-[10px] text-dim">Select a scene to edit values</span>
+        )}
       </div>
 
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
