@@ -354,8 +354,15 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.4 Curve effects to full parity (curve shapes, min/max, applied to any property). Guide: p.147 and p.161 to 164.
   Done when: there are curve shape tests.
   Evidence: `lib/effects.ts` supports sine, cosine, triangle, square, pulse, saw, random and smooth curve shapes with optional explicit min/max mapping on every fixture property; `tests/effects.test.ts` covers the added shapes and non-intensity property range output; typecheck, 342 tests and build passed.
-- [ ] 9.5 Pattern effects: Chase, Scanner, Yo-yo, Fill, Rain, Meteor, Sparkle, Fire, Jellyfish, Snakes. Guide: p.153 to 160. Split into 9.5a to 9.5d.
-  Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests (seeded random).
+- [x] 9.5a Pattern effects: Chase, Scanner and Yo-yo. Guide: p.153 to 160.
+  Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
+  Evidence: pure normalized `patternLevel` chase/scanner/yo-yo evaluator and deterministic boundary/direction tests in `tests/patternEffects.test.ts`; typecheck, 344 tests and build passed.
+- [ ] 9.5b Pattern effects: Fill, Rain and Meteor. Guide: p.153 to 160.
+  Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
+- [ ] 9.5c Pattern effects: Sparkle and Fire. Guide: p.153 to 160.
+  Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic seeded-random tests.
+- [ ] 9.5d Pattern effects: Jellyfish and Snakes. Guide: p.153 to 160.
+  Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
 - [ ] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.
   Done when: path generators are tested for pan/tilt at set times.
 - [ ] 9.7 Copy/paste and delete effects, overlay (layering) effects, and effect templates. Guide: p.172 to 174.

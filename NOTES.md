@@ -207,3 +207,6 @@ The existing Hz/beat multiplier and degree phase spread now operate over an expl
 
 ### 9.4 Curve effects
 Curve effects now include cosine, pulse and smooth shapes alongside the existing waveforms. Optional min/max values map the normalized curve directly to an arbitrary fixture property; effects without them retain the existing offset/size calculation for show compatibility. Tests: `tests/effects.test.ts`.
+
+### 9.5a Ordered patterns
+Chase, scanner and yo-yo share a pure normalized evaluator. Scanner travels once across the fixture order; yo-yo reflects at the end. No persisted schema or dependency changed. Tests: `tests/patternEffects.test.ts`.
