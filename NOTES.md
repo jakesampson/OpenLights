@@ -122,5 +122,8 @@ Step capture, duplicate, remove, move, reverse and shuffle all pass through proj
 ### 6.9 Sequence timing
 Manual hold and fade durations add together, with an overall time scale. Beat timing ignores hold seconds and uses per-step beat lengths and steps-per-beat; fades occur at beat boundaries without extending the step. Tap/manual BPM feeds the same runtime. Shared-grid quantization is deferred to 9.9. Long fades interrupted by a faster beat currently restart from the scheduled previous step, a parity gap. Tests: tests/sequenceClock.test.ts.
 
-### Pause checkpoint after 6.9
-Paused at the user's request after completing and validating 6.9. Typecheck, all 177 tests and the production build passed. The next unticked agent item is 6.10 (fixture movements with sequences); no 6.10 implementation changes have started. Git staging/committing remains blocked by `.git/index.lock` permission denied; retain the working-tree changes. Completed checklist items must not be repeated. Desktop interaction and hardware checks remain in Needs Jake.
+### 6.10 Fixture movements with sequences
+Interpolates pan and tilt between position steps in sequences across fade durations. 16-bit position channels (pan/panFine, tilt/tiltFine) are interpolated as combined 16-bit words rather than separate 8-bit channels to prevent stepping and preserve fine precision. Tests: tests/sequenceMovement.test.ts.
+
+### 6.12 Preset palette filtering and related cues
+Pure helper functions filter presets and sequences by name query, preset category, and fixture overlap with the current selection. indRelatedCues inspects Live pages and controls to locate all cue buttons referencing a given preset ID. Tests: tests/presetPalette.test.ts.

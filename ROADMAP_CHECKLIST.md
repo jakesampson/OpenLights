@@ -246,7 +246,8 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   Evidence: 16-bit paired interpolation in `sequenceClock.ts`, `tests/sequenceMovement.test.ts`; typecheck, 180 tests and build passed.
   Done when: a test covers interpolated pan/tilt between steps.
 - [x] 6.11 Preset Palette shown in Live edit mode. *(Evidence: `LiveWorkspace.tsx` preset palette block.)*
-- [ ] 6.12 Split the Preset Palette, filter it (by name, type, fixtures in the selection), and find related cues (which cues use this preset). Guide: p.143 to 144.
+- [x] 6.12 Split the Preset Palette, filter it (by name, type, fixtures in the selection), and find related cues (which cues use this preset). Guide: p.143 to 144.
+  Evidence: `lib/presetPalette.ts`, `tests/presetPalette.test.ts`; typecheck, 186 tests and build passed.
   Done when: there are pure filter and related-cue functions with tests.
 - [ ] 6.13 Export and import Preset Palette items as JSON, with fixture matching by name and profile. Guide: p.144.
   Done when: there's a round-trip test, including a fixture that isn't found and gets skipped and logged.
