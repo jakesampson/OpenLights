@@ -15,6 +15,7 @@ import { EditTab } from './components/EditTab'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
+import { ViewSwitch } from './components/ViewSwitch'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
@@ -376,6 +377,9 @@ export default function App() {
           <GroupsPresetsPanel />
         </div>
       </div>
+
+      {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
+      <ViewSwitch view={tab} onView={setTab} />
 
       {/* Bottom row */}
       <div className="bottom-grid">

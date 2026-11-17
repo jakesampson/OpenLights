@@ -14,7 +14,7 @@ Windows conventions replace macOS commands. Network outputs and other exclusions
 
 ## Known gaps
 
-Git commits are blocked by filesystem permissions: `.git/index.lock` cannot be created. Files are edited and verified in place; no permissions workaround or destructive Git operation has been attempted. Commits requested by the checklist remain pending. Hardware and visual checks are tracked in ROADMAP_CHECKLIST.md.
+Historical note: earlier sessions recorded that Git commits were blocked by filesystem permissions (`.git/index.lock` could not be created). On the current `Grok_Auto` checkout commits succeed normally, so this no longer applies; roadmap items are committed as `roadmap N.N: ...`. Hardware and visual checks are tracked in ROADMAP_CHECKLIST.md.
 
 ## Test coverage
 
@@ -126,4 +126,7 @@ Manual hold and fade durations add together, with an overall time scale. Beat ti
 Interpolates pan and tilt between position steps in sequences across fade durations. 16-bit position channels (pan/panFine, tilt/tiltFine) are interpolated as combined 16-bit words rather than separate 8-bit channels to prevent stepping and preserve fine precision. Tests: tests/sequenceMovement.test.ts.
 
 ### 6.12 Preset palette filtering and related cues
-Pure helper functions filter presets and sequences by name query, preset category, and fixture overlap with the current selection. indRelatedCues inspects Live pages and controls to locate all cue buttons referencing a given preset ID. Tests: tests/presetPalette.test.ts.
+Pure helper functions filter presets and sequences by name query, preset category, and fixture overlap with the current selection. findRelatedCues inspects Live pages and controls to locate all cue buttons referencing a given preset ID. Tests: tests/presetPalette.test.ts.
+
+### 2.4a Design/Live switch placement and Live page dropdown
+The Design/Live segmented switch moved out of the top toolbar (`WorkspaceToolbar.tsx`) to a new `ViewSwitch.tsx` mounted in `App.tsx` on the divider between the Preview and bottom panel (CSS `.view-switch`, translated up by half its height so it straddles the divider). The Design/Live handlers remain in the toolbar `actions` object because `runToolbarCommand` requires the full `Record<ToolbarCommand, ...>` contract, but no Design/Live buttons are rendered in the toolbar. In Live view the Live segment gains a chevron and toggles a `role="dialog"` page manager for pick/add/rename/reorder. Switch state, dropdown visibility and page commands live in the pure `lib/viewSwitch.ts` helpers (no new dependencies) so they can be unit-tested without DOM; the UI routes changes through the existing store `setLivePages`/`selectLivePage` actions and project history. `selectLivePage` still clears `activeLiveValues`; item 7.2 will revisit that behaviour. Visual comparison with the supplied reference screenshot cannot be performed by this model and is recorded on Needs Jake. Tests: tests/viewSwitch.test.ts.
