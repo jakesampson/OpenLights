@@ -63,6 +63,11 @@ body {
   border-color: var(--accent);
 }
 
+button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: 2px;
+}
+
 .btn-panic {
   background: var(--panic);
   border: 1px solid var(--panic-line);

@@ -394,8 +394,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 10.2 Menus and context menus: a Windows menu bar (File, Edit, View, Live, Window, Help) and right-click menus on fixtures, presets, cues and pages, all driven by the 2.9 shortcut table.
   Done when: a test checks every menu command maps to an existing action.
   Evidence: shared `WINDOWS_MENU` drives Electron's File/Edit/View/Live/Window/Help application menu; preload forwards commands into the shortcut dispatcher; `ContextMenu.tsx` exposes fixture/preset/cue/page menus from the same command model; `tests/menuCommands.test.ts` verifies every entry maps to the 2.9 shortcut table; typecheck, 375 tests and build passed; Windows visual check added to Needs Jake.
-- [ ] 10.3 Tooltips and accessibility: every icon button has a tooltip and aria-label, focus is visible, and the Live page works from the keyboard.
+- [x] 10.3 Tooltips and accessibility: every icon button has a tooltip and aria-label, focus is visible, and the Live page works from the keyboard.
   Done when: a lint-style test scans components for `<button` without aria-label or text (or this is logged in NOTES if it isn't practical).
+  Evidence: global high-contrast `:focus-visible` treatment, icon transport tooltips/labels, existing Live keyboard controls retained, and `tests/accessibility.test.ts` recursively scans renderer TSX for unlabeled/textless buttons and incomplete icon controls; typecheck, 376 tests and build passed.
 - [ ] 10.4 Remove or merge leftover OpenLights-only panels after their replacements work (old live controls, stub tabs like `EditTab.tsx`, and anything else marked retire in the audit). Keep the audio automation timeline and the DMX test panel unless the audit says otherwise.
   Done when: the dead components are removed, the build passes, and the audit is updated.
 - [ ] 10.5 Final audit pass: update `docs/lightkey-audit.md` with every status after the work. List the remaining gaps in NOTES, don't mark partial features as matching.

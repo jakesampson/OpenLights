@@ -243,3 +243,6 @@ Show preferences add default cue fade, page fade, dark/system appearance and the
 
 ### 10.2 Menus
 The Electron application menu and renderer context menus use a shared typed command model and route through the established shortcut dispatcher, avoiding a second action implementation. Fixture, preset, cue and page context surfaces expose relevant existing actions. Native menu appearance remains a Windows desktop check. Tests: `tests/menuCommands.test.ts`.
+
+### 10.3 Accessibility
+All interactive HTML controls now share a visible two-pixel focus ring. Icon-only cuelist transport controls expose both accessible names and hover tooltips. A source lint test recursively checks every renderer TSX button for visible text or an aria-label and applies the stricter aria-label-plus-title rule to literal icon-only content. Existing Live keyboard activation and editing shortcuts remain covered by Live object tests. Tests: `tests/accessibility.test.ts`.
