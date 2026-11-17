@@ -6,6 +6,7 @@ import {
   isDmxPortInfoList,
   preferredDmxPortPath
 } from '@shared/dmxPorts'
+import { getDmxStatusLabel } from '../lib/dmxStatusLabel'
 
 export function DmxConnection() {
   const [open, setOpen] = useState(false)
@@ -112,6 +113,7 @@ export function DmxConnection() {
   }
 
   const connected = status?.connected ?? false
+  const statusLabel = getDmxStatusLabel(status, dmxError)
 
   return (
     <div className="relative" ref={rootRef}>
@@ -131,6 +133,7 @@ export function DmxConnection() {
           className="inline-block h-2 w-2 rounded-full"
           style={{ backgroundColor: connected ? 'var(--accent)' : 'var(--dim)' }}
         />
+        <span className="text-[10px] font-semibold">{statusLabel}</span>
         DMX
       </button>
 
