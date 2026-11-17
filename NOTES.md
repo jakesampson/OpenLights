@@ -255,3 +255,6 @@ The final guide audit is current. Three areas intentionally remain partial rathe
 
 ### Rendered preview verification
 The production renderer was served locally and exercised in system Chromium through Playwright. The check opened Settings, switched Design→Live, opened Live Edit, created a page when none existed, added a custom cue, toggled Blind and Freeze, opened the page context menu and captured `/tmp/openlights-rendered-preview.png`. The repeatable flow is `e2e/renderedPreview.spec.ts`; it uses an Electron bridge stub only for browser rendering, while unit/integration tests cover the real bridge contracts.
+
+### Design fixture inspector correction
+The Design bottom panel is now a fixed, non-scrollable selected-fixture inspector. General selection, grouping, fanning, copy/paste and layout sections were removed from this playback surface; selecting fixtures in Preview exposes only the scene/manual mode, dimmer, colour and common fixture-property controls. All common attributes, including position and optical channels, remain directly editable as compact faders. Tests: `tests/bottomPanel.test.ts` and the rendered Playwright scroll-height assertion.
