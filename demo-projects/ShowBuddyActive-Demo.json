@@ -1,0 +1,234 @@
+{
+  "id": "showbuddyactive-demo-v2",
+  "name": "ShowBuddyActive Demo",
+  "description": "Demo patch transcribed from the supplied ShowBuddyActive image. Fixture order and stage positions run left to right from DMX channel 1; the 51-channel layout is inferred from the image.",
+  "createdAt": 1794893260000,
+  "updatedAt": 1794893260000,
+  "fixtures": [
+    {
+      "id": "pan-4x1x30",
+      "name": "PAN 4X1X30",
+      "type": "pixel-bar-17ch",
+      "channelStart": 1,
+      "channels": 17,
+      "group": "Stage",
+      "previewPosition": { "x": 73, "y": 76 }
+    },
+    {
+      "id": "dimmer-1",
+      "name": "Dimmer 1",
+      "type": "dimmer",
+      "channelStart": 18,
+      "channels": 1,
+      "group": "Stage",
+      "previewPosition": { "x": 138, "y": 70 }
+    },
+    {
+      "id": "dimmer-2",
+      "name": "Dimmer 2",
+      "type": "dimmer",
+      "channelStart": 19,
+      "channels": 1,
+      "group": "Stage",
+      "previewPosition": { "x": 204, "y": 65 }
+    },
+    {
+      "id": "simger-q12bt-1",
+      "name": "Simger Q12BT 1",
+      "type": "rgba-4ch",
+      "channelStart": 20,
+      "channels": 4,
+      "group": "Front",
+      "previewPosition": { "x": 269, "y": 62 }
+    },
+    {
+      "id": "simger-q12bt-2",
+      "name": "Simger Q12BT 2",
+      "type": "rgba-4ch",
+      "channelStart": 24,
+      "channels": 4,
+      "group": "Front",
+      "previewPosition": { "x": 335, "y": 60 }
+    },
+    {
+      "id": "simger-q12bt-3",
+      "name": "Simger Q12BT 3",
+      "type": "rgba-4ch",
+      "channelStart": 28,
+      "channels": 4,
+      "group": "Front",
+      "previewPosition": { "x": 400, "y": 59 }
+    },
+    {
+      "id": "simger-q12bt-4",
+      "name": "Simger Q12BT 4",
+      "type": "rgba-4ch",
+      "channelStart": 32,
+      "channels": 4,
+      "group": "Front",
+      "previewPosition": { "x": 465, "y": 60 }
+    },
+    {
+      "id": "corepar-q120-1",
+      "name": "COREpar Q120 ILS 1",
+      "type": "rgbw-4ch",
+      "channelStart": 36,
+      "channels": 4,
+      "group": "Back",
+      "previewPosition": { "x": 531, "y": 62 }
+    },
+    {
+      "id": "corepar-q120-2",
+      "name": "COREpar Q120 ILS 2",
+      "type": "rgbw-4ch",
+      "channelStart": 40,
+      "channels": 4,
+      "group": "Back",
+      "previewPosition": { "x": 596, "y": 65 }
+    },
+    {
+      "id": "corepar-q120-3",
+      "name": "COREpar Q120 ILS 3",
+      "type": "rgbw-4ch",
+      "channelStart": 44,
+      "channels": 4,
+      "group": "Back",
+      "previewPosition": { "x": 662, "y": 70 }
+    },
+    {
+      "id": "corepar-q120-4",
+      "name": "COREpar Q120 ILS 4",
+      "type": "rgbw-4ch",
+      "channelStart": 48,
+      "channels": 4,
+      "group": "Back",
+      "previewPosition": { "x": 727, "y": 76 }
+    }
+  ],
+  "scenes": [
+    {
+      "id": "s1",
+      "name": "Warm Welcome",
+      "fixtureValues": {
+        "pan-4x1x30": {
+          "red": 220,
+          "green": 110,
+          "blue": 30,
+          "red2": 220,
+          "green2": 110,
+          "blue2": 30,
+          "red3": 220,
+          "green3": 110,
+          "blue3": 30,
+          "red4": 220,
+          "green4": 110,
+          "blue4": 30,
+          "intensity": 128,
+          "strobe": 0,
+          "function": 0,
+          "speed": 0,
+          "listType": 0
+        },
+        "dimmer-1": { "intensity": 128 },
+        "dimmer-2": { "intensity": 128 },
+        "simger-q12bt-1": { "red": 220, "green": 110, "blue": 30, "amber": 36 },
+        "simger-q12bt-2": { "red": 220, "green": 110, "blue": 30, "amber": 36 },
+        "simger-q12bt-3": { "red": 220, "green": 110, "blue": 30, "amber": 36 },
+        "simger-q12bt-4": { "red": 220, "green": 110, "blue": 30, "amber": 36 },
+        "corepar-q120-1": { "red": 220, "green": 110, "blue": 30, "white": 24 },
+        "corepar-q120-2": { "red": 220, "green": 110, "blue": 30, "white": 24 },
+        "corepar-q120-3": { "red": 220, "green": 110, "blue": 30, "white": 24 },
+        "corepar-q120-4": { "red": 220, "green": 110, "blue": 30, "white": 24 }
+      },
+      "fadeMs": 1200
+    },
+    {
+      "id": "s2",
+      "name": "Sermon Focus",
+      "fixtureValues": {
+        "pan-4x1x30": {
+          "red": 50,
+          "green": 110,
+          "blue": 220,
+          "red2": 50,
+          "green2": 110,
+          "blue2": 220,
+          "red3": 50,
+          "green3": 110,
+          "blue3": 220,
+          "red4": 50,
+          "green4": 110,
+          "blue4": 220,
+          "intensity": 150,
+          "strobe": 0,
+          "function": 0,
+          "speed": 0,
+          "listType": 0
+        },
+        "dimmer-1": { "intensity": 150 },
+        "dimmer-2": { "intensity": 150 },
+        "simger-q12bt-1": { "red": 50, "green": 110, "blue": 220, "amber": 0 },
+        "simger-q12bt-2": { "red": 50, "green": 110, "blue": 220, "amber": 0 },
+        "simger-q12bt-3": { "red": 50, "green": 110, "blue": 220, "amber": 0 },
+        "simger-q12bt-4": { "red": 50, "green": 110, "blue": 220, "amber": 0 },
+        "corepar-q120-1": { "red": 50, "green": 110, "blue": 220, "white": 110 },
+        "corepar-q120-2": { "red": 50, "green": 110, "blue": 220, "white": 110 },
+        "corepar-q120-3": { "red": 50, "green": 110, "blue": 220, "white": 110 },
+        "corepar-q120-4": { "red": 50, "green": 110, "blue": 220, "white": 110 }
+      },
+      "fadeMs": 800
+    },
+    {
+      "id": "s3",
+      "name": "Communion Glow",
+      "fixtureValues": {
+        "pan-4x1x30": {
+          "red": 180,
+          "green": 50,
+          "blue": 20,
+          "red2": 180,
+          "green2": 50,
+          "blue2": 20,
+          "red3": 180,
+          "green3": 50,
+          "blue3": 20,
+          "red4": 180,
+          "green4": 50,
+          "blue4": 20,
+          "intensity": 100,
+          "strobe": 0,
+          "function": 0,
+          "speed": 0,
+          "listType": 0
+        },
+        "dimmer-1": { "intensity": 100 },
+        "dimmer-2": { "intensity": 100 },
+        "simger-q12bt-1": { "red": 180, "green": 50, "blue": 20, "amber": 160 },
+        "simger-q12bt-2": { "red": 180, "green": 50, "blue": 20, "amber": 160 },
+        "simger-q12bt-3": { "red": 180, "green": 50, "blue": 20, "amber": 160 },
+        "simger-q12bt-4": { "red": 180, "green": 50, "blue": 20, "amber": 160 },
+        "corepar-q120-1": { "red": 180, "green": 50, "blue": 20, "white": 12 },
+        "corepar-q120-2": { "red": 180, "green": 50, "blue": 20, "white": 12 },
+        "corepar-q120-3": { "red": 180, "green": 50, "blue": 20, "white": 12 },
+        "corepar-q120-4": { "red": 180, "green": 50, "blue": 20, "white": 12 }
+      },
+      "fadeMs": 2000
+    }
+  ],
+  "automations": [],
+  "effects": [],
+  "cueLists": [
+    {
+      "id": "c1",
+      "name": "Sunday Set",
+      "steps": [
+        { "id": "cs1", "sceneId": "s1", "fadeMs": 1500, "holdMs": 0 },
+        { "id": "cs2", "sceneId": "s2", "fadeMs": 1000, "holdMs": 0 },
+        { "id": "cs3", "sceneId": "s3", "fadeMs": 2000, "holdMs": 0 }
+      ],
+      "loop": false
+    }
+  ],
+  "midiMappings": [],
+  "masterIntensity": 255
+}
