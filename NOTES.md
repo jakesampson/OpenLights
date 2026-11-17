@@ -195,3 +195,6 @@ The existing Go/Back/direct jump, follow timer and loop behavior remain the play
 
 ### 8.9 Retired Scenes & cues tab
 The separate editor components and toolbar entry are removed. Scene data remains in old shows and the tested 6.14 conversion produces equivalent presets without deleting originals; legacy cue steps already migrate into the retained cuelist model. This intentionally favours non-destructive compatibility over erasing legacy arrays. Tests open both the demo and a version-0 document and compare former scene/cue-step output. A real-show reopen remains on Needs Jake. Tests: `tests/editorRetirement.test.ts`.
+
+### 8.10 Frame stepping and effect continuity
+A cue button can act as Next or Previous for the frame containing its centre. The step helper excludes action buttons, wraps within real frame cues and preserves active values outside the frame. Effects remain global and therefore continue unchanged when cuelist cues advance; cue-owned effect lifecycle is added in 9.2. Tests: `tests/frameStepping.test.ts`, `tests/store.test.ts`.

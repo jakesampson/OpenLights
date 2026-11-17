@@ -5,6 +5,7 @@ import { exclusiveSiblings, liveOutputLevels, setFrameConfig } from '../lib/live
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
+import { stepFrame } from '../lib/frameStepping'
 import {
   copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
   objectsInRect, pasteObjects, renameObject, resizeObject, setAttachment, setObjectStyle,
@@ -121,6 +122,7 @@ interface ShowState {
   configureCueAppearance: (controlId: string, patch: Partial<NonNullable<LiveControl['appearance']>>) => void
   configureCueModifiers: (controlId: string, patch: Partial<NonNullable<LiveControl['modifiers']>>) => void
   configureCuePriority: (controlId: string, priority: number) => void
+  configureCueFrameStep: (controlId: string, action?: 'next' | 'previous') => void
   editCueListCommand: (listId: string, command: CueListCommand) => void
   deleteSelectedPageObjects: () => void
   duplicateSelectedPageObjects: () => void
@@ -227,6 +229,7 @@ interface ShowState {
   cueNext: () => void
   cuePrev: () => void
   setManualCrossfade: (value: number) => void
+  stepLiveFrame: (frameId: string, direction: -1 | 1) => void
   stopCue: () => void
 
   setMidiMappings: (mappings: MidiMapping[]) => void
@@ -747,6 +750,11 @@ const actions: ShowState = {
     const page = activeLivePage(state)
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, priority: Number.isFinite(priority) ? Math.round(priority) : 0 } : control) } : item))
+  }),
+  configureCueFrameStep: (controlId, action) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, frameStep: action } : control) } : item))
   }),
   editCueListCommand: (listId, command) => set((state) => {
     const cueLists = state.cueLists.map((list) => list.id === listId ? applyCueListCommand(list, command) : list)
@@ -1585,6 +1593,10 @@ const actions: ShowState = {
 
   stopCue: () => set({ cuePlaying: false }),
   setManualCrossfade: (value) => set({ manualCrossfade: Math.max(0, Math.min(1, value)) }),
+  stepLiveFrame: (frameId, direction) => set((state) => {
+    const page = activeLivePage(state)
+    return page ? { activeLiveValues: stepFrame(page, frameId, state.activeLiveValues, direction) } : state
+  }),
 
   setMidiMappings: (mappings) =>
     set((state) => persistState(state, { midiMappings: mappings }, { midiMappings: mappings })),
@@ -1601,7 +1613,7 @@ const actions: ShowState = {
  }
   const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
-  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'editCueListCommand'] as const
+  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
     mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }

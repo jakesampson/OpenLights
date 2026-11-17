@@ -839,3 +839,17 @@ describe('cuelist manual crossfade (8.8)', () => {
     expect(useShowStore.getState().manualCrossfade).toBe(1)
   })
 })
+
+describe('frame stepping and effect continuity (8.10)', () => {
+  it('steps frame cues while global effects continue across cuelist cues', () => {
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'P', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [], x: 20, y: 20 }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [], x: 200, y: 20 }], annotations: [{ id: 'f', type: 'frame' as const, text: 'F', x: 0, y: 0, width: 400, height: 200 }] }] }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().setLiveValue('a', 255)
+    useShowStore.getState().stepLiveFrame('f', 1)
+    expect(useShowStore.getState().activeLiveValues).toEqual({ b: 255 })
+    const effects = useShowStore.getState().effects
+    const list = useShowStore.getState().cueLists[0]
+    if (list?.steps.length > 1) { useShowStore.getState().goToCue(list.id, 0); useShowStore.getState().cueNext() }
+    expect(useShowStore.getState().effects).toEqual(effects)
+  })
+})

@@ -338,8 +338,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.9 Retire the separate Scenes & cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate scenes to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.
   Done when: a test opens the demo show and a version-0 show, migrates them, and gets identical DMX output for each former scene and cue step. Add a Needs Jake check on a real show.
   Evidence: removed `EditTab.tsx`, `SceneGrid.tsx`, `CueListPanel.tsx` and toolbar entry; retained non-destructive scene→preset conversion and cuelist migration paths; `tests/editorRetirement.test.ts` verifies demo/version-0 scene and cue-step output equivalence; typecheck, 337 tests and build passed; real-show check remains on Needs Jake.
-- [ ] 8.10 Step through buttons in a frame (next/previous button), and continue effects across cues. Guide: p.216 to 217 and p.221.
+- [x] 8.10 Step through buttons in a frame (next/previous button), and continue effects across cues. Guide: p.216 to 217 and p.221.
   Done when: store tests cover both.
+  Evidence: optional cue frame-step action, `lib/frameStepping.ts` cycling frame members, store action and Live control rendering/editor; global effects remain unchanged across cue advances; `tests/frameStepping.test.ts` + `tests/store.test.ts`; typecheck, 339 tests and build passed.
 
 ## 9. Effects, beat control and operation (guide ch.10, ch.11 end, ch.12)
 

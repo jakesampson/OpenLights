@@ -196,6 +196,7 @@ export interface LiveControl {
   appearance?: { color: string; releaseOthers: boolean }
   modifiers?: { intensity: number; speed: number; size: number }
   priority?: number
+  frameStep?: 'next' | 'previous'
 }
 
 export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'

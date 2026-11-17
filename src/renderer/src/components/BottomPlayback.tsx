@@ -4,6 +4,7 @@ import { getPresetColor } from '../lib/presetColor'
 import { calculateTapTempo } from '../lib/tapTempo'
 import { bottomPanelMode } from '../lib/bottomPanel'
 import { DesignTab } from './DesignTab'
+import { frameForCue } from '../lib/liveFrames'
 
 interface Props { view: 'Design' | 'Live' }
 
@@ -48,7 +49,7 @@ export function BottomPlayback({ view }: Props) {
           const level = state.activeLiveValues[control.id] ?? 0
           return control.type === 'fader' ? <label key={control.id}>{control.name}<input type="range" min="0" max="255" value={level} onChange={(event) => state.setLiveValue(control.id, Number(event.target.value))} /></label> :
             <button key={control.id} type="button" aria-pressed={level > 0} className={level ? 'active' : ''} style={{ backgroundColor: level ? undefined : control.appearance?.color }}
-              onClick={control.type === 'toggle' ? () => state.setLiveValue(control.id, level ? 0 : 255) : undefined}
+              onClick={control.frameStep ? () => { const frame = page && frameForCue(page, control.id); if (frame) state.stepLiveFrame(frame, control.frameStep === 'next' ? 1 : -1) } : control.type === 'toggle' ? () => state.setLiveValue(control.id, level ? 0 : 255) : undefined}
               onPointerDown={control.type === 'flash' ? () => state.setLiveValue(control.id, 255) : undefined}
               onPointerUp={control.type === 'flash' ? () => state.setLiveValue(control.id, 0) : undefined}
               onPointerCancel={control.type === 'flash' ? () => state.setLiveValue(control.id, 0) : undefined}>{control.name}</button>
