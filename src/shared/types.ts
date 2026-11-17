@@ -141,6 +141,8 @@ export interface EffectDef {
   offset: number // centre value, 0-255
   owner?: { type: 'preset' | 'sequence' | 'cue'; id: string }
   phaseSpread: number // degrees of fan-out across targeted fixtures
+  fixtureOrder?: 'forward' | 'reverse' | 'random' | 'custom'
+  customFixtureOrder?: string[]
   enabled: boolean
 }
 

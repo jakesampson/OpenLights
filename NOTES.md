@@ -201,3 +201,6 @@ A cue button can act as Next or Previous for the frame containing its centre. Th
 
 ### 9.2 Effect ownership
 Effects may optionally name a preset, sequence or cue owner. Missing ownership preserves the legacy global behavior exactly, so existing shows require no destructive conversion. The output selects owned effects from current runtime activation and stops a cue-owned effect when its cue level reaches zero. Tests: `tests/effectOwnership.test.ts`.
+
+### 9.3 Effect timing and fixture order
+The existing Hz/beat multiplier and degree phase spread now operate over an explicit fixture order: patch order, reverse, deterministic pseudo-random, or a saved custom id list. Deterministic random order avoids reshuffling every output frame. Tests: `tests/effects.test.ts`.

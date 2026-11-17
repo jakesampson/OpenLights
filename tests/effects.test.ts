@@ -4,6 +4,7 @@ import {
   computeEffectPatch,
   effectFrequency,
   mergeEffects,
+  orderedEffectFixtures,
   waveformValue
 } from '../src/renderer/src/lib/effects'
 
@@ -58,6 +59,16 @@ describe('effect frequency', () => {
   it('syncs cycles to beats, or runs in Hz', () => {
     expect(effectFrequency(effect({ speed: 2, syncToBpm: true }), 120)).toBe(4)
     expect(effectFrequency(effect({ speed: 0.5, syncToBpm: false }), 120)).toBe(0.5)
+  })
+})
+
+describe('effect fixture order', () => {
+  it('orders forward, reverse, stable random and custom', () => {
+    expect(orderedEffectFixtures(effect(), fixtures).map((item) => item.id)).toEqual(['f1', 'f2'])
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'reverse' }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
+    const random = orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)).toEqual(random)
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'custom', customFixtureOrder: ['f2', 'f1'] }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
   })
 })
 

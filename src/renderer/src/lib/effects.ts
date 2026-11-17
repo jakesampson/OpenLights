@@ -31,6 +31,13 @@ export function waveformValue(wave: EffectDef['waveform'], phase: number, seed =
   }
 }
 
+export function orderedEffectFixtures(effect: EffectDef, fixtures: FixtureDef[]): FixtureDef[] {
+  if (effect.fixtureOrder === 'reverse') return [...fixtures].reverse()
+  if (effect.fixtureOrder === 'custom') { const rank = new Map((effect.customFixtureOrder ?? []).map((id, index) => [id, index])); return [...fixtures].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9)) }
+  if (effect.fixtureOrder === 'random') return [...fixtures].sort((a, b) => { const hash = (id: string) => [...`${effect.id}:${id}`].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) | 0, 7); return hash(a.id) - hash(b.id) })
+  return fixtures
+}
+
 /**
  * Per-channel values produced by all enabled effects at a moment in time.
  * Effects override the base look on the channels they target; later effects
@@ -49,7 +56,7 @@ export function computeEffectPatch(
 
   for (const effect of enabled) {
     const ids = new Set(effect.fixtureIds)
-    const targets = ids.size > 0 ? fixtures.filter((f) => ids.has(f.id)) : fixtures
+    const targets = orderedEffectFixtures(effect, ids.size > 0 ? fixtures.filter((f) => ids.has(f.id)) : fixtures)
     if (targets.length === 0) continue
     const frequency = effectFrequency(effect, bpm)
     const spread = Math.max(0, effect.phaseSpread) / 360

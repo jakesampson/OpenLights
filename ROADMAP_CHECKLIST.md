@@ -348,8 +348,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.2 Effect model rework: effects belong to a preset, sequence or cue (not only to the global list), with a migration that keeps the existing global effects working. Guide: Add an effect, p.148, and Edit an effect, p.149.
   Done when: tests show a migrated show producing the same output, and a cue-owned effect starting and stopping with its cue.
   Evidence: optional non-destructive `EffectDef.owner`, `lib/effectOwnership.ts` keeps legacy/global effects active and gates preset/sequence/cue-owned effects, App output integration and `tests/effectOwnership.test.ts`; typecheck, 340 tests and build passed.
-- [ ] 9.3 Effect timing (speed, phase, beat-synced rate multipliers) and fixture order editing (forward, reverse, random, custom). Guide: p.150 to 152.
+- [x] 9.3 Effect timing (speed, phase, beat-synced rate multipliers) and fixture order editing (forward, reverse, random, custom). Guide: p.150 to 152.
   Done when: tests cover phase per fixture for each order.
+  Evidence: existing speed/BPM/phase spread extended with persisted forward/reverse/stable-random/custom fixture order in `effects.ts`; ordering and phase output tests in `tests/effects.test.ts`; typecheck, 341 tests and build passed.
 - [ ] 9.4 Curve effects to full parity (curve shapes, min/max, applied to any property). Guide: p.147 and p.161 to 164.
   Done when: there are curve shape tests.
 - [ ] 9.5 Pattern effects: Chase, Scanner, Yo-yo, Fill, Rain, Meteor, Sparkle, Fire, Jellyfish, Snakes. Guide: p.153 to 160. Split into 9.5a to 9.5d.
