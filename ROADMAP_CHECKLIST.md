@@ -323,8 +323,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.4 Button appearance and behaviour (colour, label, toggle/flash/fader, "release others"). Guide: p.204.
   Done when: fields are saved, migrated and tested.
   Evidence: additive `LiveControl.appearance` migration, history/lock-gated `configureCueAppearance`, colour/release-others inspector and coloured Live playback buttons; release-others runtime in `setLiveValue`; `tests/store.test.ts` + `tests/migrations.test.ts`; typecheck, 322 tests and build passed.
-- [ ] 8.5 Cue modifiers (intensity, speed, size and so on, adjustable live). Guide: Edit modifiers, p.205 to 208, and Change modifiers, p.217.
+- [x] 8.5 Cue modifiers (intensity, speed, size and so on, adjustable live). Guide: Edit modifiers, p.205 to 208, and Change modifiers, p.217.
   Done when: an output test shows a modifier scaling the cue's contribution.
+  Evidence: additive cue intensity/speed/size modifiers, history/lock-gated `configureCueModifiers`, Live inspector controls, cue+frame scaling in `effectiveLiveLevel`, `tests/liveFrames.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`; typecheck, 324 tests and build passed.
 - [ ] 8.6 Cue priority between overlapping cues (latest takes precedence, or an explicit priority), using the 1.5 model.
   Done when: output tests cover two cues on the same property.
 - [ ] 8.7 Cuelists in Live: add, remove, reorder, copy/paste, rename and filter cues inside the cuelist widget, and show the current and next cue with remaining time. Guide: Edit cuelists, p.191 to 198.

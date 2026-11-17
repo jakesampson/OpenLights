@@ -795,3 +795,14 @@ describe('cue appearance and behaviour (8.4)', () => {
     expect(useShowStore.getState().activeLiveValues).toEqual({ b: 255 })
   })
 })
+
+describe('cue modifiers (8.5)', () => {
+  it('stores clamped live modifiers and scales output intensity', () => {
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: [] }] }] }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().configureCueModifiers('c', { intensity: 50, speed: 300, size: -10 })
+    expect(useShowStore.getState().show!.livePages![0].controls[0].modifiers).toEqual({ intensity: 50, speed: 200, size: 0 })
+    useShowStore.getState().setLiveValue('c', 200)
+    expect(useShowStore.getState().getLiveOutputLevels().c).toBe(100)
+  })
+})

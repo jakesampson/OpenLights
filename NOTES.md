@@ -180,3 +180,6 @@ Cues now store delay, independent fade-in/fade-out durations and a curve name. M
 
 ### 8.4 Cue appearance and release behaviour
 Cue appearance stores an OpenLights colour and a release-others flag; the existing cue name remains its editable label and existing type remains toggle/flash/fader. Legacy controls gain neutral colour and disabled release-others additively. Activating a release-others cue clears the other controls on its page before frame exclusivity is applied. The Live playback surface uses the stored colour. Tests: `tests/store.test.ts`, `tests/migrations.test.ts`.
+
+### 8.5 Cue modifiers
+Each cue has live intensity, speed and size percentages (0–200, legacy default 100). Cue intensity multiplies the control level before its containing frame's intensity, so both modifiers compose and clamp to one DMX byte. Speed and size are persisted and exposed for downstream sequence/effect and movement consumers. Tests: `tests/liveFrames.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.

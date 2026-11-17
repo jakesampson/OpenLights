@@ -79,7 +79,8 @@ export function frameSpeed(page: LivePage, cueId: string): number {
 
 /** Apply a frame's intensity modifier to a cue's 0–255 level. */
 export function effectiveLiveLevel(page: LivePage, cueId: string, level: number): number {
-  return Math.max(0, Math.min(255, level * frameIntensity(page, cueId)))
+  const cueIntensity = (page.controls.find((cue) => cue.id === cueId)?.modifiers?.intensity ?? 100) / 100
+  return Math.max(0, Math.min(255, level * frameIntensity(page, cueId) * cueIntensity))
 }
 
 /**

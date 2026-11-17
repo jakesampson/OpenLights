@@ -87,6 +87,12 @@ describe('frame modifiers (7.9)', () => {
     expect(effectiveLiveLevel(boost, 'in1', 200)).toBe(255)
   })
 
+  it('combines a cue intensity modifier with its frame intensity', () => {
+    const page = setFrameConfig(framePage(), 'frame', { intensity: 50 })
+    page.controls[0].modifiers = { intensity: 50, speed: 100, size: 100 }
+    expect(effectiveLiveLevel(page, 'in1', 200)).toBe(50)
+  })
+
   it('returns modifier-scaled output levels keyed by cue id', () => {
     const page = setFrameConfig(framePage(), 'frame', { intensity: 25 })
     const levels = liveOutputLevels([page], { in1: 200, out: 100, stale: 80 })
