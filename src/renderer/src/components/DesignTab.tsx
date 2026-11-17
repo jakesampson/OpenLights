@@ -1,4 +1,5 @@
 import { fixtureAttributes } from '../lib/automationRuntime'
+import { colorWheelPosition } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
 
 const EMPTY_CHANNELS = ['red', 'green', 'blue', 'white', 'amber', 'uv']
@@ -55,6 +56,7 @@ export function DesignTab() {
   const colorSupported = ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
   )
+  const wheelPosition = colorWheelPosition(colorValues)
 
   const setColor = (hex: string) => {
     updateSelectedFixtures({
@@ -115,6 +117,17 @@ export function DesignTab() {
               onChange={(event) => setColor(event.target.value)}
               className="wheel-input"
             />
+            {colorSupported && selectedFixtures.length > 0 && (
+              <span
+                className="wheel-marker"
+                style={{
+                  left: `${wheelPosition.x}%`,
+                  top: `${wheelPosition.y}%`,
+                  backgroundColor: colorHex(colorValues)
+                }}
+                aria-hidden="true"
+              />
+            )}
           </div>
           <span className="font-mono text-[10px] text-dim">
             {colorSupported && selectedFixtures.length > 0
