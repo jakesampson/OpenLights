@@ -213,3 +213,6 @@ Chase, scanner and yo-yo share a pure normalized evaluator. Scanner travels once
 
 ### 9.5b Progressive patterns
 Fill lights the fixture order progressively, rain uses fixture-offset repeating drops, and meteor produces a wrapped decaying tail. All operate on normalized cycle time without mutable state. Tests: `tests/patternEffects.test.ts`.
+
+### 9.5c Seeded patterns
+Sparkle uses seeded threshold noise and fire uses seeded ranged flicker. Both quantize time into animation frames so repeated output calculations are stable and reproducible. Tests: `tests/patternEffects.test.ts`.

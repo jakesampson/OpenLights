@@ -26,3 +26,18 @@ describe('progressive pattern effects', () => {
     expect(patternLevel('meteor', 0.25, 1, 4)).toBe(0)
   })
 })
+
+describe('seeded-random pattern effects', () => {
+  it('keeps sparkle fixed within a frame and reproducible by seed', () => {
+    const first = [0, 1, 2, 3].map((i) => patternLevel('sparkle', 1.01, i, 4, 42))
+    expect([0, 1, 2, 3].map((i) => patternLevel('sparkle', 1.04, i, 4, 42))).toEqual(first)
+    expect(first.every((level) => level === 0 || level === 1)).toBe(true)
+  })
+
+  it('produces deterministic fire flicker in a warm intensity range', () => {
+    const first = patternLevel('fire', 0.2, 2, 5, 7)
+    expect(patternLevel('fire', 0.2, 2, 5, 7)).toBe(first)
+    expect(first).toBeGreaterThanOrEqual(0.35)
+    expect(first).toBeLessThanOrEqual(1)
+  })
+})
