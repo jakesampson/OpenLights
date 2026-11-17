@@ -305,8 +305,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 7.10 Drag sequences and multiple presets at once to pages, frames and cue buttons. Guide: Add cue buttons, p.181.
   Done when: store tests cover each drop target, with the drop logic pulled out of the JSX into a tested function.
   Evidence: `LiveControl.sequenceIds` (optional, migration-filled additively, no schema bump); pure `lib/liveDrops.ts` (encode/decode `LIVE_DROP_MIME`, `normalizeDropPayload`, `dropLabel`, `applyLiveDrop` for page/frame/cue targets including Ctrl-split into one cue per dragged item, `activeCueSequenceIds`); click-to-multi-select presets plus a draggable Sequences row in the `LiveWorkspace.tsx` palette, with page/frame/cue drop handlers delegating to the history/lock-gated store `dropOnLivePage`; cue inspector lists attached sequences; `App.tsx` includes sequences on lit cues in `configureSequences`; `tests/liveDrops.test.ts` (19 tests), `tests/store.test.ts` (all three targets + lock), `tests/migrations.test.ts`; typecheck, 302 tests and build passed; desktop check on Needs Jake.
-- [ ] 7.11 Inspector panel for the selected page, frame, cue or cue list, replacing the scattered inline controls. Guide: Edit a page, p.180, and Edit cue contents and options, p.198.
+- [x] 7.11 Inspector panel for the selected page, frame, cue or cue list, replacing the scattered inline controls. Guide: Edit a page, p.180, and Edit cue contents and options, p.198.
   Done when: the inspector shows the right fields for each selection type (tested as a pure field-schema function).
+  Evidence: `lib/liveInspector.ts` defines the pure field schema for page, frame, cue, cuelist and label targets; `LiveWorkspace.tsx` renders one selection-driven inspector (including page name/fade when nothing is selected) and exposes its schema; `tests/liveInspector.test.ts` verifies every target. Typecheck, 309 tests and build passed.
 
 ## 8. Cues and cuelists (guide ch.11, p.190 to 221)
 
