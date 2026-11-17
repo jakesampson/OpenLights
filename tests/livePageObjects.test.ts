@@ -13,6 +13,8 @@ import {
   positionedObjects,
   renameObject,
   resizeObject,
+  setAttachment,
+  withAttached,
   type PageObjectRef
 } from '../src/renderer/src/lib/livePageObjects'
 import { clampLiveSize, LIVE_CUE_SIZE, MAX_LIVE_OBJECT_SIZE, MIN_LIVE_OBJECT_SIZE } from '../src/shared/liveObjectDefaults'
@@ -146,5 +148,66 @@ describe('live page object resize and rename (7.6)', () => {
     expect(renameObject(page, { type: 'annotation', id: 'a1' }, '  ').annotations![0].text).toBe('Label')
     expect(renameObject(page, { type: 'list', id: 'w1' }, 'ignored')).toEqual(page)
     expect(page.controls[0].name).toBe('One')
+  })
+})
+
+describe('attaching page objects (7.7)', () => {
+  const attachedPage = (): LivePage => ({
+    id: 'page',
+    name: 'Page',
+    controls: [
+      { id: 'c1', name: 'One', type: 'toggle', presetIds: [], x: 50, y: 250, attachedTo: 'a1' },
+      { id: 'c2', name: 'Two', type: 'flash', presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
+      { id: 'c3', name: 'Three', type: 'toggle', presetIds: [], x: 600, y: 20 }
+    ],
+    cueListWidgets: [{ id: 'w1', cueListId: 'list', x: 20, y: 120 }],
+    annotations: [{ id: 'a1', type: 'frame', text: 'Frame', x: 300, y: 200, width: 200, height: 100 }]
+  })
+
+  it('expands transitive attachments and is cycle-safe', () => {
+    const page = attachedPage()
+    expect(withAttached(page, [{ type: 'annotation', id: 'a1' }]).map((r) => r.id).sort()).toEqual(['a1', 'c1', 'c2'])
+    expect(withAttached(page, [cue('c1')]).map((r) => r.id).sort()).toEqual(['c1', 'c2'])
+    // A cycle a1 -> c3 -> a1 must not loop forever.
+    const cyclic: LivePage = {
+      ...page,
+      controls: page.controls.map((c) => c.id === 'c3' ? { ...c, attachedTo: 'a1' } : c),
+      annotations: page.annotations?.map((a) => ({ ...a, attachedTo: 'c3' }))
+    }
+    expect(withAttached(cyclic, [{ type: 'annotation', id: 'a1' }]).map((r) => r.id).sort()).toEqual(['a1', 'c1', 'c2', 'c3'])
+  })
+
+  it('moves a frame together with its attached buttons', () => {
+    const page = attachedPage()
+    const moved = moveObjects(page, [{ type: 'annotation', id: 'a1' }], 30, 40)
+    expect(moved.annotations![0]).toMatchObject({ x: 330, y: 240 })
+    expect(moved.controls[0]).toMatchObject({ x: 80, y: 290 }) // c1 attached to frame
+    expect(moved.controls[1]).toMatchObject({ x: 100, y: 300 }) // c2 attached to c1
+    expect(moved.controls[2]).toMatchObject({ x: 600, y: 20 }) // unattached, untouched
+  })
+
+  it('sets, clears and rejects invalid/self/cyclic attachments', () => {
+    const page = attachedPage()
+    expect(setAttachment(page, cue('c3'), 'a1').controls[2].attachedTo).toBe('a1')
+    expect(setAttachment(page, cue('c3'), null).controls[2].attachedTo).toBeUndefined()
+    expect(setAttachment(page, cue('c1'), 'c1')).toEqual(page) // self
+    expect(setAttachment(page, cue('c1'), 'missing')).toEqual(page) // unknown target
+    expect(setAttachment(page, { type: 'annotation', id: 'a1' }, 'c2')).toEqual(page) // c2 descends from a1
+    expect(page.controls[0].attachedTo).toBe('a1')
+  })
+
+  it('clears attachments to deleted objects and remaps them on paste', () => {
+    const page = attachedPage()
+    const afterDelete = deleteObjects(page, [{ type: 'annotation', id: 'a1' }])
+    expect(afterDelete.controls[0].attachedTo).toBeUndefined()
+    expect(afterDelete.controls[1].attachedTo).toBe('c1') // still attached to surviving c1
+
+    const clip = copyObjects(page, [cue('c1'), { type: 'annotation', id: 'a1' }])
+    let n = 0
+    const { page: pasted } = pasteObjects(page, clip, () => `new-${++n}`)
+    const newCue = pasted.controls.find((c) => c.id === 'new-1')!
+    const newFrame = pasted.annotations!.find((a) => a.id === 'new-2')!
+    expect(newCue.attachedTo).toBe(newFrame.id) // link remapped to the copy
+    expect(newCue.attachedTo).not.toBe('a1')
   })
 })

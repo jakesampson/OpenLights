@@ -53,6 +53,69 @@ const indexRefs = (refs: PageObjectRef[]) => ({
   annotation: new Set(refs.filter((r) => r.type === 'annotation').map((r) => r.id))
 })
 
+export const refKey = (ref: PageObjectRef): string => `${ref.type}:${ref.id}`
+
+/** Find an object on the page by id, across all collections. */
+export function findObject(page: LivePage, id: string): PageObjectRef | null {
+  if (page.controls.some((c) => c.id === id)) return { type: 'cue', id }
+  if ((page.cueListWidgets ?? []).some((w) => w.id === id)) return { type: 'list', id }
+  if ((page.annotations ?? []).some((a) => a.id === id)) return { type: 'annotation', id }
+  return null
+}
+
+export function objectLabel(page: LivePage, ref: PageObjectRef): string {
+  if (ref.type === 'cue') return page.controls.find((c) => c.id === ref.id)?.name ?? 'Cue'
+  if (ref.type === 'list') {
+    const widget = page.cueListWidgets?.find((w) => w.id === ref.id)
+    return `Cue list ${widget?.id.slice(0, 4) ?? ''}`.trim()
+  }
+  const annotation = page.annotations?.find((a) => a.id === ref.id)
+  return annotation ? annotation.text || (annotation.type === 'frame' ? 'Frame' : 'Label') : 'Object'
+}
+
+/** Objects directly attached to the given object. */
+function directAttached(page: LivePage, parent: PageObjectRef): PageObjectRef[] {
+  return [
+    ...page.controls.filter((c) => c.attachedTo === parent.id).map((c): PageObjectRef => ({ type: 'cue', id: c.id })),
+    ...(page.cueListWidgets ?? []).filter((w) => w.attachedTo === parent.id).map((w): PageObjectRef => ({ type: 'list', id: w.id })),
+    ...(page.annotations ?? []).filter((a) => a.attachedTo === parent.id).map((a): PageObjectRef => ({ type: 'annotation', id: a.id }))
+  ]
+}
+
+/** A set of refs plus every object transitively attached to them (cycle-safe). */
+export function withAttached(page: LivePage, refs: PageObjectRef[]): PageObjectRef[] {
+  const seen = new Set(refs.map(refKey))
+  const queue = [...refs]
+  while (queue.length) {
+    const current = queue.shift()!
+    for (const child of directAttached(page, current)) {
+      const key = refKey(child)
+      if (!seen.has(key)) { seen.add(key); queue.push(child) }
+    }
+  }
+  return [
+    ...page.controls.filter((c) => seen.has(refKey({ type: 'cue', id: c.id }))).map((c): PageObjectRef => ({ type: 'cue', id: c.id })),
+    ...(page.cueListWidgets ?? []).filter((w) => seen.has(refKey({ type: 'list', id: w.id }))).map((w): PageObjectRef => ({ type: 'list', id: w.id })),
+    ...(page.annotations ?? []).filter((a) => seen.has(refKey({ type: 'annotation', id: a.id }))).map((a): PageObjectRef => ({ type: 'annotation', id: a.id }))
+  ]
+}
+
+/** Attach an object to another object (or pass null to detach). Immutable; rejects self/cycles. */
+export function setAttachment(page: LivePage, ref: PageObjectRef, targetId: string | null): LivePage {
+  if (!findObject(page, ref.id)) return page
+  const apply = (attachedTo: string | undefined) => ({
+    ...page,
+    controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, attachedTo } : c),
+    cueListWidgets: page.cueListWidgets?.map((w) => ref.type === 'list' && w.id === ref.id ? { ...w, attachedTo } : w),
+    annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, attachedTo } : a)
+  })
+  if (targetId === null) return apply(undefined)
+  if (targetId === ref.id || !findObject(page, targetId)) return page
+  // If the target is already a descendant, attaching to it would form a cycle.
+  if (withAttached(page, [ref]).some((item) => item.id === targetId)) return page
+  return apply(targetId)
+}
+
 /** Objects whose bounds intersect the marquee rectangle. */
 export function objectsInRect(page: LivePage, rect: Rect): PageObjectRef[] {
   const left = Math.min(rect.x, rect.x + rect.width)
@@ -64,9 +127,9 @@ export function objectsInRect(page: LivePage, rect: Rect): PageObjectRef[] {
     .map(({ type, id }) => ({ type, id }))
 }
 
-/** Move selected objects by a delta, clamped to the page. Immutable. */
+/** Move selected objects (and anything attached to them) by a delta, clamped to the page. Immutable. */
 export function moveObjects(page: LivePage, refs: PageObjectRef[], dx: number, dy: number): LivePage {
-  const ids = indexRefs(refs)
+  const ids = indexRefs(withAttached(page, refs))
   const moved = (x: number, y: number) => ({ x: clamp(x + dx, MAX_X), y: clamp(y + dy, MAX_Y) })
   return {
     ...page,
@@ -76,14 +139,16 @@ export function moveObjects(page: LivePage, refs: PageObjectRef[], dx: number, d
   }
 }
 
-/** Remove selected objects from the page. Immutable. */
+/** Remove selected objects from the page. Immutable; survivors lose links to deleted objects. */
 export function deleteObjects(page: LivePage, refs: PageObjectRef[]): LivePage {
   const ids = indexRefs(refs)
+  const deleted = new Set(refs.map((ref) => ref.id))
+  const clear = (attachedTo: string | undefined) => attachedTo && deleted.has(attachedTo) ? undefined : attachedTo
   return {
     ...page,
-    controls: page.controls.filter((c) => !ids.cue.has(c.id)),
-    cueListWidgets: page.cueListWidgets?.filter((w) => !ids.list.has(w.id)),
-    annotations: page.annotations?.filter((a) => !ids.annotation.has(a.id))
+    controls: page.controls.filter((c) => !ids.cue.has(c.id)).map((c) => ({ ...c, attachedTo: clear(c.attachedTo) })),
+    cueListWidgets: page.cueListWidgets?.filter((w) => !ids.list.has(w.id)).map((w) => ({ ...w, attachedTo: clear(w.attachedTo) })),
+    annotations: page.annotations?.filter((a) => !ids.annotation.has(a.id)).map((a) => ({ ...a, attachedTo: clear(a.attachedTo) }))
   }
 }
 
@@ -112,19 +177,28 @@ const withNewIds = (
   dy: number
 ): { controls: LiveControl[]; widgets: NonNullable<LivePage['cueListWidgets']>; annotations: NonNullable<LivePage['annotations']>; refs: PageObjectRef[] } => {
   const refs: PageObjectRef[] = []
+  // Allocate all new ids first so attachment links can be remapped among the copies.
+  const idMap = new Map<string, string>()
   const controls = clipboard.controls.map((c) => {
-    const id = makeId(); refs.push({ type: 'cue', id })
-    return { ...c, id, x: clamp((c.x ?? 0) + dx, MAX_X), y: clamp((c.y ?? 0) + dy, MAX_Y) }
+    const id = makeId(); idMap.set(c.id, id); refs.push({ type: 'cue', id })
+    return { ...c, id }
   })
   const widgets = clipboard.widgets.map((w) => {
-    const id = makeId(); refs.push({ type: 'list', id })
-    return { ...w, id, x: clamp(w.x + dx, MAX_X), y: clamp(w.y + dy, MAX_Y) }
+    const id = makeId(); idMap.set(w.id, id); refs.push({ type: 'list', id })
+    return { ...w, id }
   })
   const annotations = clipboard.annotations.map((a) => {
-    const id = makeId(); refs.push({ type: 'annotation', id })
-    return { ...a, id, x: clamp(a.x + dx, MAX_X), y: clamp(a.y + dy, MAX_Y) }
+    const id = makeId(); idMap.set(a.id, id); refs.push({ type: 'annotation', id })
+    return { ...a, id }
   })
-  return { controls, widgets, annotations, refs }
+  const remap = (attachedTo: string | undefined): string | undefined =>
+    attachedTo === undefined ? undefined : idMap.get(attachedTo) ?? attachedTo
+  return {
+    controls: controls.map((c) => ({ ...c, attachedTo: remap(c.attachedTo), x: clamp((c.x ?? 0) + dx, MAX_X), y: clamp((c.y ?? 0) + dy, MAX_Y) })),
+    widgets: widgets.map((w) => ({ ...w, attachedTo: remap(w.attachedTo), x: clamp(w.x + dx, MAX_X), y: clamp(w.y + dy, MAX_Y) })),
+    annotations: annotations.map((a) => ({ ...a, attachedTo: remap(a.attachedTo), x: clamp(a.x + dx, MAX_X), y: clamp(a.y + dy, MAX_Y) })),
+    refs
+  }
 }
 
 /** Paste clipboard objects onto a page with fresh ids and a small offset. */

@@ -164,14 +164,16 @@ export interface LiveControl {
   y?: number
   width?: number
   height?: number
+  /** Id of another object on this page; this object moves with it (7.7). */
+  attachedTo?: string
 }
 
 export interface LivePage {
   id: string
   name: string
   controls: LiveControl[]
-  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number }[]
-  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number }[]
+  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string }[]
+  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string }[]
   fadeMs?: number
 }
 

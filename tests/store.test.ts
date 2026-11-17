@@ -561,3 +561,52 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
     expect(page().controls[0].name).toBe('One')
   })
 })
+
+describe('attaching page objects (7.7)', () => {
+  const frameShow = () => ({
+    ...makeShow(),
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      controls: [
+        { id: 'c1', name: 'On frame', type: 'toggle' as const, presetIds: [], x: 50, y: 250, attachedTo: 'frame' },
+        { id: 'c2', name: 'On c1', type: 'flash' as const, presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
+        { id: 'c3', name: 'Free', type: 'toggle' as const, presetIds: [], x: 600, y: 20 }
+      ],
+      annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 300, y: 200, width: 200, height: 100 }]
+    }]
+  })
+  const page = () => useShowStore.getState().show!.livePages![0]
+
+  it('moves a frame together with its attached buttons', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'annotation', id: 'frame' }])
+    useShowStore.getState().moveSelectedPageObjects(30, 40)
+    expect(page().annotations![0]).toMatchObject({ x: 330, y: 240 })
+    expect(page().controls[0]).toMatchObject({ x: 80, y: 290 })
+    expect(page().controls[1]).toMatchObject({ x: 100, y: 300 })
+    expect(page().controls[2]).toMatchObject({ x: 600, y: 20 })
+    useShowStore.getState().undo()
+    expect(page().annotations![0]).toMatchObject({ x: 300, y: 200 })
+    expect(page().controls[0]).toMatchObject({ x: 50, y: 250 })
+  })
+
+  it('attaches and detaches an object through history-gated store actions', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().attachPageObject({ type: 'cue', id: 'c3' }, 'frame')
+    expect(page().controls[2].attachedTo).toBe('frame')
+    useShowStore.getState().undo()
+    expect(page().controls[2].attachedTo).toBeUndefined()
+    useShowStore.getState().redo()
+    useShowStore.getState().attachPageObject({ type: 'cue', id: 'c3' }, null)
+    expect(page().controls[2].attachedTo).toBeUndefined()
+  })
+
+  it('clears attachments to deleted objects', () => {
+    useShowStore.getState().setShow(frameShow())
+    useShowStore.getState().setPageObjectSelection([{ type: 'annotation', id: 'frame' }])
+    useShowStore.getState().deleteSelectedPageObjects()
+    expect(page().controls[0].attachedTo).toBeUndefined()
+    expect(page().controls[1].attachedTo).toBe('c1')
+  })
+})
