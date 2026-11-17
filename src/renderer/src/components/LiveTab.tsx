@@ -39,7 +39,7 @@ export function LiveTab() {
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Scenes</h3>
         {scenes.length === 0 ? (
-          <p className="py-2 text-xs text-dim">Create scenes in the Edit tab.</p>
+          <p className="py-2 text-xs text-dim">Create scenes from Groups &amp; Presets, then add them in Live Edit.</p>
         ) : (
           <div className="grid grid-cols-4 gap-1.5">
             {scenes.map((scene) => (
@@ -67,7 +67,7 @@ export function LiveTab() {
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cue Lists</h3>
         {cueLists.length === 0 ? (
-          <p className="py-2 text-xs text-dim">Create cue lists in the Edit tab.</p>
+          <p className="py-2 text-xs text-dim">Create or select cue lists from Live Edit.</p>
         ) : (
           cueLists.map((list) => (
             <div key={list.id} className="flex flex-col gap-1 rounded border border-line p-2">

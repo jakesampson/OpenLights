@@ -252,3 +252,6 @@ Unused legacy editor components were removed after their replacement store and L
 
 ### 10.5 Remaining audited gaps
 The final guide audit is current. Three areas intentionally remain partial rather than being labelled matching: effects still need a unified visual pattern/curve/movement-path editor; external control still lacks MIDI configurations, shift layers, routing/send and a log; and Lightkey's full shortcut/gesture catalogue is broader than OpenLights' tested shared command table. Ableton Link, OS2L, OSC, ProPresenter, VirtualDJ, smart lights and every network-DMX protocol remain out of scope. Visual, interaction, real-show and USB hardware checks remain in Needs Jake.
+
+### Rendered preview verification
+The production renderer was served locally and exercised in system Chromium through Playwright. The check opened Settings, switched Design→Live, opened Live Edit, created a page when none existed, added a custom cue, toggled Blind and Freeze, opened the page context menu and captured `/tmp/openlights-rendered-preview.png`. The repeatable flow is `e2e/renderedPreview.spec.ts`; it uses an Electron bridge stub only for browser rendering, while unit/integration tests cover the real bridge contracts.
