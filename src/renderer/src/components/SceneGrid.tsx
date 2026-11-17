@@ -111,7 +111,7 @@ export function SceneGrid() {
           const isActive = scene.id === activeSceneId
           return (
             <div
-              key={scene.id}
+              key={scene.id} data-project-id={scene.id}
               className={`group relative overflow-hidden rounded-xl border bg-zinc-900 transition-all duration-200 ${
                 isActive
                   ? 'border-indigo-400 shadow-lg shadow-indigo-500/20'
@@ -242,7 +242,7 @@ export function SceneGrid() {
                   <div className="flex flex-col gap-3">
                     {groupFixtures.map((fixture) => {
                       const values = editing.fixtureValues[fixture.id] ?? {}
-                      const attrs = fixtureAttributes(fixture.type)
+                      const attrs = fixtureAttributes(fixture)
                       const hasColor =
                         attrs.includes('red') && attrs.includes('green') && attrs.includes('blue')
                       const extraAttrs = attrs.filter(

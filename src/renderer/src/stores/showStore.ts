@@ -1,4 +1,8 @@
 import { create } from 'zustand'
+import { CURRENT_SCHEMA_VERSION, migrateShow } from '@shared/migrations'
+import { sanitizeStageObjectPatch } from '../lib/stageObjectGeometry'
+import { locateFixturePatch } from '../lib/locateFixtures'
+import { configureLocateOutput } from '../lib/output'
 import type {
   AutomationDef,
   CueListDef,
@@ -14,10 +18,26 @@ import type {
   ShowDef
 } from '@shared/types'
 import type { LivePage } from '@shared/types'
+import type { StageObject } from '@shared/types'
+import type { FixtureProfile } from '@shared/types'
+import { allocateFixtures, type PatchOptions } from '../lib/patch'
+import { validateProfile } from '@shared/profileValidation'
+import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
 
 interface ShowState {
+  locked: boolean
+  lockApp: (passcode?: string) => void
+  unlockApp: (passcode?: string) => boolean
+  undoStack: ShowDef[]
+  redoStack: ShowDef[]
+  historyGrouping: boolean
+  historyGroupRecorded: boolean
+  beginHistoryGroup: () => void
+  endHistoryGroup: () => void
+  undo: () => void
+  redo: () => void
   show: ShowDef | null
   scenes: SceneDef[]
   presets: PresetDef[]
@@ -41,12 +61,16 @@ interface ShowState {
   cueRevision: number
 
   setShow: (show: ShowDef | null) => void
+  updateProject: (patch: Partial<ShowDef>) => void
+  setStartupMode: (mode: 'none' | 'restore') => void
+  showForSave: () => ShowDef | null
   setLivePages: (pages: LivePage[]) => void
   setLiveValue: (id: string, value: number) => void
   clearLiveValues: () => void
   selectLivePage: (id: string | null) => void
   setManualOverrides: (values: Record<string, number>) => void
   clearManualOverrides: () => void
+  locateFixtures: (ids: string[]) => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
   setIsPlaying: (playing: boolean) => void
@@ -73,11 +97,26 @@ interface ShowState {
   deleteScene: (id: string) => void
 
   addFixture: (preset: FixturePreset, name?: string, group?: string) => void
+  addProfileFixtures: (profile: FixtureProfile, options: PatchOptions) => void
   updateFixture: (id: string, patch: Partial<FixtureDef>) => void
   setFixturePosition: (id: string, position: { x: number; y: number }) => void
   setFixturePositions: (positions: Record<string, { x: number; y: number }>) => void
   setPreviewTrusses: (trusses: PreviewTruss[]) => void
+  setStageObjects: (objects: StageObject[]) => void
+  addStageObject: (object: StageObject) => void
+  updateStageObject: (id: string, patch: Partial<StageObject>) => void
+  removeStageObjects: (ids: string[]) => void
+  stageClipboard: StageObject[]
+  copyStageObjects: (ids: string[]) => void
+  pasteStageObjects: () => string[]
+  duplicateStageObjects: (ids: string[]) => string[]
+  flipStageObjects: (ids: string[], axis: 'x' | 'y') => void
+  orderStageObjects: (ids: string[], side: 'front' | 'back') => void
   removeFixture: (id: string) => void
+  duplicateFixture: (id: string) => void
+  reassignFixtureProfile: (id: string, profile: FixtureProfile, modeId?: string) => void
+  saveFixtureProfile: (profile: FixtureProfile) => void
+  deleteFixtureProfile: (id: string) => void
 
   addAutomation: (automation: AutomationDef) => void
   updateAutomation: (id: string, patch: Partial<AutomationDef>) => void
@@ -117,7 +156,7 @@ export function nextFreeChannel(fixtures: FixtureDef[]): number {
 
 export function defaultFixtureValues(fixture: FixtureDef): Record<string, number> {
   const values: Record<string, number> = {}
-  for (const attr of fixtureAttributes(fixture.type)) {
+  for (const attr of fixtureAttributes(fixture)) {
     values[attr] = attr === 'pan' || attr === 'tilt' ? 128 : 0
   }
   return values
@@ -151,11 +190,17 @@ function persistState(
 ): Partial<ShowState> {
   return {
     ...statePatch,
+    ...(state.show && JSON.stringify({ ...state.show, ...showPatch }) !== JSON.stringify(state.show) ? {
+      undoStack: state.historyGrouping && state.historyGroupRecorded ? state.undoStack : [...state.undoStack, structuredClone(state.show)].slice(-200),
+      redoStack: [],
+      historyGroupRecorded: state.historyGrouping
+    } : {}),
     show: state.show ? { ...state.show, ...showPatch, updatedAt: Date.now() } : null
   }
 }
 
 const productionDefaultShow: ShowDef = {
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   id: 'demo-1',
   name: 'Demo Show',
   description: 'Starter worship set',
@@ -307,6 +352,7 @@ function showBuddySceneValues(look: TemplateLook): Record<string, Record<string,
 }
 
 const developmentDefaultShow: ShowDef = {
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   id: 'showbuddyactive-demo',
   name: 'ShowBuddyActive Demo',
   description: 'Development patch based on the supplied image; inferred addresses 1–51',
@@ -374,7 +420,32 @@ const developmentDefaultShow: ShowDef = {
 
 const defaultShow = import.meta.env.DEV ? developmentDefaultShow : productionDefaultShow
 
-export const useShowStore = create<ShowState>((set, get) => ({
+let sessionPasscode = ''
+export const useShowStore = create<ShowState>((set, get) => {
+const actions: ShowState = {
+  locked: false,
+  stageClipboard: [],
+  lockApp: (passcode = '') => { if (get().locked) return; sessionPasscode = passcode; set({ locked: true }) },
+  unlockApp: (passcode = '') => { if (passcode !== sessionPasscode) return false; sessionPasscode = ''; set({ locked: false }); return true },
+  undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
+  beginHistoryGroup: () => set({ historyGrouping: true, historyGroupRecorded: false }),
+  endHistoryGroup: () => set({ historyGrouping: false, historyGroupRecorded: false }),
+  undo: () => {
+    const state = get(), previous = state.undoStack.at(-1)
+    if (!previous || !state.show) return
+    const next = structuredClone(previous)
+    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false })
+    const scene = next.scenes.find((item) => item.id === state.activeSceneId)
+    if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
+  },
+  redo: () => {
+    const state = get(), following = state.redoStack.at(-1)
+    if (!following || !state.show) return
+    const next = structuredClone(following)
+    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false })
+    const scene = next.scenes.find((item) => item.id === state.activeSceneId)
+    if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
+  },
   show: defaultShow,
   scenes: defaultShow.scenes,
   presets: defaultShow.presets ?? [],
@@ -398,9 +469,11 @@ export const useShowStore = create<ShowState>((set, get) => ({
   cueRevision: 0,
 
   setShow: (show) => {
+    if (show) show = migrateShow(show)
     // Loading a different show must not leave the previous show's look
     // latched on the outputs.
     flashState = null
+    configureLocateOutput({})
     suppressPresetsForScene(false)
     configurePresetOutput({})
     configureLiveOutput({})
@@ -408,12 +481,13 @@ export const useShowStore = create<ShowState>((set, get) => ({
     setEffectBlackout(false)
     sendImmediate(allZeroPatch())
     set({
+      undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
       show,
       scenes: show?.scenes ?? [],
       presets: show?.presets ?? [],
-      activePresetIds: [],
-      activeLiveValues: {},
-      activeLivePageId: show?.livePages?.[0]?.id ?? null,
+      activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
+      activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
+      activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       manualOverrides: {},
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
@@ -422,15 +496,24 @@ export const useShowStore = create<ShowState>((set, get) => ({
       master: show?.masterIntensity ?? 255,
       blackout: false,
       bpm: show?.bpm ?? 120,
-      activeSceneId: null,
+      activeSceneId: show?.startup?.mode === 'restore' && show.scenes.some((s) => s.id === show.startup?.sceneId) ? show.startup.sceneId ?? null : null,
       selectedFixtureIds: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
       cuePlaying: false,
       cueRevision: get().cueRevision + 1
     })
+    const restored = get().scenes.find((scene) => scene.id === get().activeSceneId)
+    if (restored) sendImmediate(sceneOutput(get(), restored))
+  },
+  setStartupMode: (mode) => set((state) => persistState(state, { startup: { ...state.show?.startup, mode } })),
+  showForSave: () => {
+    const state = get()
+    if (!state.show || state.show.startup?.mode !== 'restore') return state.show
+    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, sceneId: state.activeSceneId } }
   },
   setLivePages: (livePages) => set((state) => persistState(state, { livePages })),
+  updateProject: (patch) => set((state) => persistState(state, patch)),
   setLiveValue: (id, value) => set((state) => ({ activeLiveValues: { ...state.activeLiveValues, [id]: clamp(value) } })),
   clearLiveValues: () => set({ activeLiveValues: {} }),
   selectLivePage: (id) => set((state) => id === state.activeLivePageId ? state : { activeLivePageId: id, activeLiveValues: {} }),
@@ -439,13 +522,14 @@ export const useShowStore = create<ShowState>((set, get) => ({
     for (const id of state.selectedFixtureIds) {
       const fixture = state.show?.fixtures.find((item) => item.id === id)
       if (!fixture) continue
-      const valid = fixtureAttributes(fixture.type)
+      const valid = fixtureAttributes(fixture)
       const entries = Object.entries(values).filter(([key, value]) => valid.includes(key) && Number.isFinite(value)).map(([key, value]) => [key, clamp(value)])
       if (entries.length) manualOverrides[id] = { ...manualOverrides[id], ...Object.fromEntries(entries) }
     }
     return { manualOverrides }
   }),
   clearManualOverrides: () => set({ manualOverrides: {} }),
+  locateFixtures: (ids) => { const state = get(); if (!state.blackout) configureLocateOutput(locateFixturePatch(state.show?.fixtures ?? [], ids, state.master)) },
   setBpm: (bpm) =>
     set((state) => {
       const next = Number.isFinite(bpm) ? Math.max(30, Math.min(240, Math.round(bpm))) : 120
@@ -549,7 +633,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
     const fixtureValues: PresetDef['fixtureValues'] = {}
     for (const fixture of state.show.fixtures) {
       if (!state.selectedFixtureIds.includes(fixture.id)) continue
-      const supported = new Set(fixtureAttributes(fixture.type))
+      const supported = new Set(fixtureAttributes(fixture))
       const source = scene.fixtureValues[fixture.id] ?? {}
       const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) &&
         (category === 'color' ? color.test(attribute) : category === 'position' ? position.has(attribute) : category === 'intensity' ? attribute === 'intensity' : !color.test(attribute) && !position.has(attribute) && attribute !== 'intensity'))
@@ -676,6 +760,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
       const fixture: FixtureDef = {
         id: crypto.randomUUID(),
         name: name?.trim() || preset.name,
+        inStorage: true,
         type: preset.type,
         channelStart: nextFreeChannel(fixtures),
         channels: preset.channels,
@@ -688,6 +773,37 @@ export const useShowStore = create<ShowState>((set, get) => ({
       }))
       return persistState(state, { fixtures: nextFixtures, scenes }, { scenes })
     }),
+
+  addProfileFixtures: (profile, options) => set((state) => {
+    const fixtures = allocateFixtures(state.show?.fixtures ?? [], profile, options)
+    const scenes = state.scenes.map((scene) => ({ ...scene, fixtureValues: { ...scene.fixtureValues, ...Object.fromEntries(fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
+    return persistState(state, { fixtures: [...(state.show?.fixtures ?? []), ...fixtures], scenes }, { scenes })
+  }),
+  saveFixtureProfile: (profile) => set((state) => {
+    const errors = validateProfile(profile)
+    if (errors.length) throw new Error(errors.join('; '))
+    if (BUILTIN_PROFILES.some((p) => p.id === profile.id)) throw new Error('Duplicate built-in profiles before editing')
+    const fixtureProfiles = [...(state.show?.fixtureProfiles ?? []).filter((p) => p.id !== profile.id), structuredClone(profile)]
+    return persistState(state, { fixtureProfiles })
+  }),
+  deleteFixtureProfile: (id) => set((state) => persistState(state, { fixtureProfiles: (state.show?.fixtureProfiles ?? []).filter((p) => p.id !== id) })),
+  duplicateFixture: (id) => set((state) => {
+    const original = state.show?.fixtures.find((f) => f.id === id)
+    if (!original) return state
+    const copy: FixtureDef = { ...structuredClone(original), id: crypto.randomUUID(), name: `${original.name} copy`, channelStart: nextFreeChannel(state.show!.fixtures), inStorage: true }
+    if (copy.channelStart + copy.channels - 1 > 512) throw new Error('No free channels for the duplicate')
+    const scenes = state.scenes.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
+    const presets = state.presets.map((p) => ({ ...p, fixtureValues: { ...p.fixtureValues, ...(p.fixtureValues[id] ? { [copy.id]: { ...p.fixtureValues[id] } } : {}) } }))
+    return persistState(state, { fixtures: [...state.show!.fixtures, copy], scenes, presets }, { scenes, presets })
+  }),
+  reassignFixtureProfile: (id, profile, modeId) => {
+    const mode = profile.modes.find((m) => m.id === modeId) ?? profile.modes[0]
+    const fixture = get().show?.fixtures.find((f) => f.id === id)
+    if (!mode || !fixture || !mode.channels.length) return
+    const channels = Math.max(...mode.channels.map((c) => c.number)) + 1
+    if (fixture.channelStart + channels - 1 > 512) throw new Error('The selected mode exceeds the universe')
+    get().updateFixture(id, { profile: structuredClone(profile), profileId: profile.id, modeId: mode.id, type: profile.legacyType, channels })
+  },
 
   updateFixture: (id, patch) =>
     set((state) => {
@@ -713,7 +829,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
     set((state) => {
       if (!state.show || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return state
       const fixtures = state.show.fixtures.map((fixture) => fixture.id === id
-        ? { ...fixture, previewPosition: { x: Math.max(0, Math.min(800, position.x)), y: Math.max(0, Math.min(340, position.y)) } }
+        ? { ...fixture, inStorage: false, previewPosition: { x: Math.max(0, Math.min(800, position.x)), y: Math.max(0, Math.min(340, position.y)) } }
         : fixture)
       return persistState(state, { fixtures })
     }),
@@ -722,11 +838,35 @@ export const useShowStore = create<ShowState>((set, get) => ({
     if (!state.show) return state
     const fixtures = state.show.fixtures.map((fixture) => {
       const p = positions[fixture.id]
-      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { ...fixture, previewPosition: { x: Math.max(0, Math.min(800, p.x)), y: Math.max(0, Math.min(340, p.y)) } } : fixture
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { ...fixture, inStorage: false, previewPosition: { x: Math.max(0, Math.min(800, p.x)), y: Math.max(0, Math.min(340, p.y)) } } : fixture
     })
     return persistState(state, { fixtures })
   }),
-  setPreviewTrusses: (previewTrusses) => set((state) => persistState(state, { previewTrusses })),
+  setPreviewTrusses: (previewTrusses) => set((state) => {
+    const original = state.show?.stageObjects ?? []
+    const byId = new Map(previewTrusses.map((truss) => [truss.id, truss]))
+    const stageObjects: StageObject[] = original.filter((object) => object.kind !== 'truss' || byId.has(object.id)).map((object) => object.kind === 'truss' ? { ...object, ...byId.get(object.id)!, trussShape: byId.get(object.id)!.shape } : object)
+    for (const truss of previewTrusses) if (!stageObjects.some((o) => o.id === truss.id)) stageObjects.push({ ...truss, kind: 'truss', trussShape: truss.shape })
+    return persistState(state, { previewTrusses, stageObjects })
+  }),
+  setStageObjects: (stageObjects) => set((state) => persistState(state, { stageObjects, previewTrusses: stageObjects.filter((o) => o.kind === 'truss').map((o) => ({ ...o, shape: o.trussShape ?? 'straight' })) })),
+  addStageObject: (object) => get().setStageObjects([...(get().show?.stageObjects ?? []), object]),
+  updateStageObject: (id, patch) => get().setStageObjects((get().show?.stageObjects ?? []).map((o) => o.id === id ? { ...o, ...sanitizeStageObjectPatch(patch), id: o.id } : o)),
+  removeStageObjects: (ids) => get().setStageObjects((get().show?.stageObjects ?? []).filter((o) => !ids.includes(o.id))),
+  copyStageObjects: (ids) => set({ stageClipboard: structuredClone((get().show?.stageObjects ?? []).filter((o) => ids.includes(o.id))) }),
+  pasteStageObjects: () => {
+    const objects = get().stageClipboard.map((o) => ({ ...structuredClone(o), id: crypto.randomUUID(), x: o.x + 20, y: o.y + 20 }))
+    get().setStageObjects([...(get().show?.stageObjects ?? []), ...objects]); set({ stageClipboard: structuredClone(objects) }); return objects.map((o) => o.id)
+  },
+  duplicateStageObjects: (ids) => {
+    const objects = (get().show?.stageObjects ?? []).filter((o) => ids.includes(o.id)).map((o) => ({ ...structuredClone(o), id: crypto.randomUUID(), x: o.x + 20, y: o.y + 20 }))
+    get().setStageObjects([...(get().show?.stageObjects ?? []), ...objects]); return objects.map((o) => o.id)
+  },
+  flipStageObjects: (ids, axis) => get().setStageObjects((get().show?.stageObjects ?? []).map((o) => ids.includes(o.id) ? { ...o, [axis === 'x' ? 'flipX' : 'flipY']: !(axis === 'x' ? o.flipX : o.flipY) } : o)),
+  orderStageObjects: (ids, side) => {
+    const objects = get().show?.stageObjects ?? [], selected = objects.filter((o) => ids.includes(o.id)), others = objects.filter((o) => !ids.includes(o.id))
+    get().setStageObjects(side === 'front' ? [...others, ...selected] : [...selected, ...others])
+  },
 
   removeFixture: (id) =>
     set((state) => {
@@ -759,11 +899,14 @@ export const useShowStore = create<ShowState>((set, get) => ({
         }
         sendImmediate(patch)
       }
+      const presets = state.presets.map((preset) => { const fixtureValues = { ...preset.fixtureValues }; delete fixtureValues[id]; return { ...preset, fixtureValues } })
+      const livePages = state.show?.livePages?.map((page) => ({ ...page, controls: page.controls.map((control) => { const adHocValues = { ...control.adHocValues }; delete adHocValues[id]; return { ...control, adHocValues } }) }))
       return persistState(
         state,
-        { fixtures, scenes, automations, effects },
+        { fixtures, scenes, automations, effects, presets, livePages },
         {
           scenes,
+          presets,
           automations,
           effects,
           selectedFixtureIds: state.selectedFixtureIds.filter((fixtureId) => fixtureId !== id)
@@ -982,4 +1125,12 @@ export const useShowStore = create<ShowState>((set, get) => ({
       const midiMappings = state.midiMappings.filter((m) => m.id !== id)
       return persistState(state, { midiMappings }, { midiMappings })
     })
-}))
+ }
+  const editingCommands = ['saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const mutable = actions as unknown as Record<string, unknown>
+  for (const command of editingCommands) {
+    const action = mutable[command] as (...args: unknown[]) => unknown
+    mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }
+  }
+  return actions
+})

@@ -3,23 +3,31 @@ import { useShowStore } from '../stores/showStore'
 import type { ShowDef } from '@shared/types'
 import type { ShowMeta } from '../global'
 import { projectNameFromPath } from '../lib/projectName'
+import { hasUnsavedChanges, transitionDecision } from '../lib/projectLifecycle'
 
 export function ProjectBar() {
   const { show, setShow } = useShowStore()
   const [shows, setShows] = useState<ShowMeta[]>([])
   const [newName, setNewName] = useState('')
+  const [renameName, setRenameName] = useState('')
+  const allowCloseRef = useRef(false)
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
+  const [pendingTransition, setPendingTransition] = useState<(() => void) | null>(null)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const savedSnapshotRef = useRef<string>(JSON.stringify(useShowStore.getState().show))
   const saveRef = useRef<() => void>(() => undefined)
 
+  const requestTransition = (action: () => void) => {
+    if (transitionDecision(hasUnsavedChanges(useShowStore.getState().show, savedSnapshotRef.current)) === 'prompt') { setPendingTransition(() => action); setOpen(true) }
+    else action()
+  }
   const applySavedName = (path: string, showId: string) => {
     const current = useShowStore.getState().show
     if (current?.id === showId) {
       const name = projectNameFromPath(path)
-      if (name && current.name !== name) useShowStore.setState({ show: { ...current, name } })
+      if (name && current.name !== name) useShowStore.getState().updateProject({ name })
     }
   }
 
@@ -48,9 +56,9 @@ export function ProjectBar() {
   }, [open])
 
   const handleSave = async () => {
-    if (!show || !window.electronAPI) return
+    if (!show || !window.electronAPI) return false
     const result = await window.electronAPI.saveShow(
-      { ...show, updatedAt: Date.now() },
+      { ...useShowStore.getState().showForSave(), updatedAt: Date.now() },
       currentPath ?? undefined
     )
     if (result.success) {
@@ -59,24 +67,14 @@ export function ProjectBar() {
       setCurrentPath(result.path ?? null)
       setStatus('Saved')
       refreshList()
+      return true
     } else {
       setStatus(result.error ?? 'Save failed')
+      return false
     }
   }
 
   saveRef.current = handleSave
-
-  // Cmd/Ctrl+S saves without leaving the current tab.
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault()
-        saveRef.current()
-      }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
 
   // Debounced autosave after any change, so a service can't lose a look.
   useEffect(() => {
@@ -86,7 +84,7 @@ export function ProjectBar() {
       const snapshot = useShowStore.getState().show
       if (!snapshot || !window.electronAPI) return
       const result = await window.electronAPI.saveShow(
-        { ...snapshot, updatedAt: Date.now() },
+        { ...useShowStore.getState().showForSave(), updatedAt: Date.now() },
         currentPath ?? undefined
       )
       if (result.success) {
@@ -102,7 +100,7 @@ export function ProjectBar() {
 
   const handleSaveAs = async () => {
     if (!show || !window.electronAPI) return
-    const result = await window.electronAPI.saveShowAs(show, currentPath ?? undefined)
+    const result = await window.electronAPI.saveShowAs(useShowStore.getState().showForSave(), currentPath ?? undefined)
     if (result.success && !result.canceled) {
       if (result.path) applySavedName(result.path, show.id)
       savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
@@ -146,6 +144,24 @@ export function ProjectBar() {
     }
   }
 
+  useEffect(() => {
+    const beforeClose = (event: BeforeUnloadEvent) => {
+      if (allowCloseRef.current || !hasUnsavedChanges(useShowStore.getState().show, savedSnapshotRef.current)) return
+      event.preventDefault(); event.returnValue = false as unknown as string
+      requestTransition(() => { allowCloseRef.current = true; window.electronAPI.closeWindow() })
+    }
+    window.addEventListener('beforeunload', beforeClose)
+    return () => window.removeEventListener('beforeunload', beforeClose)
+  }, [show])
+
+  const handleRename = async () => {
+    if (!currentPath || !renameName.trim()) return
+    if (!(await handleSave())) return
+    const result = await window.electronAPI.renameShow(currentPath, renameName)
+    if (!result.success || !result.path) { setStatus(result.error ?? 'Rename failed'); return }
+    applySavedName(result.path, show!.id); savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
+    setCurrentPath(result.path); setRenameName(''); setStatus('Renamed'); void refreshList()
+  }
   const handleDelete = async (path: string) => {
     if (!window.electronAPI) return
     if (!confirm('Delete this show file?')) return
@@ -157,6 +173,7 @@ export function ProjectBar() {
   const handleNew = () => {
     const name = newName.trim() || `Show ${shows.length + 1}`
     const blank: ShowDef = {
+      schemaVersion: 1,
       id: crypto.randomUUID(),
       name,
       description: '',
@@ -174,8 +191,23 @@ export function ProjectBar() {
     setStatus('New show')
   }
 
+  useEffect(() => {
+    const onCommand = (event: Event) => {
+      const command = (event as CustomEvent<string>).detail
+      if (command === 'save') void handleSave()
+      else if (command === 'saveAs') void handleSaveAs()
+      else if (command === 'open') requestTransition(() => { void handleOpen() })
+      else if (command === 'new') requestTransition(handleNew)
+      else if (command === 'close') requestTransition(() => { setShow(null); savedSnapshotRef.current = 'null'; setCurrentPath(null) })
+    }
+    window.addEventListener('openlights-project-command', onCommand)
+    return () => window.removeEventListener('openlights-project-command', onCommand)
+  }, [show, currentPath, newName])
+
+  if (useShowStore.getState().locked) return <button className="btn-theme text-xs" disabled>Project locked</button>
   return (
     <div className="relative" ref={rootRef}>
+      {pendingTransition && <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => setPendingTransition(null)}>Cancel</button></div></div></div>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -195,17 +227,17 @@ export function ProjectBar() {
               title={currentPath ? 'Use Save As to change the project filename' : 'Project name'}
               onChange={(e) => {
                 if (!show || currentPath) return
-                useShowStore.setState({ show: { ...show, name: e.target.value } })
+                useShowStore.getState().updateProject({ name: e.target.value })
               }}
               className="w-full rounded bg-panel2 border border-line px-2 py-1 text-sm text-white"
             />
-            {currentPath && <p className="mt-1 text-[10px] text-dim">Use Save As to choose a different name.</p>}
+            {currentPath && <div className="mt-2 flex gap-1"><input aria-label="New project filename" value={renameName} onChange={(event) => setRenameName(event.target.value)} placeholder="New filename" className="min-w-0 flex-1 rounded bg-panel2 p-1 text-xs" /><button disabled={!renameName.trim()} onClick={handleRename} className="btn-theme text-xs">Rename</button></div>}
           </div>
 
           <div className="flex flex-wrap gap-1 mb-2">
             <button onClick={handleSave} className="btn-theme on text-xs">Save</button>
-            <button onClick={handleSaveAs} className="btn-theme text-xs">Save As</button>
-            <button onClick={handleOpen} className="btn-theme text-xs">Open…</button>
+            <button onClick={handleSaveAs} className="btn-theme text-xs">Save As</button><button onClick={() => requestTransition(() => { setShow(null); savedSnapshotRef.current = "null"; setCurrentPath(null); setStatus("Closed") })} className="btn-theme text-xs">Close</button>
+            <button onClick={() => requestTransition(() => { void handleOpen() })} className="btn-theme text-xs">Open…</button>
           </div>
 
           <div className="flex gap-1 mb-2">
@@ -215,7 +247,7 @@ export function ProjectBar() {
               placeholder="New show name"
               className="flex-1 rounded bg-panel2 border border-line px-2 py-1 text-xs text-white placeholder:text-dim"
             />
-            <button onClick={handleNew} className="btn-theme text-xs">New</button>
+            <button onClick={() => requestTransition(handleNew)} className="btn-theme text-xs">New</button>
           </div>
 
           <div className="text-[10px] text-dim mb-2 truncate">
@@ -231,7 +263,7 @@ export function ProjectBar() {
                 {shows.map((s) => (
                   <li key={s.path} className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1 text-xs">
                     <button
-                      onClick={() => handleLoad(s.path)}
+                      onClick={() => requestTransition(() => { void handleLoad(s.path) })}
                       className="flex-1 text-left text-text hover:opacity-80 truncate"
                     >
                       {s.name}
@@ -245,6 +277,7 @@ export function ProjectBar() {
                     >
                       Delete
                     </button>
+                    <button className="text-[10px] text-dim" onClick={async () => { const result = await window.electronAPI.duplicateShow(s.path); setStatus(result.success ? 'Duplicated' : result.error ?? 'Duplicate failed'); void refreshList() }}>Duplicate</button>
                   </li>
                 ))}
               </ul>

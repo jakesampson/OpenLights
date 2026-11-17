@@ -1,4 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, session } from 'electron'
+import { migrateShow } from '../shared/migrations'
+import { usbOnlyStatus } from '../shared/outputSettings'
+import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
+import { normalizeLiveWindows, LIVE_WINDOW_COMMANDS, type LiveWindowSpec } from '../shared/liveWindows'
 import { autoUpdater } from 'electron-updater'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
@@ -15,6 +19,27 @@ if (!fs.existsSync(SHOWS_DIR)) {
 
 let mainWindow: BrowserWindow | null = null
 let dmxEngine: DMXEngine
+const liveWindows = new Map<number, { window: BrowserWindow; spec: LiveWindowSpec }>()
+const liveWindowsFile = path.join(app.getPath('userData'), 'live-windows.json')
+let liveState: Record<string, unknown> = {}
+let quitting = false
+app.on('before-quit', () => { quitting = true })
+function saveLiveWindows() { fs.writeFileSync(liveWindowsFile, JSON.stringify([...liveWindows.values()].map(({ window, spec }) => ({ ...spec, width: window.getBounds().width, height: window.getBounds().height })))) }
+function openLiveWindow(spec: LiveWindowSpec) {
+  const window = new BrowserWindow({ width: spec.width, height: spec.height, minWidth: 640, minHeight: 480, title: 'OpenLights Live', webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  window.setMenuBarVisibility(false)
+  const contentsId = window.webContents.id
+  liveWindows.set(contentsId, { window, spec }); saveLiveWindows()
+  if (process.env.NODE_ENV === 'development') void window.loadURL(`http://localhost:5173/?liveWindow=${encodeURIComponent(spec.id)}`)
+  else void window.loadFile(path.join(__dirname, '../renderer/index.html'), { query: { liveWindow: spec.id } })
+  window.on('resize', () => { if (!quitting) saveLiveWindows() })
+  window.on('closed', () => { liveWindows.delete(contentsId); if (!quitting) saveLiveWindows() })
+}
+ipcMain.handle('window:fullscreen', (event) => { const window = BrowserWindow.fromWebContents(event.sender); if (window) window.setFullScreen(!window.isFullScreen()) })
+ipcMain.handle('window:open-live', (_, pageId: string | null) => { const spec = { id: crypto.randomUUID(), pageId, width: 1000, height: 700 }; openLiveWindow(spec); return spec })
+ipcMain.on('live-window:state', (event, state) => { if (event.sender.id !== mainWindow?.webContents.id) return; liveState = state; for (const { window } of liveWindows.values()) window.webContents.send('live-window:state', state) })
+ipcMain.on('live-window:request', (event) => { if (liveWindows.has(event.sender.id)) event.sender.send('live-window:state', liveState) })
+ipcMain.on('live-window:command', (event, command: string, args: unknown[]) => { if (liveWindows.has(event.sender.id) && (LIVE_WINDOW_COMMANDS as readonly string[]).includes(command) && Array.isArray(args)) mainWindow?.webContents.send('live-window:command', command, args) })
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -80,6 +105,7 @@ app.whenReady().then(async () => {
   }
 
   createWindow()
+  try { const saved = normalizeLiveWindows(JSON.parse(fs.readFileSync(liveWindowsFile, 'utf8'))); for (const spec of saved) openLiveWindow(spec) } catch { /* No saved windows yet. */ }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -109,16 +135,17 @@ ipcMain.handle(
   }
 )
 
-ipcMain.handle('connect-artnet', async (_, host: string, universe?: number) => {
+ipcMain.handle('connect-artnet', async () => {
   try {
-    await dmxEngine.connectArtNet(host, universe ?? 0)
+    console.warn('Legacy network DMX request ignored; falling back to virtual output.')
+    await dmxEngine.disconnect()
     return { success: true, status: dmxEngine.getStatus() }
   } catch (e: any) {
     return { success: false, error: e.message, status: dmxEngine.getStatus() }
   }
 })
 
-ipcMain.handle('get-dmx-status', async () => dmxEngine.getStatus())
+ipcMain.handle('get-dmx-status', async () => usbOnlyStatus(dmxEngine.getStatus()))
 
 ipcMain.handle('get-channels', async () => Array.from(dmxEngine.snapshot()))
 
@@ -128,11 +155,19 @@ ipcMain.handle('disconnect-dmx', async () => {
 })
 
 // Scene/Show handling
+ipcMain.handle('rename-show', async (_, showPath: string, name: string) => {
+  try { return { success: true, path: renameProjectFile(showPath, name) } }
+  catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) } }
+})
+ipcMain.handle('duplicate-show', async (_, showPath: string) => {
+  try { return { success: true, path: duplicateProjectFile(showPath) } }
+  catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) } }
+})
 ipcMain.handle('load-show', async (_, showPath?: string) => {
   if (!showPath) return { success: false, error: 'No path' }
   try {
     const data = fs.readFileSync(showPath, 'utf-8')
-    return { success: true, data: JSON.parse(data), path: showPath }
+    return { success: true, data: migrateShow(JSON.parse(data)), path: showPath }
   } catch (e: any) {
     return { success: false, error: e.message }
   }
@@ -153,7 +188,7 @@ ipcMain.handle('open-show', async () => {
   try {
     const showPath = filePaths[0]
     const data = fs.readFileSync(showPath, 'utf-8')
-    return { success: true, data: JSON.parse(data), path: showPath }
+    return { success: true, data: migrateShow(JSON.parse(data)), path: showPath }
   } catch (e: any) {
     return { success: false, error: e.message }
   }
@@ -189,7 +224,8 @@ ipcMain.handle('list-shows', async () => {
         const fullPath = path.join(SHOWS_DIR, f)
         const stat = fs.statSync(fullPath)
         const name = path.parse(f).name
-        return { name, path: fullPath, updatedAt: stat.mtimeMs }
+        const preview = migrateShow(JSON.parse(fs.readFileSync(fullPath, 'utf-8')))
+        return { name, path: fullPath, updatedAt: stat.mtimeMs, schemaVersion: preview.schemaVersion }
       })
       .sort((a, b) => b.updatedAt - a.updatedAt)
   } catch {
@@ -199,7 +235,7 @@ ipcMain.handle('list-shows', async () => {
 
 ipcMain.handle('delete-show', async (_, showPath: string) => {
   try {
-    fs.unlinkSync(showPath)
+    deleteProjectFile(showPath)
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message }

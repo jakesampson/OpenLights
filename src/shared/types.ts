@@ -1,3 +1,4 @@
+import { BUILTIN_PROFILES } from './fixtureProfiles'
 export type FixtureType =
   | 'par'
   | 'led-wash'
@@ -9,6 +10,12 @@ export type FixtureType =
   | 'rgbw-4ch'
 
 export interface FixtureDef {
+  universe?: number
+  notes?: string
+  disabled?: boolean
+  profileId?: string
+  modeId?: string
+  profile?: FixtureProfile
   id: string
   name: string
   type: FixtureType
@@ -16,6 +23,11 @@ export interface FixtureDef {
   channels: number
   group?: string
   previewPosition?: { x: number; y: number }
+  inStorage?: boolean
+  iconSize?: number
+  namePosition?: 'above' | 'below' | 'hidden'
+  previewBeam?: { direction: number | 'auto'; color?: string }
+  rotation?: number
 }
 
 export interface SceneDef {
@@ -121,6 +133,12 @@ export interface LivePage {
 }
 
 export interface ShowDef {
+  fixtureProfiles?: FixtureProfile[]
+  favoriteProfileIds?: string[]
+  stageObjects?: StageObject[]
+  layout?: { preview: boolean; palette: boolean; inspector: boolean }
+  startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; sceneId?: string | null }
+  schemaVersion?: number // Missing in legacy version-0 project inputs.
   id: string
   name: string
   description?: string
@@ -138,6 +156,26 @@ export interface ShowDef {
   masterIntensity?: number // 0-255
   bpm?: number
   audioPath?: string
+}
+
+export interface StageObject {
+  id: string
+  kind: 'rectangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss'
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  fill?: string
+  stroke?: string
+  opacity?: number
+  text?: string
+  imageSrc?: string
+  fontSize?: number
+  flipX?: boolean
+  flipY?: boolean
+  trussShape?: PreviewTruss['shape']
 }
 
 export interface DmxStatus {
@@ -172,13 +210,21 @@ export interface FixturePreset {
   channels: number
 }
 
-export const FIXTURE_PRESETS: FixturePreset[] = [
-  { id: 'par-rgb', name: 'Generic PAR (RGB)', type: 'par', channels: 4 },
-  { id: 'wash-rgbaw', name: 'LED Wash (RGBAW+UV)', type: 'led-wash', channels: 7 },
-  { id: 'head-8ch', name: 'Moving Head (8ch)', type: 'moving-head', channels: 8 },
-  { id: 'dimmer-1ch', name: 'Single Dimmer', type: 'dimmer', channels: 1 },
-  { id: 'led-simple', name: 'Generic LED (dim + RGB)', type: 'generic-led', channels: 4 },
-  { id: 'pan-4x1x30-17ch', name: 'PAN 4x1x30 (17ch)', type: 'pixel-bar-17ch', channels: 17 },
-  { id: 'simger-q12bt-rgba-4ch', name: 'Simger Q12BT (RGBA 4ch)', type: 'rgba-4ch', channels: 4 },
-  { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch', channels: 4 }
-]
+export interface FixtureChannel {
+  number: number // zero-based offset within the fixture mode
+  attribute: string
+  propertyType: 'intensity' | 'color' | 'position' | 'other'
+  min: number
+  max: number
+  defaultValue: number
+  highlightValue: number
+}
+export interface FixtureProfile {
+  id: string
+  name: string
+  manufacturer: string
+  legacyType: FixtureType
+  modes: { id: string; name: string; channels: FixtureChannel[] }[]
+}
+
+export const FIXTURE_PRESETS: FixturePreset[] = BUILTIN_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))

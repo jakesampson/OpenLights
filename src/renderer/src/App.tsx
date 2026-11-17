@@ -5,6 +5,10 @@ import { EffectsPanel } from './components/EffectsPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
 import { ProjectBar } from './components/ProjectBar'
+import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
+import { WorkspaceToolbar } from './components/WorkspaceToolbar'
+import { ProjectSearch } from './components/ProjectSearch'
+import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
 import { DesignTab } from './components/DesignTab'
 import { LiveTab } from './components/LiveTab'
 import { EditTab } from './components/EditTab'
@@ -24,33 +28,6 @@ const bottomTabs: Array<{ id: Tab; label: string }> = [
   { id: 'Live', label: 'Live' },
   { id: 'Edit', label: 'Edit' }
 ]
-
-const BASE_SHORTCUTS = [
-  { key: '1–9', label: 'Recall scene' },
-  { key: 'B', label: 'Blackout' },
-  { key: 'N / →', label: 'Next cue' },
-  { key: 'P / ←', label: 'Previous cue' },
-  { key: 'Esc', label: 'Stop' }
-]
-
-const TAB_SHORTCUTS: Record<string, Array<{ key: string; label: string }>> = {
-  Design: [
-    { key: '↑ ↓', label: 'Dimmer step (stub)' },
-    { key: 'C', label: 'Colour picker (stub)' },
-    { key: 'S', label: 'Shutter toggle (stub)' }
-  ],
-  Live: [
-    { key: 'F1–F8', label: 'Scene bank (stub)' },
-    { key: '⇧ 1–9', label: 'Preset recall (stub)' }
-  ],
-  Edit: [{ key: '⌫', label: 'Delete step (stub)' }],
-  Scenes: [{ key: 'Double-click', label: 'Rename scene' }],
-  Cues: [{ key: 'Space', label: 'Go to next step' }],
-  Effects: [{ key: 'E', label: 'Enable selected (stub)' }],
-  Automation: [{ key: 'Space', label: 'Play / pause lane' }],
-  Patch: [{ key: 'Del', label: 'Remove fixture' }],
-  MIDI: [{ key: 'L', label: 'MIDI learn (stub)' }]
-}
 
 export default function App() {
   const {
@@ -165,7 +142,9 @@ export default function App() {
     configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
   }, [manualOverrides, show?.fixtures, master])
 
-  useEffect(() => startCuePlaybackClock(), [])
+  useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
+  useEffect(() => startLiveWindowBridge(), [])
+
 
   const blackoutDMX = async () => {
     try {
@@ -183,66 +162,30 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.isContentEditable ||
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT')
-      ) {
-        return
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-
-      if (event.key === 'Escape') {
-        if (toolPanel) {
-          setToolPanel(null)
-          return
-        }
-        if (settingsOpen) {
-          setSettingsOpen(false)
-          return
-        }
-        stopCue()
-        return
-      }
-      if (event.key === ' ' || event.key === 'Spacebar') {
-        event.preventDefault()
-        if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play'))
-        else cueNext()
-        return
-      }
-
-      const key = event.key.toLowerCase()
-      if (key === 'b') {
-        event.preventDefault()
-        toggleBlackout()
-        return
-      }
-      if (key === 'n' || event.key === 'ArrowRight') {
-        event.preventDefault()
-        cueNext()
-        return
-      }
-      if (key === 'p' || event.key === 'ArrowLeft') {
-        event.preventDefault()
-        cuePrev()
-        return
-      }
-      if (/^[1-9]$/.test(event.key)) {
-        const scene = scenes[Number(event.key) - 1]
-        if (scene) {
-          event.preventDefault()
-          goToScene(scene.id)
-        }
-      }
+      const binding = matchShortcut(event, event.target as HTMLElement | null)
+      if (!binding) return
+      event.preventDefault()
+      const state = useShowStore.getState()
+      const command = binding.command
+      if (command === 'undo' || command === 'redo') state[command]()
+      else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
+      else if (command === 'design') { if (!state.locked) setTab('Design') }
+      else if (command === 'live') setTab('Live')
+      else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
+      else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
+      else if (command === 'blackout') state.toggleBlackout()
+      else if (command === 'next') state.cueNext()
+      else if (command === 'previous') state.cuePrev()
+      else if (command === 'go') { if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
+      else if (command === 'escape') { if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command.startsWith('scene')) { const scene = state.scenes[Number(command.slice(5)) - 1]; if (scene) state.goToScene(scene.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
 
   const renderPanel = () => {
+    if (useShowStore.getState().locked) return <LiveTab />
     switch (tab) {
       case 'Design':
         return (
@@ -269,11 +212,10 @@ export default function App() {
     }
   }
 
-  const shortcuts = [...(TAB_SHORTCUTS[tab] ?? []), ...BASE_SHORTCUTS].filter(
-    (shortcut) => !shortcut.label.toLowerCase().includes('(stub)')
-  )
+  const shortcuts = SHORTCUTS
   const closeToolPanel = () => setToolPanel(null)
 
+  if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
     <div className="app">
       {/* Top bar */}
@@ -283,6 +225,20 @@ export default function App() {
             OL
           </div>
           <ProjectBar />
+          <ProjectSearch onReveal={(result) => {
+            const state = useShowStore.getState()
+            if (result.type === 'fixture' || result.type === 'group') { state.selectFixtures(result.type === 'fixture' ? [result.id] : (state.show?.fixtures ?? []).filter((f) => f.group === result.id).map((f) => f.id)); setTab('Design') }
+            else if (result.type === 'page' || result.pageId) { state.selectLivePage(result.pageId ?? result.id); setTab('Live') }
+            else { if (result.listId || result.type === 'cueList') state.setActiveCueList(result.listId ?? result.id); setTab('Edit') }
+            requestAnimationFrame(() => {
+              const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(result.id)}"]`)
+              if (!target) return
+              let parent = target.parentElement
+              while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement }
+              target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
+            })
+          }} />
+          <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
             className="btn-theme text-xs"
@@ -305,7 +261,11 @@ export default function App() {
                   <span>Adaptive background colour</span>
                   <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />
                 </label>
+                <label className="px-3 py-2 text-xs">On project open<select aria-label="Project startup state" value={show?.startup?.mode ?? 'none'} onChange={(event) => useShowStore.getState().setStartupMode(event.target.value as 'none' | 'restore')} className="mt-1 w-full rounded bg-panel2 p-1"><option value="none">No active looks</option><option value="restore">Restore saved looks</option></select></label>
                 <div className="my-1 border-t border-line" />
+                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
+                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
+                {(['preview', 'palette', 'inspector'] as const).map((panel) => <label key={panel} className="flex items-center justify-between px-3 py-1 text-xs capitalize">{panel}<input type="checkbox" aria-label={`Show ${panel}`} checked={show?.layout?.[panel] ?? true} onChange={(event) => useShowStore.getState().updateProject({ layout: { preview: true, palette: true, inspector: true, ...show?.layout, [panel]: event.target.checked } })} /></label>)}
                 <button
                   type="button"
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
@@ -354,15 +314,6 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2">
-          <DmxConnection />
-          <button
-            onClick={handleBlackout}
-            className={`btn-panic rounded px-5 py-2 text-xs font-bold uppercase tracking-wider ${
-              blackout ? 'bg-amber-500 border-amber-400 text-black' : ''
-            }`}
-          >
-            {blackout ? 'RESTORE' : 'BLACKOUT'}
-          </button>
           <div className="window-controls">
             <button
               type="button"
@@ -407,11 +358,12 @@ export default function App() {
         </div>
       </header>
 
+      <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
       {/* Main row */}
-      <div className="main-grid">
-        <StagePreview />
+      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
+        {show?.layout?.preview !== false && <StagePreview />}
 
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1">
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
               Groups & Presets
@@ -425,19 +377,7 @@ export default function App() {
       {/* Bottom row */}
       <div className="bottom-grid">
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
-          <div className="relative flex h-7 shrink-0 items-center justify-center px-1" role="tablist" aria-label="Lighting workspace">
-            <div className="flex items-center gap-1 rounded-full bg-bg/40 p-0.5">
-              {bottomTabs.filter((item) => item.id !== 'Edit').map((item) => (
-                <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`rounded-full px-3 py-0.5 text-[11px] font-semibold transition-colors ${tab === item.id ? 'bg-text text-bg shadow-sm' : 'text-dim hover:text-text'}`}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <button type="button" role="tab" aria-selected={tab === 'Edit'} onClick={() => setTab('Edit')} className={`absolute right-1 rounded-full px-3 py-1 text-[10px] font-semibold transition-colors ${tab === 'Edit' ? 'bg-text text-bg' : 'bg-panel2 text-dim hover:text-text'}`}>
-              Scenes & cues
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-auto">{renderPanel()}</div>
+          <div className="flex-1 min-h-0 overflow-auto" onPointerDownCapture={() => useShowStore.getState().beginHistoryGroup()} onPointerUp={() => useShowStore.getState().endHistoryGroup()} onPointerCancel={() => useShowStore.getState().endHistoryGroup()}>{renderPanel()}</div>
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">

@@ -2,6 +2,15 @@ import { ipcRenderer, contextBridge } from 'electron'
 
 // Expose protected methods that the renderer can call
 contextBridge.exposeInMainWorld('electronAPI', {
+  toggleFullscreen: () => ipcRenderer.invoke('window:fullscreen'),
+  openLiveWindow: (pageId: string | null) => ipcRenderer.invoke('window:open-live', pageId),
+  publishLiveWindowState: (state: Record<string, unknown>) => ipcRenderer.send('live-window:state', state),
+  requestLiveWindowState: () => ipcRenderer.send('live-window:request'),
+  liveWindowCommand: (command: string, args: unknown[]) => ipcRenderer.send('live-window:command', command, args),
+  onLiveWindowState: (callback: (state: Record<string, unknown>) => void) => { const listener = (_: Electron.IpcRendererEvent, state: Record<string, unknown>) => callback(state); ipcRenderer.on('live-window:state', listener); return () => ipcRenderer.removeListener('live-window:state', listener) },
+  onLiveWindowCommand: (callback: (command: string, args: unknown[]) => void) => { const listener = (_: Electron.IpcRendererEvent, command: string, args: unknown[]) => callback(command, args); ipcRenderer.on('live-window:command', listener); return () => ipcRenderer.removeListener('live-window:command', listener) },
+  renameShow: (path: string, name: string) => ipcRenderer.invoke('rename-show', path, name),
+  duplicateShow: (path: string) => ipcRenderer.invoke('duplicate-show', path),
   loadShow: (path: string) => ipcRenderer.invoke('load-show', path),
   openShow: () => ipcRenderer.invoke('open-show'),
   saveShow: (data: any, path?: string) => ipcRenderer.invoke('save-show', data, path),

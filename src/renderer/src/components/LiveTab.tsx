@@ -36,11 +36,6 @@ export function LiveTab() {
   return (
     <div className="flex flex-col gap-3 p-1">
       <LiveWorkspace />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-line bg-bg/30 px-3 py-2">
-        <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-dim">Live output</span><span className="text-xs text-text">{scenes.find((scene) => scene.id === activeSceneId)?.name ?? 'No scene selected'}</span></div>
-        <label className="flex items-center gap-2 text-xs text-dim">Master <input aria-label="Master intensity" type="range" min={0} max={255} value={master} onChange={(event) => setMaster(Number(event.target.value))} className="w-32 accent-[var(--accent)]" /><span className="w-10 text-right font-mono text-text">{Math.round(master / 255 * 100)}%</span></label>
-      </div>
-      <div className="flex items-center gap-2 text-xs text-dim"><span>Tempo</span><input aria-label="Tempo in BPM" type="number" min={30} max={240} value={bpm} onChange={(event) => setBpm(Number(event.target.value))} className="w-16 rounded border border-line bg-panel2 px-2 py-1 text-center text-text" /><span>BPM</span><button type="button" onClick={tapTempo} className="btn-theme text-xs">Tap tempo</button><span className="text-[10px]">Syncs beat-based effects</span></div>
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Scenes</h3>
         {scenes.length === 0 ? (

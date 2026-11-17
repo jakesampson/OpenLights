@@ -80,7 +80,7 @@ export function GroupsPresetsPanel() {
         id: f.id,
         label: f.name,
         dot: TYPE_COLORS[f.type] ?? '#888888',
-        hint: `ch ${f.channelStart}–${f.channelStart + f.channels - 1} · ${fixtureAttributes(f.type).length} attrs`,
+        hint: `ch ${f.channelStart}–${f.channelStart + f.channels - 1} · ${fixtureAttributes(f).length} attrs`,
         active: selectedFixtureIds.includes(f.id),
         activeLabel: 'selected',
         onSelect: (shiftKey) => selectFixture(f.id, shiftKey)

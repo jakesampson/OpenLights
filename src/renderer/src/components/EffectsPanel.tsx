@@ -45,7 +45,7 @@ export function EffectsPanel() {
   const attributes = useMemo(() => {
     const set = new Set<string>()
     for (const fixture of fixtures) {
-      for (const attr of fixtureAttributes(fixture.type)) set.add(attr)
+      for (const attr of fixtureAttributes(fixture)) set.add(attr)
     }
     return [...set]
   }, [fixtures])

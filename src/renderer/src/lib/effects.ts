@@ -1,3 +1,4 @@
+import { fixtureChannelMap } from '@shared/fixtureProfiles'
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { FIXTURE_ATTRIBUTE_MAP, scaleAttribute } from './automationRuntime'
 
@@ -56,7 +57,8 @@ export function computeEffectPatch(
     const offset = Math.max(0, Math.min(255, effect.offset))
 
     targets.forEach((fixture, index) => {
-      const map = FIXTURE_ATTRIBUTE_MAP[fixture.type] ?? {}
+      if (fixture.disabled) return
+      const map = fixtureChannelMap(fixture)
       const channelOffset = map[effect.attribute]
       if (channelOffset === undefined) return
 

@@ -55,7 +55,7 @@ export function CueListPanel() {
           )}
           {cueLists.map((list) => (
             <button
-              key={list.id}
+              key={list.id} data-project-id={list.id}
               onClick={() => setActiveCueList(list.id)}
               className={`rounded px-3 py-2 text-left text-xs transition-colors ${
                 list.id === activeCueListId

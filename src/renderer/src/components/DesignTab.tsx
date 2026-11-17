@@ -38,8 +38,8 @@ export function DesignTab() {
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const commonAttributes =
     selectedFixtures.length > 0
-      ? fixtureAttributes(selectedFixtures[0].type).filter((attribute) =>
-          selectedFixtures.every((fixture) => fixtureAttributes(fixture.type).includes(attribute))
+      ? fixtureAttributes(selectedFixtures[0]).filter((attribute) =>
+          selectedFixtures.every((fixture) => fixtureAttributes(fixture).includes(attribute))
         )
       : []
   const channelAttributes = selectedFixtures.length

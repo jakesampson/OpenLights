@@ -6,6 +6,7 @@
 
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
+import { composeOutput } from './outputModel'
 
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null
@@ -16,6 +17,8 @@ let live: Record<number, number> = {}
 let liveFadeFrame: number | null = null
 let liveFadeTarget: Record<number, number> | null = null
 let overrides: Record<number, number> = {}
+let locate: Record<number, number> = {}
+let locateTimer: ReturnType<typeof setTimeout> | null = null
 let presetSuppressed = false
 let previousPresetChannels = new Set<number>()
 
@@ -36,6 +39,7 @@ let runtime: EffectRuntime = {
 }
 
 function push(patch: Record<number, number>) {
+  if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
   window.electronAPI?.setChannels?.(patch)
 }
 
@@ -54,11 +58,9 @@ function effectPatch(now: number): Record<number, number> {
 }
 
 function flush(now = performance.now()) {
-  const output = mergeEffects(base, effectPatch(now))
-  // Clear channels that only belonged to an overlay after it is released.
-  for (const channel of previousPresetChannels) if (!(channel in output)) output[channel] = 0
-  if (!runtime.blackout && !presetSuppressed) Object.assign(output, live, presets, overrides)
-  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides)].map(Number))
+  const suppressed = runtime.blackout || presetSuppressed
+  const output = composeOutput({ base, effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate)].map(Number))
   push(output)
 }
 
@@ -199,6 +201,11 @@ export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
   liveFadeFrame = requestAnimationFrame(tick)
 }
 export function configureOverrideOutput(patch: Record<number, number>) { overrides = { ...patch }; flush() }
+export function configureLocateOutput(patch: Record<number, number>, durationMs = 2000) {
+  if (locateTimer !== null) clearTimeout(locateTimer)
+  locateTimer = null; locate = { ...patch }; flush()
+  if (Object.keys(locate).length) locateTimer = setTimeout(() => { locate = {}; locateTimer = null; flush() }, Math.max(0, durationMs))
+}
 
 /** Blackout scenes suppress preset layers until another scene is recalled. */
 export function suppressPresetsForScene(active: boolean) { presetSuppressed = active }

@@ -19,6 +19,15 @@ export interface IpcResult<T = unknown> {
 declare global {
   interface Window {
     electronAPI: {
+      toggleFullscreen: () => Promise<void>
+      openLiveWindow: (pageId: string | null) => Promise<import('@shared/liveWindows').LiveWindowSpec>
+      publishLiveWindowState: (state: Record<string, unknown>) => void
+      requestLiveWindowState: () => void
+      liveWindowCommand: (command: string, args: unknown[]) => void
+      onLiveWindowState: (callback: (state: Record<string, unknown>) => void) => () => void
+      onLiveWindowCommand: (callback: (command: string, args: unknown[]) => void) => () => void
+      renameShow: (path: string, name: string) => Promise<IpcResult>
+      duplicateShow: (path: string) => Promise<IpcResult>
       loadShow: (path: string) => Promise<IpcResult>
       openShow: () => Promise<IpcResult>
       saveShow: (data: unknown, path?: string) => Promise<IpcResult>
