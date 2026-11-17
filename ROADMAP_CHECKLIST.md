@@ -376,8 +376,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.9 Beat grid: set it by tapping, by an exact value, or by MIDI Beat Clock; beat-controlled sequences and effects follow it, with a beat indicator. Guide: ch.12, p.225 to 228. Ableton Link and OS2L are out of scope.
   Done when: a MIDI clock parsing test (24 ppq to BPM) and a beat-phase test pass.
   Evidence: exact/tap tempo feed the existing shared BPM runtime, Web MIDI now accepts `0xF8` clock pulses through `MidiBeatClock`, and the toolbar renders beat phase; `tests/beatGrid.test.ts` verifies 24 PPQ→120 BPM and anchored phase; typecheck, 357 tests and build passed.
-- [ ] 9.10 Blind mode: edit without changing live output; the Preview shows the blind state and a clear indicator marks blind. Guide: Blind mode, p.221.
+- [x] 9.10 Blind mode: edit without changing live output; the Preview shows the blind state and a clear indicator marks blind. Guide: Blind mode, p.221.
   Done when: output-model tests show edits in blind not reaching DMX and committing them on exit (or discarding, per the guide; log it).
+  Evidence: output runtime captures and holds the current physical frame while underlying edits continue, then commits the current look on exit; toolbar toggle and Preview BLIND indicator; `tests/outputBlind.test.ts`; typecheck, 358 tests and build passed.
 - [ ] 9.11 Freeze output: hold the current DMX frame while cues change underneath, then resume. Guide: Freeze output, p.222.
   Done when: output tests show the frame frozen and resume fading to the current state.
 - [ ] 9.12 External control: extend `MidiPanel` and `midi.ts` towards the guide's bindings, triggers and actions model (MIDI only), with quick assign (learn). Guide: ch.16, p.277 to 293. OSC, ProPresenter and VirtualDJ triggers are out of scope for now.

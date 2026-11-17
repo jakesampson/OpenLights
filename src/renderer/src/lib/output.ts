@@ -42,6 +42,9 @@ let locate: Record<number, number> = {}
 let locateTimer: ReturnType<typeof setTimeout> | null = null
 let presetSuppressed = false
 let previousPresetChannels = new Set<number>()
+let blind = false
+let blindFrame: Record<number, number> | null = null
+let lastOutput: Record<number, number> = {}
 
 interface EffectRuntime {
   effects: EffectDef[]
@@ -61,6 +64,7 @@ let runtime: EffectRuntime = {
 
 function push(patch: Record<number, number>) {
   if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
+  lastOutput = { ...patch }
   window.electronAPI?.setChannels?.(patch)
 }
 
@@ -80,9 +84,18 @@ function effectPatch(now: number): Record<number, number> {
 
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, heldFrame: blindFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
   previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
   push(output)
+}
+
+/** Hold physical output while edits continue to update the internal look. Exiting commits the edited look. */
+export function setBlindOutput(active: boolean) {
+  if (active === blind) return
+  if (active) blindFrame = { ...lastOutput }
+  blind = active
+  if (!active) blindFrame = null
+  flush()
 }
 
 export function cancelFade() {

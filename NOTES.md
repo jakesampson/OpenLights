@@ -228,3 +228,6 @@ Effects have a runtime clipboard for copy/paste, while reusable templates are sa
 
 ### 9.9 Beat grid
 The existing exact BPM and tap-tempo paths remain authoritative. Web MIDI now recognizes real-time `0xF8` messages even though they are one-byte messages, averages up to four beats at 24 PPQ and updates that same BPM. The toolbar indicator derives a stable phase from the shared tempo, so beat-controlled sequences and effects remain on one clock. Ableton Link and OS2L remain out of scope. Tests: `tests/beatGrid.test.ts`.
+
+### 9.10 Blind mode
+Entering Blind captures the composed physical output frame. Editing continues to update the internal base/live/preset/effect layers and Preview, but every DMX write receives the captured frame. Exiting Blind commits the current edited look immediately (rather than discarding it), matching OpenLights' non-destructive editing model. Blackout still overrides Blind. Tests: `tests/outputBlind.test.ts`, `tests/outputModel.test.ts`.

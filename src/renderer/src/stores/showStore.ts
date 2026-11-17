@@ -48,7 +48,7 @@ import { mixColor, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
 
 interface ShowState {
   locked: boolean
@@ -83,6 +83,7 @@ interface ShowState {
   midiMappings: MidiMapping[]
   master: number
   blackout: boolean
+  blind: boolean
   bpm: number
   isPlaying: boolean
   activeSceneId: string | null
@@ -139,6 +140,8 @@ interface ShowState {
   setMaster: (value: number) => void
   setBlackout: (active: boolean) => void
   toggleBlackout: () => void
+  setBlind: (active: boolean) => void
+  toggleBlind: () => void
 
   selectFixture: (id: string, additive?: boolean) => void
   selectFixtures: (ids: string[]) => void
@@ -578,6 +581,7 @@ const actions: ShowState = {
   midiMappings: defaultShow.midiMappings ?? [],
   master: defaultShow.masterIntensity ?? 255,
   blackout: false,
+  blind: false,
   bpm: 120,
   isPlaying: false,
   activeSceneId: null,
@@ -600,6 +604,7 @@ const actions: ShowState = {
     configureLiveOutput({})
     configureOverrideOutput({})
     setEffectBlackout(false)
+    setBlindOutput(false)
     sendImmediate(allZeroPatch())
     set({
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
@@ -623,6 +628,7 @@ const actions: ShowState = {
       midiMappings: show?.midiMappings ?? [],
       master: show?.masterIntensity ?? 255,
       blackout: false,
+      blind: false,
       bpm: show?.bpm ?? 120,
       activeSceneId: show?.startup?.mode === 'restore' && show.scenes.some((s) => s.id === show.startup?.sceneId) ? show.startup.sceneId ?? null : null,
       selectedFixtureIds: [],
@@ -903,6 +909,8 @@ const actions: ShowState = {
     }),
 
   toggleBlackout: () => get().setBlackout(!get().blackout),
+  setBlind: (active) => { setBlindOutput(active); set({ blind: active }) },
+  toggleBlind: () => get().setBlind(!get().blind),
 
   selectFixture: (id, additive = false) =>
     set((state) => {

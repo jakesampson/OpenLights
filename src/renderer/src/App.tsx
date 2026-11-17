@@ -43,6 +43,7 @@ export default function App() {
     activeSceneId,
     master,
     blackout,
+    blind,
     toggleBlackout,
     goToScene,
     cueNext,
@@ -343,7 +344,7 @@ export default function App() {
       <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack"><StagePreview /></div>}
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}</div>}
 
         <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
