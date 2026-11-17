@@ -252,8 +252,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 6.12 Split the Preset Palette, filter it (by name, type, fixtures in the selection), and find related cues (which cues use this preset). Guide: p.143 to 144.
   Evidence: `lib/presetPalette.ts`, `tests/presetPalette.test.ts`; typecheck, 186 tests and build passed.
   Done when: there are pure filter and related-cue functions with tests.
-- [ ] 6.13 Export and import Preset Palette items as JSON, with fixture matching by name and profile. Guide: p.144.
+- [x] 6.13 Export and import Preset Palette items as JSON, with fixture matching by name and profile. Guide: p.144.
   Done when: there's a round-trip test, including a fixture that isn't found and gets skipped and logged.
+  Evidence: `lib/presetPaletteIo.ts` (portable export doc + fixture descriptors, import re-maps values/fans by name+profile, skips+logs unmatched), Export/Import JSON buttons in `LiveWorkspace.tsx` palette, `tests/presetPaletteIo.test.ts` (round-trip, id re-map, unmatched fixture skipped+logged); typecheck, 202 tests and build passed; UI check on Needs Jake.
 - [ ] 6.14 Convert existing scenes into presets or sequences (one-way, keeping the originals until 8.9). This feeds the retirement of the Scenes & cues editor.
   Done when: a migration helper converts every `SceneDef` to an equivalent preset with identical DMX output (tested).
 
@@ -350,6 +351,7 @@ The agent never waits on these. It adds a line here (item number plus what to ch
 - [ ] (Jake) Open a real existing show (for example the PRBC test fixtures show) after 1.2, after 4.1 and after 8.9, then save, reopen and check nothing is lost.
 - [ ] (Jake) Visual comparison of the toolbar, Design view, Preview and Live view against the guide's layout.
 - [ ] (Jake) Visual check of the bottom-centre Design/Live switch against `docs/reference/lightkey-design-live-switch.png`: placement on the Preview/bottom divider, segmented look in Design view, chevron dropdown in Live view, and page manager pick/add/rename/reorder (2.4a).
+- [ ] (Jake) Preset palette Export/Import JSON click-through in Live edit mode: export a palette, import it into a show with renamed fixture ids, and confirm values re-map by name/profile and an unmatched fixture is skipped and reported (6.13).
 - [ ] (Jake) Multi-window check for Live windows and window restore (after 2.6).
 - [ ] (Jake) Lock mode check on the Live machine (after 2.8).
 
