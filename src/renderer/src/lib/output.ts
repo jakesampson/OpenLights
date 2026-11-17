@@ -37,7 +37,7 @@ function push(patch: Record<number, number>) {
 
 /** Effects are suppressed while the rig is blacked out. */
 function effectPatch(now: number): Record<number, number> {
-  if (runtime.blackout) return {}
+  if (runtime.blackout || presetSuppressed) return {}
   if (!runtime.effects.some((effect) => effect.enabled)) return {}
   const time = (now - effectStartedAt) / 1000
   return computeEffectPatch(

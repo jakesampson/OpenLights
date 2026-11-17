@@ -13,7 +13,8 @@ import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
 import { configureEffects, configurePresetOutput } from './lib/output'
 import { computeSceneChannels } from './lib/automationRuntime'
-import { getStageTheme } from './lib/stageTheme'
+import { startCuePlaybackClock } from './lib/cuePlaybackClock'
+import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 
 type Tab = 'Design' | 'Live' | 'Edit'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -71,14 +72,35 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('Design')
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
-  const theme = getStageTheme(activeScene, show?.fixtures ?? [])
 
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-  }, [theme])
+    localStorage.setItem('openlights.adaptiveBackground', String(adaptiveBackground))
+    const root = document.documentElement
+    if (!adaptiveBackground) { root.style.removeProperty('--adaptive-hue'); root.removeAttribute('data-adaptive'); return }
+    root.dataset.adaptive = 'true'
+    let alive = true
+    let pending = false
+    const refresh = async () => {
+      if (pending || !window.electronAPI?.getChannels) return
+      pending = true
+      try {
+        const channels = await window.electronAPI.getChannels()
+        if (!alive) return
+        const state = useShowStore.getState()
+        const scene = state.scenes.find((item) => item.id === state.activeSceneId)
+        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, scene)
+        root.style.setProperty('--adaptive-hue', String(hue ?? 283))
+      } catch { /* Keep the previous appearance if output is unavailable. */ }
+      finally { pending = false }
+    }
+    void refresh()
+    const timer = window.setInterval(refresh, 200)
+    return () => { alive = false; window.clearInterval(timer); root.style.removeProperty('--adaptive-hue'); root.removeAttribute('data-adaptive') }
+  }, [adaptiveBackground])
 
   useEffect(() => {
     let active = true
@@ -114,6 +136,8 @@ export default function App() {
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master])
+
+  useEffect(() => startCuePlaybackClock(), [])
 
   const blackoutDMX = async () => {
     try {
@@ -249,15 +273,10 @@ export default function App() {
             </button>
             {settingsOpen && (
               <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
-                <div className="flex items-center justify-between gap-3 px-3 py-2">
-                  <div>
-                    <div className="text-xs font-medium text-text">Appearance</div>
-                    <div className="text-[10px] text-dim">Follows the active stage preview</div>
-                  </div>
-                  <span className="rounded bg-panel2 px-2 py-1 text-[10px] font-semibold uppercase text-text">
-                    {theme}
-                  </span>
-                </div>
+                <label className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 text-xs text-text hover:bg-panel2">
+                  <span>Adaptive background colour</span>
+                  <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />
+                </label>
                 <div className="my-1 border-t border-line" />
                 <button
                   type="button"

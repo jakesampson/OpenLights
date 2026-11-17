@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { previewFixtureValues } from '../lib/previewOutput'
+import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
 import { useShowStore } from '../stores/showStore'
-import type { FixtureDef, SceneDef } from '@shared/types'
+import type { FixtureDef, SceneDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
 interface FixtureView extends FixtureDef {
@@ -67,7 +68,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview() {
-  const { show, activeSceneId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePosition } = useShowStore()
+  const { show, activeSceneId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses } = useShowStore()
   const [editing, setEditing] = useState(false)
   const [outputChannels, setOutputChannels] = useState<number[]>([])
   useEffect(() => {
@@ -84,10 +85,14 @@ export function StagePreview() {
     const timer = window.setInterval(readOutput, 100)
     return () => { alive = false; window.clearInterval(timer) }
   }, [])
+  const [trussDraft, setTrussDraft] = useState<PreviewTruss | null>(null)
+  const trussDragRef = useRef<{ mode: 'move' | 'resize' | 'rotate'; start: Pos; original: PreviewTruss; current: PreviewTruss } | null>(null)
+  const [selectedTrussId, setSelectedTrussId] = useState<string | null>(null)
+  const copiedTrussRef = useRef<PreviewTruss | null>(null)
   const [zoom, setZoom] = useState(1)
-  const [dragPosition, setDragPosition] = useState<{ id: string; position: Pos } | null>(null)
+  const [dragPositions, setDragPositions] = useState<Record<string, Pos> | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ id: string; position: Pos } | null>(null)
+  const dragRef = useRef<{ start: Pos; originals: Record<string, Pos>; positions: Record<string, Pos> } | null>(null)
   const pointAt = (event: React.PointerEvent) => {
     const svg = svgRef.current
     const matrix = svg?.getScreenCTM()
@@ -112,7 +117,7 @@ export function StagePreview() {
         const values = previewFixtureValues(f, outputChannels, activeScene?.fixtureValues[f.id])
         return {
           ...f,
-          pos: dragPosition?.id === f.id ? dragPosition.position : f.previewPosition ?? pos,
+          pos: dragPositions?.[f.id] ?? f.previewPosition ?? pos,
           intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
           color: fixtureColor(values, f.type === 'dimmer')
         }
@@ -128,27 +133,79 @@ export function StagePreview() {
         color: '#c24bd6'
       }
     })
-  }, [fixtures, activeScene, dragPosition, outputChannels])
+  }, [fixtures, activeScene, dragPositions, outputChannels])
+
+  const trusses = show?.previewTrusses ?? []
+  const selectedTruss = trussDraft ?? trusses.find((item) => item.id === selectedTrussId)
+  const addTruss = () => {
+    const item: PreviewTruss = { id: crypto.randomUUID(), name: 'Truss', shape: 'straight', x: 400, y: 170, width: 200, height: 100, rotation: 0 }
+    setPreviewTrusses([...trusses, item]); setSelectedTrussId(item.id)
+  }
+  const duplicateTruss = (source: PreviewTruss) => {
+    const item = { ...source, id: crypto.randomUUID(), x: source.x + 20, y: source.y + 20 }
+    setPreviewTrusses([...trusses, item]); setSelectedTrussId(item.id)
+    return item
+  }
+  useEffect(() => {
+    if (!editing) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((!event.ctrlKey && !event.metaKey) || event.altKey || event.repeat) return
+      const target = event.target
+      if (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))) return
+      if (event.key.toLowerCase() === 'c' && selectedTruss) {
+        copiedTrussRef.current = { ...selectedTruss }
+        event.preventDefault()
+      } else if (event.key.toLowerCase() === 'v' && copiedTrussRef.current) {
+        copiedTrussRef.current = duplicateTruss(copiedTrussRef.current)
+        event.preventDefault()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [editing, selectedTruss, trusses, setPreviewTrusses])
+  const changeTruss = (patch: Partial<PreviewTruss>) => {
+    if (!selectedTruss) return
+    setPreviewTrusses(trusses.map((item) => item.id === selectedTruss.id ? { ...item, ...patch } : item))
+  }
+  const align = (axis: 'x' | 'y' | 'space-x' | 'space-y') => {
+    const selected = fixtureViews.filter((fixture) => selectedFixtureIds.includes(fixture.id))
+    if (selected.length < 2) return
+    const property = axis.endsWith('x') ? 'x' : 'y'
+    const ordered = [...selected].sort((a, b) => a.pos[property] - b.pos[property])
+    const minimum = ordered[0].pos[property], maximum = ordered[ordered.length - 1].pos[property]
+    const mean = selected.reduce((sum, fixture) => sum + fixture.pos[property], 0) / selected.length
+    const positions = Object.fromEntries(ordered.map((fixture, index) => [fixture.id, { ...fixture.pos, [property]: Math.round(axis.startsWith('space') ? minimum + (maximum - minimum) * index / (ordered.length - 1) : mean) }]))
+    setFixturePositions(positions)
+  }
 
   return (
     <div className="panel stage min-h-0 overflow-hidden relative bg-bg p-2">
       <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
         <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span>
-        <button type="button" onClick={() => { setEditing(!editing); setDragPosition(null); dragRef.current = null }} className={`rounded px-2 py-1 text-xs ${editing ? 'bg-text text-bg' : 'bg-panel2 text-text'}`} aria-pressed={editing}>{editing ? 'Done' : 'Edit layout'}</button>
-        {editing && <span className="rounded bg-bg/80 px-2 py-1 text-[10px] text-dim">Drag fixtures to position them</span>}
+        <button type="button" onClick={() => { setEditing(!editing); setDragPositions(null); dragRef.current = null; trussDragRef.current = null; setTrussDraft(null) }} className={`rounded px-2 py-1 text-xs ${editing ? 'bg-text text-bg' : 'bg-panel2 text-text'}`} aria-pressed={editing}>{editing ? 'Done' : 'Edit layout'}</button>
+        {editing && <div className="flex flex-wrap gap-1 rounded bg-bg/80 p-1 text-[10px] text-text">
+          <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={addTruss}>+ Add truss</button>
+          <button type="button" className="rounded bg-panel2 px-2 py-1 disabled:opacity-40" disabled={selectedFixtureIds.length < 2} onClick={() => align('x')}>Align X</button><button type="button" className="rounded bg-panel2 px-2 py-1 disabled:opacity-40" disabled={selectedFixtureIds.length < 2} onClick={() => align('y')}>Align Y</button><button type="button" className="rounded bg-panel2 px-2 py-1 disabled:opacity-40" disabled={selectedFixtureIds.length < 3} onClick={() => align('space-x')}>Space X</button><button type="button" className="rounded bg-panel2 px-2 py-1 disabled:opacity-40" disabled={selectedFixtureIds.length < 3} onClick={() => align('space-y')}>Space Y</button>
+        </div>}
       </div>
       <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded bg-bg/80 p-1">
         <button type="button" aria-label="Zoom out preview" onClick={() => setZoom((z) => Math.max(1, z - 0.25))} className="px-2 text-sm text-text">−</button>
         <button type="button" onClick={() => setZoom(1)} className="px-1 text-[10px] text-dim" title="Reset preview zoom">{Math.round(zoom * 100)}%</button>
         <button type="button" aria-label="Zoom in preview" onClick={() => setZoom((z) => Math.min(2, z + 0.25))} className="px-2 text-sm text-text">+</button>
       </div>
+      {editing && selectedTruss && <div className="absolute bottom-3 right-3 z-10 w-56 rounded border border-line bg-panel p-3 shadow-xl">
+        <div className="flex items-center justify-between gap-2"><strong className="text-xs">Truss properties</strong><button type="button" onClick={() => setSelectedTrussId(null)} className="text-xs text-dim">Close</button></div>
+        <label className="mt-2 block text-[10px] text-dim">Name<input value={selectedTruss.name} onChange={(event) => changeTruss({ name: event.target.value })} className="mt-1 w-full rounded border border-line bg-panel2 px-2 py-1 text-xs text-text" /></label>
+        <div className="mt-2 grid grid-cols-2 gap-2">{(selectedTruss.shape === 'u' ? ['x', 'y', 'width', 'height', 'rotation'] as const : ['x', 'y', 'width', 'rotation'] as const).map((key) => <label key={key} className="text-[10px] capitalize text-dim">{key === 'width' ? 'Length' : key}<input type="number" aria-label={`Truss ${key}`} value={selectedTruss[key]} onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) changeTruss({ [key]: key === 'width' || key === 'height' ? Math.max(10, value) : value }) }} className="mt-1 w-full rounded border border-line bg-panel2 px-2 py-1 text-xs text-text" /></label>)}</div>
+        <div className="mt-2 flex items-center gap-4"><button type="button" className="text-xs text-text" onClick={() => duplicateTruss(selectedTruss)}>Duplicate</button><button type="button" className="text-xs text-red-300" onClick={() => { setPreviewTrusses(trusses.filter((item) => item.id !== selectedTruss.id)); setSelectedTrussId(null) }}>Remove truss</button></div>
+      </div>}
       <svg
         ref={svgRef}
         className="h-full w-full"
         viewBox={`${400 - 400 / zoom} ${170 - 170 / zoom} ${800 / zoom} ${340 / zoom}`}
-        onPointerMove={(event) => { if (!dragRef.current) return; const position = pointAt(event); if (position) { dragRef.current = { ...dragRef.current, position }; setDragPosition(dragRef.current) } }}
-        onPointerUp={(event) => { if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPosition(null); setFixturePosition(drag.id, drag.position); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
-        onPointerCancel={() => { dragRef.current = null; setDragPosition(null) }}
+        onPointerMove={(event) => { if (trussDragRef.current) { const point = pointAt(event); if (point) { const drag = trussDragRef.current; const next = drag.mode === 'move' ? moveTruss(drag.original, drag.start, point) : drag.mode === 'rotate' ? rotateTruss(drag.original, drag.start, point) : resizeTruss(drag.original, drag.start, point); drag.current = drag.mode === 'rotate' ? next : snapTrussEndpoints(next, trusses); setTrussDraft(drag.current) } return } if (!dragRef.current) return; const position = pointAt(event); if (position) { const drag = dragRef.current; const dx = position.x - drag.start.x, dy = position.y - drag.start.y; const positions = Object.fromEntries(Object.entries(drag.originals).map(([id, original]) => [id, { x: clamp(original.x + dx, 0, 800), y: clamp(original.y + dy, 0, 340) }])); drag.positions = positions; setDragPositions(positions) } }}
+        onPointerUp={(event) => { if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); setFixturePositions(Object.fromEntries(Object.entries(drag.positions).map(([id, position]) => [id, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+        onPointerCancel={() => { dragRef.current = null; setDragPositions(null); trussDragRef.current = null; setTrussDraft(null) }}
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Stage glow background */}
@@ -160,11 +217,19 @@ export function StagePreview() {
         </defs>
         <rect x="0" y="0" width="800" height="340" fill="url(#stageGlow)" onClick={() => { if (!editing) selectFixtures([]) }} />
 
-        {/* Truss curves */}
-        <path d="M 40 80 Q 400 38 760 80" fill="none" stroke="var(--line)" strokeWidth="3" />
-        <path d="M 40 92 Q 400 50 760 92" fill="none" stroke="var(--line)" strokeWidth="2" opacity="0.7" />
-        <path d="M 64 80 L 64 92 M 200 65 L 200 77 M 336 60 L 336 72 M 464 60 L 464 72 M 600 65 L 600 77 M 736 80 L 736 92" stroke="var(--line)" strokeWidth="2" opacity="0.7" />
-        <path d="M 40 80 L 40 300 M 760 80 L 760 300" stroke="var(--line)" strokeWidth="2" opacity="0.5" />
+        {/* Projects created before truss editing retain the original illustration. */}
+        {show?.previewTrusses === undefined && <g pointerEvents="none" fill="none" stroke="var(--line)"><path d="M 40 80 Q 400 38 760 80" strokeWidth="3" /><path d="M 40 92 Q 400 50 760 92" strokeWidth="2" opacity="0.7" /></g>}
+        {trusses.map((savedTruss) => { const truss = trussDraft?.id === savedTruss.id ? trussDraft : savedTruss; return <g key={truss.id} transform={`translate(${truss.x} ${truss.y}) rotate(${truss.rotation})`} onPointerDown={(event) => { if (!editing) return; event.preventDefault(); event.stopPropagation(); const start = pointAt(event); if (!start) return; setSelectedTrussId(truss.id); trussDragRef.current = { mode: 'move', start, original: truss, current: truss }; svgRef.current?.setPointerCapture(event.pointerId) }} style={{ cursor: editing ? 'grab' : 'default', touchAction: 'none' }}>
+          <path d={truss.shape === 'u' ? `M ${-truss.width / 2} ${truss.height / 2} V ${-truss.height / 2} H ${truss.width / 2} V ${truss.height / 2}` : `M ${-truss.width / 2} 0 H ${truss.width / 2}`} fill="none" stroke={selectedTrussId === truss.id && editing ? 'var(--sel)' : 'var(--line)'} strokeWidth="8" strokeLinecap="round" />
+          <path d={truss.shape === 'u' ? `M ${-truss.width / 2} ${truss.height / 2} V ${-truss.height / 2} H ${truss.width / 2} V ${truss.height / 2}` : `M ${-truss.width / 2} 0 H ${truss.width / 2}`} fill="none" stroke="var(--text)" strokeOpacity="0.45" strokeWidth="1" strokeDasharray="5 5" />
+          {editing && selectedTrussId === truss.id && <>
+            <rect x={-truss.width / 2} y={truss.shape === 'u' ? -truss.height / 2 : -6} width={truss.width} height={truss.shape === 'u' ? truss.height : 12} fill="none" stroke="var(--sel)" strokeWidth="1" strokeDasharray="4 3" pointerEvents="none" />
+            <rect x={truss.width / 2 - 6} y={(truss.shape === 'u' ? truss.height / 2 : 0) - 6} width="12" height="12" fill="var(--text)" stroke="var(--accent)" strokeWidth="2" style={{ cursor: 'nwse-resize' }} aria-label={`Resize ${truss.name}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); const start = pointAt(event); if (!start) return; trussDragRef.current = { mode: 'resize', start, original: truss, current: truss }; svgRef.current?.setPointerCapture(event.pointerId) }} />
+            <line x1="0" y1={truss.shape === 'u' ? -truss.height / 2 : -6} x2="0" y2={(truss.shape === 'u' ? -truss.height / 2 : -6) - 20} stroke="var(--sel)" strokeWidth="1.5" pointerEvents="none" />
+            <circle cx="0" cy={(truss.shape === 'u' ? -truss.height / 2 : -6) - 20} r="7" fill="var(--text)" stroke="var(--accent)" strokeWidth="2" style={{ cursor: 'grab' }} aria-label={`Rotate ${truss.name}`} onPointerDown={(event) => { event.preventDefault(); event.stopPropagation(); const start = pointAt(event); if (!start) return; trussDragRef.current = { mode: 'rotate', start, original: truss, current: truss }; svgRef.current?.setPointerCapture(event.pointerId) }}><title>Drag to rotate</title></circle>
+          </>}
+          {editing && <text x="0" y="-10" transform={`rotate(${-truss.rotation} 0 -10)`} textAnchor="middle" fill="var(--text)" fontSize="8">{truss.name}</text>}
+        </g>})}
 
         {/* Beams */}
         {fixtureViews.map((f) => {
@@ -186,7 +251,7 @@ export function StagePreview() {
               aria-label={selectable ? f.name : undefined}
               aria-pressed={selectable ? selected : undefined}
               style={selectable ? { cursor: editing ? 'grab' : 'pointer', touchAction: 'none' } : undefined}
-              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); const position = pointAt(event); if (position) { dragRef.current = { id: f.id, position }; setDragPosition(dragRef.current); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
+              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const ids = selectedFixtureIds.includes(f.id) ? selectedFixtureIds : [f.id]; if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((fixture) => ids.includes(fixture.id)).map((fixture) => [fixture.id, fixture.pos])); dragRef.current = { start: position, originals, positions: originals }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
               onClick={
                 selectable
                   ? (event) => {
@@ -207,6 +272,7 @@ export function StagePreview() {
             >
               {on && (
                 <polygon
+                  pointerEvents="none"
                   points={`${x - 7},${top} ${x + 7},${top} ${x + 34},${bottom} ${x - 34},${bottom}`}
                   fill={f.color}
                   fillOpacity={op * 0.28}

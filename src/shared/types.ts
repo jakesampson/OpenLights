@@ -89,6 +89,17 @@ export interface EffectDef {
   enabled: boolean
 }
 
+export interface PreviewTruss {
+  id: string
+  name: string
+  shape: 'u' | 'straight'
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+}
+
 export interface ShowDef {
   id: string
   name: string
@@ -96,6 +107,7 @@ export interface ShowDef {
   createdAt: number
   updatedAt: number
   fixtures: FixtureDef[]
+  previewTrusses?: PreviewTruss[]
   scenes: SceneDef[]
   presets?: PresetDef[]
   automations: AutomationDef[]

@@ -180,6 +180,17 @@ describe('scene output', () => {
 })
 
 describe('fixture selection and design controls', () => {
+  it('saves trusses and groups selected fixtures without sending DMX', () => {
+    useShowStore.getState().selectFixtures(['f1', 'f2'])
+    setChannels.mockClear()
+    useShowStore.getState().groupSelectedFixtures('Stage U')
+    useShowStore.getState().setPreviewTrusses([{ id: 'u', name: 'Stage U', shape: 'u', x: 400, y: 100, width: 500, height: 120, rotation: 0 }])
+    const show = useShowStore.getState().show!
+    expect(show.fixtures.map((fixture) => fixture.group)).toEqual(['Stage U', 'Stage U'])
+    expect(show.previewTrusses?.[0].shape).toBe('u')
+    expect(setChannels).not.toHaveBeenCalled()
+  })
+
   it('saves a preview position without changing live DMX output', () => {
     setChannels.mockClear()
     useShowStore.getState().setFixturePosition('f1', { x: 300, y: 120 })

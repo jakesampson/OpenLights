@@ -9,6 +9,7 @@ import type {
   MidiMapping,
   PresetDef,
   PresetCategory,
+  PreviewTruss,
   SceneDef,
   ShowDef
 } from '@shared/types'
@@ -33,6 +34,7 @@ interface ShowState {
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
+  cueRevision: number
 
   setShow: (show: ShowDef | null) => void
   setBpm: (bpm: number) => void
@@ -45,6 +47,7 @@ interface ShowState {
 
   selectFixture: (id: string, additive?: boolean) => void
   selectFixtures: (ids: string[]) => void
+  groupSelectedFixtures: (name: string) => void
   updateSelectedFixtures: (values: Record<string, number>) => void
   goToScene: (id: string) => void
   flashScene: (id: string) => void
@@ -62,6 +65,8 @@ interface ShowState {
   addFixture: (preset: FixturePreset, name?: string, group?: string) => void
   updateFixture: (id: string, patch: Partial<FixtureDef>) => void
   setFixturePosition: (id: string, position: { x: number; y: number }) => void
+  setFixturePositions: (positions: Record<string, { x: number; y: number }>) => void
+  setPreviewTrusses: (trusses: PreviewTruss[]) => void
   removeFixture: (id: string) => void
 
   addAutomation: (automation: AutomationDef) => void
@@ -377,6 +382,7 @@ export const useShowStore = create<ShowState>((set, get) => ({
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
   activeCueIndex: -1,
   cuePlaying: false,
+  cueRevision: 0,
 
   setShow: (show) => {
     // Loading a different show must not leave the previous show's look
@@ -402,7 +408,8 @@ export const useShowStore = create<ShowState>((set, get) => ({
       selectedFixtureIds: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
-      cuePlaying: false
+      cuePlaying: false,
+      cueRevision: get().cueRevision + 1
     })
   },
   setBpm: (bpm) =>
@@ -457,6 +464,13 @@ export const useShowStore = create<ShowState>((set, get) => ({
   selectFixtures: (ids) => set((state) => {
     const validIds = new Set(state.show?.fixtures.map((fixture) => fixture.id) ?? [])
     return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)) }
+  }),
+
+  groupSelectedFixtures: (name) => set((state) => {
+    if (!state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
+    const selected = new Set(state.selectedFixtureIds)
+    const fixtures = state.show.fixtures.map((fixture) => selected.has(fixture.id) ? { ...fixture, group: name.trim() } : fixture)
+    return persistState(state, { fixtures })
   }),
 
   goToScene: (id) =>
@@ -670,6 +684,16 @@ export const useShowStore = create<ShowState>((set, get) => ({
       return persistState(state, { fixtures })
     }),
 
+  setFixturePositions: (positions) => set((state) => {
+    if (!state.show) return state
+    const fixtures = state.show.fixtures.map((fixture) => {
+      const p = positions[fixture.id]
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { ...fixture, previewPosition: { x: Math.max(0, Math.min(800, p.x)), y: Math.max(0, Math.min(340, p.y)) } } : fixture
+    })
+    return persistState(state, { fixtures })
+  }),
+  setPreviewTrusses: (previewTrusses) => set((state) => persistState(state, { previewTrusses })),
+
   removeFixture: (id) =>
     set((state) => {
       const removed = (state.show?.fixtures ?? []).find((f) => f.id === id)
@@ -866,7 +890,8 @@ export const useShowStore = create<ShowState>((set, get) => ({
         activeCueListId: listId,
         activeCueIndex: index,
         activeSceneId: scene.id,
-        cuePlaying: true
+        cuePlaying: true,
+        cueRevision: state.cueRevision + 1
       }
     }),
 
@@ -886,7 +911,8 @@ export const useShowStore = create<ShowState>((set, get) => ({
       return {
         activeCueIndex: next,
         activeSceneId: scene.id,
-        cuePlaying: true
+        cuePlaying: true,
+        cueRevision: state.cueRevision + 1
       }
     }),
 
@@ -903,7 +929,8 @@ export const useShowStore = create<ShowState>((set, get) => ({
       return {
         activeCueIndex: prev,
         activeSceneId: scene.id,
-        cuePlaying: true
+        cuePlaying: true,
+        cueRevision: state.cueRevision + 1
       }
     }),
 

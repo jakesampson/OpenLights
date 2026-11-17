@@ -25,7 +25,6 @@ export function CueListPanel() {
 
   const [newSceneId, setNewSceneId] = useState<string>('')
   const activeList = cueLists.find((list) => list.id === activeCueListId) ?? null
-  const currentStep = activeList?.steps[activeCueIndex]
 
   useEffect(() => {
     if (!newSceneId && scenes[0]) setNewSceneId(scenes[0].id)
@@ -34,12 +33,6 @@ export function CueListPanel() {
     }
   }, [scenes, newSceneId])
 
-  // Auto-advance through cues after their hold time.
-  useEffect(() => {
-    if (!cuePlaying || !currentStep || currentStep.holdMs <= 0) return
-    const timer = window.setTimeout(() => cueNext(), currentStep.holdMs)
-    return () => window.clearTimeout(timer)
-  }, [cuePlaying, currentStep?.id, currentStep?.holdMs, cueNext])
 
   return (
     <section className="flex flex-col gap-4">

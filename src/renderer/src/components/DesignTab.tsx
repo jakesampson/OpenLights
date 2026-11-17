@@ -25,7 +25,8 @@ export function DesignTab() {
     selectedFixtureIds,
     updateSelectedFixtures,
     goToScene,
-    selectFixtures
+    selectFixtures,
+    groupSelectedFixtures
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
@@ -87,6 +88,7 @@ export function DesignTab() {
         <div className="flex items-center gap-2">
           <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={fixtures.length === 0} onClick={() => selectFixtures(fixtures.map((fixture) => fixture.id))}>Select all</button>
           <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={selectedFixtureIds.length === 0} onClick={() => selectFixtures([])}>Clear</button>
+          <button type="button" className="rounded bg-panel2 px-2 py-1 text-[10px] text-text disabled:opacity-40" disabled={selectedFixtureIds.length === 0} onClick={() => { const name = prompt('Group name'); if (name) groupSelectedFixtures(name) }}>Group</button>
           <label htmlFor="design-scene" className="text-[10px] text-dim">Scene</label>
           <select id="design-scene" value={activeSceneId ?? ''} onChange={(e) => { if (e.target.value) goToScene(e.target.value) }} className="max-w-40 rounded border border-line bg-panel2 px-2 py-1 text-xs text-text">
             <option value="">No scene selected</option>

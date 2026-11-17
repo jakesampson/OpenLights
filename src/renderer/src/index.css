@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Theme definitions - Purple (Design) and Teal (Live) */
+/* Consistent low-light interface colours */
 :root {
   --bg: #2a1233;
   --panel: #3a1b47;
@@ -16,17 +16,12 @@
   --panic-line: #e46a62;
 }
 
-:root[data-theme="teal"] {
-  --bg: #0f3a38;
-  --panel: #144a47;
-  --panel2: #1b5c58;
-  --line: #2b7a73;
-  --accent: #3ee0c0;
-  --text: #e3f7f3;
-  --dim: #8cc7bd;
-  --sel: #4fe8c8;
-  --panic: #b3261e;
-  --panic-line: #e46a62;
+
+:root[data-adaptive="true"] {
+  --bg: hsl(var(--adaptive-hue, 283) 44% 14%);
+  --panel: hsl(var(--adaptive-hue, 283) 39% 19%);
+  --panel2: hsl(var(--adaptive-hue, 283) 39% 24%);
+  --line: hsl(var(--adaptive-hue, 283) 31% 34%);
 }
 
 * { box-sizing: border-box; }
