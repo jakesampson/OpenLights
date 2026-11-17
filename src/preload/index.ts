@@ -11,7 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteShow: (path: string) => ipcRenderer.invoke('delete-show', path),
   loadAudio: (path?: string) => ipcRenderer.invoke('load-audio', path),
   blackout: () => ipcRenderer.invoke('blackout'),
-  setDmxPort: (port: string) => ipcRenderer.invoke('set-dmx-port', port),
+  setDmxPort: (port: string, protocol: string) => ipcRenderer.invoke('set-dmx-port', port, protocol),
   connectArtNet: (host: string, universe?: number) =>
     ipcRenderer.invoke('connect-artnet', host, universe),
   getDmxStatus: () => ipcRenderer.invoke('get-dmx-status'),
