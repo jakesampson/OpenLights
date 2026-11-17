@@ -186,3 +186,6 @@ Each cue has live intensity, speed and size percentages (0–200, legacy default
 
 ### 8.6 Cue priority
 Active Live controls are merged in ascending explicit priority and then activation order, making the last activated cue win where priorities are equal and a higher configured priority win regardless of activation time. Activation order is runtime-only; priority is additive persisted data with legacy default zero. Tests: `tests/cuePriority.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.
+
+### 8.7 Live cuelist editing
+The selected Live cuelist widget exposes add/remove/reorder/copy/paste, scene reassignment and name filtering. Pure immutable commands back the history/lock-gated store action. A separate status helper resolves current, next (including loop wrap) and remaining fade+hold time without UI timing assumptions. Tests: `tests/cueListEditing.test.ts`, `tests/store.test.ts`.

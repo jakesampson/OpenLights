@@ -329,8 +329,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.6 Cue priority between overlapping cues (latest takes precedence, or an explicit priority), using the 1.5 model.
   Done when: output tests cover two cues on the same property.
   Evidence: additive cue priority, runtime activation ordering, `lib/cuePriority.ts` orders active controls so explicit priority then latest activation wins before App output merge, inspector/store support; `tests/cuePriority.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`; typecheck, 327 tests and build passed.
-- [ ] 8.7 Cuelists in Live: add, remove, reorder, copy/paste, rename and filter cues inside the cuelist widget, and show the current and next cue with remaining time. Guide: Edit cuelists, p.191 to 198.
+- [x] 8.7 Cuelists in Live: add, remove, reorder, copy/paste, rename and filter cues inside the cuelist widget, and show the current and next cue with remaining time. Guide: Edit cuelists, p.191 to 198.
   Done when: store tests cover each command, and a pure "current/next/remaining" function is tested.
+  Evidence: `lib/cueListEditing.ts` immutable commands/filter/status, history/lock-gated store command, `CueListEditor.tsx` Live widget authoring UI, `tests/cueListEditing.test.ts` + `tests/store.test.ts`; typecheck, 330 tests and build passed.
 - [ ] 8.8 Cuelist playback: Go, Back, jump to any cue, auto-advance with follow times, loop, cue groups, and a manual crossfade fader. Guide: Cuelist timing, p.193, Cue groups, p.192, and Live control with cuelists, p.218 to 220. (Next/prev, hold and loop exist in `showStore` and `cuePlaybackClock.ts`; extend them.)
   Done when: clock tests cover auto-follow, loop, a jump while fading, and a manual crossfade at 50%.
 - [ ] 8.9 Retire the separate Scenes & cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate scenes to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.

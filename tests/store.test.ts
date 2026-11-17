@@ -818,3 +818,15 @@ describe('cue priority (8.6)', () => {
     expect(useShowStore.getState().show!.livePages![0].controls[1].priority).toBe(20)
   })
 })
+
+describe('cuelist editing (8.7)', () => {
+  it('runs cuelist editing commands through history', () => {
+    useShowStore.getState().setShow(makeShow())
+    const list = useShowStore.getState().cueLists[0]
+    const before = list.steps.length
+    useShowStore.getState().editCueListCommand(list.id, { type: 'add', step: { id: 'new', sceneId: useShowStore.getState().scenes[0].id, fadeMs: 100, holdMs: 200 } })
+    expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before + 1)
+    useShowStore.getState().undo()
+    expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before)
+  })
+})
