@@ -181,9 +181,11 @@ export default function App() {
     switch (tab) {
       case 'Design':
         return (
-          <>
-            <DesignTab />
-            <details className="mt-3 rounded-lg border border-line bg-panel p-2">
+          <div className="flex h-full min-h-0 flex-col gap-2">
+            <div className="min-h-0 flex-1">
+              <DesignTab />
+            </div>
+            <details className="shrink-0 rounded-lg border border-line bg-panel p-2">
               <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-dim">
                 Effects
               </summary>
@@ -191,7 +193,7 @@ export default function App() {
                 <EffectsPanel />
               </div>
             </details>
-          </>
+          </div>
         )
       case 'Live':
         return <LiveTab />
