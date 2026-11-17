@@ -1,3 +1,5 @@
+import type { SequenceDef, PresetDef } from '@shared/types'
+import { sequenceValues } from './sequenceClock'
 /**
  * Renderer-side DMX output. Keeps the base look (scenes, cues, automation)
  * separate from the effects layer, so animated effects can be applied on top
@@ -9,6 +11,24 @@ import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
 import { computeSceneChannels } from './automationRuntime'
 
+let sequences: SequenceDef[] = []
+let sequencePresets: PresetDef[] = []
+const sequenceStarts = new Map<string, number>()
+function sequencePatch(now: number): Record<number, number> {
+  if (runtime.blackout || presetSuppressed) return {}
+  const patch: Record<number, number> = {}
+  for (const sequence of sequences) Object.assign(patch, computeSceneChannels(runtime.fixtures, { id: sequence.id, name: sequence.name, fadeMs: 0, fixtureValues: sequenceValues(sequence, sequencePresets, runtime.fixtures, now - (sequenceStarts.get(sequence.id) ?? now), 1, runtime.bpm) }, runtime.master))
+  return patch
+}
+export function configureSequences(active: SequenceDef[], presets: PresetDef[] = []) {
+  const now = performance.now()
+  for (const id of sequenceStarts.keys()) if (!active.some((s) => s.id === id)) sequenceStarts.delete(id)
+  for (const sequence of active) if (!sequenceStarts.has(sequence.id)) sequenceStarts.set(sequence.id, now)
+  sequences = active; sequencePresets = presets
+  if (active.length && !runtime.blackout) startEffectLoop()
+  else if (!runtime.effects.some((e) => e.enabled)) stopEffectLoop()
+  flush()
+}
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null
 let effectFrame: number | null = null
@@ -47,7 +67,7 @@ function push(patch: Record<number, number>) {
 /** Effects are suppressed while the rig is blacked out. */
 function effectPatch(now: number): Record<number, number> {
   if (runtime.blackout || presetSuppressed) return {}
-  if (!runtime.effects.some((effect) => effect.enabled)) return {}
+  if (!(runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) return {}
   const time = (now - effectStartedAt) / 1000
   return computeEffectPatch(
     runtime.fixtures,
@@ -60,8 +80,8 @@ function effectPatch(now: number): Record<number, number> {
 
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
-  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate)].map(Number))
+  const output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
   push(output)
 }
 
@@ -154,7 +174,7 @@ function startEffectLoop() {
  */
 export function configureEffects(config: Partial<EffectRuntime>) {
   runtime = { ...runtime, ...config }
-  if (!runtime.blackout && runtime.effects.some((effect) => effect.enabled)) {
+  if (!runtime.blackout && (runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()
   } else {
     stopEffectLoop()
@@ -167,7 +187,7 @@ export function setEffectBlackout(active: boolean) {
   runtime = { ...runtime, blackout: active }
   if (active) {
     stopEffectLoop()
-  } else if (runtime.effects.some((effect) => effect.enabled)) {
+  } else if ((runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()
   }
 }
@@ -188,7 +208,7 @@ export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
   const channels = new Set([...Object.keys(from), ...Object.keys(target)].map(Number))
   const tick = (now: number) => {
     const t = smoothstep(Math.max(0, Math.min(1, (now - start) / fadeMs)))
-    const underneath = mergeEffects(base, effectPatch(now))
+    const underneath = mergeEffects({ ...base, ...sequencePatch(now) }, effectPatch(now))
     const next: Record<number, number> = {}
     for (const channel of channels) {
       const fallback = underneath[channel] ?? 0

@@ -4,6 +4,7 @@ import { PositionControl } from './PositionControl'
 import { StandardProperties } from './StandardProperties'
 import { CustomProperties } from './CustomProperties'
 import { OverrideProperties } from './OverrideProperties'
+import { FanningEditor } from './FanningEditor'
 import { STANDARD_PROPERTIES } from '../lib/propertyValues'
 import { WheelControls } from './WheelControls'
 import { availableProperties } from '../lib/availableProperties'
@@ -90,6 +91,7 @@ export function DesignTab() {
     <div className="flex h-full min-h-0 flex-col gap-2">
       <FixtureSelectionTools />
       <OverrideProperties />
+      <FanningEditor />
       <div className="flex gap-2 text-xs"><button type="button" disabled={!selectedFixtures.length} className="btn-theme" onClick={copyFixtureProperties}>Copy properties</button><button type="button" disabled={!selectedFixtures.length || !propertyClipboard} className="btn-theme" onClick={() => pasteFixtureProperties(manualMode)}>Paste properties</button></div>
       <PositionControl fixtures={selectedFixtures} update={updateValues} />
       <StandardProperties channels={availableProperties(selectedFixtures)} valueFor={valueFor} update={updateValues} />

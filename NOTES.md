@@ -97,3 +97,30 @@ White and amber are extracted from visible RGB where those emitters exist; CMY u
 
 ### 5.9 Startup clear regression
 The regression suite requires project loading with no active looks to clear all 512 channels. Preserve that behaviour; profile defaults apply to released/missing programmed properties and the default output layer after programming, while an explicit startup clear or blackout remains authoritative.
+
+### 5.12 Fanning
+Editable definitions are saved with scene/preset values. The editor supports linear, centre and reverse spreads, stage/name/address ordering and optional spacing. Pure evaluation supports intermediate anchors. Numeric endpoint controls replace the guide's graphical HUD initially; beam-specific and graphical anchor editing remain workflow gaps. Removal offers keep values or clear the property. Tests: `tests/fanning.test.ts`.
+
+### 6.3 Preset contents
+Preset contents expand in place, with per-property numeric edits, property/fixture removal and an update-from-selected-current-values command. Updating merges supported category properties; unrelated fixtures remain stored. Tests: tests/presetEditing.test.ts. Graphical preset editing from Design remains a workflow difference to review in the final audit.
+
+### 6.4 Presets and overrides
+Normal activation leaves Design overrides above presets. Apply copies a preset into overrides and replaces only the properties it defines. Add overrides merges overrides into the stored preset. Alt restricts either command to selected fixtures, following the guide's Option convention. Tests: tests/presetOverrides.test.ts.
+
+### 6.5 Preset groups
+Legacy presets are grouped by category with exclusivity disabled to preserve combined looks. Exclusive ancestors release other active descendants when a member is activated. Group removal preserves presets and reparents nested groups. Tests: tests/presetGroups.test.ts.
+
+### 6.6 Sequence model
+Sequences keep ordered steps with their own property values, preset references, fade and hold durations. Capture starts from the current scene plus manual overrides. Old projects migrate to an empty sequence list; preserved sequence data is normalized without dropping extra fields. Tests: tests/sequences.test.ts.
+
+### 6.7 Sequence playback
+The shared output pump runs sequences beneath effects, Live and Design overrides. Orders are deterministic, including seeded per-pass shuffling. Bounce visits each endpoint once. Finite sequences release by default, with a keep-last-step option; loop runs indefinitely. Playback state is not undo history. Tests: tests/sequenceClock.test.ts.
+
+### 6.8 Sequence step commands
+Step capture, duplicate, remove, move, reverse and shuffle all pass through project history. Duplicates have independent IDs and nested values. Sequence operator commands are forwarded to the primary output window. Tests: tests/sequences.test.ts.
+
+### 6.9 Sequence timing
+Manual hold and fade durations add together, with an overall time scale. Beat timing ignores hold seconds and uses per-step beat lengths and steps-per-beat; fades occur at beat boundaries without extending the step. Tap/manual BPM feeds the same runtime. Shared-grid quantization is deferred to 9.9. Long fades interrupted by a faster beat currently restart from the scheduled previous step, a parity gap. Tests: tests/sequenceClock.test.ts.
+
+### Pause checkpoint after 6.9
+Paused at the user's request after completing and validating 6.9. Typecheck, all 177 tests and the production build passed. The next unticked agent item is 6.10 (fixture movements with sequences); no 6.10 implementation changes have started. Git staging/committing remains blocked by `.git/index.lock` permission denied; retain the working-tree changes. Completed checklist items must not be repeated. Desktop interaction and hardware checks remain in Needs Jake.

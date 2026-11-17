@@ -15,7 +15,7 @@ import { EditTab } from './components/EditTab'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
-import { configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
+import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
@@ -36,6 +36,7 @@ export default function App() {
     effects,
     presets,
     activePresetIds,
+    activeSequenceIds,
     activeLiveValues,
     activeLivePageId,
     manualOverrides,
@@ -107,6 +108,8 @@ export default function App() {
       blackout
     })
   }, [effects, show?.fixtures, bpm, master, blackout])
+
+  useEffect(() => { configureSequences(activeSequenceIds.flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets) }, [show?.sequences, activeSequenceIds, presets])
 
   useEffect(() => {
     const patch: Record<number, number> = {}

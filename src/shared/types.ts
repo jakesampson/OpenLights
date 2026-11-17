@@ -35,6 +35,7 @@ export interface FixtureDef {
 }
 
 export interface SceneDef {
+  fans?: FanDef[]
   id: string
   name: string
   fixtureValues: Record<string, Record<string, number>> // fixtureId -> attribute -> value (0-255)
@@ -44,10 +45,46 @@ export interface SceneDef {
 
 export type PresetCategory = 'intensity' | 'color' | 'position' | 'other'
 export interface PresetDef {
+  fans?: FanDef[]
   id: string
   name: string
   category: PresetCategory
   fixtureValues: Record<string, Record<string, number>>
+}
+
+export interface FanDef {
+  id: string
+  attribute: string
+  fixtureIds: string[]
+  mode: 'linear' | 'centre' | 'reverse'
+  order: 'selection' | 'left-right' | 'top-bottom' | 'name' | 'address'
+  start: number
+  end: number
+  considerSpacing?: boolean
+  anchors?: { index: number; value: number }[]
+}
+
+export interface SequenceStep {
+  beats?: number
+  id: string
+  name: string
+  fixtureValues: Record<string, Record<string, number>>
+  presetIds: string[]
+  fans?: FanDef[]
+  fadeMs: number
+  holdMs: number
+}
+export interface SequenceDef {
+  timeScale?: number
+  repeatCount?: number
+  freezeOnCompletion?: boolean
+  id: string
+  name: string
+  steps: SequenceStep[]
+  order: 'forward' | 'backward' | 'bounce' | 'random'
+  loop: boolean
+  timing: 'manual' | 'beat'
+  stepsPerBeat: number
 }
 
 export interface AutomationPoint {
@@ -137,6 +174,8 @@ export interface LivePage {
 }
 
 export interface ShowDef {
+  sequences?: SequenceDef[]
+  presetGroups?: PresetGroup[]
   colorFavorites?: string[]
   fixtureGroups?: FixtureGroup[]
   fixtureProfiles?: FixtureProfile[]
@@ -165,6 +204,7 @@ export interface ShowDef {
 }
 
 export interface FixtureGroup { id: string; name: string; parentId?: string | null; fixtureIds: string[] }
+export interface PresetGroup { id: string; name: string; parentId?: string | null; exclusive: boolean; presetIds: string[]; sequenceIds?: string[] }
 
 export interface StageObject {
   id: string

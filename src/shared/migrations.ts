@@ -32,5 +32,18 @@ export function migrateShow(raw: unknown): ShowDef {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
   }
+  for (const key of ['scenes', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
+  if (!Array.isArray(doc.presetGroups)) {
+    const presets = doc.presets as Record<string, unknown>[]
+    doc.presetGroups = [...new Set(presets.map((p) => p.category ?? 'other'))].map((category) => ({ id: `presets:${category}`, name: category, parentId: null, exclusive: false, presetIds: presets.filter((p) => (p.category ?? 'other') === category).map((p) => p.id) }))
+  }
+  if (!Array.isArray(doc.sequences)) {
+    if (doc.sequences !== undefined) doc.migrationInvalidFields = { ...record(doc.migrationInvalidFields), sequences: doc.sequences }
+    doc.sequences = []
+  }
+  doc.sequences = (doc.sequences as unknown[]).map((raw, index) => {
+    const sequence = record(raw)
+    return { order: 'forward', loop: true, timing: 'manual', stepsPerBeat: 1, id: `recovered-sequence-${index}`, name: 'Sequence', ...sequence, steps: (Array.isArray(sequence.steps) ? sequence.steps : []).map((raw, index) => ({ id: `recovered-step-${index}`, name: `Step ${index + 1}`, fixtureValues: {}, presetIds: [], fadeMs: 1000, holdMs: 0, ...record(raw) })) }
+  })
   return doc as unknown as ShowDef
 }

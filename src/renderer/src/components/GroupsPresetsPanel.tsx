@@ -1,3 +1,4 @@
+import { PresetGroups } from './PresetGroups'
 import { useMemo, useState } from 'react'
 import { FixtureGroups } from './FixtureGroups'
 import { useShowStore } from '../stores/showStore'
@@ -127,7 +128,7 @@ export function GroupsPresetsPanel() {
       }))
     }
 
-    return [...(show?.fixtureGroups?.length ? [] : groupSections), sceneSection, presetSection, effectSection]
+    return [...(show?.fixtureGroups?.length ? [] : groupSections), sceneSection, ...(show?.presetGroups?.length ? [] : [presetSection]), effectSection]
   }, [
     fixtures,
     show?.fixtureGroups,
@@ -156,7 +157,8 @@ export function GroupsPresetsPanel() {
           Patch fixtures and save scenes to populate this tree.
         </div>
       )}
-      <FixtureGroups />
+      <FixtureGroups /><PresetGroups />
+      <section className="p-2 text-xs"><h3>Sequences</h3>{(show?.sequences ?? []).map((s) => <button key={s.id} type="button" className="btn-theme m-1" onClick={() => useShowStore.getState().toggleSequence(s.id)}>{s.name} · Run / stop</button>)}</section>
       {sections.map((section) => {
         const query = search.trim().toLowerCase()
         const items = query ? section.children.filter((child) => child.label.toLowerCase().includes(query) || section.title.toLowerCase().includes(query)) : section.children

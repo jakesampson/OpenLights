@@ -210,28 +210,37 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 5.10 Copy and paste fixture properties between fixtures, with type-safe mapping. Guide: p.114.
   Evidence: `copyProperties.ts`, store and Design controls, `tests/copyProperties.test.ts`; typecheck, 165 tests and build passed. Commit blocked by Git permissions.
   Done when: there's a store test for copy/paste across different profiles.
-- [ ] 5.11 Overridden properties: show which properties are manually overridden (per fixture, per property), with Clear for all, for the selection, or for one property. Guide: View overridden fixture properties, p.116, and Clear fixture properties, p.116.
+- [x] 5.11 Overridden properties: show which properties are manually overridden (per fixture, per property), with Clear for all, for the selection, or for one property. Guide: View overridden fixture properties, p.116, and Clear fixture properties, p.116.
+  Evidence: `propertyOverrides.ts`, `OverrideProperties.tsx`, store and output-fallback test; typecheck, 166 tests and build passed. Commit blocked by Git permissions.
   Done when: store tests cover selective clearing and the output falling back to the layer below (using the 1.5 output model).
-- [ ] 5.12 Fanning: fan a property across the selection (linear, from the centre, and so on), edit it, and delete it. Guide: Fanning, p.118 to 122.
+- [x] 5.12 Fanning: fan a property across the selection (linear, from the centre, and so on), edit it, and delete it. Guide: Fanning, p.118 to 122.
+  Evidence: `fanning.ts`, `FanningEditor.tsx`, saved fan definitions and `tests/fanning.test.ts`; typecheck, 169 tests and build passed. Graphical HUD/beam workflow gap recorded in NOTES; commit blocked by Git permissions.
   Done when: `lib/fanning.ts` is tested for each fan mode with 1, 2 and odd/even fixture counts.
 
 ## 6. Presets and sequences (guide ch.9)
 
 - [x] 6.1 Capture a preset from the current fixture values, with a category. *(Evidence: `showStore.capturePreset`, `PresetEditor.tsx`, `tests/presets.test.ts`, commit `b265547`.)*
 - [x] 6.2 Activate and deactivate presets (toggle), rename and delete. *(Evidence: `showStore.togglePreset/renamePreset/deletePreset`, `tests/presets.test.ts`.)*
-- [ ] 6.3 View preset contents (which fixtures and properties) and edit a preset in place (update from current, remove a property or fixture). Guide: p.126 to 128.
+- [x] 6.3 View preset contents (which fixtures and properties) and edit a preset in place (update from current, remove a property or fixture). Guide: p.126 to 128.
+  Evidence: `PresetContents.tsx`, preset editing store actions and `tests/presetEditing.test.ts`; typecheck, 170 tests and build passed. Commit blocked by Git permissions.
   Done when: store tests cover update-from-current and removing a property.
-- [ ] 6.4 Presets and overridden properties: activating a preset while overrides exist behaves as the guide describes. Guide: p.128 to 129.
+- [x] 6.4 Presets and overridden properties: activating a preset while overrides exist behaves as the guide describes. Guide: p.128 to 129.
+  Evidence: Apply/Add overrides commands, `tests/presetOverrides.test.ts`; typecheck, 171 tests and build passed. Commit blocked by Git permissions.
   Done when: an output-model test covers that interaction.
-- [ ] 6.5 Preset groups, with mutually exclusive behaviour (activating one releases the others in the same group) and nested groups. Guide: Create a preset group, p.130, and Organize presets and sequences, p.141.
+- [x] 6.5 Preset groups, with mutually exclusive behaviour (activating one releases the others in the same group) and nested groups. Guide: Create a preset group, p.130, and Organize presets and sequences, p.141.
+  Evidence: migrated category groups, nested group editor/palette, `tests/presetGroups.test.ts`; typecheck, 172 tests and build passed. Commit blocked by Git permissions.
   Done when: store tests cover exclusivity and nesting, and the migration puts existing presets in a default group by category.
-- [ ] 6.6 Sequence model: an ordered list of steps (each step a set of property values or presets), with fade and hold per step. Guide: Create a sequence, p.131.
+- [x] 6.6 Sequence model: an ordered list of steps (each step a set of property values or presets), with fade and hold per step. Guide: Create a sequence, p.131.
+  Evidence: sequence types/migration, store CRUD, `SequenceEditor.tsx` and `tests/sequences.test.ts`; typecheck, 173 tests and build passed. Commit blocked by Git permissions.
   Done when: types, a migration (no sequences in old shows) and store CRUD are tested.
-- [ ] 6.7 Run sequences: playback engine with the order modes (forward, backward, bounce, random) and loop. Guide: Run sequences, Sequence order, p.132.
+- [x] 6.7 Run sequences: playback engine with the order modes (forward, backward, bounce, random) and loop. Guide: Run sequences, Sequence order, p.132.
+  Evidence: deterministic `sequenceClock.ts`, shared output pump, run/stop controls, `tests/sequenceClock.test.ts`; typecheck, 175 tests and build passed. Project change releases playback; commit blocked by Git permissions.
   Done when: tests on a pure step clock cover each order mode deterministically (seeded random).
-- [ ] 6.8 Reorder sequence steps, and add, remove and duplicate steps. Guide: p.133.
+- [x] 6.8 Reorder sequence steps, and add, remove and duplicate steps. Guide: p.133.
+  Evidence: sequence step commands/editor and undo tests in `tests/sequences.test.ts`; typecheck, 176 tests and build passed. Commit blocked by Git permissions.
   Done when: store tests cover each command and undo.
-- [ ] 6.9 Sequence timing: manual (fade/hold in seconds) and beat-controlled (steps per beat, using the existing BPM and tap tempo). Guide: p.134 to 138.
+- [x] 6.9 Sequence timing: manual (fade/hold in seconds) and beat-controlled (steps per beat, using the existing BPM and tap tempo). Guide: p.134 to 138.
+  Evidence: manual/beat step clock, per-step beat lengths and timing controls, `tests/sequenceClock.test.ts`; typecheck, 177 tests and build passed. Commit blocked by Git permissions.
   Done when: step-clock tests cover both modes at 120 BPM.
 - [ ] 6.10 Fixture movements with sequences (position steps with fades). Guide: p.139 to 140.
   Done when: a test covers interpolated pan/tilt between steps.

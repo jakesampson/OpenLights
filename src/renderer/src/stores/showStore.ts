@@ -1,3 +1,10 @@
+import type { FanDef } from '@shared/types'
+import { evaluateFan } from '../lib/fanning'
+import { matchesPresetCategory } from '../lib/presetProperties'
+import { sequenceOrder } from '../lib/sequenceClock'
+import type { PresetGroup } from '@shared/types'
+import type { SequenceDef } from '@shared/types'
+import { syncPresetGroups, activateGroupedPreset } from '../lib/presetGroups'
 import { create } from 'zustand'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '@shared/migrations'
 import { sanitizeStageObjectPatch } from '../lib/stageObjectGeometry'
@@ -29,7 +36,7 @@ import { mixColor, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
 
 interface ShowState {
   locked: boolean
@@ -46,6 +53,9 @@ interface ShowState {
   show: ShowDef | null
   scenes: SceneDef[]
   presets: PresetDef[]
+  activeSequenceIds: string[]
+  toggleSequence: (id: string) => void
+  stopSequences: () => void
   activePresetIds: string[]
   activeLiveValues: Record<string, number>
   activeLivePageId: string | null
@@ -101,6 +111,8 @@ interface ShowState {
   propertyClipboard: { fixture: FixtureDef; values: Record<string, number> } | null
   copyFixtureProperties: () => void
   pasteFixtureProperties: (manual?: boolean) => void
+  saveFan: (fan: FanDef) => void
+  deleteFan: (id: string, keepValues: boolean) => void
   goToScene: (id: string) => void
   flashScene: (id: string) => void
   endFlash: () => void
@@ -108,7 +120,24 @@ interface ShowState {
   togglePreset: (id: string) => void
   clearPresets: () => void
   renamePreset: (id: string, name: string) => void
+  updatePresetContents: (id: string, values: PresetDef['fixtureValues']) => void
+  updatePresetFromCurrent: (id: string) => void
+  applyPresetsToOverrides: (ids: string[], selectedOnly?: boolean) => void
+  addOverridesToPresets: (ids: string[], selectedOnly?: boolean) => void
+  removePresetProperty: (id: string, fixtureId: string, attribute?: string) => void
   deletePreset: (id: string) => void
+  createPresetGroup: (name: string, parentId?: string | null) => void
+  updatePresetGroup: (id: string, patch: Partial<PresetGroup>) => void
+  assignPresetGroup: (presetId: string, groupId: string) => void
+  deletePresetGroup: (id: string) => void
+  createSequence: (name: string) => void
+  updateSequence: (id: string, patch: Partial<SequenceDef>) => void
+  deleteSequence: (id: string) => void
+  addSequenceStep: (id: string) => void
+  removeSequenceStep: (id: string, stepId: string) => void
+  duplicateSequenceStep: (id: string, stepId: string) => void
+  moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
+  reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
   addScene: () => void
   duplicateScene: (id: string) => void
   updateScene: (id: string, patch: Partial<SceneDef>) => void
@@ -207,6 +236,7 @@ function persistState(
   statePatch: Partial<ShowState> = {}
 ): Partial<ShowState> {
   if (showPatch.fixtures && !showPatch.fixtureGroups) showPatch = { ...showPatch, fixtureGroups: syncFixtureGroups(state.show?.fixtureGroups ?? [], showPatch.fixtures) }
+  if (showPatch.presets && !showPatch.presetGroups) showPatch = { ...showPatch, presetGroups: syncPresetGroups(state.show?.presetGroups ?? [], showPatch.presets) }
   return {
     ...statePatch,
     ...(state.show && JSON.stringify({ ...state.show, ...showPatch }) !== JSON.stringify(state.show) ? {
@@ -470,6 +500,7 @@ const actions: ShowState = {
   show: defaultShow,
   scenes: defaultShow.scenes,
   presets: defaultShow.presets ?? [],
+  activeSequenceIds: [],
   activePresetIds: [],
   activeLiveValues: {},
   activeLivePageId: null,
@@ -494,6 +525,7 @@ const actions: ShowState = {
     // Loading a different show must not leave the previous show's look
     // latched on the outputs.
     flashState = null
+    configureSequences([])
     configureLocateOutput({})
     suppressPresetsForScene(false)
     configurePresetOutput({})
@@ -504,6 +536,7 @@ const actions: ShowState = {
     set({
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
       show,
+      activeSequenceIds: [],
       scenes: show?.scenes ?? [],
       presets: show?.presets ?? [],
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
@@ -571,6 +604,20 @@ const actions: ShowState = {
     const fixtureValues = { ...scene.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
     get().updateScene(scene.id, { fixtureValues })
+  },
+  saveFan: (fan) => {
+    const state = get(), scene = state.scenes.find((s) => s.id === state.activeSceneId)
+    if (!scene || !state.show) return
+    const fixtureValues = structuredClone(scene.fixtureValues)
+    for (const [id, values] of Object.entries(evaluateFan(state.show.fixtures, fan))) fixtureValues[id] = { ...fixtureValues[id], ...values }
+    get().updateScene(scene.id, { fixtureValues, fans: [...(scene.fans ?? []).filter((f) => f.id !== fan.id), structuredClone(fan)] })
+  },
+  deleteFan: (id, keepValues) => {
+    const state = get(), scene = state.scenes.find((s) => s.id === state.activeSceneId), fan = scene?.fans?.find((f) => f.id === id)
+    if (!scene || !fan) return
+    const fixtureValues = structuredClone(scene.fixtureValues)
+    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][fan.attribute]
+    get().updateScene(scene.id, { fans: scene.fans?.filter((f) => f.id !== id), fixtureValues })
   },
   setSelectedColor: (color, manual = false) => {
     const state = get(), patch: Record<string, Record<string, number>> = {}
@@ -744,10 +791,106 @@ const actions: ShowState = {
   }),
   togglePreset: (id) => set((state) => {
     if (!state.presets.some((preset) => preset.id === id)) return state
-    const activePresetIds = state.activePresetIds.includes(id) ? state.activePresetIds.filter((item) => item !== id) : [...state.activePresetIds, id]
+    const activePresetIds = activateGroupedPreset(state.activePresetIds, id, state.show?.presetGroups ?? [])
     return { activePresetIds }
   }),
+  toggleSequence: (id) => set((state) => state.show?.sequences?.some((s) => s.id === id) ? { activeSequenceIds: state.activeSequenceIds.includes(id) ? state.activeSequenceIds.filter((item) => item !== id) : [...state.activeSequenceIds, id] } : state),
+  stopSequences: () => set({ activeSequenceIds: [] }),
   clearPresets: () => set({ activePresetIds: [] }),
+  createSequence: (name) => set((state) => {
+    if (!name.trim()) return state
+    const values = structuredClone(state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues ?? {})
+    for (const [id, patch] of Object.entries(state.manualOverrides)) values[id] = { ...values[id], ...patch }
+    const sequence: SequenceDef = { id: crypto.randomUUID(), name: name.trim(), order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: crypto.randomUUID(), name: 'Step 1', fixtureValues: values, presetIds: [], fadeMs: 1000, holdMs: 0 }] }
+    return persistState(state, { sequences: [...(state.show?.sequences ?? []), sequence] })
+  }),
+  updateSequence: (id, patch) => set((state) => persistState(state, { sequences: (state.show?.sequences ?? []).map((s) => s.id === id ? { ...s, ...structuredClone(patch), id } : s) })),
+  addSequenceStep: (id) => {
+    const state = get(), sequence = state.show?.sequences?.find((s) => s.id === id)
+    if (!sequence) return
+    const fixtureValues = structuredClone(state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues ?? {})
+    for (const [fixtureId, patch] of Object.entries(state.manualOverrides)) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
+    get().updateSequence(id, { steps: [...sequence.steps, { id: crypto.randomUUID(), name: `Step ${sequence.steps.length + 1}`, fixtureValues, presetIds: [], fadeMs: 0, holdMs: 1000 }] })
+  },
+  removeSequenceStep: (id, stepId) => { const sequence = get().show?.sequences?.find((s) => s.id === id); if (sequence) get().updateSequence(id, { steps: sequence.steps.filter((s) => s.id !== stepId) }) },
+  duplicateSequenceStep: (id, stepId) => {
+    const sequence = get().show?.sequences?.find((s) => s.id === id), index = sequence?.steps.findIndex((s) => s.id === stepId) ?? -1
+    if (!sequence || index < 0) return
+    const steps = [...sequence.steps]; steps.splice(index + 1, 0, { ...structuredClone(steps[index]), id: crypto.randomUUID(), name: `${steps[index].name} copy` }); get().updateSequence(id, { steps })
+  },
+  moveSequenceStep: (id, stepId, toIndex) => {
+    const sequence = get().show?.sequences?.find((s) => s.id === id), index = sequence?.steps.findIndex((s) => s.id === stepId) ?? -1
+    if (!sequence || index < 0) return
+    const steps = [...sequence.steps], [step] = steps.splice(index, 1); steps.splice(Math.max(0, Math.min(steps.length, toIndex)), 0, step); get().updateSequence(id, { steps })
+  },
+  reorderSequenceSteps: (id, order, seed = Date.now()) => { const sequence = get().show?.sequences?.find((s) => s.id === id); if (sequence) get().updateSequence(id, { steps: sequenceOrder(sequence.steps.length, order, seed).map((index) => sequence.steps[index]) }) },
+  deleteSequence: (id) => set((state) => persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })) })),
+  createPresetGroup: (name, parentId = null) => set((state) => {
+    const groups = state.show?.presetGroups ?? []
+    if (!name.trim() || (parentId && !groups.some((g) => g.id === parentId))) return state
+    return persistState(state, { presetGroups: [...groups, { id: crypto.randomUUID(), name: name.trim(), parentId, exclusive: false, presetIds: [] }] })
+  }),
+  updatePresetGroup: (id, patch) => set((state) => {
+    const groups = state.show?.presetGroups ?? []
+    if (patch.parentId !== undefined && !canParentGroup(groups, id, patch.parentId)) return state
+    return persistState(state, { presetGroups: groups.map((g) => g.id === id ? { ...g, ...patch, id, name: patch.name?.trim() || g.name } : g) })
+  }),
+  assignPresetGroup: (presetId, groupId) => set((state) => {
+    if (!state.presets.some((p) => p.id === presetId) || !state.show?.presetGroups?.some((g) => g.id === groupId)) return state
+    return persistState(state, { presetGroups: state.show.presetGroups.map((g) => ({ ...g, presetIds: [...g.presetIds.filter((id) => id !== presetId), ...(g.id === groupId ? [presetId] : [])] })) })
+  }),
+  deletePresetGroup: (id) => set((state) => {
+    const groups = state.show?.presetGroups ?? [], removed = groups.find((g) => g.id === id)
+    if (!removed) return state
+    const remaining = groups.filter((g) => g.id !== id).map((g) => ({ ...g, parentId: g.parentId === id ? removed.parentId : g.parentId, presetIds: g.id === removed.parentId ? [...g.presetIds, ...removed.presetIds] : g.presetIds }))
+    return persistState(state, { presetGroups: syncPresetGroups(remaining, state.presets) })
+  }),
+  applyPresetsToOverrides: (ids, selectedOnly = false) => set((state) => {
+    const manualOverrides = structuredClone(state.manualOverrides)
+    for (const id of ids) for (const [fixtureId, values] of Object.entries(state.presets.find((p) => p.id === id)?.fixtureValues ?? {})) {
+      if (selectedOnly && !state.selectedFixtureIds.includes(fixtureId)) continue
+      manualOverrides[fixtureId] = { ...manualOverrides[fixtureId], ...values }
+    }
+    return { manualOverrides }
+  }),
+  addOverridesToPresets: (ids, selectedOnly = false) => set((state) => {
+    const presets = state.presets.map((preset) => {
+      if (!ids.includes(preset.id)) return preset
+      const fixtureValues = structuredClone(preset.fixtureValues)
+      for (const [fixtureId, values] of Object.entries(state.manualOverrides)) {
+        if (selectedOnly && !state.selectedFixtureIds.includes(fixtureId)) continue
+        fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...values }
+      }
+      return { ...preset, fixtureValues }
+    })
+    return persistState(state, { presets }, { presets })
+  }),
+  updatePresetContents: (id, values) => set((state) => {
+    const presets = state.presets.map((preset) => preset.id === id ? { ...preset, fixtureValues: structuredClone(values) } : preset)
+    return persistState(state, { presets }, { presets })
+  }),
+  updatePresetFromCurrent: (id) => {
+    const state = get(), preset = state.presets.find((p) => p.id === id)
+    if (!preset || !state.show) return
+    const fixtureValues = structuredClone(preset.fixtureValues)
+    for (const fixture of state.show.fixtures.filter((f) => state.selectedFixtureIds.includes(f.id))) {
+      const values = { ...state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues[fixture.id] }
+      for (const activeId of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
+      Object.assign(values, state.manualOverrides[fixture.id])
+      const allowed = fixtureAttributes(fixture)
+      const patch = Object.fromEntries(Object.entries(values).filter(([attribute]) => allowed.includes(attribute) && matchesPresetCategory(attribute, preset.category)))
+      if (Object.keys(patch).length) fixtureValues[fixture.id] = { ...fixtureValues[fixture.id], ...patch }
+    }
+    get().updatePresetContents(id, fixtureValues)
+  },
+  removePresetProperty: (id, fixtureId, attribute) => {
+    const preset = get().presets.find((p) => p.id === id)
+    if (!preset) return
+    const values = structuredClone(preset.fixtureValues)
+    if (attribute && values[fixtureId]) { delete values[fixtureId][attribute]; if (!Object.keys(values[fixtureId]).length) delete values[fixtureId] }
+    else delete values[fixtureId]
+    get().updatePresetContents(id, values)
+  },
   renamePreset: (id, name) => set((state) => {
     if (!name.trim()) return state
     const presets = state.presets.map((preset) => preset.id === id ? { ...preset, name: name.trim() } : preset)
@@ -1224,7 +1367,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   for (const command of editingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown

@@ -18,7 +18,7 @@ export function fixtureGroupMembers(groups: FixtureGroup[], id: string, visited 
   const group = groups.find((g) => g.id === id)
   return [...new Set([...(group?.fixtureIds ?? []), ...groups.filter((g) => g.parentId === id).flatMap((g) => fixtureGroupMembers(groups, g.id, visited))])]
 }
-export function canParentGroup(groups: FixtureGroup[], id: string, parentId: string | null): boolean {
+export function canParentGroup(groups: { id: string; parentId?: string | null }[], id: string, parentId: string | null): boolean {
   const seen = new Set<string>([id]); let current = parentId
   while (current) { if (seen.has(current)) return false; seen.add(current); const group = groups.find((g) => g.id === current); if (!group) return false; current = group.parentId ?? null }
   return true
