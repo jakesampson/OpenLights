@@ -174,3 +174,6 @@ Frames (frame-typed annotations) gained an optional `FrameConfig`: `exclusive`, 
 
 ### 8.2 Cue contents
 Cue content changes use a pure command reducer for preset and sequence references plus per-fixture ad-hoc values. The store action is history- and lock-gated. The Live inspector displays all three content groups, including numeric editing and individual removal of ad-hoc properties. Values clamp to DMX byte range; unrelated properties remain untouched. No show-format change or dependency was needed. Tests: `tests/cueContents.test.ts`, `tests/store.test.ts`.
+
+### 8.3 Cue timing and fade curves
+Cues now store delay, independent fade-in/fade-out durations and a curve name. Migration fills legacy cues additively with zero-duration linear timing. The pure evaluator covers linear, quadratic ease-in/out, combined ease-in-out and smooth S-curve interpolation, including delayed activation and release. Timing edits are history/lock-gated and exposed with cue contents. No dependency was added. Tests: `tests/fadeCurves.test.ts`, `tests/store.test.ts`, `tests/migrations.test.ts`.

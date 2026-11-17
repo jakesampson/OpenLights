@@ -191,7 +191,10 @@ export interface LiveControl {
   /** Id of another object on this page; this object moves with it (7.7). */
   attachedTo?: string
   style?: LiveObjectStyle
+  timing?: { fadeInMs: number; fadeOutMs: number; delayMs: number; curve: FadeCurve }
 }
+
+export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'
 
 export interface LivePage {
   id: string

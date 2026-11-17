@@ -142,6 +142,7 @@ describe('live cue sequence migration (7.10)', () => {
     const show: any = migrateShow(sequenceShow())
     const controls = show.livePages[0].controls
     expect(controls[0].sequenceIds).toEqual([])
+    expect(controls[0].timing).toEqual({ fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' })
     expect(controls[1].sequenceIds).toEqual(['s1', 's1']) // migration preserves, drops normalise
     expect(show.livePages[0].annotations[0].sequenceIds).toBeUndefined()
   })

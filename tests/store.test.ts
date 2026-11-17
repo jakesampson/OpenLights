@@ -767,3 +767,19 @@ describe('editing cue contents (8.2)', () => {
     useShowStore.getState().unlockApp()
   })
 })
+
+describe('cue timing (8.3)', () => {
+  it('stores cue timing through history and rejects edits while locked', () => {
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: [] }] }] }
+    useShowStore.getState().setShow(show)
+    useShowStore.getState().configureCueTiming('c', { delayMs: 100, fadeInMs: 500, fadeOutMs: 250, curve: 'ease-in-out' })
+    const cue = () => useShowStore.getState().show!.livePages![0].controls[0]
+    expect(cue().timing).toEqual({ delayMs: 100, fadeInMs: 500, fadeOutMs: 250, curve: 'ease-in-out' })
+    useShowStore.getState().undo()
+    expect(cue().timing).toEqual({ delayMs: 0, fadeInMs: 0, fadeOutMs: 0, curve: 'linear' })
+    useShowStore.getState().lockApp()
+    useShowStore.getState().configureCueTiming('c', { fadeInMs: 999 })
+    expect(cue().timing?.fadeInMs).toBe(0)
+    useShowStore.getState().unlockApp()
+  })
+})
