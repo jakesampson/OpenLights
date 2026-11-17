@@ -26,6 +26,14 @@ export interface SceneDef {
   blackout?: boolean
 }
 
+export type PresetCategory = 'intensity' | 'color' | 'position' | 'other'
+export interface PresetDef {
+  id: string
+  name: string
+  category: PresetCategory
+  fixtureValues: Record<string, Record<string, number>>
+}
+
 export interface AutomationPoint {
   t: number // seconds from song start
   v: number // 0-255
@@ -89,6 +97,7 @@ export interface ShowDef {
   updatedAt: number
   fixtures: FixtureDef[]
   scenes: SceneDef[]
+  presets?: PresetDef[]
   automations: AutomationDef[]
   cueLists?: CueListDef[]
   midiMappings?: MidiMapping[]

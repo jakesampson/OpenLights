@@ -1,9 +1,15 @@
+import { useRef } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { getPresetColor } from '../lib/presetColor'
+import { calculateTapTempo } from '../lib/tapTempo'
 
 export function LiveTab() {
   const {
     scenes,
+    presets,
+    activePresetIds,
+    togglePreset,
+    clearPresets,
     cueLists,
     activeSceneId,
     activeCueListId,
@@ -13,15 +19,24 @@ export function LiveTab() {
     cueNext,
     cuePrev,
     master,
-    setMaster
+    setMaster,
+    bpm,
+    setBpm
   } = useShowStore()
 
+  const taps = useRef<number[]>([])
+  const tapTempo = () => {
+    const result = calculateTapTempo(taps.current, performance.now())
+    taps.current = result.taps
+    if (result.bpm !== null) setBpm(result.bpm)
+  }
   return (
     <div className="flex flex-col gap-3 p-1">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-line bg-bg/30 px-3 py-2">
         <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-dim">Live output</span><span className="text-xs text-text">{scenes.find((scene) => scene.id === activeSceneId)?.name ?? 'No scene selected'}</span></div>
         <label className="flex items-center gap-2 text-xs text-dim">Master <input aria-label="Master intensity" type="range" min={0} max={255} value={master} onChange={(event) => setMaster(Number(event.target.value))} className="w-32 accent-[var(--accent)]" /><span className="w-10 text-right font-mono text-text">{Math.round(master / 255 * 100)}%</span></label>
       </div>
+      <div className="flex items-center gap-2 text-xs text-dim"><span>Tempo</span><input aria-label="Tempo in BPM" type="number" min={30} max={240} value={bpm} onChange={(event) => setBpm(Number(event.target.value))} className="w-16 rounded border border-line bg-panel2 px-2 py-1 text-center text-text" /><span>BPM</span><button type="button" onClick={tapTempo} className="btn-theme text-xs">Tap tempo</button><span className="text-[10px]">Syncs beat-based effects</span></div>
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Scenes</h3>
         {scenes.length === 0 ? (
@@ -46,6 +61,10 @@ export function LiveTab() {
         )}
       </section>
 
+      <section className="flex flex-col gap-1">
+        <div className="flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Preset layers</h3>{activePresetIds.length > 0 && <button type="button" className="text-xs text-dim underline" onClick={clearPresets}>Clear presets</button>}</div>
+        {presets.length === 0 ? <p className="text-xs text-dim">Capture reusable presets in Edit.</p> : <div className="grid grid-cols-4 gap-1.5">{presets.map((preset) => <button key={preset.id} type="button" aria-pressed={activePresetIds.includes(preset.id)} onClick={() => togglePreset(preset.id)} className={`pad rounded border border-line px-2 py-2 text-xs ${activePresetIds.includes(preset.id) ? 'active' : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'}`}><span className="block truncate">{preset.name}</span><span className="text-[9px] opacity-70">{preset.category}</span></button>)}</div>}
+      </section>
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cue Lists</h3>
         {cueLists.length === 0 ? (

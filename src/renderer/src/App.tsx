@@ -11,7 +11,8 @@ import { EditTab } from './components/EditTab'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
-import { configureEffects } from './lib/output'
+import { configureEffects, configurePresetOutput } from './lib/output'
+import { computeSceneChannels } from './lib/automationRuntime'
 import { getStageTheme } from './lib/stageTheme'
 
 type Tab = 'Design' | 'Live' | 'Edit'
@@ -55,6 +56,8 @@ export default function App() {
     show,
     scenes,
     effects,
+    presets,
+    activePresetIds,
     bpm,
     activeSceneId,
     master,
@@ -101,6 +104,16 @@ export default function App() {
       blackout
     })
   }, [effects, show?.fixtures, bpm, master, blackout])
+
+  useEffect(() => {
+    const patch: Record<number, number> = {}
+    for (const id of activePresetIds) {
+      const preset = presets.find((item) => item.id === id)
+      if (!preset) continue
+      Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
+    }
+    configurePresetOutput(patch)
+  }, [presets, activePresetIds, show?.fixtures, master])
 
   const blackoutDMX = async () => {
     try {

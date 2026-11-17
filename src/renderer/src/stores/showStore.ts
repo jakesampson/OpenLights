@@ -7,15 +7,19 @@ import type {
   FixtureDef,
   FixturePreset,
   MidiMapping,
+  PresetDef,
+  PresetCategory,
   SceneDef,
   ShowDef
 } from '@shared/types'
 import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setEffectBlackout, configurePresetOutput, suppressPresetsForScene } from '../lib/output'
 
 interface ShowState {
   show: ShowDef | null
   scenes: SceneDef[]
+  presets: PresetDef[]
+  activePresetIds: string[]
   automations: AutomationDef[]
   effects: EffectDef[]
   cueLists: CueListDef[]
@@ -45,6 +49,11 @@ interface ShowState {
   goToScene: (id: string) => void
   flashScene: (id: string) => void
   endFlash: () => void
+  capturePreset: (name: string, category: PresetCategory) => void
+  togglePreset: (id: string) => void
+  clearPresets: () => void
+  renamePreset: (id: string, name: string) => void
+  deletePreset: (id: string) => void
   addScene: () => void
   duplicateScene: (id: string) => void
   updateScene: (id: string, patch: Partial<SceneDef>) => void
@@ -115,6 +124,7 @@ function sceneOutput(
   state: Pick<ShowState, 'show' | 'master'>,
   scene: SceneDef
 ): Record<number, number> {
+  suppressPresetsForScene(Boolean(scene.blackout))
   return scene.blackout ? allZeroPatch() : scenePatch(state, scene)
 }
 
@@ -352,6 +362,8 @@ const defaultShow = import.meta.env.DEV ? developmentDefaultShow : productionDef
 export const useShowStore = create<ShowState>((set, get) => ({
   show: defaultShow,
   scenes: defaultShow.scenes,
+  presets: defaultShow.presets ?? [],
+  activePresetIds: [],
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
   cueLists: defaultShow.cueLists ?? [],
@@ -370,11 +382,15 @@ export const useShowStore = create<ShowState>((set, get) => ({
     // Loading a different show must not leave the previous show's look
     // latched on the outputs.
     flashState = null
+    suppressPresetsForScene(false)
+    configurePresetOutput({})
     setEffectBlackout(false)
     sendImmediate(allZeroPatch())
     set({
       show,
       scenes: show?.scenes ?? [],
+      presets: show?.presets ?? [],
+      activePresetIds: [],
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       cueLists: show?.cueLists ?? [],
@@ -472,9 +488,45 @@ export const useShowStore = create<ShowState>((set, get) => ({
       if (!flashState) return state
       const { patch, activeSceneId } = flashState
       flashState = null
+      suppressPresetsForScene(Boolean(state.scenes.find((scene) => scene.id === activeSceneId)?.blackout))
       if (!state.blackout) sendImmediate(patch)
       return { activeSceneId }
     }),
+
+  capturePreset: (name, category) => set((state) => {
+    const scene = state.scenes.find((item) => item.id === state.activeSceneId)
+    if (!scene || !state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
+    const color = /^(red|green|blue|white|amber|uv)([2-4])?$/
+    const position = new Set(['pan', 'tilt'])
+    const fixtureValues: PresetDef['fixtureValues'] = {}
+    for (const fixture of state.show.fixtures) {
+      if (!state.selectedFixtureIds.includes(fixture.id)) continue
+      const supported = new Set(fixtureAttributes(fixture.type))
+      const source = scene.fixtureValues[fixture.id] ?? {}
+      const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) &&
+        (category === 'color' ? color.test(attribute) : category === 'position' ? position.has(attribute) : category === 'intensity' ? attribute === 'intensity' : !color.test(attribute) && !position.has(attribute) && attribute !== 'intensity'))
+      if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
+    }
+    if (!Object.keys(fixtureValues).length) return state
+    const preset: PresetDef = { id: crypto.randomUUID(), name: name.trim(), category, fixtureValues }
+    const presets = [...state.presets, preset]
+    return persistState(state, { presets }, { presets })
+  }),
+  togglePreset: (id) => set((state) => {
+    if (!state.presets.some((preset) => preset.id === id)) return state
+    const activePresetIds = state.activePresetIds.includes(id) ? state.activePresetIds.filter((item) => item !== id) : [...state.activePresetIds, id]
+    return { activePresetIds }
+  }),
+  clearPresets: () => set({ activePresetIds: [] }),
+  renamePreset: (id, name) => set((state) => {
+    if (!name.trim()) return state
+    const presets = state.presets.map((preset) => preset.id === id ? { ...preset, name: name.trim() } : preset)
+    return persistState(state, { presets }, { presets })
+  }),
+  deletePreset: (id) => set((state) => {
+    const presets = state.presets.filter((preset) => preset.id !== id)
+    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id) })
+  }),
 
   addScene: () =>
     set((state) => {

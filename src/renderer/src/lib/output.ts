@@ -11,6 +11,9 @@ let base: Record<number, number> = {}
 let fadeFrame: number | null = null
 let effectFrame: number | null = null
 let effectStartedAt = 0
+let presets: Record<number, number> = {}
+let presetSuppressed = false
+let previousPresetChannels = new Set<number>()
 
 interface EffectRuntime {
   effects: EffectDef[]
@@ -47,7 +50,12 @@ function effectPatch(now: number): Record<number, number> {
 }
 
 function flush(now = performance.now()) {
-  push(mergeEffects(base, effectPatch(now)))
+  const output = mergeEffects(base, effectPatch(now))
+  // Clear channels that only belonged to an overlay after it is released.
+  for (const channel of previousPresetChannels) if (!(channel in output)) output[channel] = 0
+  if (!runtime.blackout && !presetSuppressed) Object.assign(output, presets)
+  previousPresetChannels = new Set(Object.keys(presets).map(Number))
+  push(output)
 }
 
 export function cancelFade() {
@@ -156,3 +164,12 @@ export function setEffectBlackout(active: boolean) {
     startEffectLoop()
   }
 }
+
+/** Presets overlay the scene and effects; blackout always wins. */
+export function configurePresetOutput(patch: Record<number, number>) {
+  presets = { ...patch }
+  flush()
+}
+
+/** Blackout scenes suppress preset layers until another scene is recalled. */
+export function suppressPresetsForScene(active: boolean) { presetSuppressed = active }

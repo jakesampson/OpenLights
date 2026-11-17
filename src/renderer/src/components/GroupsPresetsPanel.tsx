@@ -37,15 +37,21 @@ export function GroupsPresetsPanel() {
   const {
     show,
     scenes,
+    presets,
+    activePresetIds,
+    togglePreset,
     effects,
     activeSceneId,
     selectedFixtureIds,
     goToScene,
     selectFixture,
     selectFixtures,
-    updateEffect
+    updateEffect,
+    addScene,
+    duplicateScene
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
+  const [search, setSearch] = useState('')
   const [open, setOpen] = useState<Record<string, boolean>>({
     groups: true,
     scenes: true,
@@ -84,7 +90,7 @@ export function GroupsPresetsPanel() {
     // Presets: real scenes, child dot tinted by their active RGB output.
     const sceneSection: Section = {
       id: 'scenes',
-      title: `Presets · ${scenes.length}`,
+      title: `Scenes · ${scenes.length}`,
       open: open.scenes ?? true,
       children: scenes.map((s) => ({
         id: s.id,
@@ -93,6 +99,15 @@ export function GroupsPresetsPanel() {
         hint: s.blackout ? 'blackout' : `${s.fadeMs}ms`,
         active: s.id === activeSceneId,
         onSelect: () => goToScene(s.id)
+      }))
+    }
+
+    const presetSection: Section = {
+      id: 'presets', title: `Preset layers · ${presets.length}`, open: open.presets ?? true,
+      children: presets.map((preset) => ({
+        id: preset.id, label: preset.name, dot: preset.category === 'color' ? '#f2aaee' : '#a4c4f6',
+        hint: `${preset.category} · ${Object.keys(preset.fixtureValues).length} fixtures`,
+        active: activePresetIds.includes(preset.id), onSelect: () => togglePreset(preset.id)
       }))
     }
 
@@ -111,10 +126,13 @@ export function GroupsPresetsPanel() {
       }))
     }
 
-    return [...groupSections, sceneSection, effectSection]
+    return [...groupSections, sceneSection, presetSection, effectSection]
   }, [
     fixtures,
     scenes,
+    presets,
+    activePresetIds,
+    togglePreset,
     effects,
     open,
     activeSceneId,
@@ -127,12 +145,21 @@ export function GroupsPresetsPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1">
+      <div className="flex gap-1 px-1 pb-2">
+        <input type="search" aria-label="Search palette" placeholder="Search palette" value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-bg/50 px-2 py-1 text-xs text-text placeholder:text-dim" />
+        <button type="button" className="rounded border border-line bg-panel2 px-2 text-sm text-text" onClick={() => activeSceneId ? duplicateScene(activeSceneId) : addScene()} title={activeSceneId ? 'Duplicate active scene' : 'Create a scene'} aria-label={activeSceneId ? 'Duplicate active scene' : 'Create a scene'}>+</button>
+      </div>
       {sections.length === 0 && (
         <div className="px-2 py-3 text-[11px] text-dim">
           Patch fixtures and save scenes to populate this tree.
         </div>
       )}
-      {sections.map((section) => (
+      {sections.map((section) => {
+        const query = search.trim().toLowerCase()
+        const items = query ? section.children.filter((child) => child.label.toLowerCase().includes(query) || section.title.toLowerCase().includes(query)) : section.children
+        if (query && items.length === 0) return null
+        const expanded = Boolean(query) || section.open
+        return (
         <div key={section.id} className="flex flex-col">
           <button
             type="button"
@@ -141,7 +168,7 @@ export function GroupsPresetsPanel() {
           >
             <span
               className="inline-block transition-transform"
-              style={{ transform: section.open ? 'rotate(90deg)' : 'none' }}
+              style={{ transform: expanded ? 'rotate(90deg)' : 'none' }}
             >
               ▸
             </span>
@@ -150,10 +177,10 @@ export function GroupsPresetsPanel() {
               {section.children.length}
             </span>
           </button>
-          {section.onSelectAll && section.open && <button type="button" onClick={section.onSelectAll} className="ml-4 self-start rounded px-2 py-1 text-[10px] text-dim hover:bg-panel2 hover:text-text">Select group</button>}
-          {section.open && (
+          {section.onSelectAll && expanded && <button type="button" onClick={section.onSelectAll} className="ml-4 self-start rounded px-2 py-1 text-[10px] text-dim hover:bg-panel2 hover:text-text">Select group</button>}
+          {expanded && (
             <div className="flex flex-col gap-0.5 py-0.5 pl-4">
-              {section.children.map((child) => (
+              {items.map((child) => (
                 <button
                   key={child.id}
                   type="button"
@@ -172,13 +199,13 @@ export function GroupsPresetsPanel() {
                   )}
                 </button>
               ))}
-              {section.children.length === 0 && (
+              {items.length === 0 && (
                 <div className="px-2 py-1 text-[10px] text-dim">— empty —</div>
               )}
             </div>
           )}
         </div>
-      ))}
+      )})}
     </div>
   )
 }

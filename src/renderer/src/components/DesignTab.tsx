@@ -21,6 +21,7 @@ export function DesignTab() {
     show,
     scenes,
     activeSceneId,
+    activePresetIds,
     selectedFixtureIds,
     updateSelectedFixtures,
     goToScene,
@@ -95,6 +96,7 @@ export function DesignTab() {
         </div>
       </div>
 
+      {activePresetIds.length > 0 && <p className="text-[10px] text-dim">Active presets override scene values. Clear presets in Live to hear scene edits directly.</p>}
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
           <span className="text-[11px] font-medium uppercase text-dim">Dimmer</span>
