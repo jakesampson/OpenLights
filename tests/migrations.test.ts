@@ -123,3 +123,32 @@ describe('frame configuration migration (7.9)', () => {
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })
 })
+
+describe('live cue sequence migration (7.10)', () => {
+  const sequenceShow = () => ({
+    ...useShowStore.getState().show!,
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      controls: [
+        { id: 'c1', name: 'Legacy cue', type: 'toggle', presetIds: [], x: 20, y: 20 },
+        { id: 'c2', name: 'Cue with sequences', type: 'toggle', presetIds: [], x: 100, y: 20, sequenceIds: ['s1', 's1'] }
+      ],
+      annotations: [{ id: 'f1', type: 'frame', text: 'Frame', x: 20, y: 100, width: 200, height: 100 }]
+    }]
+  })
+
+  it('fills empty sequence lists on cues while keeping existing ids', () => {
+    const show: any = migrateShow(sequenceShow())
+    const controls = show.livePages[0].controls
+    expect(controls[0].sequenceIds).toEqual([])
+    expect(controls[1].sequenceIds).toEqual(['s1', 's1']) // migration preserves, drops normalise
+    expect(show.livePages[0].annotations[0].sequenceIds).toBeUndefined()
+  })
+
+  it('is idempotent and does not bump schemaVersion', () => {
+    const once: any = migrateShow(sequenceShow())
+    expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})

@@ -10,6 +10,8 @@ const setChannels = vi.fn()
 
 // Imported after the globals exist.
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+import type { LiveDropPayload } from '../src/renderer/src/lib/liveDrops'
+import { frameForCue } from '../src/renderer/src/lib/liveFrames'
 
 const startupShow = useShowStore.getState().show
 
@@ -683,5 +685,62 @@ describe('frame exclusivity and modifiers (7.9)', () => {
     expect(page().annotations![0].frame).toEqual({ exclusive: true, intensity: 60, speed: 120 })
     useShowStore.getState().undo()
     expect(page().annotations![0].frame).toEqual({ exclusive: false, intensity: 100, speed: 100 })
+  })
+})
+
+describe('dropping presets and sequences on live pages (7.10)', () => {
+  const dropShow = () => ({
+    ...makeShow(),
+    livePages: [{
+      id: 'p',
+      name: 'Page',
+      controls: [{ id: 'c1', name: 'Cue', type: 'toggle' as const, presetIds: ['old'], x: 600, y: 20 }],
+      annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 200, y: 200, width: 300, height: 200 }]
+    }]
+  })
+  const page = () => useShowStore.getState().show!.livePages![0]
+  const payload = (overrides: Partial<LiveDropPayload> = {}): LiveDropPayload => ({
+    presetIds: ['p1', 'p2'],
+    sequenceIds: ['s1'],
+    presetNames: { p1: 'Blue', p2: 'Red' },
+    sequenceNames: { s1: 'Chase' },
+    ...overrides
+  })
+
+  it('creates a cue on the page with all dragged ids, undoable', () => {
+    useShowStore.getState().setShow(dropShow())
+    useShowStore.getState().dropOnLivePage(payload(), { kind: 'page', x: 100, y: 100 })
+    expect(page().controls).toHaveLength(2)
+    const cue = page().controls[1]
+    expect(cue).toMatchObject({ name: '2 presets + 1 sequence', presetIds: ['p1', 'p2'], sequenceIds: ['s1'] })
+    expect(useShowStore.getState().selectedPageObjects).toEqual([{ type: 'cue', id: cue.id }])
+    useShowStore.getState().undo()
+    expect(page().controls).toHaveLength(1)
+  })
+
+  it('creates a cue inside a dropped-on frame', () => {
+    useShowStore.getState().setShow(dropShow())
+    useShowStore.getState().dropOnLivePage(payload(), { kind: 'frame', frameId: 'frame', x: 250, y: 250 })
+    expect(page().controls).toHaveLength(2)
+    expect(frameForCue(page(), page().controls[1].id)).toBe('frame')
+  })
+
+  it('merges presets and sequences into a dropped-on cue, undoable', () => {
+    useShowStore.getState().setShow(dropShow())
+    useShowStore.getState().dropOnLivePage(payload({ presetIds: ['p1', 'old'] }), { kind: 'cue', cueId: 'c1' })
+    expect(page().controls).toHaveLength(1)
+    expect(page().controls[0]).toMatchObject({ presetIds: ['old', 'p1'], sequenceIds: ['s1'] })
+    expect(useShowStore.getState().selectedPageObjects).toEqual([{ type: 'cue', id: 'c1' }])
+    useShowStore.getState().undo()
+    expect(page().controls[0].presetIds).toEqual(['old'])
+    expect(page().controls[0].sequenceIds).toEqual([])
+  })
+
+  it('does nothing when the app is locked', () => {
+    useShowStore.getState().setShow(dropShow())
+    useShowStore.getState().lockApp()
+    useShowStore.getState().dropOnLivePage(payload(), { kind: 'page', x: 100, y: 100 })
+    expect(page().controls).toHaveLength(1)
+    useShowStore.getState().unlockApp()
   })
 })

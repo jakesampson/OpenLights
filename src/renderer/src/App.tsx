@@ -21,6 +21,7 @@ import { computeSceneChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
+import { activeCueSequenceIds } from './lib/liveDrops'
 
 type Tab = 'Design' | 'Live' | 'Edit'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -111,7 +112,12 @@ export default function App() {
     })
   }, [effects, show?.fixtures, bpm, master, blackout])
 
-  useEffect(() => { configureSequences(activeSequenceIds.flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets) }, [show?.sequences, activeSequenceIds, presets])
+  useEffect(() => {
+    // Sequences can be started globally or dropped onto a live cue; an active
+    // cue's sequences run for as long as that cue is lit.
+    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues)])
+    configureSequences([...ids].flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets)
+  }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets])
 
   useEffect(() => {
     const patch: Record<number, number> = {}

@@ -38,7 +38,8 @@ export function migrateShow(raw: unknown): ShowDef {
         width: validLiveSize(object.width) ? object.width : size.width,
         height: validLiveSize(object.height) ? object.height : size.height,
         style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults),
-        ...(kind === 'frame' ? { frame: frameConfigFor(record(object.frame) as FrameConfig | undefined) } : {})
+        ...(kind === 'frame' ? { frame: frameConfigFor(record(object.frame) as FrameConfig | undefined) } : {}),
+        ...(kind === 'cue' ? { sequenceIds: Array.isArray(object.sequenceIds) ? object.sequenceIds.filter((id): id is string => typeof id === 'string') : [] } : {})
       }
     }
     return {

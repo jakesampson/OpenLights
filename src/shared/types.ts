@@ -181,6 +181,8 @@ export interface LiveControl {
   type: 'toggle' | 'flash' | 'fader'
   sceneId?: string
   presetIds: string[]
+  /** Sequences started while this cue is active (7.10). */
+  sequenceIds?: string[]
   adHocValues?: Record<string, Record<string, number>>
   x?: number
   y?: number

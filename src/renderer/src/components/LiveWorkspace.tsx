@@ -7,6 +7,9 @@ import {
   isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectLabel, positionedObjects,
   type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
+import {
+  decodeLiveDrop, encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
+} from '../lib/liveDrops'
 import { useShowStore } from '../stores/showStore'
 
 type Selection = PageObjectRef
@@ -20,7 +23,7 @@ export function LiveWorkspace() {
     setPageSwitchMode, selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject,
-    attachPageObject, setPageObjectStyle, configureFrame
+    attachPageObject, setPageObjectStyle, configureFrame, dropOnLivePage
   } = useShowStore()
   const [editing, setEditing] = useState(false)
   const [managing, setManaging] = useState(false)
@@ -34,7 +37,9 @@ export function LiveWorkspace() {
   const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number; height: number } | null>(null)
   const [renaming, setRenaming] = useState<{ ref: PageObjectRef; value: string } | null>(null)
   const paletteFile = useRef<HTMLInputElement>(null)
+  const pageCanvas = useRef<HTMLDivElement>(null)
   const [paletteNote, setPaletteNote] = useState('')
+  const [paletteSelection, setPaletteSelection] = useState<{ presets: string[]; sequences: string[] }>({ presets: [], sequences: [] })
 
   // The inspector follows a single selection; multiple selected objects are
   // handled entirely by the store's multi-object commands.
@@ -168,17 +173,65 @@ export function LiveWorkspace() {
     })
     savePage({ ...page, controls: [...page.controls, control] }); setPageObjectSelection([{ type: 'cue', id: control.id }])
   }
-  const addPresetControl = (presetId: string, x: number, y: number) => {
-    const preset = presets.find((item) => item.id === presetId)
-    if (!page || !preset) return
-    const control = newCueObject(
-      crypto.randomUUID(),
-      Math.max(0, Math.min(740, Math.round(x / 10) * 10)),
-      Math.max(0, Math.min(440, Math.round(y / 10) * 10)),
-      page.defaultStyles,
-      { name: preset.name, presetIds: [preset.id] }
-    )
-    savePage({ ...page, controls: [...page.controls, control] }); setPageObjectSelection([{ type: 'cue', id: control.id }])
+  // Palette drag sources: clicking selects several presets/sequences, and
+  // dragging a selected chip carries the whole selection (7.10).
+  const paletteItems = (kind: 'presets' | 'sequences', id: string): string[] => {
+    const selected = paletteSelection[kind]
+    return selected.includes(id) ? selected : [id]
+  }
+  const togglePaletteItem = (kind: 'presets' | 'sequences', id: string) =>
+    setPaletteSelection((prev) => ({
+      ...prev,
+      [kind]: prev[kind].includes(id) ? prev[kind].filter((item) => item !== id) : [...prev[kind], id]
+    }))
+  const palettePayload = (kind: 'presets' | 'sequences', id: string): LiveDropPayload | null => {
+    const ids = paletteItems(kind, id)
+    const named = (items: { id: string; name: string }[]) =>
+      Object.fromEntries(items.filter((item) => ids.includes(item.id)).map((item) => [item.id, item.name]))
+    if (kind === 'presets') {
+      if (!ids.some((presetId) => presets.some((preset) => preset.id === presetId))) return null
+      return { presetIds: ids, sequenceIds: [], presetNames: named(presets) }
+    }
+    const sequences = show?.sequences ?? []
+    if (!ids.some((sequenceId) => sequences.some((sequence) => sequence.id === sequenceId))) return null
+    return { presetIds: [], sequenceIds: ids, sequenceNames: named(sequences) }
+  }
+  const startPaletteDrag = (event: React.DragEvent, kind: 'presets' | 'sequences', id: string) => {
+    const payload = palettePayload(kind, id)
+    if (!payload) return
+    event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop(payload))
+    if (kind === 'presets' && payload.presetIds.length === 1) event.dataTransfer.setData(LEGACY_PRESET_MIME, payload.presetIds[0])
+    event.dataTransfer.effectAllowed = 'copy'
+  }
+  const hasDropData = (event: React.DragEvent) =>
+    event.dataTransfer.types.includes(LIVE_DROP_MIME) || event.dataTransfer.types.includes(LEGACY_PRESET_MIME)
+  const readDrop = (event: React.DragEvent): LiveDropPayload | null => {
+    const encoded = event.dataTransfer.getData(LIVE_DROP_MIME)
+    if (encoded) return decodeLiveDrop(encoded)
+    const legacy = event.dataTransfer.getData(LEGACY_PRESET_MIME)
+    return legacy ? { presetIds: [legacy], sequenceIds: [] } : null
+  }
+  const pagePoint = (event: React.DragEvent) => {
+    const rect = pageCanvas.current?.getBoundingClientRect()
+    return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }
+  }
+  const allowDrop = (event: React.DragEvent) => {
+    if (editing && hasDropData(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }
+  }
+  const dropAt = (event: React.DragEvent, frameId?: string) => {
+    if (!editing) return
+    const payload = readDrop(event)
+    if (!payload) return
+    event.preventDefault(); event.stopPropagation()
+    const point = pagePoint(event)
+    dropOnLivePage(payload, frameId ? { kind: 'frame', frameId, ...point } : { kind: 'page', ...point }, event.ctrlKey)
+  }
+  const dropOnCue = (event: React.DragEvent, cueId: string) => {
+    if (!editing) return
+    const payload = readDrop(event)
+    if (!payload) return
+    event.preventDefault(); event.stopPropagation()
+    dropOnLivePage(payload, { kind: 'cue', cueId })
   }
   const addList = () => {
     if (!page || !cueLists[0]) return
@@ -300,14 +353,18 @@ export function LiveWorkspace() {
           })}
         </div>
       </details>}
-      {editing && !locked && show?.layout?.palette !== false && <div className="rounded border border-line bg-panel2 p-2 text-xs"><div className="flex flex-wrap items-center gap-2"><strong>Preset palette</strong><span className="text-dim">Drag a preset onto the page to create a cue, or onto an existing cue to add it.</span><button type="button" className="btn-theme" onClick={exportPalette} disabled={!presets.length}>Export JSON</button><button type="button" className="btn-theme" onClick={() => paletteFile.current?.click()}>Import JSON</button><button type="button" className="btn-theme" disabled={!scenes.length} onClick={() => { const added = convertScenesToPresets(); setPaletteNote(added ? `Converted ${added} scene${added === 1 ? '' : 's'} to presets (originals kept).` : 'Scenes already converted.') }}>Convert scenes</button><input ref={paletteFile} type="file" accept="application/json,.json" aria-label="Import preset palette JSON" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) await importPalette(await file.text()) }} />{paletteNote && <span className="text-dim" role="status">{paletteNote}</span>}</div><div className="mt-2 flex flex-wrap gap-1">{presets.map((preset) => <span key={preset.id} draggable onDragStart={(event) => { event.dataTransfer.setData('application/x-openlights-preset', preset.id); event.dataTransfer.effectAllowed = 'copy' }} className="cursor-grab rounded border border-line bg-bg px-2 py-1">{preset.name}</span>)}{!presets.length && <span className="text-dim">Capture presets in Scenes & cues first, or import a palette.</span>}</div></div>}
-      <div className="overflow-auto rounded border border-line"><div className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-preset')) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' } }} onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-preset'); if (!id) return; event.preventDefault(); const rect = event.currentTarget.getBoundingClientRect(); addPresetControl(id, event.clientX - rect.left, event.clientY - rect.top) }}>
+      {editing && !locked && show?.layout?.palette !== false && <div className="rounded border border-line bg-panel2 p-2 text-xs">
+        <div className="flex flex-wrap items-center gap-2"><strong>Preset palette</strong><span className="text-dim">Click to select several, then drag onto the page, a frame or a cue button. Hold Ctrl to make one button per item.</span><button type="button" className="btn-theme" onClick={exportPalette} disabled={!presets.length}>Export JSON</button><button type="button" className="btn-theme" onClick={() => paletteFile.current?.click()}>Import JSON</button><button type="button" className="btn-theme" disabled={!scenes.length} onClick={() => { const added = convertScenesToPresets(); setPaletteNote(added ? `Converted ${added} scene${added === 1 ? '' : 's'} to presets (originals kept).` : 'Scenes already converted.') }}>Convert scenes</button><input ref={paletteFile} type="file" accept="application/json,.json" aria-label="Import preset palette JSON" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) await importPalette(await file.text()) }} />{paletteNote && <span className="text-dim" role="status">{paletteNote}</span>}</div>
+        <div className="mt-2 flex flex-wrap gap-1">{presets.map((preset) => <button key={preset.id} type="button" draggable aria-pressed={paletteSelection.presets.includes(preset.id)} onClick={() => togglePaletteItem('presets', preset.id)} onDragStart={(event) => startPaletteDrag(event, 'presets', preset.id)} className={`cursor-grab rounded border bg-bg px-2 py-1 ${paletteSelection.presets.includes(preset.id) ? 'border-[var(--accent)]' : 'border-line'}`}>{preset.name}</button>)}{!presets.length && <span className="text-dim">Capture presets in Scenes & cues first, or import a palette.</span>}</div>
+        <div className="mt-1 flex flex-wrap items-center gap-1"><strong className="mr-1 text-dim">Sequences</strong>{(show?.sequences ?? []).map((sequence) => <button key={sequence.id} type="button" draggable aria-pressed={paletteSelection.sequences.includes(sequence.id)} onClick={() => togglePaletteItem('sequences', sequence.id)} onDragStart={(event) => startPaletteDrag(event, 'sequences', sequence.id)} className={`cursor-grab rounded border bg-bg px-2 py-1 ${paletteSelection.sequences.includes(sequence.id) ? 'border-[var(--accent)]' : 'border-line'}`}>{sequence.name}</button>)}{!show?.sequences?.length && <span className="text-dim">No sequences yet — create them in the Edit tab.</span>}</div>
+      </div>}
+      <div className="overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
           const w = resizeDraft?.id === item.id ? resizeDraft.width : item.width
           const h = resizeDraft?.id === item.id ? resizeDraft.height : item.height
-          return <div key={item.id} className={`absolute ${item.type === 'frame' ? 'border border-line rounded' : ''} ${editing && !locked && isSelected(ref) ? 'outline outline-1 outline-[var(--accent)]' : ''}`} style={{ left: draft?.id === item.id ? draft.x : item.x, top: draft?.id === item.id ? draft.y : item.y, width: w, height: h, pointerEvents: 'none' }}>
+          return <div key={item.id} className={`absolute ${item.type === 'frame' ? 'border border-line rounded' : ''} ${editing && !locked && isSelected(ref) ? 'outline outline-1 outline-[var(--accent)]' : ''}`} style={{ left: draft?.id === item.id ? draft.x : item.x, top: draft?.id === item.id ? draft.y : item.y, width: w, height: h, pointerEvents: item.type === 'frame' && editing && !locked ? 'auto' : 'none' }} onDragOver={item.type === 'frame' ? allowDrop : undefined} onDrop={item.type === 'frame' ? (event) => dropAt(event, item.id) : undefined}>
             <div className={`px-2 py-1 text-xs ${editing ? 'cursor-grab bg-panel2' : ''}`} style={{ pointerEvents: editing ? 'auto' : 'none', ...css(item.style) }} onPointerDown={(e) => beginDrag(e, ref, item.x, item.y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => editing && !locked && setRenaming({ ref, value: item.text })}>{renaming?.ref.type === 'annotation' && renaming.ref.id === item.id ? renameInput(ref, `${item.type} text`) : item.text}</div>
             {resizeHandle(ref, item.width, item.height)}
           </div>
@@ -318,7 +375,7 @@ export function LiveWorkspace() {
           const cw = control.width ?? LIVE_CUE_SIZE.width, ch = control.height ?? LIVE_CUE_SIZE.height
           const w = resizeDraft?.id === control.id ? resizeDraft.width : cw, h = resizeDraft?.id === control.id ? resizeDraft.height : ch
           const level = activeLiveValues[control.id] ?? 0
-          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-preset')) event.preventDefault() }} onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-preset'); if (!presets.some((preset) => preset.id === id)) return; event.preventDefault(); event.stopPropagation(); if (!control.presetIds.includes(id)) patchControl(control.id, { presetIds: [...control.presetIds, id] }); setPageObjectSelection([{ type: 'cue', id: control.id }]) }}>
+          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
             {editing ? (renaming?.ref.type === 'cue' && renaming.ref.id === control.id ? renameInput(ref, 'Cue name') : <button type="button" className="w-full cursor-grab rounded bg-bg px-2 py-2 text-left" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => setRenaming({ ref, value: control.name })}>↕ {control.name}</button>) : control.type === 'fader' ? <label className="block p-1 text-center" style={css(control.style)}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={css(control.style)} className={`pad w-full rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>}
             {resizeHandle(ref, cw, ch)}
           </div>
@@ -336,7 +393,7 @@ export function LiveWorkspace() {
           </div>
         })}
       </div></div>
-      {editing && !locked && show?.layout?.inspector !== false && selectedControl && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="block rounded bg-bg p-1" /></label><label>Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="block rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Hold to flash</option><option value="fader">Fader</option></select></label><label>Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="block rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><details><summary>Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>{Object.keys(selectedControl.adHocValues ?? {}).length > 0 && <button type="button" className="text-dim" onClick={() => patchControl(selectedControl.id, { adHocValues: {} })}>Remove captured overrides</button>}{styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}{attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}<button type="button" className="text-red-300" onClick={() => { setLiveValue(selectedControl.id, 0); savePage({ ...page, controls: page.controls.filter((c) => c.id !== selectedControl.id) }); clearPageObjectSelection() }}>Remove</button></div>}
+      {editing && !locked && show?.layout?.inspector !== false && selectedControl && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="block rounded bg-bg p-1" /></label><label>Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="block rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Hold to flash</option><option value="fader">Fader</option></select></label><label>Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="block rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><details><summary>Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details><details><summary>Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>{Object.keys(selectedControl.adHocValues ?? {}).length > 0 && <button type="button" className="text-dim" onClick={() => patchControl(selectedControl.id, { adHocValues: {} })}>Remove captured overrides</button>}{styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}{attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}<button type="button" className="text-red-300" onClick={() => { setLiveValue(selectedControl.id, 0); savePage({ ...page, controls: page.controls.filter((c) => c.id !== selectedControl.id) }); clearPageObjectSelection() }}>Remove</button></div>}
       {editing && !locked && show?.layout?.inspector !== false && selectedList && <div className="flex gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Cue list <select aria-label="Widget cue list" value={selectedList.cueListId} onChange={(e) => savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).map((w) => w.id === selectedList.id ? { ...w, cueListId: e.target.value } : w) })} className="rounded bg-bg p-1">{cueLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label>{styleFields({ type: 'list', id: selectedList.id }, 'list', selectedList.style)}{attachmentSelect({ type: 'list', id: selectedList.id }, selectedList.attachedTo)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).filter((w) => w.id !== selectedList.id) }); clearPageObjectSelection() }}>Remove</button></div>}
       {editing && !locked && show?.layout?.inspector !== false && selectedAnnotation && <div className="flex flex-wrap items-end gap-2 rounded border border-line bg-panel2 p-2 text-xs">{(['text', 'width', 'height'] as const).map((key) => <label key={key} className="capitalize">{key}<input aria-label={`${selectedAnnotation.type} ${key}`} type={key === 'text' ? 'text' : 'number'} min={key === 'text' ? undefined : 20} value={selectedAnnotation[key]} onChange={(e) => { const ref: PageObjectRef = { type: 'annotation', id: selectedAnnotation.id }; if (key === 'text') renamePageObject(ref, e.target.value); else { const other = key === 'width' ? selectedAnnotation.height : selectedAnnotation.width; resizePageObject(ref, key === 'width' ? Number(e.target.value) : other, key === 'height' ? Number(e.target.value) : other) } }} className="block w-32 rounded bg-bg p-1" /></label>)}{styleFields({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.type, selectedAnnotation.style)}{selectedAnnotation.type === 'frame' && frameConfigFields(selectedAnnotation.id, selectedAnnotation.frame)}{attachmentSelect({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.attachedTo)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button></div>}
     </>}
