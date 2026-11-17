@@ -33,6 +33,9 @@ declare global {
       connectArtNet: (host: string, universe?: number) => Promise<IpcResult & { status?: DmxStatus }>
       getDmxStatus: () => Promise<DmxStatus>
       getChannels: () => Promise<number[]>
+      startDmxTest: () => Promise<void>
+      setDmxTestChannel: (channel: number, value: number) => Promise<void>
+      stopDmxTest: () => Promise<void>
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
       getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void

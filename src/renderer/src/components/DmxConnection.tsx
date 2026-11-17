@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from '@shared/types'
 import { identifyDmxPort, isDmxPortInfoList } from '@shared/dmxPorts'
 import { getDmxStatusLabel } from '../lib/dmxStatusLabel'
+import { DmxTestPanel } from './DmxTestPanel'
 
 export function DmxConnection() {
   const [open, setOpen] = useState(false)
@@ -100,6 +101,7 @@ export function DmxConnection() {
               })}
             </div>
             {selected && <div className="mt-4"><label htmlFor="usb-protocol" className="block text-xs font-semibold">Interface type</label><select id="usb-protocol" value={protocol} onChange={(e) => setProtocol(e.target.value as SerialDmxProtocol | '')} className="mt-2 w-full rounded border border-line bg-panel2 px-3 py-2 text-sm text-white"><option value="">Choose your interface type</option><option value="open-dmx-usb">Open DMX USB / unbuffered</option><option value="enttec-usb-pro">DMX USB Pro / compatible buffered</option></select><p className="mt-2 text-xs leading-relaxed text-dim">USB identifiers alone may not identify the DMX model. Check the label or documentation for the correct type.</p></div>}
+            <DmxTestPanel status={status} />
             {error && <p role="alert" className="mt-3 text-xs text-red-300">{error}</p>}
             {status?.error && status.error !== error && <p role="alert" className="mt-3 text-xs text-red-300">{status.error}</p>}
           </div>

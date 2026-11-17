@@ -99,3 +99,26 @@ describe('DMXEngine', () => {
     expect(engine.getChannel(1)).toBe(42) // original unchanged
   })
 })
+it('isolates test channels from show playback and restores the show on exit', () => {
+  const engine = new DMXEngine()
+  engine.setChannel(1, 70)
+  engine.startTest()
+  expect(engine.snapshot()[0]).toBe(0)
+  engine.setTestChannel(1, 255)
+  engine.setTestChannel(2, 100)
+  engine.setChannel(1, 90)
+  expect(Array.from(engine.snapshot().slice(0, 2))).toEqual([255, 100])
+  engine.stopTest()
+  expect(Array.from(engine.snapshot().slice(0, 2))).toEqual([90, 0])
+})
+
+it('clears test output on blackout and rejects invalid test channels', () => {
+  const engine = new DMXEngine()
+  engine.startTest()
+  engine.setTestChannel(1, 999)
+  engine.setTestChannel(0, 99)
+  engine.setTestChannel(1.5, 99)
+  expect(engine.snapshot()[0]).toBe(255)
+  engine.blackout()
+  expect(engine.snapshot().every((value) => value === 0)).toBe(true)
+})

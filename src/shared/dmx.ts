@@ -85,6 +85,7 @@ export class DMXEngine {
   private serialProtocol: SerialDmxProtocol | null = null
   private serialFrameInProgress = false
   private universe = new Uint8Array(DMX_CHANNELS)
+  private testUniverse: Uint8Array | null = null
   private timer: NodeJS.Timeout | null = null
   private sentFrames = 0
   private lastFrameAt: number | null = null
@@ -226,10 +227,20 @@ export class DMXEngine {
   }
 
   snapshot(): Uint8Array {
-    return new Uint8Array(this.universe)
+    return new Uint8Array(this.testUniverse ?? this.universe)
   }
 
+  startTest() { this.testUniverse = new Uint8Array(DMX_CHANNELS) }
+
+  setTestChannel(channel: number, value: number) {
+    if (!this.testUniverse || !Number.isInteger(channel) || channel < 1 || channel > DMX_CHANNELS || !Number.isFinite(value)) return
+    this.testUniverse[channel - 1] = clampByte(value)
+  }
+
+  stopTest() { this.testUniverse = null }
+
   blackout() {
+    this.testUniverse?.fill(0)
     this.universe.fill(0)
     this.emitStatus()
   }
@@ -247,7 +258,7 @@ export class DMXEngine {
         return
       }
 
-      port.write(buildEnttecProFrame(this.universe), (err) => {
+      port.write(buildEnttecProFrame(this.snapshot()), (err) => {
         if (err) {
           this.error = err.message
           this.connected = false
@@ -265,7 +276,7 @@ export class DMXEngine {
     if (this.artnetSocket && this.artnetConnected && this.artnetHost) {
       const packet = buildArtNetPacket(
         this.artnetUniverse,
-        this.universe,
+        this.snapshot(),
         ++this.sequence
       )
       this.artnetSocket.send(packet, ARTNET_PORT, this.artnetHost, (err) => {
@@ -298,7 +309,7 @@ export class DMXEngine {
       await delay(1)
       if (this.port !== port || !this.connected) return
 
-      await writeAndDrain(port, buildOpenDmxFrame(this.universe))
+      await writeAndDrain(port, buildOpenDmxFrame(this.snapshot()))
       if (this.port !== port || !this.connected) return
 
       this.sentFrames++

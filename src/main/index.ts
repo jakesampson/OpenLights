@@ -258,3 +258,7 @@ ipcMain.on('set-channels', (_, values: Record<number, number>) => {
     dmxEngine.setChannel(Number(channel), value)
   }
 })
+// Test output takes precedence over normal playback until the panel is closed.
+ipcMain.handle('dmx-test-start', () => { dmxEngine.startTest() })
+ipcMain.handle('dmx-test-set', (_, channel: number, value: number) => { dmxEngine.setTestChannel(channel, value) })
+ipcMain.handle('dmx-test-stop', () => { dmxEngine.stopTest() })
