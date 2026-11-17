@@ -22,6 +22,7 @@ import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
+import { activeOwnedEffects } from './lib/effectOwnership'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -100,13 +101,13 @@ export default function App() {
 
   useEffect(() => {
     configureEffects({
-      effects,
+      effects: activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }),
       fixtures: show?.fixtures ?? [],
       bpm,
       master,
       blackout
     })
-  }, [effects, show?.fixtures, bpm, master, blackout])
+  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active

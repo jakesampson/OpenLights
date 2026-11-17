@@ -139,6 +139,7 @@ export interface EffectDef {
   syncToBpm: boolean
   size: number // depth, 0-255
   offset: number // centre value, 0-255
+  owner?: { type: 'preset' | 'sequence' | 'cue'; id: string }
   phaseSpread: number // degrees of fan-out across targeted fixtures
   enabled: boolean
 }

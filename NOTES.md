@@ -198,3 +198,6 @@ The separate editor components and toolbar entry are removed. Scene data remains
 
 ### 8.10 Frame stepping and effect continuity
 A cue button can act as Next or Previous for the frame containing its centre. The step helper excludes action buttons, wraps within real frame cues and preserves active values outside the frame. Effects remain global and therefore continue unchanged when cuelist cues advance; cue-owned effect lifecycle is added in 9.2. Tests: `tests/frameStepping.test.ts`, `tests/store.test.ts`.
+
+### 9.2 Effect ownership
+Effects may optionally name a preset, sequence or cue owner. Missing ownership preserves the legacy global behavior exactly, so existing shows require no destructive conversion. The output selects owned effects from current runtime activation and stops a cue-owned effect when its cue level reaches zero. Tests: `tests/effectOwnership.test.ts`.
