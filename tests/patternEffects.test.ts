@@ -41,3 +41,16 @@ describe('seeded-random pattern effects', () => {
     expect(first).toBeLessThanOrEqual(1)
   })
 })
+
+describe('organic pattern effects', () => {
+  it('jellyfish expands and contracts around the fixture centre', () => {
+    expect(patternLevel('jellyfish', 0, 2, 5)).toBe(1)
+    expect(patternLevel('jellyfish', 0.5, 0, 5)).toBeLessThan(patternLevel('jellyfish', 0.5, 2, 5))
+  })
+
+  it('snakes sends two repeatable heads around the fixture order', () => {
+    expect(patternLevel('snakes', 0, 0, 5)).toBe(1)
+    expect(patternLevel('snakes', 0, 2, 5)).toBe(1)
+    expect(patternLevel('snakes', 0, 1, 5)).toBe(0)
+  })
+})

@@ -1,4 +1,4 @@
-export type PatternEffect = 'chase' | 'scanner' | 'yo-yo' | 'fill' | 'rain' | 'meteor' | 'sparkle' | 'fire'
+export type PatternEffect = 'chase' | 'scanner' | 'yo-yo' | 'fill' | 'rain' | 'meteor' | 'sparkle' | 'fire' | 'jellyfish' | 'snakes'
 
 const phase = (t: number): number => ((t % 1) + 1) % 1
 const position = (index: number, count: number): number => count <= 1 ? 0 : index / (count - 1)
@@ -37,6 +37,17 @@ export function patternLevel(pattern: PatternEffect, t: number, fixtureIndex: nu
     case 'fire': {
       const frame = Math.floor(t * 16)
       return 0.35 + random(frame * 101 + fixtureIndex * 29 + seed) * 0.65
+    }
+    case 'jellyfish': {
+      const centre = 0.5 + Math.sin(p * Math.PI * 2) * 0.2
+      const width = 0.2 + (1 + Math.cos(p * Math.PI * 2)) * 0.15
+      return Math.max(0, 1 - Math.abs(x - centre) / width)
+    }
+    case 'snakes': {
+      const first = phase(p - x)
+      const second = phase(p + 0.5 - x)
+      const tail = (distance: number): number => distance < 0.25 ? 1 - distance / 0.25 : 0
+      return Math.max(tail(first), tail(second))
     }
   }
 }

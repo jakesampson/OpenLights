@@ -363,8 +363,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.5c Pattern effects: Sparkle and Fire. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic seeded-random tests.
   Evidence: deterministic seeded sparkle and fire evaluators with frame stability/range tests in `tests/patternEffects.test.ts`; typecheck, 348 tests and build passed.
-- [ ] 9.5d Pattern effects: Jellyfish and Snakes. Guide: p.153 to 160.
+- [x] 9.5d Pattern effects: Jellyfish and Snakes. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
+  Evidence: pure breathing jellyfish and dual-head snakes evaluators with set-time fixture-level tests; typecheck, 350 tests and build passed.
 - [ ] 9.6 Movement effects (circle, figure-eight, line and so on), with path editing and transforms. Guide: p.165 to 171.
   Done when: path generators are tested for pan/tilt at set times.
 - [ ] 9.7 Copy/paste and delete effects, overlay (layering) effects, and effect templates. Guide: p.172 to 174.

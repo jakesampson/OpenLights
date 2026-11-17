@@ -216,3 +216,6 @@ Fill lights the fixture order progressively, rain uses fixture-offset repeating 
 
 ### 9.5c Seeded patterns
 Sparkle uses seeded threshold noise and fire uses seeded ranged flicker. Both quantize time into animation frames so repeated output calculations are stable and reproducible. Tests: `tests/patternEffects.test.ts`.
+
+### 9.5d Organic patterns
+Jellyfish varies a centred bell's position and width, while snakes runs two wrapped heads with fading tails. Both are pure normalized functions over time and fixture order. Tests: `tests/patternEffects.test.ts`.
