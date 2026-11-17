@@ -202,7 +202,9 @@ export default function App() {
     }
   }
 
-  const shortcuts = [...(TAB_SHORTCUTS[tab] ?? []), ...BASE_SHORTCUTS]
+  const shortcuts = [...(TAB_SHORTCUTS[tab] ?? []), ...BASE_SHORTCUTS].filter(
+    (shortcut) => !shortcut.label.toLowerCase().includes('(stub)')
+  )
   const closeToolPanel = () => setToolPanel(null)
 
   return (
