@@ -357,8 +357,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 9.5a Pattern effects: Chase, Scanner and Yo-yo. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
   Evidence: pure normalized `patternLevel` chase/scanner/yo-yo evaluator and deterministic boundary/direction tests in `tests/patternEffects.test.ts`; typecheck, 344 tests and build passed.
-- [ ] 9.5b Pattern effects: Fill, Rain and Meteor. Guide: p.153 to 160.
+- [x] 9.5b Pattern effects: Fill, Rain and Meteor. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic tests.
+  Evidence: pure fill/rain/meteor branches in `patternLevel` with progression, repeatability and tail tests; typecheck, 346 tests and build passed.
 - [ ] 9.5c Pattern effects: Sparkle and Fire. Guide: p.153 to 160.
   Done when: each pattern is a pure `(t, fixtureIndex, count) -> level` with deterministic seeded-random tests.
 - [ ] 9.5d Pattern effects: Jellyfish and Snakes. Guide: p.153 to 160.

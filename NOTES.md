@@ -210,3 +210,6 @@ Curve effects now include cosine, pulse and smooth shapes alongside the existing
 
 ### 9.5a Ordered patterns
 Chase, scanner and yo-yo share a pure normalized evaluator. Scanner travels once across the fixture order; yo-yo reflects at the end. No persisted schema or dependency changed. Tests: `tests/patternEffects.test.ts`.
+
+### 9.5b Progressive patterns
+Fill lights the fixture order progressively, rain uses fixture-offset repeating drops, and meteor produces a wrapped decaying tail. All operate on normalized cycle time without mutable state. Tests: `tests/patternEffects.test.ts`.
