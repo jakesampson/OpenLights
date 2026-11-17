@@ -54,10 +54,11 @@ jobs:
       - name: Create or update GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" release-assets/* --clobber
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" release-assets/* --clobber --repo "$REPO"
           else
-            gh release create "$TAG" release-assets/* --title "OpenLights $TAG" --generate-notes
+            gh release create "$TAG" release-assets/* --repo "$REPO" --title "OpenLights $TAG" --generate-notes
           fi
