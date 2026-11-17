@@ -5,7 +5,7 @@ export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = {
   'led-wash': { intensity: 0, red: 1, green: 2, blue: 3, white: 4, amber: 5, uv: 6 },
   'moving-head': { intensity: 0, pan: 1, tilt: 2, red: 3, green: 4, blue: 5, gobo: 6, strobe: 7 },
   dimmer: { intensity: 0 },
-  'generic-led': { intensity: 0 },
+  'generic-led': { intensity: 0, red: 1, green: 2, blue: 3 },
   'pixel-bar-17ch': {
     red: 0,
     green: 1,

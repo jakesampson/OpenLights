@@ -29,6 +29,11 @@ function scene(fixtureValues: SceneDef['fixtureValues']): SceneDef {
 }
 
 describe('computeSceneChannels', () => {
+  it('outputs all four channels of a generic dimmer plus RGB fixture', () => {
+    const fixture: FixtureDef = { id: 'led', name: 'LED', type: 'generic-led', channelStart: 21, channels: 4 }
+    expect(computeSceneChannels([fixture], scene({ led: { intensity: 255, red: 120, green: 60, blue: 30 } }))).toEqual({ 21: 255, 22: 120, 23: 60, 24: 30 })
+  })
+
   it('maps a fixture starting at channel 1 to channels 1-4 (no off-by-one)', () => {
     const channels = computeSceneChannels(
       fixtureList,
