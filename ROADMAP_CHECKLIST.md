@@ -314,8 +314,9 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 ## 8. Cues and cuelists (guide ch.11, p.190 to 221)
 
 - [x] 8.1 Cue control types toggle, flash and fader on Live pages. *(Evidence: `types.ts` LiveControl, `LiveWorkspace.tsx`, `App.tsx` output.)* (verify flash release and the fader curve in the audit)
-- [ ] 8.2 Edit cue contents: add or remove presets, sequences and ad-hoc properties in a cue, and view the cue's contents. Guide: Edit cue contents, View cue contents, Edit ad hoc properties, p.199 to 202.
+- [x] 8.2 Edit cue contents: add or remove presets, sequences and ad-hoc properties in a cue, and view the cue's contents. Guide: Edit cue contents, View cue contents, Edit ad hoc properties, p.199 to 202.
   Done when: store tests cover each, using the existing `adHocValues`.
+  Evidence: `lib/cueContents.ts` immutable add/remove/edit commands, history/lock-gated `editCueContents` store action, `CueContentsEditor.tsx` contents view/editor, `tests/cueContents.test.ts` and `tests/store.test.ts`; typecheck, 314 tests and build passed.
 - [ ] 8.3 Cue timing options (fade in, fade out, delay) and fade curves (linear, ease and the guide's other curves). Guide: p.203, and Fade curves, p.209 to 214.
   Done when: `lib/fadeCurves.ts` is tested at 0, 0.5 and 1 for each curve, and cue timing is applied in the output tests.
 - [ ] 8.4 Button appearance and behaviour (colour, label, toggle/flash/fader, "release others"). Guide: p.204.

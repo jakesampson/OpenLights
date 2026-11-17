@@ -171,3 +171,6 @@ Frames (frame-typed annotations) gained an optional `FrameConfig`: `exclusive`, 
 
 ### 7.11 Selection-driven Live inspector
 `lib/liveInspector.ts` is the single field-schema contract for page, cue, cuelist, frame and label selection. Live edit mode now presents one labelled inspector after the canvas; with no object selected it edits page name/fade, while object selection presents the existing type-specific contents, style, attachment and frame controls in that same region. The schema is pure and independently tested, which keeps later cue-option additions explicit. No persisted shape changed and no dependency was added. Tests: `tests/liveInspector.test.ts`.
+
+### 8.2 Cue contents
+Cue content changes use a pure command reducer for preset and sequence references plus per-fixture ad-hoc values. The store action is history- and lock-gated. The Live inspector displays all three content groups, including numeric editing and individual removal of ad-hoc properties. Values clamp to DMX byte range; unrelated properties remain untouched. No show-format change or dependency was needed. Tests: `tests/cueContents.test.ts`, `tests/store.test.ts`.

@@ -3,6 +3,7 @@ import { scenesToPresets } from '@shared/sceneConversion'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, liveOutputLevels, setFrameConfig } from '../lib/liveFrames'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
+import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
 import {
   copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
   objectsInRect, pasteObjects, renameObject, resizeObject, setAttachment, setObjectStyle,
@@ -111,6 +112,7 @@ interface ShowState {
   attachPageObject: (ref: PageObjectRef, targetId: string | null) => void
   setPageObjectStyle: (ref: PageObjectRef, patch: Partial<LiveObjectStyle>) => void
   configureFrame: (frameId: string, patch: Partial<FrameConfig>) => void
+  editCueContents: (controlId: string, command: CueContentsCommand) => void
   deleteSelectedPageObjects: () => void
   duplicateSelectedPageObjects: () => void
   copySelectedPageObjects: () => void
@@ -700,6 +702,11 @@ const actions: ShowState = {
     const page = activeLivePage(state)
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? setFrameConfig(page, frameId, patch) : item))
+  }),
+  editCueContents: (controlId, command) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? applyCueContents(control, command) : control) } : item))
   }),
   deleteSelectedPageObjects: () => set((state) => {
     const page = activeLivePage(state)
@@ -1549,7 +1556,8 @@ const actions: ShowState = {
  }
   const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
-  for (const command of editingCommands) {
+  const guardedEditingCommands = [...editingCommands, 'editCueContents'] as const
+  for (const command of guardedEditingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
     mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }
   }

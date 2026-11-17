@@ -744,3 +744,26 @@ describe('dropping presets and sequences on live pages (7.10)', () => {
     useShowStore.getState().unlockApp()
   })
 })
+
+describe('editing cue contents (8.2)', () => {
+  const cueShow = () => ({ ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: ['p1'], sequenceIds: ['s1'], adHocValues: { f1: { intensity: 100 } } }] }] })
+  const cue = () => useShowStore.getState().show!.livePages![0].controls[0]
+
+  it('edits presets, sequences and ad-hoc values through undoable store commands', () => {
+    useShowStore.getState().setShow(cueShow())
+    useShowStore.getState().editCueContents('c', { type: 'add-preset', id: 'p2' })
+    useShowStore.getState().editCueContents('c', { type: 'remove-sequence', id: 's1' })
+    useShowStore.getState().editCueContents('c', { type: 'set-ad-hoc', fixtureId: 'f1', property: 'intensity', value: 200 })
+    expect(cue()).toMatchObject({ presetIds: ['p1', 'p2'], sequenceIds: [], adHocValues: { f1: { intensity: 200 } } })
+    useShowStore.getState().undo()
+    expect(cue().adHocValues?.f1.intensity).toBe(100)
+  })
+
+  it('rejects cue content edits while locked', () => {
+    useShowStore.getState().setShow(cueShow())
+    useShowStore.getState().lockApp()
+    useShowStore.getState().editCueContents('c', { type: 'remove-preset', id: 'p1' })
+    expect(cue().presetIds).toEqual(['p1'])
+    useShowStore.getState().unlockApp()
+  })
+})
