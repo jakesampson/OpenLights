@@ -15,27 +15,13 @@ import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
 import { configureEffects } from './lib/output'
 
-type Tab =
-  | 'Design'
-  | 'Live'
-  | 'Edit'
-  | 'Scenes'
-  | 'Cues'
-  | 'Effects'
-  | 'Automation'
-  | 'Patch'
-  | 'MIDI'
+type Tab = 'Design' | 'Live' | 'Edit'
+type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
 
-const bottomTabs: Array<{ id: Tab; label: string; stub?: boolean }> = [
-  { id: 'Design', label: 'Design', stub: true },
-  { id: 'Live', label: 'Live', stub: true },
-  { id: 'Edit', label: 'Edit', stub: true },
-  { id: 'Scenes', label: 'Scenes' },
-  { id: 'Cues', label: 'Cues' },
-  { id: 'Effects', label: 'Effects' },
-  { id: 'Automation', label: 'Automation' },
-  { id: 'Patch', label: 'Patch' },
-  { id: 'MIDI', label: 'MIDI' }
+const bottomTabs: Array<{ id: Tab; label: string }> = [
+  { id: 'Design', label: 'Design' },
+  { id: 'Live', label: 'Live' },
+  { id: 'Edit', label: 'Edit' }
 ]
 
 const BASE_SHORTCUTS = [
@@ -83,6 +69,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('Design')
   const [theme, setTheme] = useState<'purple' | 'teal'>('purple')
   const [windowMaximized, setWindowMaximized] = useState(false)
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const titleClickTimeout = useRef<number | null>(null)
 
   useEffect(() => {
@@ -143,12 +131,16 @@ export default function App() {
       if (event.metaKey || event.ctrlKey || event.altKey) return
 
       if (event.key === 'Escape') {
+        if (toolPanel) {
+          setToolPanel(null)
+          return
+        }
         stopCue()
         return
       }
       if (event.key === ' ' || event.key === 'Spacebar') {
         event.preventDefault()
-        if (tab === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play'))
+        if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play'))
         else cueNext()
         return
       }
@@ -179,36 +171,37 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [tab, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
+  }, [tab, toolPanel, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
 
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
 
   const renderPanel = () => {
     switch (tab) {
       case 'Design':
-        return <DesignTab />
+        return (
+          <>
+            <DesignTab />
+            <details className="mt-3 rounded-lg border border-line bg-panel p-2">
+              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-dim">
+                Effects
+              </summary>
+              <div className="pt-3">
+                <EffectsPanel />
+              </div>
+            </details>
+          </>
+        )
       case 'Live':
         return <LiveTab />
       case 'Edit':
         return <EditTab />
-      case 'Scenes':
-        return <SceneGrid />
-      case 'Cues':
-        return <CueListPanel />
-      case 'Effects':
-        return <EffectsPanel />
-      case 'Automation':
-        return <AutomationPanel />
-      case 'Patch':
-        return <PatchPanel />
-      case 'MIDI':
-        return <MidiPanel />
       default:
         return null
     }
   }
 
   const shortcuts = [...(TAB_SHORTCUTS[tab] ?? []), ...BASE_SHORTCUTS]
+  const closeToolPanel = () => setToolPanel(null)
 
   return (
     <div className="app">
@@ -227,6 +220,47 @@ export default function App() {
             Theme: {theme === 'purple' ? 'Purple' : 'Teal'}
           </button>
           <ProjectBar />
+          <button
+            type="button"
+            className="btn-theme text-xs"
+            onClick={() => setToolPanel('Patch')}
+          >
+            Patch
+          </button>
+          <div className="relative">
+            <button
+              type="button"
+              className={`btn-theme text-xs ${toolsOpen ? 'on' : ''}`}
+              aria-expanded={toolsOpen}
+              onClick={() => setToolsOpen((open) => !open)}
+            >
+              Tools
+            </button>
+            {toolsOpen && (
+              <div className="absolute left-0 top-full z-50 mt-1 flex w-40 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
+                <button
+                  type="button"
+                  className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
+                  onClick={() => {
+                    setToolPanel('Automation')
+                    setToolsOpen(false)
+                  }}
+                >
+                  Automation
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
+                  onClick={() => {
+                    setToolPanel('MIDI')
+                    setToolsOpen(false)
+                  }}
+                >
+                  MIDI
+                </button>
+              </div>
+            )}
+          </div>
           <button
             type="button"
             className="btn-theme text-xs opacity-50 cursor-not-allowed"
@@ -345,7 +379,6 @@ export default function App() {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`btn-theme text-xs font-medium flex-shrink-0 ${tab === t.id ? 'on' : ''}`}
-                title={t.stub ? 'Mockup view' : undefined}
               >
                 {t.label}
               </button>
@@ -373,6 +406,36 @@ export default function App() {
           </div>
         </div>
       </div>
+      {toolPanel && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeToolPanel()
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label={toolPanel}
+            className="panel flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden shadow-2xl"
+          >
+            <header className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-dim">
+                {toolPanel === 'Patch' ? 'Fixture Patch' : toolPanel}
+              </h2>
+              <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>
+                Close
+              </button>
+            </header>
+            <div className="min-h-0 overflow-auto p-4">
+              {toolPanel === 'Patch' && <PatchPanel />}
+              {toolPanel === 'Automation' && <AutomationPanel />}
+              {toolPanel === 'MIDI' && <MidiPanel />}
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   )
 }

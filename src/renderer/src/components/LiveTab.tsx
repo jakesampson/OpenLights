@@ -1,53 +1,100 @@
-import { useState } from 'react'
 import { useShowStore } from '../stores/showStore'
-
-const SCENE_GROUPS = [
-  { title: 'Basic Scenes', scenes: ['Green Scene', 'Purple Scene', 'Red Scene', 'Blue Scene', 'Sunset', 'Chase 1', 'Warm', 'Cool'] },
-  { title: 'Effects', scenes: ['Strobe Fast', 'Strobe Slow', 'Rainbow', 'Fade', 'Pulse'] }
-]
+import { CueListPanel } from './CueListPanel'
+import { SceneGrid } from './SceneGrid'
 
 export function LiveTab() {
-  const { scenes, goToScene, activeSceneId } = useShowStore()
-  const [activeStates, setActiveStates] = useState<Record<string, boolean>>({})
-  
-  const toggleScene = (sceneId: string) => {
-    setActiveStates(prev => ({ ...prev, [sceneId]: !prev[sceneId] }))
-    goToScene(sceneId)
-  }
-  
+  const {
+    scenes,
+    cueLists,
+    activeSceneId,
+    activeCueListId,
+    activeCueIndex,
+    goToScene,
+    goToCue
+  } = useShowStore()
+
   return (
-    <div className="flex flex-col gap-2 p-1">
-      <div className="flex items-center justify-between">
-        <label className="text-[9px] text-dim uppercase font-medium">Dimmer</label>
-        <span className="font-mono text-xs text-white">Full</span>
-      </div>
-      <div className="relative h-16 w-full bg-panel border border-line rounded px-2 mb-1">
-        <div className="absolute bottom-0 h-full w-[100%] bg-accent rounded"></div>
-      </div>
-      {SCENE_GROUPS.map(group => (
-        <div key={group.title} className="flex flex-col gap-1">
-          <label className="text-[9px] text-dim uppercase font-medium">{group.title}</label>
-          <div className="grid grid-cols-4 gap-1 p-1">
-            {group.scenes.map((name) => {
-              const scene = scenes.find(s => s.name === name)
-              const isActive = activeStates[scene?.id ?? ''] ?? false
-              return (
-                <button
-                  key={name}
-                  onClick={() => scene && toggleScene(scene.id)}
-                  className={`pad flex flex-col items-center justify-center gap-1 p-2 border border-line rounded text-[9px] transition-colors ${
-                    isActive 
-                      ? 'bg-accent text-[#111] font-bold' 
-                      : 'bg-panel2 text-zinc-200 hover:bg-accent hover:text-[#111]'
-                  }`}
-                >
-                  {name}
-                </button>
-              )
-            })}
+    <div className="flex flex-col gap-3 p-1">
+      <section className="flex flex-col gap-1">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Scenes</h3>
+        {scenes.length === 0 ? (
+          <p className="py-2 text-xs text-dim">Create scenes in the management section below.</p>
+        ) : (
+          <div className="grid grid-cols-4 gap-1.5">
+            {scenes.map((scene) => (
+              <button
+                key={scene.id}
+                type="button"
+                onClick={() => goToScene(scene.id)}
+                className={`pad rounded border border-line px-2 py-2 text-xs transition-colors ${
+                  scene.id === activeSceneId
+                    ? 'active'
+                    : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
+                }`}
+              >
+                {scene.name}
+              </button>
+            ))}
           </div>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-1">
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cue Lists</h3>
+        {cueLists.length === 0 ? (
+          <p className="py-2 text-xs text-dim">Create cue lists in the management section below.</p>
+        ) : (
+          cueLists.map((list) => (
+            <div key={list.id} className="flex flex-col gap-1 rounded border border-line p-2">
+              <h4 className="text-[10px] font-medium text-text">{list.name}</h4>
+              {list.steps.length === 0 ? (
+                <span className="text-[10px] text-dim">No cues yet</span>
+              ) : (
+                <div className="grid grid-cols-4 gap-1.5">
+                  {list.steps.map((step, index) => {
+                    const sceneName = scenes.find((scene) => scene.id === step.sceneId)?.name
+                    const active =
+                      activeCueListId === list.id && activeCueIndex === index
+                    return (
+                      <button
+                        key={step.id}
+                        type="button"
+                        onClick={() => goToCue(list.id, index)}
+                        className={`pad rounded border border-line px-2 py-2 text-xs transition-colors ${
+                          active
+                            ? 'active'
+                            : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
+                        }`}
+                        title={`${sceneName ?? 'Missing scene'} · ${step.fadeMs}ms fade`}
+                      >
+                        <span className="block truncate">{sceneName ?? 'Missing scene'}</span>
+                        <span className="text-[9px] opacity-70">Cue {index + 1}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </section>
+
+      <details className="rounded-lg border border-line bg-panel p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-dim">
+          Manage scenes
+        </summary>
+        <div className="pt-3">
+          <SceneGrid />
         </div>
-      ))}
+      </details>
+      <details className="rounded-lg border border-line bg-panel p-2">
+        <summary className="cursor-pointer text-[10px] font-semibold uppercase tracking-wider text-dim">
+          Manage cue lists
+        </summary>
+        <div className="pt-3">
+          <CueListPanel />
+        </div>
+      </details>
     </div>
   )
 }
