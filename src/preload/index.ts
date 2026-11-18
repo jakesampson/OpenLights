@@ -39,5 +39,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('window:maximized', listener)
     return () => ipcRenderer.removeListener('window:maximized', listener)
   },
-  onMenuCommand: (callback: (command: string) => void) => { const listener = (_event: Electron.IpcRendererEvent, command: string) => callback(command); ipcRenderer.on('menu:command', listener); return () => ipcRenderer.removeListener('menu:command', listener) }
+  onMenuCommand: (callback: (command: string) => void) => { const listener = (_event: Electron.IpcRendererEvent, command: string) => callback(command); ipcRenderer.on('menu:command', listener); return () => ipcRenderer.removeListener('menu:command', listener) },
+  onAppQuitting: (callback: () => void) => { const listener = () => callback(); ipcRenderer.on('app:quitting', listener); return () => ipcRenderer.removeListener('app:quitting', listener) }
 })

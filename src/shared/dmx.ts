@@ -89,6 +89,9 @@ export class DMXEngine {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
     await this.disconnectAll()
+    // A previous disconnect() stops the frame pump; restart it so frames
+    // (and the virtual frame counters) keep ticking while connected.
+    this.startFramePump()
     if (generation !== this.connectionGeneration) return
 
     this.portPath = path
@@ -138,6 +141,10 @@ export class DMXEngine {
     this.reconnectTarget = null
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.reconnectTimer = null
+    // Stop the 40 Hz pump as well: a disconnected engine must not leave a
+    // live interval behind (it kept the main process's event loop busy
+    // after quit was requested). connect() restarts the pump.
+    this.stopFramePump()
     await this.disconnectAll()
   }
 
@@ -215,6 +222,27 @@ export class DMXEngine {
   private startFramePump() {
     if (this.timer) return
     this.timer = setInterval(() => this.pushFrame(), 25) // 40 Hz
+    // Never let the pump hold the process alive on its own: on quit the
+    // engine is shut down explicitly, but an unref'd timer cannot keep
+    // Electron's event loop (or a test runner) from exiting by itself.
+    this.timer.unref?.()
+  }
+
+  private stopFramePump() {
+    if (this.timer) {
+      clearInterval(this.timer)
+      this.timer = null
+    }
+  }
+
+  /**
+   * Stop all output and release every handle (frame pump, reconnect timer,
+   * serial port). Called once when the app quits; after this the engine
+   * must not keep the process alive. A later connect() restarts the pump.
+   */
+  async shutdown(): Promise<void> {
+    this.stopFramePump()
+    await this.disconnect()
   }
 
   private pushFrame() {
