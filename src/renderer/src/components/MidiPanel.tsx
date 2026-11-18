@@ -16,10 +16,10 @@ type MidiState = 'unsupported' | 'requesting' | 'granted' | 'denied' | 'timeout'
 
 export function MidiPanel() {
   const {
-    scenes,
+    cues,
     cueLists,
     midiMappings,
-    goToScene,
+    activateCue,
     addMidiMapping,
     removeMidiMapping,
     setMaster,
@@ -77,11 +77,11 @@ export function MidiPanel() {
         else state.goToCue(match.targetId, 0)
         return
       }
-      if (match.targetType === 'scene' && match.targetId) {
-        goToScene(match.targetId)
+      if (match.targetType === 'cue' && match.targetId) {
+        activateCue(match.targetId)
       }
     },
-    [addMidiMapping, cuePrev, goToScene, setBpm, setLiveValue, setMaster, toggleBlackout, toggleBlind, toggleFreeze, togglePreset, toggleSequence]
+    [addMidiMapping, cuePrev, activateCue, setBpm, setLiveValue, setMaster, toggleBlackout, toggleBlind, toggleFreeze, togglePreset, toggleSequence]
   )
 
   useEffect(() => {
@@ -146,14 +146,14 @@ export function MidiPanel() {
           ? { label: 'Not Supported', cls: 'bg-zinc-700/40 text-zinc-400' }
           : { label: 'Unavailable', cls: 'bg-red-500/20 text-red-400' }
 
-  const sceneName = (id: string | null) => scenes.find((s) => s.id === id)?.name ?? 'Scene'
+  const cueName = (id: string | null) => cues.find((s) => s.id === id)?.name ?? 'Cue'
   const cueListName = (id: string | null) => cueLists.find((l) => l.id === id)?.name ?? 'Cue list'
 
   const targetLabel = (m: MidiMapping): string => {
     if (m.targetType === 'blackout') return 'Blackout / Panic'
     if (m.targetType === 'master') return 'Master intensity'
     if (m.targetType === 'cue-next') return `Next cue · ${cueListName(m.targetId)}`
-    return sceneName(m.targetId)
+    return cueName(m.targetId)
   }
 
   const learnButton = (target: LearnTarget) => {
@@ -273,11 +273,11 @@ export function MidiPanel() {
 
           <div>
             <h4 className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
-              Scenes
+              Cues
             </h4>
             <div className="flex flex-col gap-2">
-              {scenes.map((scene) =>
-                bindRow({ targetType: 'scene', targetId: scene.id, label: scene.name })
+              {cues.map((cue) =>
+                bindRow({ targetType: 'cue', targetId: cue.id, label: cue.name })
               )}
             </div>
           </div>

@@ -37,12 +37,12 @@ describe('ShowBuddyActive demo project', () => {
     expect(finalFixture.channelStart + finalFixture.channels - 1).toBe(51)
   })
 
-  it('includes scene values for every fixture', () => {
+  it('includes cue values for every fixture', () => {
     const fixtureIds = demoProject.fixtures.map((fixture) => fixture.id)
 
-    expect(demoProject.scenes.length).toBeGreaterThan(0)
-    for (const scene of demoProject.scenes) {
-      expect(Object.keys(scene.fixtureValues).sort()).toEqual([...fixtureIds].sort())
+    expect(demoProject.cues.length).toBeGreaterThan(0)
+    for (const cue of demoProject.cues) {
+      expect(Object.keys(cue.fixtureValues).sort()).toEqual([...fixtureIds].sort())
     }
   })
 })

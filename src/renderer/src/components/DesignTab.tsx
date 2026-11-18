@@ -23,16 +23,26 @@ function colorHex(values: Record<string, number>) {
 export function DesignTab() {
   const {
     show,
-    scenes,
-    activeSceneId,
+    cues,
+    presets,
+    activeCueId,
     selectedFixtureIds,
     selectedBeams,
     updateSelectedBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
+    editingPresetId,
+    updateEditingPresetValues,
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
-  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const activeCue = cues.find((cue) => cue.id === activeCueId)
+  // In-place preset editing (LightKey, Guide ch.9): the bottom panel edits
+  // the preset's own values, not the active cue's. Where the preset does
+  // not define an attribute for a fixture, the cue value shows as the
+  // starting point; moving a control writes it into the preset.
+  const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
+  const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) =>
+    editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? activeCue?.fixtureValues[fixtureId]?.[attribute] ?? fallback
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
   const commonAttributes = beamProperties.length ? Object.keys(beamProperties[0]).filter((key) => beamProperties.every((b) => key in b)) : availableProperties(selectedFixtures).map((property) => property.attribute)
@@ -48,17 +58,18 @@ export function DesignTab() {
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
   const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
-  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? activeScene?.fixtureValues[b.fixtureId]?.[key] ?? 0 : 0) }, 0) / selectedBeams.length) :
+  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? fixtureAttr(b.fixtureId, key, 0) : 0) }, 0) / selectedBeams.length) :
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
-            (total, fixture) => total + (activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
+            (total, fixture) => total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0),
             0
           ) / selectedFixtures.length
         )
       : 0
-  const dimmer = activeScene ? valueFor('intensity') : 0
-  const updateValues = selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
+  const dimmer = editingPreset || activeCue ? valueFor('intensity') : 0
+  const updateValues = editingPreset ? updateEditingPresetValues
+    : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
   const colorValues = {
     red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : Math.min(255, valueFor('red') + valueFor('white') + valueFor('amber')),
     green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : Math.min(255, valueFor('green') + valueFor('white') + valueFor('amber') * 0.45),
@@ -71,7 +82,8 @@ export function DesignTab() {
 
   const setColor = (hex: string) => {
     const rgb = { red: parseInt(hex.slice(1, 3), 16), green: parseInt(hex.slice(3, 5), 16), blue: parseInt(hex.slice(5, 7), 16) }
-    if (selectedBeams.length) updateSelectedBeamValues(rgb, false)
+    if (editingPreset) updateEditingPresetValues(rgb)
+    else if (selectedBeams.length) updateSelectedBeamValues(rgb, false)
     else setSelectedColor(rgb, false)
   }
 
@@ -89,7 +101,9 @@ export function DesignTab() {
             ? `${selectedFixtures.length} fixture${selectedFixtures.length === 1 ? '' : 's'} selected`
             : 'Select fixture(s) on stage'}
         </span>
-        {!activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Select a scene in the right sidebar to edit its fixture values</span>}
+        {editingPreset
+          ? <span className="rounded bg-yellow-400 px-2 py-0.5 text-[10px] font-semibold text-black">Editing preset “{editingPreset.name}” — changes save to the preset</span>
+          : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
@@ -147,7 +161,7 @@ export function DesignTab() {
             <span className="text-[11px] font-medium uppercase text-dim">Position</span>
             <PositionControl fixtures={selectedFixtures} update={updateValues} />
             <span className="font-mono text-[10px] text-dim">
-              Pan {activeScene ? valueFor('pan') : 0} · Tilt {activeScene ? valueFor('tilt') : 0}
+              Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}
             </span>
           </div>
         )}
@@ -159,7 +173,7 @@ export function DesignTab() {
             </div>
           ) : (
             channelAttributes.map((attribute) => {
-              const value = activeScene ? valueFor(attribute) : 0
+              const value = activeCue ? valueFor(attribute) : 0
               return (
                 <div key={attribute} className="chan h-full min-w-7 flex-1">
                   <span className="text-center text-[10px] leading-none text-dim">
@@ -190,9 +204,11 @@ export function DesignTab() {
         </div>
       </div>
 
-      <div className="shrink-0">
+      {/* Fanning spreads values across fixtures in a cue; it has no
+          meaning while editing a preset's stored values. */}
+      {!editingPreset && <div className="shrink-0">
         <FanningEditor />
-      </div>
+      </div>}
     </div>
   )
 }

@@ -57,12 +57,12 @@ export function findRelatedCues(
   return results
 }
 
-/** Find cue lists that contain cues referencing a preset (via scene→preset mapping). */
+/** Find cue lists that contain cues referencing a preset (via cue→preset mapping). */
 export function findRelatedCueLists(
   show: ShowDef,
   presetId: string
 ): { cueListId: string; cueListName: string }[] {
-  // Cue list steps reference scenes, not presets directly in the current model.
+  // Cue list steps reference cues, not presets directly in the current model.
   // Sequences reference presets, so check if any sequence that uses this preset
   // is associated with a cue or cuelist.
   return []

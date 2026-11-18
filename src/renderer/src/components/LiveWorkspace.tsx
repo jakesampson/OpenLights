@@ -49,7 +49,7 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
 
 export function LiveWorkspace() {
   const {
-    locked, show, scenes, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
+    locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
     master, setMaster, bpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
@@ -234,8 +234,8 @@ export function LiveWorkspace() {
     })
     savePage({ ...page, controls: [...page.controls, control] }); setPageObjectSelection([{ type: 'cue', id: control.id }])
   }
-  // Scene buttons are created the LightKey way: New Button, then pick a
-  // scene in the inspector — or drag a preset / sequence from the Preset
+  // Cue buttons are created the LightKey way: New Button, then pick a
+  // cue in the inspector — or drag a preset / sequence from the Preset
   // Palette in the right sidebar onto the canvas.
   const hasDropData = (event: React.DragEvent) =>
     event.dataTransfer.types.includes(LIVE_DROP_MIME) || event.dataTransfer.types.includes(LEGACY_PRESET_MIME)
@@ -446,7 +446,7 @@ export function LiveWorkspace() {
           const w = resizeDraft?.id === widget.id ? resizeDraft.width : lw, h = resizeDraft?.id === widget.id ? resizeDraft.height : lh
           return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
             <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
-            <p className="mt-1 text-dim">Current: {current >= 0 ? scenes.find((s) => s.id === list?.steps[current]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</p><p className="text-dim">Next: {next ? scenes.find((s) => s.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list'}</p>
+            <p className="mt-1 text-dim">Current: {current >= 0 ? cues.find((s) => s.id === list?.steps[current]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</p><p className="text-dim">Next: {next ? cues.find((s) => s.id === next.cueId)?.name ?? 'Missing cue' : 'End of list'}</p>
             {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
             {resizeHandle(ref, lw, lh)}
           </div>
@@ -493,7 +493,7 @@ export function LiveWorkspace() {
           <div>
             <h4 className="font-semibold text-text">Button</h4>
             <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
-            <label className="mt-1 block text-dim">Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="ml-1 rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+            <label className="mt-1 block text-dim">Cue<select aria-label="Cue" value={selectedControl.cueId ?? ''} onChange={(e) => patchControl(selectedControl.id, { cueId: e.target.value || undefined })} className="ml-1 rounded bg-bg p-1"><option value="">No cue</option>{cues.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
           </div>
           <details><summary className="cursor-pointer">Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>
           <details><summary className="cursor-pointer">Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>

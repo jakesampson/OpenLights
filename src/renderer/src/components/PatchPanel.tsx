@@ -123,7 +123,7 @@ export function PatchPanel() {
       <div className="overflow-x-auto rounded-xl border border-line bg-panel">
         {fixtures.length === 0 ? (
           <div className="p-6 text-center text-xs text-dim">
-            No fixtures patched yet. Add one above to start building scenes.
+            No fixtures patched yet. Add one above to start building cues.
           </div>
         ) : (
           <table className="w-full text-left text-xs">
@@ -194,7 +194,7 @@ export function PatchPanel() {
                     <button className="mr-2 text-[10px] text-dim" onClick={() => { try { useShowStore.getState().duplicateFixture(fixture.id) } catch (error) { setPatchError(error instanceof Error ? error.message : String(error)) } }}>Duplicate</button><span className="mr-2 text-[10px] text-dim">U{fixture.universe ?? 1}</span>
                     <button
                       onClick={() => {
-                        if (confirm(`Remove ${fixture.name}? Scene values for it are removed too.`)) {
+                        if (confirm(`Remove ${fixture.name}? Cue values for it are removed too.`)) {
                           removeFixture(fixture.id)
                         }
                       }}

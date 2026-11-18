@@ -1,18 +1,18 @@
-import type { FixtureDef, SceneDef } from '@shared/types'
+import type { FixtureDef, CueDef } from '@shared/types'
 
 export type StageTheme = 'purple' | 'teal'
 
 export function getStageTheme(
-  scene: SceneDef | null | undefined,
+  cue: CueDef | null | undefined,
   fixtures: FixtureDef[]
 ): StageTheme {
-  if (!scene) return 'purple'
+  if (!cue) return 'purple'
 
   let red = 0
   let green = 0
   let hasOutput = false
   for (const fixture of fixtures) {
-    const values = scene.fixtureValues[fixture.id]
+    const values = cue.fixtureValues[fixture.id]
     if (!values) continue
     const intensity = (values.intensity ?? 255) / 255
     const amber = values.amber ?? 0

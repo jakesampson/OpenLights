@@ -1,6 +1,6 @@
 import { transformPosition } from './position'
 import { BUILTIN_PROFILES, fixtureChannelMap, fixtureMode } from '@shared/fixtureProfiles'
-import type { AutomationDef, FixtureDef, SceneDef, ShowDef } from '@shared/types'
+import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '@shared/types'
 
 export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = Object.fromEntries(BUILTIN_PROFILES.map((profile) => [profile.legacyType, Object.fromEntries(profile.modes[0].channels.map((c) => [c.attribute, c.number]))]))
 
@@ -39,24 +39,24 @@ function scaleAttribute(attr: string, value: number, master: number): number {
 export { scaleAttribute }
 
 /**
- * Map a scene's fixture values onto a 1-based DMX channel patch.
+ * Map a cue's fixture values onto a 1-based DMX channel patch.
  * fixture.channelStart is already 1-based, so the first attribute of a
  * fixture starting at channel 1 lands on channel 1.
  *
  * With zeroMissing, every channel owned by the patch is included and set to
- * 0 when the scene doesn't specify it — this makes scene transitions fade the
+ * 0 when the cue doesn't specify it — this makes cue transitions fade the
  * whole rig instead of leaving stale channels lit.
  */
-export function computeSceneChannels(
+export function computeCueChannels(
   fixtures: FixtureDef[],
-  scene: SceneDef,
+  cue: CueDef,
   master = 255,
   zeroMissing = false
 ): Record<number, number> {
   const channels: Record<number, number> = {}
 
   for (const fixture of fixtures) {
-    const attrs = transformPosition(scene.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
+    const attrs = transformPosition(cue.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
     const map = fixtureChannelMap(fixture)
     if (fixture.disabled) { for (const offset of Object.values(map)) channels[fixture.channelStart + offset] = 0; continue }
 

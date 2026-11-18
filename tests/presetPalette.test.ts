@@ -44,7 +44,7 @@ describe('preset palette filter and related cues (6.12)', () => {
   it('finds related cues that reference a preset', () => {
     const show: ShowDef = {
       id: 'show1', name: 'Test', createdAt: 0, updatedAt: 0,
-      fixtures: [], scenes: [], automations: [],
+      fixtures: [], cues: [], automations: [],
       livePages: [
         { id: 'page1', name: 'Main', controls: [
           { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: ['p1', 'p2'], x: 0, y: 0 },

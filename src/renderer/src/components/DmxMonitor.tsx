@@ -54,7 +54,7 @@ export function DmxMonitor() {
       </div>
       {visible.length === 0 ? (
         <div className="py-2 text-xs text-zinc-600">
-          Output is black. Fire a scene or cue to see channel values here.
+          Output is black. Fire a cue to see channel values here.
         </div>
       ) : (
         <div className="grid max-h-40 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6 lg:grid-cols-8">

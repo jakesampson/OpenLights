@@ -1,7 +1,7 @@
 import type { SequenceDef, PresetDef } from '@shared/types'
 import { sequenceValues } from './sequenceClock'
 /**
- * Renderer-side DMX output. Keeps the base look (scenes, cues, automation)
+ * Renderer-side DMX output. Keeps the base look (cues, cues, automation)
  * separate from the effects layer, so animated effects can be applied on top
  * without losing what the operator selected. Every write funnels through here.
  */
@@ -9,7 +9,7 @@ import { sequenceValues } from './sequenceClock'
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
-import { computeSceneChannels } from './automationRuntime'
+import { computeCueChannels } from './automationRuntime'
 
 let sequences: SequenceDef[] = []
 let sequencePresets: PresetDef[] = []
@@ -17,7 +17,7 @@ const sequenceStarts = new Map<string, number>()
 function sequencePatch(now: number): Record<number, number> {
   if (runtime.blackout || presetSuppressed) return {}
   const patch: Record<number, number> = {}
-  for (const sequence of sequences) Object.assign(patch, computeSceneChannels(runtime.fixtures, { id: sequence.id, name: sequence.name, fadeMs: 0, fixtureValues: sequenceValues(sequence, sequencePresets, runtime.fixtures, now - (sequenceStarts.get(sequence.id) ?? now), 1, runtime.bpm) }, runtime.master))
+  for (const sequence of sequences) Object.assign(patch, computeCueChannels(runtime.fixtures, { id: sequence.id, name: sequence.name, fadeMs: 0, fixtureValues: sequenceValues(sequence, sequencePresets, runtime.fixtures, now - (sequenceStarts.get(sequence.id) ?? now), 1, runtime.bpm) }, runtime.master))
   return patch
 }
 export function configureSequences(active: SequenceDef[], presets: PresetDef[] = []) {
@@ -98,7 +98,7 @@ export function interpolateOutputFrame(from: Record<number, number>, to: Record<
 
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  let output = composeOutput({ defaults: computeSceneChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  let output = composeOutput({ defaults: computeCueChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
   if (!runtime.blackout && thawFrom && thawDuration > 0) {
     const progress = (now - thawStartedAt) / thawDuration
     output = interpolateOutputFrame(thawFrom, output, progress)
@@ -249,7 +249,7 @@ export function setEffectBlackout(active: boolean) {
   }
 }
 
-/** Presets overlay the scene and effects; blackout always wins. */
+/** Presets overlay the cue and effects; blackout always wins. */
 export function configurePresetOutput(patch: Record<number, number>) {
   presets = { ...patch }
   flush()
@@ -285,5 +285,5 @@ export function configureLocateOutput(patch: Record<number, number>, durationMs 
   if (Object.keys(locate).length) locateTimer = setTimeout(() => { locate = {}; locateTimer = null; flush() }, Math.max(0, durationMs))
 }
 
-/** Blackout scenes suppress preset layers until another scene is recalled. */
-export function suppressPresetsForScene(active: boolean) { presetSuppressed = active }
+/** Blackout cues suppress preset layers until another cue is recalled. */
+export function suppressPresetsForCue(active: boolean) { presetSuppressed = active }

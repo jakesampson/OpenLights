@@ -26,7 +26,7 @@ function makeShow(): ShowDef {
       { id: 'f1', name: 'Front', type: 'par', channelStart: 1, channels: 4 },
       { id: 'f2', name: 'Head', type: 'moving-head', channelStart: 5, channels: 8 }
     ],
-    scenes: [
+    cues: [
       {
         id: 's1',
         name: 'One',
@@ -52,8 +52,8 @@ function makeShow(): ShowDef {
         id: 'c1',
         name: 'Set',
         steps: [
-          { id: 'step1', sceneId: 's1', fadeMs: 0, holdMs: 0 },
-          { id: 'step2', sceneId: 's2', fadeMs: 0, holdMs: 0 }
+          { id: 'step1', cueId: 's1', fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cueId: 's2', fadeMs: 0, holdMs: 0 }
         ],
         loop: false
       }
@@ -97,13 +97,13 @@ describe('effect editing', () => {
 })
 
 describe('saved preferences', () => {
-  it('persists timing, appearance and USB DMX defaults and applies the default scene fade', () => {
+  it('persists timing, appearance and USB DMX defaults and applies the default cue fade', () => {
     useShowStore.getState().updatePreferences({ defaultFadeMs: 2300, pageFadeMs: 700, theme: 'system', dmxProtocol: 'enttec-usb-pro' })
     useShowStore.getState().setPageSwitchMode(true)
     expect(useShowStore.getState().show?.preferences).toEqual({ defaultFadeMs: 2300, pageFadeMs: 700, theme: 'system', dmxProtocol: 'enttec-usb-pro' })
     expect(useShowStore.getState().show?.deactivateOnPageSwitch).toBe(true)
-    useShowStore.getState().addScene()
-    expect(useShowStore.getState().scenes.at(-1)?.fadeMs).toBe(2300)
+    useShowStore.getState().addCue()
+    expect(useShowStore.getState().cues.at(-1)?.fadeMs).toBe(2300)
   })
 })
 
@@ -135,9 +135,9 @@ describe('development show template', () => {
   })
 })
 
-describe('scene output', () => {
+describe('cue output', () => {
   it('sends a 1-based patch, zeroing unset channels owned by fixtures', () => {
-    useShowStore.getState().goToScene('s1')
+    useShowStore.getState().activateCue('s1')
     expect(lastPatch()).toEqual({
       1: 255,
       2: 255,
@@ -155,7 +155,7 @@ describe('scene output', () => {
   })
 
   it('scales dimming attributes by master but leaves pan/tilt alone', () => {
-    useShowStore.getState().goToScene('s1')
+    useShowStore.getState().activateCue('s1')
     useShowStore.getState().setMaster(128)
     const patch = lastPatch()
     expect(patch[1]).toBe(128)
@@ -164,8 +164,8 @@ describe('scene output', () => {
     expect(useShowStore.getState().show?.masterIntensity).toBe(128)
   })
 
-  it('blackout zeros the rig explicitly and restore re-applies the active scene', () => {
-    useShowStore.getState().goToScene('s1')
+  it('blackout zeros the rig explicitly and restore re-applies the active cue', () => {
+    useShowStore.getState().activateCue('s1')
     useShowStore.getState().setBlackout(true)
     const patch = lastPatch()
     expect(Object.keys(patch)).toHaveLength(512)
@@ -174,48 +174,48 @@ describe('scene output', () => {
     expect(lastPatch()[1]).toBe(255)
   })
 
-  it('applies a blackout scene as an explicit full zero output', () => {
-    useShowStore.getState().updateScene('s1', { blackout: true })
-    useShowStore.getState().goToScene('s1')
+  it('applies a blackout cue as an explicit full zero output', () => {
+    useShowStore.getState().updateCue('s1', { blackout: true })
+    useShowStore.getState().activateCue('s1')
     const patch = lastPatch()
     expect(Object.keys(patch)).toHaveLength(512)
     expect(Object.values(patch).every((v) => v === 0)).toBe(true)
   })
 
   it('clears the universe when a show is loaded', () => {
-    useShowStore.getState().goToScene('s1')
+    useShowStore.getState().activateCue('s1')
     useShowStore.getState().setShow(makeShow())
     const patch = lastPatch()
     expect(Object.keys(patch)).toHaveLength(512)
     expect(Object.values(patch).every((v) => v === 0)).toBe(true)
-    expect(useShowStore.getState().activeSceneId).toBeNull()
+    expect(useShowStore.getState().activeCueId).toBeNull()
   })
 
-  it('duplicates a scene directly after the original', () => {
-    useShowStore.getState().duplicateScene('s1')
-    const scenes = useShowStore.getState().scenes
-    expect(scenes).toHaveLength(3)
-    expect(scenes[1].name).toBe('One Copy')
-    expect(scenes[1].id).not.toBe('s1')
-    expect(scenes[1].fixtureValues).toEqual(scenes[0].fixtureValues)
+  it('duplicates a cue directly after the original', () => {
+    useShowStore.getState().duplicateCue('s1')
+    const cues = useShowStore.getState().cues
+    expect(cues).toHaveLength(3)
+    expect(cues[1].name).toBe('One Copy')
+    expect(cues[1].id).not.toBe('s1')
+    expect(cues[1].fixtureValues).toEqual(cues[0].fixtureValues)
   })
 
-  it('flashes a scene and restores the previous look on release', () => {
-    useShowStore.getState().goToScene('s1')
-    useShowStore.getState().flashScene('s2')
+  it('flashes a cue and restores the previous look on release', () => {
+    useShowStore.getState().activateCue('s1')
+    useShowStore.getState().flashCue('s2')
     expect(lastPatch()[5]).toBe(200)
-    expect(useShowStore.getState().activeSceneId).toBe('s2')
+    expect(useShowStore.getState().activeCueId).toBe('s2')
     useShowStore.getState().endFlash()
     expect(lastPatch()[1]).toBe(255)
-    expect(useShowStore.getState().activeSceneId).toBe('s1')
+    expect(useShowStore.getState().activeCueId).toBe('s1')
   })
 
   it('ignores flash during blackout', () => {
     useShowStore.getState().setBlackout(true)
     setChannels.mockClear()
-    useShowStore.getState().flashScene('s1')
+    useShowStore.getState().flashCue('s1')
     expect(setChannels).not.toHaveBeenCalled()
-    expect(useShowStore.getState().activeSceneId).not.toBe('s1')
+    expect(useShowStore.getState().activeCueId).not.toBe('s1')
   })
 })
 
@@ -241,12 +241,12 @@ describe('fixture selection and design controls', () => {
   it('stores a dimmer preview colour without sending extra DMX channels', () => {
     const show = makeShow()
     show.fixtures = [{ id: 'd', name: 'Dimmer', type: 'dimmer', channelStart: 20, channels: 1 }]
-    show.scenes[0].fixtureValues = { d: { intensity: 255 } }
+    show.cues[0].fixtureValues = { d: { intensity: 255 } }
     useShowStore.getState().setShow(show)
-    useShowStore.getState().goToScene('s1')
+    useShowStore.getState().activateCue('s1')
     useShowStore.getState().selectFixture('d')
     useShowStore.getState().updateSelectedFixtures({ red: 200, green: 50, blue: 10 })
-    expect(useShowStore.getState().scenes[0].fixtureValues.d).toEqual({ intensity: 255, red: 200, green: 50, blue: 10 })
+    expect(useShowStore.getState().cues[0].fixtureValues.d).toEqual({ intensity: 255, red: 200, green: 50, blue: 10 })
     expect(lastPatch()[20]).toBe(255)
     expect(lastPatch()[21]).toBeUndefined()
   })
@@ -271,28 +271,28 @@ describe('fixture selection and design controls', () => {
     expect(useShowStore.getState().selectedFixtureIds).toEqual([])
   })
 
-  it('updates only selected fixtures in the active scene and live output', () => {
+  it('updates only selected fixtures in the active cue and live output', () => {
     const store = useShowStore.getState()
-    store.goToScene('s1')
+    store.activateCue('s1')
     store.selectFixture('f2')
     store.updateSelectedFixtures({ intensity: 300, pan: 255 })
 
-    const activeScene = useShowStore.getState().scenes.find((scene) => scene.id === 's1')
-    expect(activeScene?.fixtureValues.f1?.intensity).toBe(255)
-    expect(activeScene?.fixtureValues.f2?.intensity).toBe(255)
-    expect(activeScene?.fixtureValues.f2?.pan).toBe(255)
+    const activeCue = useShowStore.getState().cues.find((cue) => cue.id === 's1')
+    expect(activeCue?.fixtureValues.f1?.intensity).toBe(255)
+    expect(activeCue?.fixtureValues.f2?.intensity).toBe(255)
+    expect(activeCue?.fixtureValues.f2?.pan).toBe(255)
     expect(lastPatch()[5]).toBe(255)
   })
 
-  it('creates and activates a scene when editing without an active scene', () => {
+  it('creates and activates a cue when editing without an active cue', () => {
     const store = useShowStore.getState()
     store.selectFixture('f1')
     store.updateSelectedFixtures({ intensity: 100 })
 
     const state = useShowStore.getState()
-    const created = state.scenes.find((scene) => scene.id === state.activeSceneId)
+    const created = state.cues.find((cue) => cue.id === state.activeCueId)
     expect(created?.fixtureValues.f1?.intensity).toBe(100)
-    expect(state.scenes).toHaveLength(3)
+    expect(state.cues).toHaveLength(3)
     expect(lastPatch()[1]).toBe(100)
   })
 })
@@ -321,15 +321,15 @@ describe('cue lists', () => {  it('runs from go to next and stops at the end', (
     expect(lastPatch()[1]).toBe(255)
   })
 
-  it('drops cues when their scene is deleted', () => {
-    useShowStore.getState().deleteScene('s1')
+  it('drops cues when their cue is deleted', () => {
+    useShowStore.getState().deleteCue('s1')
     const list = useShowStore.getState().cueLists.find((l) => l.id === 'c1')
-    expect(list?.steps.map((s) => s.sceneId)).toEqual(['s2'])
+    expect(list?.steps.map((s) => s.cueId)).toEqual(['s2'])
   })
 })
 
 describe('patch and persistence sync', () => {
-  it('adds a fixture at the next free address and seeds scene values', () => {
+  it('adds a fixture at the next free address and seeds cue values', () => {
     useShowStore.getState().addFixture(
       { id: 'dimmer-1ch', name: 'Single Dimmer', type: 'dimmer', channels: 1 },
       'Floor',
@@ -338,7 +338,7 @@ describe('patch and persistence sync', () => {
     const state = useShowStore.getState()
     const added = state.show?.fixtures.find((f) => f.name === 'Floor')
     expect(added?.channelStart).toBe(13)
-    expect(state.scenes.every((s) => s.fixtureValues[added!.id])).toBe(true)
+    expect(state.cues.every((s) => s.fixtureValues[added!.id])).toBe(true)
   })
 
   it('removes automation lanes that reference a removed fixture', () => {
@@ -356,7 +356,7 @@ describe('patch and persistence sync', () => {
   })
 
   it('zeroes the removed fixture range instead of leaving it latched', () => {
-    useShowStore.getState().goToScene('s2')
+    useShowStore.getState().activateCue('s2')
     expect(lastPatch()[5]).toBe(200)
     useShowStore.getState().removeFixture('f2')
     const patch = lastPatch()
@@ -376,9 +376,9 @@ describe('patch and persistence sync', () => {
     expect(useShowStore.getState().show?.audioPath).toBe('/music/set.mp3')
   })
 
-  it('keeps scenes, automations, cue lists and MIDI mappings on the saved show', () => {
+  it('keeps cues, automations, cue lists and MIDI mappings on the saved show', () => {
     const store = useShowStore.getState()
-    store.addScene()
+    store.addCue()
     store.addAutomation({
       id: 'a1',
       name: 'Lane',
@@ -389,7 +389,7 @@ describe('patch and persistence sync', () => {
     store.addCueList('Second')
     store.addMidiMapping({
       id: 'm1',
-      targetType: 'scene',
+      targetType: 'cue',
       targetId: 's1',
       midiType: 'noteon',
       channel: 1,
@@ -397,7 +397,7 @@ describe('patch and persistence sync', () => {
     })
 
     const show = useShowStore.getState().show!
-    expect(show.scenes).toHaveLength(3)
+    expect(show.cues).toHaveLength(3)
     expect(show.automations).toHaveLength(1)
     expect(show.cueLists).toHaveLength(2)
     expect(show.midiMappings).toHaveLength(1)
@@ -418,17 +418,17 @@ describe('patch and persistence sync', () => {
   })
 })
 
-describe('convert scenes to presets (6.14)', () => {
+describe('convert cues to presets (6.14)', () => {
   it('appends equivalent presets, keeps the originals and is idempotent', () => {
     useShowStore.getState().setShow(makeShow())
-    const before = useShowStore.getState().scenes
-    const added = useShowStore.getState().convertScenesToPresets()
+    const before = useShowStore.getState().cues
+    const added = useShowStore.getState().convertCuesToPresets()
     expect(added).toBe(2)
     const state = useShowStore.getState()
     expect(state.presets).toHaveLength(2)
     expect(state.presets[0].fixtureValues).toEqual(before[0].fixtureValues)
-    expect(state.scenes).toEqual(before)
-    expect(useShowStore.getState().convertScenesToPresets()).toBe(0)
+    expect(state.cues).toEqual(before)
+    expect(useShowStore.getState().convertCuesToPresets()).toBe(0)
     expect(useShowStore.getState().presets).toHaveLength(2)
   })
 })
@@ -862,7 +862,7 @@ describe('cuelist editing (8.7)', () => {
     useShowStore.getState().setShow(makeShow())
     const list = useShowStore.getState().cueLists[0]
     const before = list.steps.length
-    useShowStore.getState().editCueListCommand(list.id, { type: 'add', step: { id: 'new', sceneId: useShowStore.getState().scenes[0].id, fadeMs: 100, holdMs: 200 } })
+    useShowStore.getState().editCueListCommand(list.id, { type: 'add', step: { id: 'new', cueId: useShowStore.getState().cues[0].id, fadeMs: 100, holdMs: 200 } })
     expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before + 1)
     useShowStore.getState().undo()
     expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before)

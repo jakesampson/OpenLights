@@ -21,7 +21,7 @@ describe('programming history', () => {
     roundTrip(() => store().removeFixture(store().show!.fixtures[0].id))
   })
   it('undoes preset capture, rename and deletion', () => {
-    store().goToScene(initial.scenes[0].id); store().selectFixtures([initial.fixtures[0].id])
+    store().activateCue(initial.cues[0].id); store().selectFixtures([initial.fixtures[0].id])
     roundTrip(() => store().capturePreset('Captured', 'color'))
     const id = store().presets[0].id
     roundTrip(() => store().renamePreset(id, 'Renamed'))

@@ -1,11 +1,11 @@
-import type { FixtureDef, SceneDef } from '@shared/types'
+import type { FixtureDef, CueDef } from '@shared/types'
 import { previewFixtureValues } from './previewOutput'
 
 /** A brightness-weighted hue from the current DMX values; neutral output has no hue. */
-export function adaptiveBackgroundHue(fixtures: FixtureDef[], channels: number[], scene?: SceneDef): number | null {
+export function adaptiveBackgroundHue(fixtures: FixtureDef[], channels: number[], cue?: CueDef): number | null {
   let red = 0, green = 0, blue = 0
   for (const fixture of fixtures) {
-    const v = previewFixtureValues(fixture, channels, scene?.fixtureValues[fixture.id])
+    const v = previewFixtureValues(fixture, channels, cue?.fixtureValues[fixture.id])
     const dimmer = Math.max(0, Math.min(255, v.intensity ?? 255)) / 255
     const average = (base: string) => {
       const names = [base, `${base}2`, `${base}3`, `${base}4`].filter((name) => typeof v[name] === 'number')

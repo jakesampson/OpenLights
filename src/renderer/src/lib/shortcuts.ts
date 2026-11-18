@@ -39,7 +39,7 @@ export const SHORTCUTS: ShortcutBinding[] = [
   { key: 'P', label: 'Previous cue', command: 'previous', code: 'p' },
   { key: 'Left', label: 'Previous cue', command: 'previous', code: 'arrowleft' },
   { key: 'Esc', label: 'Stop / close panel', command: 'escape', code: 'escape' },
-  ...Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1), label: `Recall scene ${index + 1}`, command: `scene${index + 1}`, code: String(index + 1) }))
+  ...Array.from({ length: 9 }, (_, index) => ({ key: String(index + 1), label: `Recall cue ${index + 1}`, command: `cue${index + 1}`, code: String(index + 1) }))
 ]
 export function matchShortcut(event: ShortcutInput, target: { tagName?: string; isContentEditable?: boolean } | null): ShortcutBinding | undefined {
   if (isEditingText(target)) return undefined

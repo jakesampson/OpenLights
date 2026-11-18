@@ -10,8 +10,8 @@ export function previewBeamAppearance(fixture: FixtureDef, position: { x: number
 }
 
 /** Decode the actual 1-based universe values for preview, retaining dimmer gel colour. */
-export function previewFixtureValues(fixture: FixtureDef, channels: number[], sceneValues?: Record<string, number>): Record<string, number> {
-  const values: Record<string, number> = fixture.type === 'dimmer' ? { ...sceneValues } : {}
+export function previewFixtureValues(fixture: FixtureDef, channels: number[], cueValues?: Record<string, number>): Record<string, number> {
+  const values: Record<string, number> = fixture.type === 'dimmer' ? { ...cueValues } : {}
   for (const [attribute, offset] of Object.entries(fixtureChannelMap(fixture))) {
     if (offset < fixture.channels) values[attribute] = channels[fixture.channelStart + offset - 1] ?? 0
   }

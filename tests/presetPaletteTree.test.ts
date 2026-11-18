@@ -41,13 +41,23 @@ describe('Preset Palette — LightKey combined tree', () => {
     for (const text of [
       '>Fixture groups<',
       'Preset layers',
-      'Scenes · ${scenes.length}',
+      'Cues · ${cues.length}',
       'Chases: ordered steps',
       'No sequences yet',
-      'Patch fixtures and save scenes to populate this tree',
+      'Patch fixtures and save cues to populate this tree',
       "from './FixtureGroups'",
       '<FixtureGroups',
-      'PresetGroups'
+      'PresetGroups',
+      // 18 Nov 2026 regression (Jake's screenshot 2): the palette had a
+      // collapsed cue row that only rendered once the tree was non-empty,
+      // so creating a group made cues "magically appear". Cues are gone
+      // from the palette entirely — no row, no picker, no edit modal, no
+      // header-menu cue actions.
+      'activateCue',
+      '__scenes__',
+      'editingCue',
+      'New cue',
+      'Duplicate active cue'
     ]) expect(panel).not.toContain(text)
     // Syncing never invents a category group.
     expect(groupsLib).not.toContain('`presets:${')
@@ -58,7 +68,7 @@ describe('Preset Palette — LightKey combined tree', () => {
     expect(panel).toContain('Preset palette menu')
     expect(panel).toContain('Export JSON')
     expect(panel).toContain('Import JSON')
-    expect(panel).toContain('Convert scenes')
+    expect(panel).toContain('Convert cues')
   })
 
   it('has the LightKey palette right-click menu (minus features that do not exist)', () => {
@@ -121,7 +131,7 @@ describe('Preset Palette — LightKey combined tree', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       presets: [{ id: 'p1', name: 'Blue', category: 'color', fixtureValues: {} }],
-      scenes: [{ id: 'sc', name: 'S', fadeMs: 0, fixtureValues: {} }]
+      cues: [{ id: 'sc', name: 'S', fadeMs: 0, fixtureValues: {} }]
     }))
     s().createPresetGroup('Worship')
     const groupId = s().show!.presetGroups!.at(-1)!.id

@@ -7,14 +7,16 @@ describe('Lightkey-style bottom panel', () => {
     expect(bottomPanelMode('Design', false)).toBe('fixture-controls')
   })
 
-  it('contains no scene or cue editing region', () => {
+  it('contains no cue editing region', () => {
     expect(BOTTOM_PANEL_REGIONS).toEqual(['master', 'playback', 'shortcuts'])
     expect(BOTTOM_PANEL_REGIONS).not.toContain('editor')
   })
-  it('offers scene and custom controls from Live edit', () => {
-    expect(LIVE_EDIT_ADD_KINDS).toEqual(['scene', 'cue', 'cuelist', 'label', 'frame'])
+  it('offers cue and custom controls from Live edit', () => {
+    // One cue-button kind only (LightKey, Guide ch.11 p.181): the old
+    // separate 'scene' button kind was the same thing under the old name.
+    expect(LIVE_EDIT_ADD_KINDS).toEqual(['cue', 'cuelist', 'label', 'frame'])
   })
-  it('renders the Live page canvas inline without forced scene buttons or a master fader', () => {
+  it('renders the Live page canvas inline without forced cue buttons or a master fader', () => {
     const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
     const live = readFileSync('src/renderer/src/components/LiveWorkspace.tsx', 'utf8')
     expect(app).toContain("tab === 'Live' ? <LiveWorkspace />")
@@ -37,8 +39,8 @@ describe('Lightkey-style bottom panel', () => {
     // stay out of this panel.
     expect(design).toContain('<FanningEditor')
     expect(design).toContain('<PositionControl')
-    expect(design).not.toContain('Edit scene')
-    expect(design).not.toContain('design-scene')
+    expect(design).not.toContain('Edit cue')
+    expect(design).not.toContain('design-cue')
     expect(design).not.toContain('Manual override')
     expect(readFileSync('src/renderer/src/components/BottomPlayback.tsx', 'utf8')).not.toContain('Master output')
     expect(css).toContain('.fixture-controls-bottom { height: 100%; min-height: 0; overflow: hidden; }')

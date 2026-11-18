@@ -180,7 +180,7 @@ export function ProjectBar() {
       createdAt: Date.now(),
       updatedAt: Date.now(),
       fixtures: [],
-      scenes: [],
+      cues: [],
       automations: [],
       midiMappings: []
     }

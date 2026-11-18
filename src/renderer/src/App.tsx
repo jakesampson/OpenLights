@@ -17,7 +17,7 @@ import { DmxConnection } from './components/DmxConnection'
 import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
-import { computeSceneChannels } from './lib/automationRuntime'
+import { computeCueChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -32,7 +32,7 @@ type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
 export default function App() {
   const {
     show,
-    scenes,
+    cues,
     effects,
     presets,
     activePresetIds,
@@ -42,25 +42,34 @@ export default function App() {
     activeLivePageId,
     manualOverrides,
     bpm,
-    activeSceneId,
+    activeCueId,
     master,
     blackout,
     blind,
     freeze,
     liveEditing,
+    editingPresetId,
+    saveEditingPreset,
+    cancelEditingPreset,
     toggleBlackout,
-    goToScene,
+    activateCue,
     cueNext,
     cuePrev,
     stopCue
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
+  const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
+  // In-place preset editing opens in Design (LightKey, Guide ch.9).
+  useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  // Switching to Live while a preset is open ends the session, keeping
+  // the edits (they were written live, undoable); Cancel is explicit.
+  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); setTab(view) }
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const titleClickTimeout = useRef<number | null>(null)
-  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const activeCue = cues.find((cue) => cue.id === activeCueId)
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
   }, [show?.preferences?.theme])
@@ -80,8 +89,8 @@ export default function App() {
         const channels = await window.electronAPI.getChannels()
         if (!alive) return
         const state = useShowStore.getState()
-        const scene = state.scenes.find((item) => item.id === state.activeSceneId)
-        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, scene)
+        const cue = state.cues.find((item) => item.id === state.activeCueId)
+        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue)
         root.style.setProperty('--adaptive-hue', String(hue ?? 283))
       } catch { /* Keep the previous appearance if output is unavailable. */ }
       finally { pending = false }
@@ -128,7 +137,7 @@ export default function App() {
     for (const id of activePresetIds) {
       const preset = presets.find((item) => item.id === id)
       if (!preset) continue
-      Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master])
@@ -140,23 +149,23 @@ export default function App() {
       const level = outputLevels[control.id] ?? 0
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
-      const scene = scenes.find((item) => item.id === control.sceneId)
-      if (scene && !scene.blackout) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], scene, scaledMaster))
+      const cue = cues.find((item) => item.id === control.cueId)
+      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], cue, scaledMaster))
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
       }
-      if (control.adHocValues) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
+      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
     const activePage = show?.livePages?.find((page) => page.id === activeLivePageId)
     const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? 0)
     configureLiveOutput(patch, changed ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
+  }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
 
   useEffect(() => {
-    configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
+    configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
   }, [manualOverrides, show?.fixtures, master])
 
   useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
@@ -194,12 +203,12 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
-      else if (command.startsWith('scene')) { const scene = state.scenes[Number(command.slice(5)) - 1]; if (scene) state.goToScene(scene.id) }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
+  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout])
 
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)
@@ -220,6 +229,10 @@ export default function App() {
     { key: 'Shift+Cmd+E', label: 'Edit preset' }
   ]
   const shortcuts = [
+    // While a preset is open for editing, Esc cancels it (the top bar
+    // has Save / Cancel too). The palette's own Esc handler stops
+    // propagation while the tree has focus.
+    ...(editingPresetId ? [{ key: 'esc', label: 'Cancel preset edit' }] : []),
     ...(tab === 'Live' && liveEditing
       // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
       // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
@@ -248,7 +261,13 @@ export default function App() {
           <ProjectBar />
           <ProjectSearch onReveal={(result) => {
             const state = useShowStore.getState()
-            if (result.type === 'fixture' || result.type === 'group') { state.selectFixtures(result.type === 'fixture' ? [result.id] : (state.show?.fixtures ?? []).filter((f) => f.group === result.id).map((f) => f.id)); setTab('Design') }
+            // Cues are not in the palette (LightKey has no scene
+            // concept, Guide ch.9); Project Search is one of the ways to
+            // pick one — it jumps straight to Design on that cue.
+            // 'cue' results also cover cuelist steps (listId) and Live
+            // buttons (pageId); only a bare cue result is a stored cue.
+            if (result.type === 'cue' && !result.listId && !result.pageId) { state.activateCue(result.id); setTab('Design') }
+            else if (result.type === 'fixture' || result.type === 'group') { state.selectFixtures(result.type === 'fixture' ? [result.id] : (state.show?.fixtures ?? []).filter((f) => f.group === result.id).map((f) => f.id)); setTab('Design') }
             else if (result.type === 'page' || result.pageId) { state.selectLivePage(result.pageId ?? result.id); setTab('Live') }
             else if (result.listId || result.type === 'cueList') { state.setActiveCueList(result.listId ?? result.id); setTab('Live') }
             requestAnimationFrame(() => {
@@ -318,6 +337,14 @@ export default function App() {
         </div>
 
         <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
+          {editingPreset && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">{editingPreset.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingPreset}>Save</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
+            </span>
+          )}
           <span
             className="window-title"
             onClick={() => {
@@ -334,7 +361,7 @@ export default function App() {
           >
             {show?.name ?? 'OpenLights'}
             <span className="ml-2 text-[10px] font-normal text-dim">
-              {blackout ? '· Blackout' : activeScene ? `· ${activeScene.name}` : '· No scene'}
+              {blackout ? '· Blackout' : activeCue ? `· ${activeCue.name}` : '· No cue'}
             </span>
           </span>
         </div>
@@ -384,7 +411,7 @@ export default function App() {
         </div>
       </header>
 
-      <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
+      <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
@@ -400,7 +427,7 @@ export default function App() {
       </div>
 
       {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
-      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') setTab(view) }} />
+      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
 
       {/* Bottom row */}
       <div className="bottom-grid">

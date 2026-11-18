@@ -10,8 +10,8 @@ describe('MIDI binding actions', () => {
     expect(learned).toMatchObject({ id: 'learned', midiType: 'cc', channel: 2, number: 64, trigger: 'value' })
   })
 
-  it.each<MidiTargetType>(['scene', 'preset', 'sequence', 'live-cue', 'blackout', 'blind', 'freeze', 'cue-next', 'cue-prev', 'tap-tempo', 'master'])('resolves the %s action', (targetType) => {
-    const mapping: MidiMapping = { id: targetType, targetType, targetId: targetType === 'scene' ? 's1' : null, midiType: 'noteon', channel: 2, number: 64, trigger: 'press' }
+  it.each<MidiTargetType>(['cue', 'preset', 'sequence', 'live-cue', 'blackout', 'blind', 'freeze', 'cue-next', 'cue-prev', 'tap-tempo', 'master'])('resolves the %s action', (targetType) => {
+    const mapping: MidiMapping = { id: targetType, targetType, targetId: targetType === 'cue' ? 's1' : null, midiType: 'noteon', channel: 2, number: 64, trigger: 'press' }
     expect(mappingAction(mapping, message)).toEqual({ type: targetType, targetId: mapping.targetId })
   })
 

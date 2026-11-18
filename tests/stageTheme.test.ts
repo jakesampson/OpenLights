@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import type { FixtureDef, SceneDef } from '../src/shared/types'
+import type { FixtureDef, CueDef } from '../src/shared/types'
 import { getStageTheme } from '../src/renderer/src/lib/stageTheme'
 
 const fixtures: FixtureDef[] = [
   { id: 'f1', name: 'Wash', type: 'par', channelStart: 1, channels: 4 }
 ]
 
-function scene(values: Record<string, number>): SceneDef {
+function cue(values: Record<string, number>): CueDef {
   return {
-    id: 'scene',
-    name: 'Scene',
+    id: 'cue',
+    name: 'Cue',
     fadeMs: 0,
     fixtureValues: { f1: values }
   }
@@ -17,21 +17,21 @@ function scene(values: Record<string, number>): SceneDef {
 
 describe('stage-driven theme', () => {
   it('uses teal when the active look has more green than red', () => {
-    expect(getStageTheme(scene({ intensity: 255, red: 20, green: 140, blue: 180 }), fixtures)).toBe(
+    expect(getStageTheme(cue({ intensity: 255, red: 20, green: 140, blue: 180 }), fixtures)).toBe(
       'teal'
     )
   })
 
   it('uses purple for red-dominant and unlit looks', () => {
-    expect(getStageTheme(scene({ intensity: 255, red: 180, green: 30, blue: 100 }), fixtures)).toBe(
+    expect(getStageTheme(cue({ intensity: 255, red: 180, green: 30, blue: 100 }), fixtures)).toBe(
       'purple'
     )
-    expect(getStageTheme(scene({ intensity: 0, red: 255, green: 255, blue: 255 }), fixtures)).toBe(
+    expect(getStageTheme(cue({ intensity: 0, red: 255, green: 255, blue: 255 }), fixtures)).toBe(
       'purple'
     )
   })
 
-  it('defaults to purple before a scene is active', () => {
+  it('defaults to purple before a cue is active', () => {
     expect(getStageTheme(null, fixtures)).toBe('purple')
   })
 
@@ -43,13 +43,13 @@ describe('stage-driven theme', () => {
       channelStart: 1,
       channels: 4
     }
-    const rgbwScene: SceneDef = {
+    const rgbwCue: CueDef = {
       id: 'rgbw-look',
       name: 'RGBW look',
       fadeMs: 0,
       fixtureValues: { rgbw: { red: 20, green: 180, blue: 40, white: 0 } }
     }
 
-    expect(getStageTheme(rgbwScene, [rgbwFixture])).toBe('teal')
+    expect(getStageTheme(rgbwCue, [rgbwFixture])).toBe('teal')
   })
 })

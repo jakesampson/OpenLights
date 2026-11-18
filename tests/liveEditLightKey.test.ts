@@ -1,7 +1,7 @@
-// Live Edit rebuild (18 Nov 2026): the old bottom strip — "+ Scene button /
+// Live Edit rebuild (18 Nov 2026): the old bottom strip — "+ Cue button /
 // + Custom cue / + Cue list / + Label / + Frame" row, hint line, "Default
 // styles for new objects" details and the "Preset palette / Export JSON /
-// Import JSON / Convert scenes" section — was replaced by a LightKey-style
+// Import JSON / Convert cues" section — was replaced by a LightKey-style
 // layout (Guide ch.11 pp.176-223, Jake's 18 Nov screenshots): grid canvas,
 // vertical Master fader left of the canvas, centred Design/Live switch +
 // toolbar (+ / frame / T / green Done), right-click context menu, inspector
@@ -22,10 +22,10 @@ const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
 describe('Live Edit — LightKey layout', () => {
   it('removes the old bottom strip from Live Edit', () => {
     for (const text of [
-      '+ Scene button',
+      '+ Cue button',
       '+ Custom cue',
       '+ Cue list',
-      'Choose scene…',
+      'Choose cue…',
       // "Default styles for new objects" moved into the page inspector
       // (defaultStylesFields); only its old bottom-strip details wrapper
       // must be gone.
@@ -33,7 +33,7 @@ describe('Live Edit — LightKey layout', () => {
       'Preset palette',
       'Export JSON',
       'Import JSON',
-      'Convert scenes',
+      'Convert cues',
       'CueContentsEditor'
     ]) expect(workspace).not.toContain(text)
   })
@@ -86,7 +86,7 @@ describe('Live Edit — LightKey layout', () => {
     expect(groupsPresets).toContain('Preset palette')
     expect(groupsPresets).toContain('Export JSON')
     expect(groupsPresets).toContain('Import JSON')
-    expect(groupsPresets).toContain('Convert scenes')
+    expect(groupsPresets).toContain('Convert cues')
     expect(groupsPresets).toContain('encodeLiveDrop')
     expect(groupsPresets).toContain('LIVE_DROP_MIME')
     expect(workspace).toContain('dropOnLivePage')

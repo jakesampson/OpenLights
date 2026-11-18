@@ -156,7 +156,7 @@ export function SequenceEditor({ sequenceId }: { sequenceId: string }) {
               <button type="button" onClick={() => reorderSequenceSteps(sequence.id, 'backward')}>Reverse steps</button>
               <button type="button" onClick={() => reorderSequenceSteps(sequence.id, 'random')}>Shuffle steps</button>
             </div>
-            <p className="mt-1 text-dim">“Capture current look” stores the active scene plus any manual overrides as a new last step.</p>
+            <p className="mt-1 text-dim">“Capture current look” stores the active cue plus any manual overrides as a new last step.</p>
             {sequence.steps.map((step, index) => (
               <StepEditor
                 key={step.id}

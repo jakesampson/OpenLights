@@ -1,5 +1,5 @@
 import type { FanDef, FrameConfig, LiveControl, LiveObjectStyle } from '@shared/types'
-import { scenesToPresets } from '@shared/sceneConversion'
+import { cuesToPresets } from '@shared/cueConversion'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, liveOutputLevels, setFrameConfig } from '../lib/liveFrames'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
@@ -17,6 +17,7 @@ import { sequenceOrder } from '../lib/sequenceClock'
 import type { PresetGroup } from '@shared/types'
 import type { SequenceDef, SequenceStep } from '@shared/types'
 import { syncPresetGroups, activateGroupedPreset } from '../lib/presetGroups'
+import { resolvePaletteDrop, type PaletteDragItem } from '../lib/paletteDrop'
 import { create } from 'zustand'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '@shared/migrations'
 import { sanitizeStageObjectPatch } from '../lib/stageObjectGeometry'
@@ -33,7 +34,7 @@ import type {
   PresetDef,
   PresetCategory,
   PreviewTruss,
-  SceneDef,
+  CueDef,
   ShowDef
 } from '@shared/types'
 import type { LivePage } from '@shared/types'
@@ -47,8 +48,8 @@ import { canParentGroup, syncFixtureGroups } from '../lib/fixtureGroups'
 import { mixColor, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
-import { computeSceneChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForScene } from '../lib/output'
+import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
 
 interface ShowState {
   locked: boolean
@@ -63,7 +64,7 @@ interface ShowState {
   undo: () => void
   redo: () => void
   show: ShowDef | null
-  scenes: SceneDef[]
+  cues: CueDef[]
   presets: PresetDef[]
   activeSequenceIds: string[]
   toggleSequence: (id: string) => void
@@ -90,7 +91,7 @@ interface ShowState {
   freeze: boolean
   bpm: number
   isPlaying: boolean
-  activeSceneId: string | null
+  activeCueId: string | null
   selectedFixtureIds: string[]
   selectedBeams: { fixtureId: string; beamId: string }[]
   selectFixtureBeam: (fixtureId: string, beamId: string, additive?: boolean) => void
@@ -165,16 +166,23 @@ interface ShowState {
   pasteFixtureProperties: (manual?: boolean) => void
   saveFan: (fan: FanDef) => void
   deleteFan: (id: string, keepValues: boolean) => void
-  goToScene: (id: string) => void
-  flashScene: (id: string) => void
+  activateCue: (id: string) => void
+  flashCue: (id: string) => void
   endFlash: () => void
   capturePreset: (name: string, category: PresetCategory) => void
-  convertScenesToPresets: () => number
+  convertCuesToPresets: () => number
   togglePreset: (id: string) => void
   clearPresets: () => void
   renamePreset: (id: string, name: string) => void
   updatePresetContents: (id: string, values: PresetDef['fixtureValues']) => void
   updatePresetFromCurrent: (id: string) => void
+  /** In-place preset editing: id of the preset open in Design, or null. */
+  editingPresetId: string | null
+  startEditingPreset: (id: string) => void
+  saveEditingPreset: () => void
+  cancelEditingPreset: () => void
+  updateEditingPresetValues: (values: Record<string, number>) => void
+  applyPaletteDrop: (drag: PaletteDragItem, targetGroupId: string | null, before?: { kind: 'preset' | 'sequence'; id: string } | null) => void
   applyPresetsToOverrides: (ids: string[], selectedOnly?: boolean) => void
   addOverridesToPresets: (ids: string[], selectedOnly?: boolean) => void
   removePresetProperty: (id: string, fixtureId: string, attribute?: string) => void
@@ -195,10 +203,10 @@ interface ShowState {
   duplicateSequenceStep: (id: string, stepId: string) => void
   moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
   reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
-  addScene: () => void
-  duplicateScene: (id: string) => void
-  updateScene: (id: string, patch: Partial<SceneDef>) => void
-  deleteScene: (id: string) => void
+  addCue: () => void
+  duplicateCue: (id: string) => void
+  updateCue: (id: string, patch: Partial<CueDef>) => void
+  deleteCue: (id: string) => void
 
   addFixture: (preset: FixturePreset, name?: string, group?: string) => void
   addProfileFixtures: (profile: FixtureProfile, options: PatchOptions) => void
@@ -239,7 +247,7 @@ interface ShowState {
   updateCueList: (id: string, patch: Partial<CueListDef>) => void
   renameCueList: (id: string, name: string) => void
   removeCueList: (id: string) => void
-  addCueStep: (listId: string, sceneId?: string) => void
+  addCueStep: (listId: string, cueId?: string) => void
   updateCueStep: (listId: string, stepId: string, patch: Partial<CueStepDef>) => void
   removeCueStep: (listId: string, stepId: string) => void
   moveCueStep: (listId: string, stepId: string, direction: -1 | 1) => void
@@ -259,7 +267,13 @@ interface ShowState {
 const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
 
 /** Momentary flash: remembers the look to return to on release. */
-let flashState: { patch: Record<number, number>; activeSceneId: string | null } | null = null
+let flashState: { patch: Record<number, number>; activeCueId: string | null } | null = null
+
+/** In-place preset editing (LightKey, Guide ch.9): the preset as it was when
+ * editing started, plus the active-preset and fixture selection to restore
+ * on Cancel. Edits write straight into the preset (undoable), so Cancel
+ * restores this snapshot and Save just ends the session. */
+let editingPresetSnapshot: { preset: PresetDef; activePresetIds: string[]; selectedFixtureIds: string[] } | null = null
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
   return fixtures.reduce((max, f) => Math.max(max, f.channelStart - 1 + f.channels), 0) + 1
@@ -273,24 +287,24 @@ export function defaultFixtureValues(fixture: FixtureDef): Record<string, number
   return values
 }
 
-function scenePatch(
+function cuePatch(
   state: Pick<ShowState, 'show' | 'master'>,
-  scene: SceneDef
+  cue: CueDef
 ): Record<number, number> {
-  return computeSceneChannels(state.show?.fixtures ?? [], scene, state.master, true)
+  return computeCueChannels(state.show?.fixtures ?? [], cue, state.master, true)
 }
 
 /**
- * Output patch for a scene. Blackout scenes drive the whole rig to zero, and
+ * Output patch for a cue. Blackout cues drive the whole rig to zero, and
  * they must send an explicit zero for every channel: an empty patch would
  * leave the last values latched on the DMX interface.
  */
-function sceneOutput(
+function cueOutput(
   state: Pick<ShowState, 'show' | 'master'>,
-  scene: SceneDef
+  cue: CueDef
 ): Record<number, number> {
-  suppressPresetsForScene(Boolean(scene.blackout))
-  return scene.blackout ? allZeroPatch() : scenePatch(state, scene)
+  suppressPresetsForCue(Boolean(cue.blackout))
+  return cue.blackout ? allZeroPatch() : cuePatch(state, cue)
 }
 
 /** Merge a patch into the persisted show, and optionally into top-level state. */
@@ -335,7 +349,7 @@ const productionDefaultShow: ShowDef = {
     { id: 'f2', name: 'Blue Fill Back', type: 'led-wash', channelStart: 5, channels: 7, group: 'Back' },
     { id: 'f3', name: 'Center Moving Head', type: 'moving-head', channelStart: 12, channels: 8, group: 'Center' }
   ],
-  scenes: [
+  cues: [
     {
       id: 's1',
       name: 'Warm Welcome',
@@ -383,9 +397,9 @@ const productionDefaultShow: ShowDef = {
       id: 'c1',
       name: 'Sunday Set',
       steps: [
-        { id: 'cs1', sceneId: 's1', fadeMs: 1500, holdMs: 0 },
-        { id: 'cs2', sceneId: 's2', fadeMs: 1000, holdMs: 0 },
-        { id: 'cs3', sceneId: 's3', fadeMs: 2000, holdMs: 0 }
+        { id: 'cs1', cueId: 's1', fadeMs: 1500, holdMs: 0 },
+        { id: 'cs2', cueId: 's2', fadeMs: 1000, holdMs: 0 },
+        { id: 'cs3', cueId: 's3', fadeMs: 2000, holdMs: 0 }
       ],
       loop: false
     }
@@ -432,7 +446,7 @@ interface TemplateLook {
   intensity: number
 }
 
-function showBuddySceneValues(look: TemplateLook): Record<string, Record<string, number>> {
+function showBuddyCueValues(look: TemplateLook): Record<string, Record<string, number>> {
   const values: Record<string, Record<string, number>> = {
     'pan-4x1x30': {
       red: look.red,
@@ -483,11 +497,11 @@ const developmentDefaultShow: ShowDef = {
   createdAt: Date.now(),
   updatedAt: Date.now(),
   fixtures: showBuddyFixtures,
-  scenes: [
+  cues: [
     {
       id: 's1',
       name: 'Warm Welcome',
-      fixtureValues: showBuddySceneValues({
+      fixtureValues: showBuddyCueValues({
         red: 220,
         green: 110,
         blue: 30,
@@ -500,7 +514,7 @@ const developmentDefaultShow: ShowDef = {
     {
       id: 's2',
       name: 'Sermon Focus',
-      fixtureValues: showBuddySceneValues({
+      fixtureValues: showBuddyCueValues({
         red: 50,
         green: 110,
         blue: 220,
@@ -513,7 +527,7 @@ const developmentDefaultShow: ShowDef = {
     {
       id: 's3',
       name: 'Communion Glow',
-      fixtureValues: showBuddySceneValues({
+      fixtureValues: showBuddyCueValues({
         red: 180,
         green: 50,
         blue: 20,
@@ -531,9 +545,9 @@ const developmentDefaultShow: ShowDef = {
       id: 'c1',
       name: 'Sunday Set',
       steps: [
-        { id: 'cs1', sceneId: 's1', fadeMs: 1500, holdMs: 0 },
-        { id: 'cs2', sceneId: 's2', fadeMs: 1000, holdMs: 0 },
-        { id: 'cs3', sceneId: 's3', fadeMs: 2000, holdMs: 0 }
+        { id: 'cs1', cueId: 's1', fadeMs: 1500, holdMs: 0 },
+        { id: 'cs2', cueId: 's2', fadeMs: 1000, holdMs: 0 },
+        { id: 'cs3', cueId: 's3', fadeMs: 2000, holdMs: 0 }
       ],
       loop: false
     }
@@ -561,20 +575,20 @@ const actions: ShowState = {
     const state = get(), previous = state.undoStack.at(-1)
     if (!previous || !state.show) return
     const next = structuredClone(previous)
-    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
-    const scene = next.scenes.find((item) => item.id === state.activeSceneId)
-    if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
+    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
+    const cue = next.cues.find((item) => item.id === state.activeCueId)
+    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
   },
   redo: () => {
     const state = get(), following = state.redoStack.at(-1)
     if (!following || !state.show) return
     const next = structuredClone(following)
-    set({ show: next, scenes: next.scenes, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
-    const scene = next.scenes.find((item) => item.id === state.activeSceneId)
-    if (!state.blackout) sendImmediate(scene ? sceneOutput(get(), scene) : allZeroPatch())
+    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
+    const cue = next.cues.find((item) => item.id === state.activeCueId)
+    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
   },
   show: defaultShow,
-  scenes: defaultShow.scenes,
+  cues: defaultShow.cues,
   presets: defaultShow.presets ?? [],
   activeSequenceIds: [],
   activePresetIds: [],
@@ -584,6 +598,7 @@ const actions: ShowState = {
   activeLivePageId: null,
   pageActiveValues: {},
   liveEditing: false,
+  editingPresetId: null,
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
@@ -597,7 +612,7 @@ const actions: ShowState = {
   freeze: false,
   bpm: 120,
   isPlaying: false,
-  activeSceneId: null,
+  activeCueId: null,
   selectedFixtureIds: [],
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
   activeCueIndex: -1,
@@ -612,7 +627,7 @@ const actions: ShowState = {
     flashState = null
     configureSequences([])
     configureLocateOutput({})
-    suppressPresetsForScene(false)
+    suppressPresetsForCue(false)
     configurePresetOutput({})
     configureLiveOutput({})
     configureOverrideOutput({})
@@ -624,7 +639,7 @@ const actions: ShowState = {
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
       show,
       activeSequenceIds: [],
-      scenes: show?.scenes ?? [],
+      cues: show?.cues ?? [],
       presets: show?.presets ?? [],
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
       activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
@@ -646,7 +661,7 @@ const actions: ShowState = {
       blind: false,
       freeze: false,
       bpm: show?.bpm ?? 120,
-      activeSceneId: show?.startup?.mode === 'restore' && show.scenes.some((s) => s.id === show.startup?.sceneId) ? show.startup.sceneId ?? null : null,
+      activeCueId: show?.startup?.mode === 'restore' && show.cues.some((s) => s.id === show.startup?.cueId) ? show.startup.cueId ?? null : null,
       selectedFixtureIds: [],
       selectedBeams: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
@@ -655,14 +670,14 @@ const actions: ShowState = {
       cueRevision: get().cueRevision + 1,
       manualCrossfade: 1
     })
-    const restored = get().scenes.find((scene) => scene.id === get().activeSceneId)
-    if (restored) sendImmediate(sceneOutput(get(), restored))
+    const restored = get().cues.find((cue) => cue.id === get().activeCueId)
+    if (restored) sendImmediate(cueOutput(get(), restored))
   },
   setStartupMode: (mode) => set((state) => persistState(state, { startup: { ...state.show?.startup, mode } })),
   showForSave: () => {
     const state = get()
     if (!state.show || state.show.startup?.mode !== 'restore') return state.show
-    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, sceneId: state.activeSceneId } }
+    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, cueId: state.activeCueId } }
   },
   setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
   dropOnLivePage: (payload, target, split) => set((state) => {
@@ -847,7 +862,7 @@ const actions: ShowState = {
   copyFixtureProperties: () => {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
-    const values = { ...state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues[fixture.id] }
+    const values = { ...state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues[fixture.id] }
     for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
     Object.assign(values, state.manualOverrides[fixture.id])
     set({ propertyClipboard: { fixture: structuredClone(fixture), values } })
@@ -857,37 +872,37 @@ const actions: ShowState = {
     if (!clipboard) return
     const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeSceneId) get().addScene()
-    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
-    if (!scene) return
-    const fixtureValues = { ...scene.fixtureValues }
+    if (!state.activeCueId) get().addCue()
+    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (!cue) return
+    const fixtureValues = { ...cue.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateScene(scene.id, { fixtureValues })
+    get().updateCue(cue.id, { fixtureValues })
   },
   saveFan: (fan) => {
-    const state = get(), scene = state.scenes.find((s) => s.id === state.activeSceneId)
-    if (!scene || !state.show) return
-    const fixtureValues = structuredClone(scene.fixtureValues)
+    const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId)
+    if (!cue || !state.show) return
+    const fixtureValues = structuredClone(cue.fixtureValues)
     for (const [id, values] of Object.entries(evaluateFan(state.show.fixtures, fan))) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateScene(scene.id, { fixtureValues, fans: [...(scene.fans ?? []).filter((f) => f.id !== fan.id), structuredClone(fan)] })
+    get().updateCue(cue.id, { fixtureValues, fans: [...(cue.fans ?? []).filter((f) => f.id !== fan.id), structuredClone(fan)] })
   },
   deleteFan: (id, keepValues) => {
-    const state = get(), scene = state.scenes.find((s) => s.id === state.activeSceneId), fan = scene?.fans?.find((f) => f.id === id)
-    if (!scene || !fan) return
-    const fixtureValues = structuredClone(scene.fixtureValues)
+    const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
+    if (!cue || !fan) return
+    const fixtureValues = structuredClone(cue.fixtureValues)
     if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][fan.attribute]
-    get().updateScene(scene.id, { fans: scene.fans?.filter((f) => f.id !== id), fixtureValues })
+    get().updateCue(cue.id, { fans: cue.fans?.filter((f) => f.id !== id), fixtureValues })
   },
   setSelectedColor: (color, manual = false) => {
     const state = get(), patch: Record<string, Record<string, number>> = {}
     for (const id of state.selectedFixtureIds) { const f = state.show?.fixtures.find((f) => f.id === id); if (f) patch[id] = f.type === 'dimmer' ? { ...color } : mixColor(color, fixtureAttributes(f)) }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeSceneId) get().addScene()
-    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
-    if (!scene) return
-    const fixtureValues = { ...scene.fixtureValues }
+    if (!state.activeCueId) get().addCue()
+    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (!cue) return
+    const fixtureValues = { ...cue.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateScene(scene.id, { fixtureValues })
+    get().updateCue(cue.id, { fixtureValues })
   },
   locateFixtures: (ids) => { const state = get(); if (!state.blackout) configureLocateOutput(locateFixturePatch(state.show?.fixtures ?? [], ids, state.master)) },
   setBpm: (bpm) =>
@@ -903,8 +918,8 @@ const actions: ShowState = {
     set((state) => {
       const master = clamp(value)
       if (!state.blackout) {
-        const active = state.scenes.find((s) => s.id === state.activeSceneId)
-        if (active) sendImmediate(sceneOutput({ ...state, master }, active))
+        const active = state.cues.find((s) => s.id === state.activeCueId)
+        if (active) sendImmediate(cueOutput({ ...state, master }, active))
         else if (get().isPlaying) {
           // Automation loop reads master from the store on its next frame.
         }
@@ -920,8 +935,8 @@ const actions: ShowState = {
         sendImmediate(allZeroPatch())
       } else {
         setEffectBlackout(false)
-        const activeScene = state.scenes.find((s) => s.id === state.activeSceneId)
-        if (activeScene) sendImmediate(sceneOutput(state, activeScene))
+        const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+        if (activeCue) sendImmediate(cueOutput(state, activeCue))
       }
       return { blackout: active }
     }),
@@ -961,12 +976,12 @@ const actions: ShowState = {
       for (const [attribute, value] of Object.entries(values)) if (beam.properties[attribute] && Number.isFinite(value)) patch[selected.fixtureId] = { ...patch[selected.fixtureId], [beam.properties[attribute]]: clamp(value) }
     }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeSceneId) get().addScene()
-    const scene = get().scenes.find((s) => s.id === get().activeSceneId)
-    if (!scene) return
-    const fixtureValues = { ...scene.fixtureValues }
+    if (!state.activeCueId) get().addCue()
+    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (!cue) return
+    const fixtureValues = { ...cue.fixtureValues }
     for (const [id, attributes] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...attributes }
-    get().updateScene(scene.id, { fixtureValues })
+    get().updateCue(cue.id, { fixtureValues })
   },
 
   groupSelectedFixtures: (name) => set((state) => {
@@ -999,50 +1014,50 @@ const actions: ShowState = {
     return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
   }),
 
-  goToScene: (id) =>
+  activateCue: (id) =>
     set((state) => {
-      const scene = state.scenes.find((s) => s.id === id)
-      if (!scene) return state
-      if (!state.blackout) sendChannels(sceneOutput(state, scene), scene.fadeMs)
+      const cue = state.cues.find((s) => s.id === id)
+      if (!cue) return state
+      if (!state.blackout) sendChannels(cueOutput(state, cue), cue.fadeMs)
       return {
-        activeSceneId: id,
+        activeCueId: id,
         cuePlaying: false
       }
     }),
 
-  flashScene: (id) =>
+  flashCue: (id) =>
     set((state) => {
-      const scene = state.scenes.find((s) => s.id === id)
-      if (!scene || state.blackout) return state
+      const cue = state.cues.find((s) => s.id === id)
+      if (!cue || state.blackout) return state
       // Nest only the first press; repeated presses shouldn't overwrite the look
       // we're flashing from.
       if (!flashState) {
-        flashState = { patch: getCurrentPatch(), activeSceneId: state.activeSceneId }
+        flashState = { patch: getCurrentPatch(), activeCueId: state.activeCueId }
       }
-      sendImmediate(sceneOutput(state, scene))
-      return { activeSceneId: id, cuePlaying: false }
+      sendImmediate(cueOutput(state, cue))
+      return { activeCueId: id, cuePlaying: false }
     }),
 
   endFlash: () =>
     set((state) => {
       if (!flashState) return state
-      const { patch, activeSceneId } = flashState
+      const { patch, activeCueId } = flashState
       flashState = null
-      suppressPresetsForScene(Boolean(state.scenes.find((scene) => scene.id === activeSceneId)?.blackout))
+      suppressPresetsForCue(Boolean(state.cues.find((cue) => cue.id === activeCueId)?.blackout))
       if (!state.blackout) sendImmediate(patch)
-      return { activeSceneId }
+      return { activeCueId }
     }),
 
   capturePreset: (name, category) => set((state) => {
-    const scene = state.scenes.find((item) => item.id === state.activeSceneId)
-    if (!scene || !state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
+    const cue = state.cues.find((item) => item.id === state.activeCueId)
+    if (!cue || !state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
     const color = /^(red|green|blue|white|amber|uv)([2-4])?$/
     const position = new Set(['pan', 'tilt'])
     const fixtureValues: PresetDef['fixtureValues'] = {}
     for (const fixture of state.show.fixtures) {
       if (!state.selectedFixtureIds.includes(fixture.id)) continue
       const supported = new Set(fixtureAttributes(fixture))
-      const source = scene.fixtureValues[fixture.id] ?? {}
+      const source = cue.fixtureValues[fixture.id] ?? {}
       const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) &&
         (category === 'color' ? color.test(attribute) : category === 'position' ? position.has(attribute) : category === 'intensity' ? attribute === 'intensity' : !color.test(attribute) && !position.has(attribute) && attribute !== 'intensity'))
       if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
@@ -1052,10 +1067,10 @@ const actions: ShowState = {
     const presets = [...state.presets, preset]
     return persistState(state, { presets }, { presets })
   }),
-  convertScenesToPresets: () => {
+  convertCuesToPresets: () => {
     const state = get()
     const existing = new Set(state.presets.map((p) => p.id))
-    const converted = scenesToPresets(state.scenes, state.show?.fixtures ?? []).filter((p) => !existing.has(p.id))
+    const converted = cuesToPresets(state.cues, state.show?.fixtures ?? []).filter((p) => !existing.has(p.id))
     if (!converted.length) return 0
     set((current) => {
       const presets = [...current.presets, ...converted]
@@ -1073,7 +1088,7 @@ const actions: ShowState = {
   clearPresets: () => set({ activePresetIds: [] }),
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
-    const values = structuredClone(state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues ?? {})
+    const values = structuredClone(state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues ?? {})
     for (const [id, patch] of Object.entries(state.manualOverrides)) values[id] = { ...values[id], ...patch }
     const sequence: SequenceDef = { id: crypto.randomUUID(), name: name.trim(), order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: crypto.randomUUID(), name: 'Step 1', fixtureValues: values, presetIds: [], fadeMs: 1000, holdMs: 0 }] }
     return persistState(state, { sequences: [...(state.show?.sequences ?? []), sequence] })
@@ -1082,7 +1097,7 @@ const actions: ShowState = {
   addSequenceStep: (id) => {
     const state = get(), sequence = state.show?.sequences?.find((s) => s.id === id)
     if (!sequence) return
-    const fixtureValues = structuredClone(state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues ?? {})
+    const fixtureValues = structuredClone(state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues ?? {})
     for (const [fixtureId, patch] of Object.entries(state.manualOverrides)) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
     get().updateSequence(id, { steps: [...sequence.steps, { id: crypto.randomUUID(), name: `Step ${sequence.steps.length + 1}`, fixtureValues, presetIds: [], fadeMs: 0, holdMs: 1000 }] })
   },
@@ -1168,12 +1183,73 @@ const actions: ShowState = {
     const presets = state.presets.map((preset) => preset.id === id ? { ...preset, fixtureValues: structuredClone(values) } : preset)
     return persistState(state, { presets }, { presets })
   }),
+  // In-place preset editing, LightKey style (Guide ch.9, and Jake's
+  // 18 Nov screenshot 4): the preset opens in Design with its fixtures
+  // selected and the preset itself active, so the preview shows the look
+  // being edited. Design writes straight into the preset (undoable, and
+  // clamped to 0–255 like every other value write), so Save just ends the
+  // session and Cancel restores the snapshot taken here.
+  startEditingPreset: (id) => {
+    const state = get(), preset = state.presets.find((p) => p.id === id)
+    if (!preset) return
+    if (state.editingPresetId && state.editingPresetId !== id) state.saveEditingPreset()
+    editingPresetSnapshot = { preset: structuredClone(preset), activePresetIds: [...state.activePresetIds], selectedFixtureIds: [...state.selectedFixtureIds] }
+    const fixtureIds = Object.keys(preset.fixtureValues).filter((fixtureId) => state.show?.fixtures.some((f) => f.id === fixtureId))
+    if (fixtureIds.length) state.selectFixtures(fixtureIds)
+    if (!state.activePresetIds.includes(id)) state.togglePreset(id)
+    set({ editingPresetId: id })
+  },
+  saveEditingPreset: () => {
+    if (!get().editingPresetId) return
+    editingPresetSnapshot = null
+    set({ editingPresetId: null })
+  },
+  cancelEditingPreset: () => {
+    const state = get(), snapshot = editingPresetSnapshot
+    if (!state.editingPresetId || !snapshot) return
+    editingPresetSnapshot = null
+    get().updatePresetContents(snapshot.preset.id, snapshot.preset.fixtureValues)
+    set({ editingPresetId: null, activePresetIds: snapshot.activePresetIds, selectedFixtureIds: snapshot.selectedFixtureIds })
+  },
+  updateEditingPresetValues: (values) => set((state) => {
+    const preset = state.presets.find((p) => p.id === state.editingPresetId)
+    if (!preset) return state
+    const fixtureValues = structuredClone(preset.fixtureValues)
+    const write = (fixtureId: string, patch: Record<string, number>) => {
+      if (Object.keys(patch).length) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
+    }
+    if (state.selectedBeams.length) {
+      // Beam values arrive keyed by beam property; map them to channel
+      // attributes the same way updateSelectedBeamValues does.
+      for (const selected of state.selectedBeams) {
+        const fixture = state.show?.fixtures.find((f) => f.id === selected.fixtureId)
+        const beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === selected.beamId)
+        if (!beam) continue
+        const patch: Record<string, number> = {}
+        for (const [attribute, value] of Object.entries(values)) {
+          const channel = beam.properties[attribute]
+          if (channel && Number.isFinite(value)) patch[channel] = clamp(value)
+        }
+        write(selected.fixtureId, patch)
+      }
+    } else {
+      const patch = Object.fromEntries(Object.entries(values).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => [key, clamp(value)]))
+      for (const id of state.selectedFixtureIds) write(id, patch)
+    }
+    const presets = state.presets.map((p) => p.id === preset.id ? { ...p, fixtureValues } : p)
+    return persistState(state, { presets }, { presets })
+  }),
+  applyPaletteDrop: (drag, targetGroupId, before = null) => set((state) => {
+    const next = resolvePaletteDrop(drag, targetGroupId, state.show?.presetGroups ?? [], before)
+    if (!next) return state
+    return persistState(state, { presetGroups: next })
+  }),
   updatePresetFromCurrent: (id) => {
     const state = get(), preset = state.presets.find((p) => p.id === id)
     if (!preset || !state.show) return
     const fixtureValues = structuredClone(preset.fixtureValues)
     for (const fixture of state.show.fixtures.filter((f) => state.selectedFixtureIds.includes(f.id))) {
-      const values = { ...state.scenes.find((s) => s.id === state.activeSceneId)?.fixtureValues[fixture.id] }
+      const values = { ...state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues[fixture.id] }
       for (const activeId of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
       Object.assign(values, state.manualOverrides[fixture.id])
       const allowed = fixtureAttributes(fixture)
@@ -1197,54 +1273,54 @@ const actions: ShowState = {
   }),
   deletePreset: (id) => set((state) => {
     const presets = state.presets.filter((preset) => preset.id !== id)
-    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id) })
+    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId })
   }),
 
-  addScene: () =>
+  addCue: () =>
     set((state) => {
       const fixtures = state.show?.fixtures ?? []
-      const fixtureValues: SceneDef['fixtureValues'] = {}
+      const fixtureValues: CueDef['fixtureValues'] = {}
       for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
-      const newScene: SceneDef = {
+      const newCue: CueDef = {
         id: crypto.randomUUID(),
-        name: `Scene ${state.scenes.length + 1}`,
+        name: `Cue ${state.cues.length + 1}`,
         fixtureValues,
         fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
       }
-      const scenes = [...state.scenes, newScene]
-      return persistState(state, { scenes }, { scenes })
+      const cues = [...state.cues, newCue]
+      return persistState(state, { cues }, { cues })
     }),
 
-  duplicateScene: (id) =>
+  duplicateCue: (id) =>
     set((state) => {
-      const index = state.scenes.findIndex((s) => s.id === id)
-      const source = state.scenes[index]
+      const index = state.cues.findIndex((s) => s.id === id)
+      const source = state.cues[index]
       if (!source) return state
-      const copy: SceneDef = {
+      const copy: CueDef = {
         ...source,
         id: crypto.randomUUID(),
         name: `${source.name} Copy`,
         fixtureValues: structuredClone(source.fixtureValues),
         fadeMs: source.fadeMs
       }
-      const scenes = [...state.scenes]
-      scenes.splice(index + 1, 0, copy)
-      return persistState(state, { scenes }, { scenes })
+      const cues = [...state.cues]
+      cues.splice(index + 1, 0, copy)
+      return persistState(state, { cues }, { cues })
     }),
 
-  updateScene: (id, patch) =>
+  updateCue: (id, patch) =>
     set((state) => {
-      const scenes = state.scenes.map((s) => (s.id === id ? { ...s, ...patch } : s))
-      const updated = scenes.find((s) => s.id === id)
-      if (updated && state.activeSceneId === id && !state.blackout) {
-        sendImmediate(sceneOutput(state, updated))
+      const cues = state.cues.map((s) => (s.id === id ? { ...s, ...patch } : s))
+      const updated = cues.find((s) => s.id === id)
+      if (updated && state.activeCueId === id && !state.blackout) {
+        sendImmediate(cueOutput(state, updated))
       }
-      return persistState(state, { scenes }, { scenes })
+      return persistState(state, { cues }, { cues })
     }),
 
   updateSelectedFixtures: (values) =>
     set((state) => {
-      const existingScene = state.scenes.find((scene) => scene.id === state.activeSceneId)
+      const existingCue = state.cues.find((cue) => cue.id === state.activeCueId)
       const selectedFixtureIds = state.selectedFixtureIds.filter((id) =>
         state.show?.fixtures.some((fixture) => fixture.id === id)
       )
@@ -1256,40 +1332,40 @@ const actions: ShowState = {
       }
       if (Object.keys(patch).length === 0) return state
 
-      const activeScene: SceneDef = existingScene ?? {
-        id: crypto.randomUUID(), name: `Scene ${state.scenes.length + 1}`, fadeMs: 1000,
+      const activeCue: CueDef = existingCue ?? {
+        id: crypto.randomUUID(), name: `Cue ${state.cues.length + 1}`, fadeMs: 1000,
         fixtureValues: Object.fromEntries(state.show.fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)]))
       }
       const selected = new Set(selectedFixtureIds)
-      const sourceScenes = existingScene ? state.scenes : [...state.scenes, activeScene]
-      const scenes = sourceScenes.map((scene) => {
-        if (scene.id !== activeScene.id) return scene
-        const fixtureValues = { ...scene.fixtureValues }
+      const sourceCues = existingCue ? state.cues : [...state.cues, activeCue]
+      const cues = sourceCues.map((cue) => {
+        if (cue.id !== activeCue.id) return cue
+        const fixtureValues = { ...cue.fixtureValues }
         for (const fixtureId of selected) {
           fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...patch }
         }
-        return { ...scene, fixtureValues }
+        return { ...cue, fixtureValues }
       })
-      const updatedScene = scenes.find((scene) => scene.id === activeScene.id)
-      if (updatedScene && !state.blackout) sendImmediate(sceneOutput(state, updatedScene))
-      return persistState(state, { scenes }, { scenes, activeSceneId: activeScene.id, cuePlaying: false })
+      const updatedCue = cues.find((cue) => cue.id === activeCue.id)
+      if (updatedCue && !state.blackout) sendImmediate(cueOutput(state, updatedCue))
+      return persistState(state, { cues }, { cues, activeCueId: activeCue.id, cuePlaying: false })
     }),
 
-  deleteScene: (id) =>
+  deleteCue: (id) =>
     set((state) => {
-      const scenes = state.scenes.filter((s) => s.id !== id)
+      const cues = state.cues.filter((s) => s.id !== id)
       const cueLists = state.cueLists.map((list) => ({
         ...list,
-        steps: list.steps.filter((step) => step.sceneId !== id)
+        steps: list.steps.filter((step) => step.cueId !== id)
       }))
-      if (state.activeSceneId === id) sendImmediate(allZeroPatch())
+      if (state.activeCueId === id) sendImmediate(allZeroPatch())
       return persistState(
         state,
-        { scenes, cueLists },
+        { cues, cueLists },
         {
-          scenes,
+          cues,
           cueLists,
-          activeSceneId: state.activeSceneId === id ? null : state.activeSceneId
+          activeCueId: state.activeCueId === id ? null : state.activeCueId
         }
       )
     }),
@@ -1307,17 +1383,17 @@ const actions: ShowState = {
         group: group?.trim() || 'Ungrouped'
       }
       const nextFixtures = [...fixtures, fixture]
-      const scenes = state.scenes.map((scene) => ({
-        ...scene,
-        fixtureValues: { ...scene.fixtureValues, [fixture.id]: defaultFixtureValues(fixture) }
+      const cues = state.cues.map((cue) => ({
+        ...cue,
+        fixtureValues: { ...cue.fixtureValues, [fixture.id]: defaultFixtureValues(fixture) }
       }))
-      return persistState(state, { fixtures: nextFixtures, scenes }, { scenes })
+      return persistState(state, { fixtures: nextFixtures, cues }, { cues })
     }),
 
   addProfileFixtures: (profile, options) => set((state) => {
     const fixtures = allocateFixtures(state.show?.fixtures ?? [], profile, options)
-    const scenes = state.scenes.map((scene) => ({ ...scene, fixtureValues: { ...scene.fixtureValues, ...Object.fromEntries(fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
-    return persistState(state, { fixtures: [...(state.show?.fixtures ?? []), ...fixtures], scenes }, { scenes })
+    const cues = state.cues.map((cue) => ({ ...cue, fixtureValues: { ...cue.fixtureValues, ...Object.fromEntries(fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
+    return persistState(state, { fixtures: [...(state.show?.fixtures ?? []), ...fixtures], cues }, { cues })
   }),
   saveFixtureProfile: (profile) => set((state) => {
     const errors = validateProfile(profile)
@@ -1332,9 +1408,9 @@ const actions: ShowState = {
     if (!original) return state
     const copy: FixtureDef = { ...structuredClone(original), id: crypto.randomUUID(), name: `${original.name} copy`, channelStart: nextFreeChannel(state.show!.fixtures), inStorage: true }
     if (copy.channelStart + copy.channels - 1 > 512) throw new Error('No free channels for the duplicate')
-    const scenes = state.scenes.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
+    const cues = state.cues.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
     const presets = state.presets.map((p) => ({ ...p, fixtureValues: { ...p.fixtureValues, ...(p.fixtureValues[id] ? { [copy.id]: { ...p.fixtureValues[id] } } : {}) } }))
-    return persistState(state, { fixtures: [...state.show!.fixtures, copy], scenes, presets }, { scenes, presets })
+    return persistState(state, { fixtures: [...state.show!.fixtures, copy], cues, presets }, { cues, presets })
   }),
   reassignFixtureProfile: (id, profile, modeId) => {
     const mode = profile.modes.find((m) => m.id === modeId) ?? profile.modes[0]
@@ -1358,9 +1434,9 @@ const actions: ShowState = {
           channels: Number.isFinite(count) ? Math.max(1, Math.round(count)) : f.channels
         }
       })
-      const active = state.scenes.find((s) => s.id === state.activeSceneId)
+      const active = state.cues.find((s) => s.id === state.activeCueId)
       if (active && !state.blackout) {
-        sendImmediate(sceneOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
+        sendImmediate(cueOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
       }
       return persistState(state, { fixtures })
     }),
@@ -1412,20 +1488,20 @@ const actions: ShowState = {
     set((state) => {
       const removed = (state.show?.fixtures ?? []).find((f) => f.id === id)
       const fixtures = (state.show?.fixtures ?? []).filter((f) => f.id !== id)
-      const scenes = state.scenes.map((scene) => {
-        const fixtureValues = { ...scene.fixtureValues }
+      const cues = state.cues.map((cue) => {
+        const fixtureValues = { ...cue.fixtureValues }
         delete fixtureValues[id]
-        return { ...scene, fixtureValues }
+        return { ...cue, fixtureValues }
       })
       const automations = state.automations.filter((a) => a.fixtureId !== id)
       const effects = state.effects.map((effect) => ({
         ...effect,
         fixtureIds: effect.fixtureIds.filter((fixtureId) => fixtureId !== id)
       }))
-      const active = scenes.find((s) => s.id === state.activeSceneId)
+      const active = cues.find((s) => s.id === state.activeCueId)
       if (!state.blackout) {
         const patch = active
-          ? sceneOutput(
+          ? cueOutput(
               { ...state, show: state.show ? { ...state.show, fixtures } : null },
               active
             )
@@ -1443,9 +1519,9 @@ const actions: ShowState = {
       const livePages = state.show?.livePages?.map((page) => ({ ...page, controls: page.controls.map((control) => { const adHocValues = { ...control.adHocValues }; delete adHocValues[id]; return { ...control, adHocValues } }) }))
       return persistState(
         state,
-        { fixtures, scenes, automations, effects, presets, livePages },
+        { fixtures, cues, automations, effects, presets, livePages },
         {
-          scenes,
+          cues,
           presets,
           automations,
           effects,
@@ -1568,16 +1644,16 @@ const actions: ShowState = {
       )
     }),
 
-  addCueStep: (listId, sceneId) =>
+  addCueStep: (listId, cueId) =>
     set((state) => {
-      const scene = sceneId ?? state.scenes[0]?.id
-      if (!scene) return state
+      const cue = cueId ?? state.cues[0]?.id
+      if (!cue) return state
       const cueLists = state.cueLists.map((list) => {
         if (list.id !== listId) return list
         const step: CueStepDef = {
           id: crypto.randomUUID(),
-          sceneId: scene,
-          fadeMs: state.scenes.find((s) => s.id === scene)?.fadeMs ?? 1000,
+          cueId: cue,
+          fadeMs: state.cues.find((s) => s.id === cue)?.fadeMs ?? 1000,
           holdMs: 0
         }
         return { ...list, steps: [...list.steps, step] }
@@ -1629,13 +1705,13 @@ const actions: ShowState = {
       const list = state.cueLists.find((l) => l.id === listId)
       if (!list) return state
       const step = list.steps[index]
-      const scene = step ? state.scenes.find((s) => s.id === step.sceneId) : undefined
-      if (!step || !scene) return state
-      if (!state.blackout) sendChannels(sceneOutput(state, scene), step.fadeMs)
+      const cue = step ? state.cues.find((s) => s.id === step.cueId) : undefined
+      if (!step || !cue) return state
+      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
       return {
         activeCueListId: listId,
         activeCueIndex: index,
-        activeSceneId: scene.id,
+        activeCueId: cue.id,
         cuePlaying: true,
         cueRevision: state.cueRevision + 1
       }
@@ -1651,12 +1727,12 @@ const actions: ShowState = {
         else return { ...state, cuePlaying: false }
       }
       const step = list.steps[next]
-      const scene = state.scenes.find((s) => s.id === step.sceneId)
-      if (!scene) return { ...state, cuePlaying: false }
-      if (!state.blackout) sendChannels(sceneOutput(state, scene), step.fadeMs)
+      const cue = state.cues.find((s) => s.id === step.cueId)
+      if (!cue) return { ...state, cuePlaying: false }
+      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
       return {
         activeCueIndex: next,
-        activeSceneId: scene.id,
+        activeCueId: cue.id,
         cuePlaying: true,
         cueRevision: state.cueRevision + 1
       }
@@ -1669,12 +1745,12 @@ const actions: ShowState = {
       let prev = state.activeCueIndex - 1
       if (prev < 0) prev = list.loop ? list.steps.length - 1 : 0
       const step = list.steps[prev]
-      const scene = state.scenes.find((s) => s.id === step.sceneId)
-      if (!scene) return state
-      if (!state.blackout) sendChannels(sceneOutput(state, scene), step.fadeMs)
+      const cue = state.cues.find((s) => s.id === step.cueId)
+      if (!cue) return state
+      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
       return {
         activeCueIndex: prev,
-        activeSceneId: scene.id,
+        activeCueId: cue.id,
         cuePlaying: true,
         cueRevision: state.cueRevision + 1
       }
@@ -1700,7 +1776,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

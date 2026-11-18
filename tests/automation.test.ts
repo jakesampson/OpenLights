@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   computeAutomationChannels,
-  computeSceneChannels,
+  computeCueChannels,
   evaluateAutomation
 } from '../src/renderer/src/lib/automationRuntime'
-import type { AutomationDef, FixtureDef, SceneDef, ShowDef } from '../src/shared/types'
+import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '../src/shared/types'
 
 const par: FixtureDef = {
   id: 'f1',
@@ -24,36 +24,36 @@ const head: FixtureDef = {
 
 const fixtureList = [par, head]
 
-function scene(fixtureValues: SceneDef['fixtureValues']): SceneDef {
+function cue(fixtureValues: CueDef['fixtureValues']): CueDef {
   return { id: 's1', name: 'Test', fixtureValues, fadeMs: 0 }
 }
 
-describe('computeSceneChannels', () => {
+describe('computeCueChannels', () => {
   it('outputs all four channels of a generic dimmer plus RGB fixture', () => {
     const fixture: FixtureDef = { id: 'led', name: 'LED', type: 'generic-led', channelStart: 21, channels: 4 }
-    expect(computeSceneChannels([fixture], scene({ led: { intensity: 255, red: 120, green: 60, blue: 30 } }))).toEqual({ 21: 255, 22: 120, 23: 60, 24: 30 })
+    expect(computeCueChannels([fixture], cue({ led: { intensity: 255, red: 120, green: 60, blue: 30 } }))).toEqual({ 21: 255, 22: 120, 23: 60, 24: 30 })
   })
 
   it('maps a fixture starting at channel 1 to channels 1-4 (no off-by-one)', () => {
-    const channels = computeSceneChannels(
+    const channels = computeCueChannels(
       fixtureList,
-      scene({ f1: { intensity: 220, red: 255, green: 160, blue: 80 } })
+      cue({ f1: { intensity: 220, red: 255, green: 160, blue: 80 } })
     )
     expect(channels).toEqual({ 1: 220, 2: 255, 3: 160, 4: 80 })
   })
 
   it('maps moving-head attributes to their correct 1-based channels', () => {
-    const channels = computeSceneChannels(
+    const channels = computeCueChannels(
       fixtureList,
-      scene({ f2: { intensity: 200, pan: 128, tilt: 96, red: 255, green: 255, blue: 255 } })
+      cue({ f2: { intensity: 200, pan: 128, tilt: 96, red: 255, green: 255, blue: 255 } })
     )
     expect(channels).toEqual({ 9: 200, 10: 128, 11: 96, 12: 255, 13: 255, 14: 255 })
   })
 
   it('ignores unknown attributes and fixtures, clamps out-of-range values', () => {
-    const channels = computeSceneChannels(
+    const channels = computeCueChannels(
       fixtureList,
-      scene({
+      cue({
         f1: { intensity: 999, strobe: 10 },
         ghost: { intensity: 255 }
       })
@@ -61,10 +61,10 @@ describe('computeSceneChannels', () => {
     expect(channels).toEqual({ 1: 255 })
   })
 
-  it('merges multiple fixtures in the same scene', () => {
-    const channels = computeSceneChannels(
+  it('merges multiple fixtures in the same cue', () => {
+    const channels = computeCueChannels(
       fixtureList,
-      scene({ f1: { intensity: 10 }, f2: { intensity: 20 } })
+      cue({ f1: { intensity: 10 }, f2: { intensity: 20 } })
     )
     expect(channels).toEqual({ 1: 10, 9: 20 })
   })
@@ -75,7 +75,7 @@ describe('computeSceneChannels', () => {
       { id: 'dimmer-1', name: 'Dimmer 1', type: 'dimmer', channelStart: 18, channels: 1 },
       { id: 'dimmer-2', name: 'Dimmer 2', type: 'dimmer', channelStart: 19, channels: 1 }
     ]
-    const fixtureValues: SceneDef['fixtureValues'] = {
+    const fixtureValues: CueDef['fixtureValues'] = {
       bar: {
         red: 1,
         green: 2,
@@ -133,7 +133,7 @@ describe('computeSceneChannels', () => {
       }
     }
 
-    const channels = computeSceneChannels(showBuddyFixtures, scene(fixtureValues))
+    const channels = computeCueChannels(showBuddyFixtures, cue(fixtureValues))
 
     expect(channels).toEqual(
       Object.fromEntries(Array.from({ length: 51 }, (_, index) => [index + 1, index + 1]))
@@ -178,7 +178,7 @@ describe('computeAutomationChannels', () => {
     createdAt: 0,
     updatedAt: 0,
     fixtures: fixtureList,
-    scenes: [],
+    cues: [],
     automations: []
   }
 

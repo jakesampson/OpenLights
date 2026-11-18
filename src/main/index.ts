@@ -151,7 +151,7 @@ ipcMain.handle('disconnect-dmx', async () => {
   return { success: true, status: dmxEngine.getStatus() }
 })
 
-// Scene/Show handling
+// Show handling
 ipcMain.handle('rename-show', async (_, showPath: string, name: string) => {
   try { return { success: true, path: renameProjectFile(showPath, name) } }
   catch (error) { return { success: false, error: error instanceof Error ? error.message : String(error) } }

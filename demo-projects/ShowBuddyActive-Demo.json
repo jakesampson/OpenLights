@@ -105,7 +105,7 @@
       "previewPosition": { "x": 727, "y": 76 }
     }
   ],
-  "scenes": [
+  "cues": [
     {
       "id": "s1",
       "name": "Warm Welcome",
@@ -222,9 +222,9 @@
       "id": "c1",
       "name": "Sunday Set",
       "steps": [
-        { "id": "cs1", "sceneId": "s1", "fadeMs": 1500, "holdMs": 0 },
-        { "id": "cs2", "sceneId": "s2", "fadeMs": 1000, "holdMs": 0 },
-        { "id": "cs3", "sceneId": "s3", "fadeMs": 2000, "holdMs": 0 }
+        { "id": "cs1", "cueId": "s1", "fadeMs": 1500, "holdMs": 0 },
+        { "id": "cs2", "cueId": "s2", "fadeMs": 1000, "holdMs": 0 },
+        { "id": "cs3", "cueId": "s3", "fadeMs": 2000, "holdMs": 0 }
       ],
       "loop": false
     }

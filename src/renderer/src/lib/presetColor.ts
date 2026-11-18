@@ -1,14 +1,14 @@
-import type { SceneDef } from '@shared/types'
+import type { CueDef } from '@shared/types'
 
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
-export function getPresetColor(scene: SceneDef): string {
+export function getPresetColor(cue: CueDef): string {
   let red = 0
   let green = 0
   let blue = 0
   let count = 0
 
-  for (const values of Object.values(scene.fixtureValues)) {
+  for (const values of Object.values(cue.fixtureValues)) {
     const intensity = clampByte(values.intensity ?? 255) / 255
     if (intensity === 0) continue
 

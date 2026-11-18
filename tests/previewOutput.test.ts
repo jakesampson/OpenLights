@@ -3,7 +3,7 @@ import { previewFixtureValues, previewBeamAppearance } from '../src/renderer/src
 import type { FixtureDef } from '../src/shared/types'
 
 describe('live preview output', () => {
-  it('reads actual channel values rather than the target scene', () => {
+  it('reads actual channel values rather than the target cue', () => {
     const fixture: FixtureDef = { id: 'f', name: 'LED', type: 'generic-led', channelStart: 2, channels: 4 }
     expect(previewFixtureValues(fixture, [0, 100, 200, 30, 10], { intensity: 255, red: 255 })).toEqual({ intensity: 100, red: 200, green: 30, blue: 10 })
   })

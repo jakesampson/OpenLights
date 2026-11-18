@@ -2,10 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
-import { getPresetColor } from '../lib/presetColor'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
-import type { PresetCategory, PresetGroup, SceneDef } from '@shared/types'
+import type { PresetCategory, PresetGroup } from '@shared/types'
 
 // LightKey Preset Palette (18 Nov 2026, Jake's screenshots): ONE combined
 // tree in the right sidebar — presets of every kind (colour, movement,
@@ -22,12 +21,20 @@ import type { PresetCategory, PresetGroup, SceneDef } from '@shared/types'
 // - "Fixture groups / Manage" — moved to the Patch tool panel
 //   (FixtureGroups), where fixture patching lives; the palette is for
 //   presets/sequences, not fixtures.
-// - Scenes — LightKey has no scenes in its palette, but OpenLights Design
-//   still selects its scene from this sidebar (DesignTab says so), so
-//   scenes stay as one collapsed row at the bottom, not a section.
+// - Cues (stored looks) — LightKey has NO "scene" concept (Guide ch.9:
+//   presets and sequences are the building blocks; a cue is a complete
+//   look composed from presets), so cues never appear in the palette —
+//   the palette is presets and sequences only. A previous version kept a
+//   collapsed "Scenes" row at the bottom, gated on the tree being
+//   non-empty — so creating any group made a "Scenes" section appear out
+//   of nowhere (18 Nov 2026 bug, Jake's screenshot 2). Cue selection
+//   lives outside the palette: Project Search in the top bar (finds cues
+//   by name), number keys 1–9, and Live page buttons. The header menu
+//   keeps "Convert cues to presets" so legacy looks can be moved into
+//   presets.
 // - Effects — the palette was their only toggle UI, so they stay as
 //   leaf rows at the tree root (no heading), click to toggle.
-// - Export JSON / Import JSON / Convert scenes — kept, in the header
+// - Export JSON / Import JSON / Convert cues to presets — kept, in the header
 //   "⋯" menu; LightKey has no such buttons in its palette.
 // - "New Preset" / "New Preset With Snapshot" / "New Sequence" — new UI
 //   wired to the existing capturePreset / updatePresetFromCurrent /
@@ -36,7 +43,7 @@ import type { PresetCategory, PresetGroup, SceneDef } from '@shared/types'
 /** Drag format for moving palette items between groups (palette-internal). */
 const PALETTE_DRAG_MIME = 'application/x-openlights-palette-item'
 
-type PaletteItemKind = 'preset' | 'sequence' | 'group' | 'effect' | 'scene'
+type PaletteItemKind = 'preset' | 'sequence' | 'group' | 'effect'
 interface PaletteItem { kind: PaletteItemKind; id: string }
 interface PaletteDrag { kind: 'preset' | 'sequence' | 'group'; id: string }
 
@@ -50,23 +57,22 @@ const CATEGORY_LABELS: { value: PresetCategory; label: string }[] = [
 export function GroupsPresetsPanel() {
   const {
     show,
-    scenes,
+    cues,
     presets,
     activePresetIds,
     activeSequenceIds,
     togglePreset,
     effects,
-    activeSceneId,
+    activeCueId,
     selectedFixtureIds,
-    goToScene,
     updateEffect,
     removeEffect,
-    addScene,
-    duplicateScene,
-    updateScene,
-    deleteScene,
     capturePreset,
     updatePresetFromCurrent,
+    editingPresetId,
+    startEditingPreset,
+    cancelEditingPreset,
+    applyPaletteDrop,
     renamePreset,
     deletePreset,
     duplicatePreset,
@@ -83,7 +89,7 @@ export function GroupsPresetsPanel() {
     deleteSequence,
     toggleSequence,
     stopSequences,
-    convertScenesToPresets,
+    convertCuesToPresets,
     updateProject
   } = useShowStore()
   const groups = show?.presetGroups ?? []
@@ -91,7 +97,7 @@ export function GroupsPresetsPanel() {
   const [search, setSearch] = useState('')
   const [paletteNote, setPaletteNote] = useState('')
   const paletteFile = useRef<HTMLInputElement>(null)
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ scenes: true })
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [selected, setSelected] = useState<PaletteItem[]>([])
   const [renaming, setRenaming] = useState<PaletteItem | null>(null)
   const [renameValue, setRenameValue] = useState('')
@@ -162,10 +168,14 @@ export function GroupsPresetsPanel() {
     const name = composerName.trim()
     if (!composer || !name) return
     if (composer.type === 'preset' || composer.type === 'preset-snapshot') {
-      if (!activeSceneId || !selectedFixtureIds.length) {
+      if (!activeCueId || !selectedFixtureIds.length) {
         setPaletteNote('Select fixtures in Design first, then capture a preset from the current look.')
         return
       }
+      // capturePreset silently does nothing when no fixture value passes
+      // the category filter, so only claim success when a preset was
+      // actually added — the old code always said "created".
+      const before = useShowStore.getState().presets.length
       capturePreset(name, composerCategory)
       if (composer.type === 'preset-snapshot') {
         // "New Preset With Snapshot": capture, then snapshot the current
@@ -173,9 +183,11 @@ export function GroupsPresetsPanel() {
         const created = useShowStore.getState().presets.at(-1)
         if (created) updatePresetFromCurrent(created.id)
       }
-      setPaletteNote(`Preset “${name}” created.`)
+      if (useShowStore.getState().presets.length > before) setPaletteNote(`Preset “${name}” created.`)
+      else setPaletteNote(`Could not capture a preset — the selected fixtures have no values for this category.`)
     } else if (composer.type === 'group') {
       createPresetGroup(name, composer.parentGroupId ?? null)
+      setPaletteNote(`Group “${name}” created.`)
       if (composer.fromSelection) {
         const created = useShowStore.getState().show?.presetGroups?.at(-1)
         if (created) {
@@ -220,6 +232,20 @@ export function GroupsPresetsPanel() {
     else if (item.kind === 'sequence') setExpandedSequenceId((prev) => prev === item.id ? null : item.id)
     else if (item.kind === 'group') setCollapsed((prev) => ({ ...prev, [item.id]: false }))
   }
+  // Right-click → Edit (LightKey, Guide ch.9): a preset opens in place in
+  // Design — top bar shows its name with Save/Cancel, the preview shows
+  // the look, the bottom panel edits its values. A sequence opens its
+  // existing SequenceEditor; a group renames inline (LightKey's Return =
+  // Rename). Nothing here opens a menu. "Show Properties" (openProperties
+  // above) still expands the inline contents list for presets.
+  const editItem = (item: PaletteItem) => {
+    if (item.kind === 'preset') startEditingPreset(item.id)
+    else if (item.kind === 'sequence') setExpandedSequenceId(item.id)
+    else if (item.kind === 'group') {
+      const label = groups.find((g) => g.id === item.id)?.name
+      if (label) startRename(item, label)
+    }
+  }
   const deleteItem = (item: PaletteItem, label: string) => {
     if (!confirm(`Delete ${item.kind} “${label}”?`)) return
     if (item.kind === 'preset') deletePreset(item.id)
@@ -232,11 +258,27 @@ export function GroupsPresetsPanel() {
   const newSequenceFromSelection = () => setComposer({ type: 'sequence', fromSelection: true })
 
   // --- drag & drop inside the palette --------------------------------------
+  // In Chromium/Electron, dataTransfer.getData() returns '' during
+  // dragover — the payload is only readable on drop. The old code called
+  // getData() inside every dragover handler to decide whether to allow
+  // the drop, so it always returned null, preventDefault() was never
+  // called, and the browser never permitted a drop onto a folder — that
+  // is why Jake could not drag a preset into a folder (18 Nov 2026).
+  // Dragover now checks only the drag *types* (like LiveWorkspace does);
+  // the payload is read only in the drop handlers below.
   const paletteDrag = (event: React.DragEvent, drag: PaletteDrag) => {
     event.dataTransfer.setData(PALETTE_DRAG_MIME, JSON.stringify(drag))
     event.dataTransfer.effectAllowed = 'copyMove'
   }
+  const hasPaletteDrag = (event: React.DragEvent) => event.dataTransfer.types.includes(PALETTE_DRAG_MIME)
+  const allowPaletteDrop = (event: React.DragEvent) => {
+    if (!hasPaletteDrag(event)) return false
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    return true
+  }
   const readPaletteDrag = (event: React.DragEvent): PaletteDrag | null => {
+    // Only called from drop handlers: getData() works on drop.
     if (!event.dataTransfer.types.includes(PALETTE_DRAG_MIME)) return null
     try {
       const raw: unknown = JSON.parse(event.dataTransfer.getData(PALETTE_DRAG_MIME))
@@ -244,43 +286,28 @@ export function GroupsPresetsPanel() {
     } catch { /* not a palette drag */ }
     return null
   }
-  /** Drop onto a group (or the root): move the dragged item there. */
+  /** Drop onto a group (or the tree root): move the dragged item there. */
   const dropOntoGroup = (event: React.DragEvent, targetGroupId: string | null) => {
     const drag = readPaletteDrag(event)
     if (!drag) return
     event.preventDefault(); event.stopPropagation(); setDragOverId(null)
-    if (drag.kind === 'preset') {
-      if (targetGroupId) assignPresetGroup(drag.id, targetGroupId)
-      else { const from = groupOfPreset(drag.id); if (from) updatePresetGroup(from.id, { presetIds: from.presetIds.filter((id) => id !== drag.id) }) }
-    } else if (drag.kind === 'sequence') {
-      assignSequenceGroup(drag.id, targetGroupId)
-    } else if (drag.kind === 'group') {
-      if (drag.id !== targetGroupId) updatePresetGroup(drag.id, { parentId: targetGroupId })
-    }
+    applyPaletteDrop(drag, targetGroupId)
   }
   /** Drop onto a preset/sequence row: move into its group, before that row. */
   const dropOntoItem = (event: React.DragEvent, target: PaletteItem, targetGroupId: string | null) => {
     const drag = readPaletteDrag(event)
     if (!drag || drag.id === target.id) return
     event.preventDefault(); event.stopPropagation(); setDragOverId(null)
-    if (drag.kind === 'preset' && target.kind === 'preset' && targetGroupId) {
-      // Reorder within the group: dragged preset lands before the target.
-      const group = groups.find((g) => g.id === targetGroupId)
-      if (!group) return
-      const ids = group.presetIds.filter((id) => id !== drag.id)
-      ids.splice(Math.max(0, ids.indexOf(target.id)), 0, drag.id)
-      updatePresetGroup(targetGroupId, { presetIds: ids })
+    if ((drag.kind === 'preset' && target.kind === 'preset') || (drag.kind === 'sequence' && target.kind === 'sequence')) {
+      applyPaletteDrop(drag, targetGroupId, { kind: target.kind, id: target.id })
       return
     }
-    if (drag.kind === 'sequence' && target.kind === 'sequence' && targetGroupId) {
-      const group = groups.find((g) => g.id === targetGroupId)
-      if (!group) return
-      const ids = (group.sequenceIds ?? []).filter((id) => id !== drag.id)
-      ids.splice(Math.max(0, ids.indexOf(target.id)), 0, drag.id)
-      updatePresetGroup(targetGroupId, { sequenceIds: ids })
-      return
-    }
-    dropOntoGroup(event, targetGroupId)
+    applyPaletteDrop(drag, targetGroupId)
+  }
+  // Clear the drop highlight only when the pointer truly leaves the row,
+  // not when it moves between the row's own children.
+  const clearDragOver = (event: React.DragEvent, id: string) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOverId((prev) => prev === id ? null : prev)
   }
 
   // --- keyboard navigation (LightKey Preset Palette shortcuts) -------------
@@ -309,7 +336,6 @@ export function GroupsPresetsPanel() {
     for (const preset of ungroupedPresets) if (matches(preset.name)) rows.push({ kind: 'preset', id: preset.id })
     for (const sequence of ungroupedSequences) if (matches(sequence.name)) rows.push({ kind: 'sequence', id: sequence.id })
     for (const effect of effects) if (matches(effect.name)) rows.push({ kind: 'effect', id: effect.id })
-    if (!query) rows.push({ kind: 'group', id: '__scenes__' })
     return rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, presets, sequences, effects, search, collapsed])
@@ -334,7 +360,7 @@ export function GroupsPresetsPanel() {
     if (mod && shiftKey(event) && key === 'e') {
       event.preventDefault(); event.stopPropagation()
       const first = selected[0]
-      if (first) openProperties(first)
+      if (first) editItem(first)
       return
     }
     if (event.key === 'Escape') {
@@ -405,6 +431,9 @@ export function GroupsPresetsPanel() {
     const item: PaletteItem = { kind: 'preset', id: preset.id }
     const payload = dragPayloadFor(item)!
     const active = activePresetIds.includes(preset.id)
+    // LightKey highlights the preset being edited in yellow, with Cancel
+    // next to it (Jake's 18 Nov screenshot 4).
+    const editing = editingPresetId === preset.id
     return (
       <div key={preset.id} data-palette-row={`preset:${preset.id}`} tabIndex={-1}
         className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}>
@@ -415,23 +444,23 @@ export function GroupsPresetsPanel() {
             paletteDrag(event, { kind: 'preset', id: preset.id })
             event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop(payload))
             event.dataTransfer.setData(LEGACY_PRESET_MIME, preset.id)
-            event.dataTransfer.effectAllowed = 'copy'
           }}
-          onDragOver={(event) => { if (readPaletteDrag(event)) { event.preventDefault(); setDragOverId(preset.id) } }}
-          onDragLeave={() => setDragOverId((prev) => prev === preset.id ? null : prev)}
+          onDragOver={(event) => { if (allowPaletteDrop(event)) setDragOverId(preset.id) }}
+          onDragLeave={(event) => clearDragOver(event, preset.id)}
           onDrop={(event) => dropOntoItem(event, item, parentGroupId)}
-          onClick={(event) => { selectItem(item, event.shiftKey); togglePreset(preset.id) }}
+          onClick={(event) => { selectItem(item, event.shiftKey); if (!editing) togglePreset(preset.id) }}
           onDoubleClick={() => openProperties(item)}
           onContextMenu={(event) => rowContextMenu(event, item)}
           role="treeitem"
           aria-selected={isSelected(item)}
-          title={`${preset.category} · ${Object.keys(preset.fixtureValues).length} fixtures — drag onto a Live page in Edit mode to add a button`}
+          title={`${preset.category} · ${Object.keys(preset.fixtureValues).length} fixtures — drag onto a Live page in Edit mode to add a button, or onto a folder to move it there`}
         >
-          <button type="button" className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${active ? 'selected' : 'hover:bg-panel2'}`}>
-            <span className="dot" style={{ backgroundColor: preset.category === 'color' ? '#f2aaee' : '#a4c4f6' }} />
+          <button type="button" className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${editing ? 'bg-yellow-400 font-semibold text-black' : active ? 'selected' : 'hover:bg-panel2'}`}>
+            <span className="dot" style={{ backgroundColor: editing ? '#111' : preset.category === 'color' ? '#f2aaee' : '#a4c4f6' }} />
             {renaming?.kind === 'preset' && renaming.id === preset.id ? renameInput(item) : <span className="truncate">{preset.name}</span>}
-            {active && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
+            {active && !editing && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
           </button>
+          {editing && <button type="button" aria-label={`Cancel editing ${preset.name}`} className="rounded px-1.5 py-1 text-[10px] font-semibold text-black bg-yellow-400 hover:bg-yellow-300" onClick={(event) => { event.stopPropagation(); cancelEditingPreset() }}>Cancel</button>}
         </div>
         {propertiesId === preset.id && <div className="pl-4 pr-1 pb-1"><PresetContents preset={preset} /></div>}
       </div>
@@ -454,10 +483,9 @@ export function GroupsPresetsPanel() {
           onDragStart={(event) => {
             paletteDrag(event, { kind: 'sequence', id: sequence.id })
             event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop(payload))
-            event.dataTransfer.effectAllowed = 'copy'
           }}
-          onDragOver={(event) => { if (readPaletteDrag(event)) { event.preventDefault(); setDragOverId(sequence.id) } }}
-          onDragLeave={() => setDragOverId((prev) => prev === sequence.id ? null : prev)}
+          onDragOver={(event) => { if (allowPaletteDrop(event)) setDragOverId(sequence.id) }}
+          onDragLeave={(event) => clearDragOver(event, sequence.id)}
           onDrop={(event) => dropOntoItem(event, item, parentGroupId)}
           onClick={(event) => { selectItem(item, event.shiftKey); setExpandedSequenceId(expanded ? null : sequence.id) }}
           onContextMenu={(event) => rowContextMenu(event, item)}
@@ -498,10 +526,10 @@ export function GroupsPresetsPanel() {
     )
     return (
       <div key={group.id} data-palette-row={`group:${group.id}`} tabIndex={-1}
-        className={`flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === group.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
+        className={`flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === group.id ? 'outline outline-1 outline-[var(--accent)] bg-[var(--accent)]/10' : ''}`}
         style={{ marginLeft: depth * 8 }}
-        onDragOver={(event) => { if (readPaletteDrag(event)) { event.preventDefault(); setDragOverId(group.id) } }}
-        onDragLeave={() => setDragOverId((prev) => prev === group.id ? null : prev)}
+        onDragOver={(event) => { if (allowPaletteDrop(event)) setDragOverId(group.id) }}
+        onDragLeave={(event) => clearDragOver(event, group.id)}
         onDrop={(event) => dropOntoGroup(event, group.id)}
       >
         <div
@@ -526,7 +554,6 @@ export function GroupsPresetsPanel() {
     )
   }
 
-  const [editingScene, setEditingScene] = useState<SceneDef | null>(null)
   const empty = !groups.length && !presets.length && !sequences.length && !effects.length
   const runningCount = activeSequenceIds.length
 
@@ -544,12 +571,9 @@ export function GroupsPresetsPanel() {
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'sequence' }) }}>New sequence</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'sequence' }); setComposerName('Sequence') }}>Capture sequence</button>
               <div className="my-1 border-t border-line" />
-              <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); addScene() }}>New scene</button>
-              <button type="button" role="menuitem" disabled={!activeSceneId} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { setHeaderMenu(false); if (activeSceneId) duplicateScene(activeSceneId) }}>Duplicate active scene</button>
-              <div className="my-1 border-t border-line" />
               <button type="button" role="menuitem" disabled={!presets.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { setHeaderMenu(false); exportPalette() }}>Export JSON</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); paletteFile.current?.click() }}>Import JSON</button>
-              <button type="button" role="menuitem" disabled={!scenes.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { setHeaderMenu(false); const added = convertScenesToPresets(); setPaletteNote(added ? `Converted ${added} scene${added === 1 ? '' : 's'} to presets (originals kept).` : 'Scenes already converted.') }}>Convert scenes</button>
+              <button type="button" role="menuitem" disabled={!cues.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { setHeaderMenu(false); const added = convertCuesToPresets(); setPaletteNote(added ? `Converted ${added} cue${added === 1 ? '' : 's'} to presets (originals kept).` : 'Cues already converted.') }}>Convert cues to presets</button>
             </div>
           )}
         </div>
@@ -586,7 +610,7 @@ export function GroupsPresetsPanel() {
           tabIndex={0}
           onKeyDown={onTreeKeyDown}
           onContextMenu={(event) => { event.preventDefault(); setSelected([]); setContextMenu({ x: event.clientX, y: event.clientY, target: null }) }}
-          onDragOver={(event) => { if (readPaletteDrag(event)) event.preventDefault() }}
+          onDragOver={(event) => { allowPaletteDrop(event) }}
           onDrop={(event) => dropOntoGroup(event, null)}
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 py-1 outline-none"
         >
@@ -610,35 +634,6 @@ export function GroupsPresetsPanel() {
               </div>
             )
           })}
-          {/* Scenes: LightKey has no scenes in its palette, but OpenLights
-              Design still picks its scene from this sidebar (see DesignTab),
-              so scenes stay as one collapsed row at the bottom — a picker,
-              not a section. Scene creation lives in the header menu. */}
-          <div data-palette-row="group:__scenes__" tabIndex={-1} className="flex flex-col rounded">
-            <button type="button" onClick={() => toggleCollapsed('scenes')} role="treeitem" aria-expanded={!isCollapsed('scenes')}
-              className="flex items-center gap-1.5 rounded px-2 py-1.5 text-left text-xs text-dim hover:bg-panel2">
-              <span className="inline-block transition-transform" style={{ transform: isCollapsed('scenes') ? 'none' : 'rotate(90deg)' }}>▸</span>
-              <span className="truncate font-semibold">Scenes · {scenes.length}</span>
-            </button>
-            {!isCollapsed('scenes') && (
-              <div className="flex flex-col gap-0.5 py-0.5 pl-4">
-                {scenes.map((scene) => (
-                  <div key={scene.id} className="group flex items-center gap-1 pr-1">
-                    <button type="button"
-                      className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${scene.id === activeSceneId ? 'selected' : 'hover:bg-panel2'}`}
-                      onClick={() => goToScene(scene.id)}
-                      title={scene.blackout ? 'blackout' : `${scene.fadeMs}ms`}
-                    >
-                      <span className="dot" style={{ backgroundColor: getPresetColor(scene) }} />
-                      <span className="truncate">{scene.name}</span>
-                    </button>
-                    <button type="button" aria-label={`Edit ${scene.name}`} title={`Edit ${scene.name}`} onClick={() => setEditingScene(structuredClone(scene))} className="rounded px-1.5 py-1 text-[10px] text-dim">Edit</button>
-                  </div>
-                ))}
-                {scenes.length === 0 && <div className="px-2 py-1 text-[10px] text-dim">No scenes yet — use the ⋯ menu to add one.</div>}
-              </div>
-            )}
-          </div>
         </div>
       )}
       {contextMenu && <PaletteContextMenu
@@ -657,7 +652,7 @@ export function GroupsPresetsPanel() {
           else if (action === 'new-sequence-from-selection') newSequenceFromSelection()
           else if (!target) return
           else if (action === 'show-properties') openProperties(target)
-          else if (action === 'edit') openProperties(target)
+          else if (action === 'edit') editItem(target)
           else if (action === 'apply') {
             if (target.kind === 'preset') togglePreset(target.id)
             else if (target.kind === 'sequence') toggleSequence(target.id)
@@ -680,18 +675,6 @@ export function GroupsPresetsPanel() {
           }
         }}
       />}
-      {editingScene && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setEditingScene(null) }}>
-        <section role="dialog" aria-modal="true" aria-label="Edit scene" className="panel w-full max-w-md p-4 shadow-2xl">
-          <header className="mb-3 flex items-center justify-between"><h2 className="text-sm font-semibold">Edit scene</h2><button type="button" onClick={() => setEditingScene(null)}>Close</button></header>
-          <div className="space-y-3 text-xs">
-            <label className="block">Name<input aria-label="Scene name" className="mt-1 w-full rounded border border-line bg-bg p-2" value={editingScene.name} onChange={(event) => setEditingScene({ ...editingScene, name: event.target.value })} /></label>
-            <label className="block">Fade time (ms)<input aria-label="Scene fade time" type="number" min="0" className="mt-1 w-full rounded border border-line bg-bg p-2" value={editingScene.fadeMs} onChange={(event) => setEditingScene({ ...editingScene, fadeMs: Math.max(0, Number(event.target.value)) })} /></label>
-            <label className="flex items-center gap-2"><input type="checkbox" checked={editingScene.blackout === true} onChange={(event) => setEditingScene({ ...editingScene, blackout: event.target.checked })} />Blackout scene</label>
-            <p className="text-dim">Fixture properties are adjusted from the floating Preview controls. Existing scene data is preserved.</p>
-          </div>
-          <footer className="mt-4 flex justify-between"><button type="button" className="text-red-300" onClick={() => { if (confirm(`Delete scene “${editingScene.name}”?`)) { deleteScene(editingScene.id); setEditingScene(null) } }}>Delete</button><button type="button" className="btn-theme on" onClick={() => { updateScene(editingScene.id, { name: editingScene.name.trim() || 'Untitled scene', fadeMs: editingScene.fadeMs, blackout: editingScene.blackout, fixtureValues: editingScene.fixtureValues }); setEditingScene(null) }}>Save</button></footer>
-        </section>
-      </div>}
     </div>
   )
 }

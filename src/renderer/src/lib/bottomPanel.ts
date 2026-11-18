@@ -7,4 +7,6 @@ export function bottomPanelMode(view: 'Design' | 'Live', hasCueListWidget: boole
 }
 
 export const BOTTOM_PANEL_REGIONS = ['master', 'playback', 'shortcuts'] as const
-export const LIVE_EDIT_ADD_KINDS = ['scene', 'cue', 'cuelist', 'label', 'frame'] as const
+// LightKey has one kind of cue button (Guide ch.11, p.181): the old
+// separate 'scene' button kind was the same thing under the old name.
+export const LIVE_EDIT_ADD_KINDS = ['cue', 'cuelist', 'label', 'frame'] as const

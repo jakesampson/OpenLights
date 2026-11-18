@@ -34,7 +34,7 @@ export interface FixtureDef {
   rotation?: number
 }
 
-export interface SceneDef {
+export interface CueDef {
   fans?: FanDef[]
   id: string
   name: string
@@ -92,12 +92,12 @@ export interface AutomationPoint {
   v: number // 0-255
 }
 
-export type MidiTargetType = 'scene' | 'preset' | 'sequence' | 'live-cue' | 'blackout' | 'blind' | 'freeze' | 'cue-next' | 'cue-prev' | 'tap-tempo' | 'master'
+export type MidiTargetType = 'cue' | 'preset' | 'sequence' | 'live-cue' | 'blackout' | 'blind' | 'freeze' | 'cue-next' | 'cue-prev' | 'tap-tempo' | 'master'
 
 export interface MidiMapping {
   id: string
   targetType: MidiTargetType
-  targetId: string | null // scene id / cue list id, null for blackout & master
+  targetId: string | null // cue id / cue list id, null for blackout & master
   midiType: 'noteon' | 'noteoff' | 'cc'
   trigger?: 'press' | 'release' | 'value'
   channel: number // 1-16
@@ -115,7 +115,7 @@ export interface AutomationDef {
 
 export interface CueStepDef {
   id: string
-  sceneId: string
+  cueId: string
   fadeMs: number
   holdMs: number // time to wait before auto-advancing
   groupId?: string
@@ -187,7 +187,7 @@ export interface LiveControl {
   id: string
   name: string
   type: 'toggle' | 'flash' | 'fader'
-  sceneId?: string
+  cueId?: string
   presetIds: string[]
   /** Sequences started while this cue is active (7.10). */
   sequenceIds?: string[]
@@ -230,7 +230,7 @@ export interface ShowDef {
   layout?: { preview: boolean; palette: boolean; inspector: boolean }
   /** When true, switching Live pages releases cues instead of restoring that page's active levels. */
   deactivateOnPageSwitch?: boolean
-  startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; sceneId?: string | null }
+  startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; cueId?: string | null }
   schemaVersion?: number // Missing in legacy version-0 project inputs.
   id: string
   name: string
@@ -240,7 +240,7 @@ export interface ShowDef {
   fixtures: FixtureDef[]
   previewTrusses?: PreviewTruss[]
   livePages?: LivePage[]
-  scenes: SceneDef[]
+  cues: CueDef[]
   presets?: PresetDef[]
   automations: AutomationDef[]
   cueLists?: CueListDef[]

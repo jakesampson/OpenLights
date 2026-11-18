@@ -1,5 +1,5 @@
 /** Missing versions are legacy version 0. */
-export const CURRENT_SCHEMA_VERSION = 1
+export const CURRENT_SCHEMA_VERSION = 2
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
 import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
@@ -8,7 +8,82 @@ type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
 
 const steps: Record<number, (source: Document) => Document> = {
-  0: (source) => ({ ...source, schemaVersion: 1 })
+  0: (source) => ({ ...source, schemaVersion: 1 }),
+  // 18 Nov 2026: LightKey has no "scene" concept (Guide ch.9/ch.11) — a
+  // stored look is a cue. Rename the stored key and every reference to it.
+  // Nothing is lost: cue ids, names, fixture values and fade timings are
+  // unchanged, and cuelist steps / Live buttons keep pointing at the same
+  // look under its new name.
+  1: (source) => {
+    const doc: Document = { ...source, schemaVersion: 2 }
+    if (Array.isArray(doc.scenes)) { doc.cues = doc.scenes; delete doc.scenes }
+    // Cuelist steps pointed at a look by sceneId.
+    for (const rawList of Array.isArray(doc.cueLists) ? doc.cueLists : []) {
+      const list = record(rawList)
+      if (!Array.isArray(list.steps)) continue
+      list.steps = list.steps.map((rawStep) => {
+        const step = record(rawStep)
+        if (typeof step.sceneId === 'string') { step.cueId = step.sceneId; delete step.sceneId }
+        return step
+      })
+    }
+    // Live buttons bound to a stored look.
+    for (const rawPage of Array.isArray(doc.livePages) ? doc.livePages : []) {
+      const page = record(rawPage)
+      if (!Array.isArray(page.controls)) continue
+      page.controls = page.controls.map((rawControl) => {
+        const control = record(rawControl)
+        if (typeof control.sceneId === 'string') { control.cueId = control.sceneId; delete control.sceneId }
+        return control
+      })
+    }
+    // MIDI bindings and startup restore pointed at a look.
+    for (const rawMapping of Array.isArray(doc.midiMappings) ? doc.midiMappings : []) {
+      const mapping = record(rawMapping)
+      if (mapping.targetType === 'scene') mapping.targetType = 'cue'
+    }
+    if (typeof record(doc.startup).sceneId === 'string') {
+      const startup = record(doc.startup)
+      startup.cueId = startup.sceneId
+      delete startup.sceneId
+      doc.startup = startup
+    }
+    // Presets converted from a look carried a `preset-from-scene:<id>` id;
+    // rename the id and every reference to it (preset id lists, owners).
+    const renamed = new Map<string, string>()
+    for (const rawPreset of Array.isArray(doc.presets) ? doc.presets : []) {
+      const preset = record(rawPreset)
+      if (typeof preset.id === 'string' && preset.id.startsWith('preset-from-scene:')) {
+        const next = `preset-from-cue:${preset.id.slice('preset-from-scene:'.length)}`
+        renamed.set(preset.id, next)
+        preset.id = next
+      }
+    }
+    if (renamed.size > 0) {
+      const remapIds = (ids: unknown) => Array.isArray(ids) ? ids.map((id) => typeof id === 'string' ? renamed.get(id) ?? id : id) : ids
+      if (record(doc.startup).presetIds) record(doc.startup).presetIds = remapIds(record(doc.startup).presetIds)
+      for (const rawPage of Array.isArray(doc.livePages) ? doc.livePages : []) {
+        const page = record(rawPage)
+        for (const rawControl of Array.isArray(page.controls) ? page.controls : []) {
+          const control = record(rawControl)
+          if (control.presetIds) control.presetIds = remapIds(control.presetIds)
+        }
+      }
+      for (const rawSequence of Array.isArray(doc.sequences) ? doc.sequences : []) {
+        const sequence = record(rawSequence)
+        for (const rawStep of Array.isArray(sequence.steps) ? sequence.steps : []) {
+          const step = record(rawStep)
+          if (step.presetIds) step.presetIds = remapIds(step.presetIds)
+        }
+      }
+      for (const rawEffect of [...(Array.isArray(doc.effects) ? doc.effects : []), ...(Array.isArray(doc.effectTemplates) ? doc.effectTemplates : [])]) {
+        const effect = record(rawEffect)
+        const owner = record(effect.owner)
+        if (owner.type === 'preset' && typeof owner.id === 'string') owner.id = renamed.get(owner.id) ?? owner.id
+      }
+    }
+    return doc
+  }
 }
 
 /** Non-destructive version steps. Future documents retain their version and unknown fields. */
@@ -19,7 +94,7 @@ export function migrateShow(raw: unknown): ShowDef {
   while (version < CURRENT_SCHEMA_VERSION) { doc = steps[version](doc); version++ }
   const defaults: Document = { id: 'recovered-show', name: 'Recovered show', createdAt: 0, updatedAt: 0, masterIntensity: 255, bpm: 120 }
   for (const [key, fallback] of Object.entries(defaults)) if (typeof doc[key] !== typeof fallback || (typeof doc[key] === 'number' && !Number.isFinite(doc[key]))) doc[key] = fallback
-  for (const key of ['fixtures', 'scenes', 'automations', 'presets', 'cueLists', 'midiMappings', 'effects', 'livePages', 'favoriteProfileIds', 'fixtureProfiles', 'colorFavorites']) {
+  for (const key of ['fixtures', 'cues', 'automations', 'presets', 'cueLists', 'midiMappings', 'effects', 'livePages', 'favoriteProfileIds', 'fixtureProfiles', 'colorFavorites']) {
     if (!Array.isArray(doc[key])) {
       if (doc[key] !== undefined) doc.migrationInvalidFields = { ...record(doc.migrationInvalidFields), [key]: doc[key] }
       doc[key] = []
@@ -58,7 +133,7 @@ export function migrateShow(raw: unknown): ShowDef {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
   }
-  for (const key of ['scenes', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
+  for (const key of ['cues', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
   doc.midiMappings = (doc.midiMappings as unknown[]).map((raw) => {
     const mapping = record(raw)
     return { ...mapping, trigger: mapping.trigger ?? (mapping.targetType === 'master' && mapping.midiType === 'cc' ? 'value' : 'press') }

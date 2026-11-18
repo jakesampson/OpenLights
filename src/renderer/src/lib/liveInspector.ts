@@ -3,13 +3,13 @@ export type InspectorField =
   | 'name' | 'fadeMs' | 'defaultStyles'
   | 'text' | 'width' | 'height' | 'attachment' | 'style'
   | 'exclusive' | 'intensity' | 'speed'
-  | 'controlType' | 'scene' | 'presets' | 'sequences' | 'adHocValues'
+  | 'controlType' | 'cue' | 'presets' | 'sequences' | 'adHocValues'
   | 'cueList'
 
 const SCHEMA: Record<InspectorTarget, readonly InspectorField[]> = {
   page: ['name', 'fadeMs', 'defaultStyles'],
   frame: ['text', 'width', 'height', 'attachment', 'style', 'exclusive', 'intensity', 'speed'],
-  cue: ['name', 'width', 'height', 'attachment', 'style', 'controlType', 'scene', 'presets', 'sequences', 'adHocValues'],
+  cue: ['name', 'width', 'height', 'attachment', 'style', 'controlType', 'cue', 'presets', 'sequences', 'adHocValues'],
   cuelist: ['width', 'height', 'attachment', 'style', 'cueList'],
   label: ['text', 'width', 'height', 'attachment', 'style']
 }

@@ -42,7 +42,7 @@ describe('Live / Live Edit parity', () => {
     expect(workspace).toContain('onClick={stopCue}')
   })
 
-  it('selects the pressed cue or cue list in both modes, so the inspector follows it', () => {
+  it('selects the pressed cue button or cue list in both modes, so the inspector follows it', () => {
     expect(workspace).toContain('const selectRef = (ref: Selection)')
     expect(workspace).toContain('onPointerDown={() => selectRef(ref)}')
     expect(workspace).toContain('onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }}')

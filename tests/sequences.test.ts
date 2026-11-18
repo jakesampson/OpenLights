@@ -4,7 +4,7 @@ import { useShowStore } from '../src/renderer/src/stores/showStore'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 it('migrates empty sequences and supports sequence creation, editing, deletion, undo and round trip', () => {
   const s = () => useShowStore.getState(); expect(migrateShow({}).sequences).toEqual([])
-  s().setShow(migrateShow({ scenes: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { f: { pan: 120 } } }] })); s().goToScene('s'); s().createSequence('Movement')
+  s().setShow(migrateShow({ cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { f: { pan: 120 } } }] })); s().activateCue('s'); s().createSequence('Movement')
   const sequence = s().show!.sequences![0]; expect(sequence.steps[0].fixtureValues.f.pan).toBe(120)
   s().updateSequence(sequence.id, { name: 'New name', steps: [{ ...sequence.steps[0], fadeMs: 2000, holdMs: 500, presetIds: ['p'] }] })
   const roundtrip = migrateShow(JSON.parse(JSON.stringify(s().show))); expect(roundtrip.sequences).toEqual(s().show!.sequences)

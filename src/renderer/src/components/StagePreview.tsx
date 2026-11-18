@@ -8,7 +8,7 @@ import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpo
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { StageObjectLayer, StageObjectTools } from './StageObjects'
 import { useShowStore } from '../stores/showStore'
-import type { FixtureDef, SceneDef, PreviewTruss } from '@shared/types'
+import type { FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
 interface FixtureView extends FixtureDef {
@@ -74,7 +74,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview() {
-  const { locked, show, activeSceneId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses } = useShowStore()
+  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses } = useShowStore()
   const [editing, setEditing] = useState(false)
   useEffect(() => { if (locked) setEditing(false) }, [locked])
   const [outputChannels, setOutputChannels] = useState<number[]>([])
@@ -118,8 +118,8 @@ export function StagePreview() {
   const storageTrayRef = useRef<HTMLDivElement>(null)
   const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
-  const scenes: SceneDef[] = show?.scenes ?? []
-  const activeScene = activeSceneId ? scenes.find((s) => s.id === activeSceneId) : null
+  const cues: CueDef[] = show?.cues ?? []
+  const activeCue = activeCueId ? cues.find((s) => s.id === activeCueId) : null
 
   const fixtureViews = useMemo((): FixtureView[] => {
     const count = fixtures.length || 8 // demo rig when nothing patched
@@ -128,7 +128,7 @@ export function StagePreview() {
     return positions.map((pos, i) => {
       if (fixtures.length > 0) {
         const f = fixtures[i]
-        const values = previewFixtureValues(f, outputChannels, activeScene?.fixtureValues[f.id])
+        const values = previewFixtureValues(f, outputChannels, activeCue?.fixtureValues[f.id])
         return {
           ...f,
           pos: dragPositions?.[f.id] ?? f.previewPosition ?? pos,
@@ -147,7 +147,7 @@ export function StagePreview() {
         color: '#c24bd6'
       }
     })
-  }, [fixtures, activeScene, dragPositions, outputChannels])
+  }, [fixtures, activeCue, dragPositions, outputChannels])
 
   const trusses = show?.previewTrusses ?? []
   const selectedTruss = trussDraft ?? trusses.find((item) => item.id === selectedTrussId)
