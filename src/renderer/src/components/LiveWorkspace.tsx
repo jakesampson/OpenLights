@@ -50,7 +50,7 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
 export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boolean } = {}) {
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
-    activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
+    activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
     editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep,
@@ -409,7 +409,6 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
         take the master-overlay inset so their content starts clear of the
         column at rest and only slides underneath it when scrolled. */}
     <div className={`flex flex-wrap items-center gap-2${masterOverlay ? ' master-overlay-inset' : ''}`}>
-      {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
       {editing && !locked && <>
         <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
           <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
