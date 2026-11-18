@@ -445,30 +445,36 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   align-self: flex-start;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--panel2);
-  padding: 8px 4px;
+  padding: 6px 4px;
+  overflow: hidden;
 }
 
 .live-master-rail input[type='range'] {
   appearance: slider-vertical;
   writing-mode: vertical-lr;
   direction: rtl;
-  flex: 1;
-  min-height: 96px;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 56px;
   margin: 0;
   accent-color: var(--text);
   cursor: ns-resize;
 }
 
+.live-master-rail > span,
+.live-master-rail > button {
+  flex: none;
+}
+
 .live-master-bpm {
   width: 100%;
   border-radius: 4px;
   background: var(--panel);
-  padding: 6px 2px;
+  padding: 4px 2px;
   text-align: center;
   color: var(--text);
   font-size: 13px;

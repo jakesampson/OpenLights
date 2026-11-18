@@ -400,7 +400,6 @@ export function LiveWorkspace() {
         the toolbar below it holds New Button (+), New Frame, Insert Text
         (T) and the green Done button, as in LightKey's bottom panel. */}
     <div className="flex flex-wrap items-center gap-2">
-      {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
       {editing && !locked && <>
         <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
