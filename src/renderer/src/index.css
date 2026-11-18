@@ -522,6 +522,17 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   transform: translate(-50%, -50%);
 }
 
+/* Live Edit button properties popup: slides in from the right over the
+   canvas (Jake, 18 Nov 2026). The popup scrolls on its own; the canvas
+   behind it does not move. */
+@keyframes live-properties-slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.live-properties-popup {
+  animation: live-properties-slide-in 160ms ease-out;
+}
+
 /* Scene pad button */
 .pad {
   min-height: 44px;

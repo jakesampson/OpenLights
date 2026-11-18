@@ -1,13 +1,21 @@
 import type { PresetDef, PresetGroup } from '@shared/types'
+
+// LightKey-style palette (18 Nov 2026, Jake's screenshots): there are NO
+// standard / seeded folders. The user creates whatever groups they want, so
+// syncing must never invent a group. Earlier versions auto-created one group
+// per preset category (`presets:<category>`, name = "color"/"position"/...)
+// and migration did the same for old shows; that is the standard-folder
+// structure Jake asked to remove. syncPresetGroups now only prunes: it drops
+// preset/sequence ids that no longer exist and strips any seeded
+// `presets:*` group (those ids are only ever auto-created —
+// createPresetGroup uses crypto.randomUUID() — so stripping them cannot
+// delete a user-made group). Presets in no group are ungrouped, not lost:
+// the palette renders them at the tree root.
 export function syncPresetGroups(groups: PresetGroup[], presets: PresetDef[]): PresetGroup[] {
-  const valid = new Set(presets.map((p) => p.id)), result = groups.map((g) => ({ ...g, presetIds: g.presetIds.filter((id) => valid.has(id)) }))
-  for (const preset of presets) {
-    if (result.some((g) => g.presetIds.includes(preset.id))) continue
-    let group = result.find((g) => g.id === `presets:${preset.category}`)
-    if (!group) { group = { id: `presets:${preset.category}`, name: preset.category, exclusive: false, parentId: null, presetIds: [] }; result.push(group) }
-    group.presetIds.push(preset.id)
-  }
-  return result
+  const valid = new Set(presets.map((p) => p.id))
+  return groups
+    .filter((g) => !g.id.startsWith('presets:'))
+    .map((g) => ({ ...g, presetIds: g.presetIds.filter((id) => valid.has(id)) }))
 }
 export function presetGroupMembers(groups: PresetGroup[], id: string, seen = new Set<string>()): string[] {
   if (seen.has(id)) return []

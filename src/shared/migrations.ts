@@ -63,9 +63,19 @@ export function migrateShow(raw: unknown): ShowDef {
     const mapping = record(raw)
     return { ...mapping, trigger: mapping.trigger ?? (mapping.targetType === 'master' && mapping.midiType === 'cc' ? 'value' : 'press') }
   })
+  // No standard folders (LightKey palette, 18 Nov 2026): old shows had no
+  // presetGroups at all, and earlier code seeded one group per preset
+  // category (`presets:<category>`). Both cases now start with no groups —
+  // presets are ungrouped (shown at the tree root) until the user creates
+  // their own. Seeded groups stored in an existing show are stripped too;
+  // their presets are not lost, only ungrouped. User-made groups (UUID ids)
+  // are kept exactly as stored.
   if (!Array.isArray(doc.presetGroups)) {
-    const presets = doc.presets as Record<string, unknown>[]
-    doc.presetGroups = [...new Set(presets.map((p) => p.category ?? 'other'))].map((category) => ({ id: `presets:${category}`, name: category, parentId: null, exclusive: false, presetIds: presets.filter((p) => (p.category ?? 'other') === category).map((p) => p.id) }))
+    doc.presetGroups = []
+  } else {
+    doc.presetGroups = (doc.presetGroups as Record<string, unknown>[]).filter(
+      (g) => typeof g.id !== 'string' || !g.id.startsWith('presets:')
+    )
   }
   if (!Array.isArray(doc.sequences)) {
     if (doc.sequences !== undefined) doc.migrationInvalidFields = { ...record(doc.migrationInvalidFields), sequences: doc.sequences }

@@ -3,6 +3,7 @@ import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
+import { FixtureGroups } from './components/FixtureGroups'
 import { ProjectBar } from './components/ProjectBar'
 import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
 import { WorkspaceToolbar } from './components/WorkspaceToolbar'
@@ -205,17 +206,33 @@ export default function App() {
     if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
   }), [])
 
-  const shortcuts = tab === 'Live' && liveEditing
-    // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
-    // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
-    // shortcuts do not apply while editing a Live page.
-    ? [
-      { key: '↑ ← ↓ →', label: 'Nudge' },
-      { key: 'esc', label: 'Clear selection' },
-      { key: 'Ctrl+Z', label: 'Undo' },
-      { key: 'Ctrl+Y', label: 'Redo' }
-    ]
-    : SHORTCUTS
+  // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots): arrows
+  // select presets, esc clears, Return renames, Cmd/Ctrl+N new preset,
+  // Shift+Cmd/Ctrl+N new group, Shift+Cmd/Ctrl+E edit preset. They are
+  // active only while the palette tree has focus — Cmd/Ctrl+N is still
+  // "New project" elsewhere (see GroupsPresetsPanel).
+  const paletteShortcuts = [
+    { key: '↑ ↓', label: 'Select presets' },
+    { key: 'esc', label: 'Clear selection' },
+    { key: 'Return', label: 'Rename' },
+    { key: 'Cmd+N', label: 'New preset' },
+    { key: 'Shift+Cmd+N', label: 'New group' },
+    { key: 'Shift+Cmd+E', label: 'Edit preset' }
+  ]
+  const shortcuts = [
+    ...(tab === 'Live' && liveEditing
+      // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
+      // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
+      // shortcuts do not apply while editing a Live page.
+      ? [
+        { key: '↑ ← ↓ →', label: 'Nudge' },
+        { key: 'esc', label: 'Clear selection' },
+        { key: 'Ctrl+Z', label: 'Undo' },
+        { key: 'Ctrl+Y', label: 'Redo' }
+      ]
+      : SHORTCUTS),
+    ...paletteShortcuts
+  ]
   const closeToolPanel = () => setToolPanel(null)
 
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
@@ -375,9 +392,8 @@ export default function App() {
         <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Groups & Presets
+              Preset Palette
             </div>
-            <div className="text-[9px] uppercase tracking-wider text-dim">fixture tree</div>
           </div>
           <GroupsPresetsPanel />
         </div>
@@ -434,7 +450,12 @@ export default function App() {
               </button>
             </header>
             <div className="min-h-0 overflow-auto p-4">
-              {toolPanel === 'Patch' && <PatchPanel />}
+              {toolPanel === 'Patch' && <><PatchPanel />
+                {/* Fixture groups moved here from the Preset Palette (LightKey,
+                    18 Nov 2026): groups of fixtures belong to patching, not
+                    to the preset/sequence browser. */}
+                <div className="mt-4"><FixtureGroups /></div>
+              </>}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>

@@ -1,7 +1,5 @@
-import { useState } from 'react'
 import type { SequenceStep } from '@shared/types'
 import { useShowStore } from '../stores/showStore'
-import { encodeLiveDrop, LIVE_DROP_MIME } from '../lib/liveDrops'
 
 /**
  * Sequence editor (LightKey guide ch.9, "Create a sequence", p.131).
@@ -14,19 +12,22 @@ import { encodeLiveDrop, LIVE_DROP_MIME } from '../lib/liveDrops'
  * time — so this editor deliberately offers no fake step-advance buttons.
  * Adding those needs a step offset in the engine; see NOTES.md.
  *
- * Lives in the Groups & Presets side panel (the Presets and sequences
- * palette), not in DesignTab: DesignTab is a fixed, non-scrollable
- * inspector, while this panel scrolls and is where presets already live.
+ * One sequence at a time: the LightKey combined palette tree
+ * (GroupsPresetsPanel) renders this editor inline under the selected
+ * sequence row, and sequence creation now lives in the palette header menu
+ * / right-click menu ("New Sequence", "Capture sequence" there calls
+ * createSequence). The old whole-list rendering — its "Sequences" heading,
+ * explanatory paragraph, name input and "No sequences yet…" block — is
+ * gone with the split Presets/Sequences palette sections; sequences are
+ * tree rows now, draggable from the row itself (see GroupsPresetsPanel).
  * Each sequence carries `data-project-id` so ProjectSearch can jump to it.
  */
-export function SequenceEditor() {
+export function SequenceEditor({ sequenceId }: { sequenceId: string }) {
   const {
     show,
     presets,
     activeSequenceIds,
     toggleSequence,
-    stopSequences,
-    createSequence,
     updateSequence,
     updateSequenceStep,
     deleteSequence,
@@ -37,69 +38,14 @@ export function SequenceEditor() {
     moveSequenceStep,
     reorderSequenceSteps
   } = useShowStore()
-  const [name, setName] = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
   const sequences = show?.sequences ?? []
   const fixtures = show?.fixtures ?? []
-
-  const create = () => {
-    if (!name.trim()) return
-    createSequence(name)
-    setName('')
-    // Open the sequence just captured: it is appended last.
-    setExpandedId(useShowStore.getState().show?.sequences?.at(-1)?.id ?? null)
-  }
+  const sequence = sequences.find((item) => item.id === sequenceId)
+  if (!sequence) return null
+  const running = activeSequenceIds.includes(sequence.id)
 
   return (
-    <section className="p-2 text-xs" aria-label="Sequences">
-      <h3 className="font-semibold">Sequences</h3>
-      <p className="mt-1 text-dim">
-        Chases: ordered steps captured from the current look. Run plays a sequence on the DMX output; Stop releases it.
-      </p>
-      <div className="my-2 flex gap-2">
-        <input
-          aria-label="New sequence name"
-          placeholder="Sequence name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          onKeyDown={(event) => { if (event.key === 'Enter') create() }}
-          className="min-w-0 flex-1 rounded bg-bg p-1"
-        />
-        <button type="button" className="btn-theme" disabled={!name.trim()} onClick={create}>
-          Capture sequence
-        </button>
-      </div>
-      {activeSequenceIds.length > 0 && (
-        <button type="button" className="mb-2 text-dim" onClick={stopSequences}>
-          Stop all running sequences
-        </button>
-      )}
-      {sequences.length === 0 && (
-        <p className="text-dim">No sequences yet. Set a look in Design, then capture it as a sequence — the first step holds the active scene plus any manual overrides.</p>
-      )}
-      {sequences.map((sequence) => {
-        const running = activeSequenceIds.includes(sequence.id)
-        const expanded = expandedId === sequence.id
-        return (
-          <details
-            key={sequence.id}
-            data-project-id={sequence.id}
-            className="my-2 rounded border border-line p-2"
-            open={expanded}
-            onToggle={(event) => setExpandedId(event.currentTarget.open ? sequence.id : null)}
-          >
-            <summary
-              className="cursor-pointer"
-              draggable
-              title="Drag onto a Live page in Edit mode to add this sequence as a button"
-              onDragStart={(event) => {
-                event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop({ presetIds: [], sequenceIds: [sequence.id], sequenceNames: { [sequence.id]: sequence.name } }))
-                event.dataTransfer.effectAllowed = 'copy'
-              }}
-            >
-              {sequence.name} · {sequence.steps.length} step{sequence.steps.length === 1 ? '' : 's'}
-              {running ? ' · running' : ''}
-            </summary>
+    <div data-project-id={sequence.id} className="my-2 rounded border border-line p-2 text-xs" aria-label={`Sequence ${sequence.name}`}>
             <div className="my-2 flex flex-wrap items-center gap-2">
               <button type="button" className="btn-theme" onClick={() => toggleSequence(sequence.id)}>
                 {running ? 'Stop' : 'Run'}
@@ -227,10 +173,7 @@ export function SequenceEditor() {
                 onRemove={() => removeSequenceStep(sequence.id, step.id)}
               />
             ))}
-          </details>
-        )
-      })}
-    </section>
+    </div>
   )
 }
 

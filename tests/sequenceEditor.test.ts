@@ -14,13 +14,20 @@ describe('sequence editor', () => {
     expect(existsSync('src/renderer/src/components/SequenceEditor.tsx')).toBe(true)
     expect(editor).toContain('export function SequenceEditor')
     expect(panel).toContain("import { SequenceEditor } from './SequenceEditor'")
-    expect(panel).toContain('<SequenceEditor />')
+    // One sequence at a time, embedded under its tree row in the combined
+    // LightKey palette (18 Nov 2026) — the old whole-list rendering with
+    // its "Sequences" heading is gone; creation lives in the palette
+    // header menu / right-click menu.
+    expect(panel).toContain('<SequenceEditor sequenceId=')
+    expect(panel).not.toContain('<SequenceEditor />')
     expect(panel).not.toContain('Run / stop')
   })
 
   it('creates, renames, duplicates, deletes and runs/stops sequences', () => {
-    for (const text of ['Capture sequence', 'createSequence', 'updateSequence', 'duplicateSequence', 'deleteSequence', 'toggleSequence', 'Stop all running sequences']) expect(editor).toContain(text)
+    for (const text of ['updateSequence', 'duplicateSequence', 'deleteSequence', 'toggleSequence']) expect(editor).toContain(text)
     expect(editor).toContain('data-project-id')
+    // Creation moved to the palette: header menu / right-click menu.
+    for (const text of ['Capture sequence', 'createSequence', 'New Sequence', 'Stop all running sequences']) expect(panel).toContain(text)
   })
 
   it('edits sequence settings: timing, order, loop, repeats and keep-last-step', () => {

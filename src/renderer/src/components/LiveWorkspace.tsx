@@ -70,7 +70,13 @@ export function LiveWorkspace() {
   const marquee = useRef<{ startX: number; startY: number } | null>(null)
   const resize = useRef<{ ref: PageObjectRef; startX: number; startY: number; width: number; height: number } | null>(null)
   const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number; height: number } | null>(null)
-  const [renaming, setRenaming] = useState<{ ref: PageObjectRef; value: string } | null>(null)
+  // Double-click properties popup (LightKey, Jake 18 Nov 2026): a small panel
+  // that slides in from the right over the canvas. It opens only on
+  // double-click; single-click only selects (move/resize). The popup itself
+  // scrolls (overflow-y-auto) while the canvas behind it does not, so the
+  // button stays visible while its properties are edited. Once open it
+  // follows the single selection; close with X, Esc or Done.
+  const [popupOpen, setPopupOpen] = useState(false)
   const pageCanvas = useRef<HTMLDivElement>(null)
   // LightKey-style context menu (Guide ch.11, p.176): right-click on the
   // canvas or a button in Edit mode. Each item wires to the existing store
@@ -95,9 +101,10 @@ export function LiveWorkspace() {
   // or cue list selects it, so the inspector follows it when Edit is open.
   const selectRef = (ref: Selection) => { if (!isSelected(ref)) setPageObjectSelection([ref]) }
 
-  const commitRename = () => {
-    if (renaming) renamePageObject(renaming.ref, renaming.value)
-    setRenaming(null)
+  const openPropertiesPopup = (ref: Selection) => {
+    if (!editing || locked) return
+    setPageObjectSelection([ref])
+    setPopupOpen(true)
   }
 
   const beginResize = (event: React.PointerEvent, ref: PageObjectRef, width: number, height: number) => {
@@ -130,13 +137,6 @@ export function LiveWorkspace() {
   // drag grip above it moves the cue; the body itself never drags.
   const cueBody = (control: LiveControl, level: number) =>
     control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={css(control.style)}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={css(control.style)} className={`pad w-full flex-1 rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>
-
-  const renameInput = (ref: PageObjectRef, ariaLabel: string) =>
-    <input autoFocus aria-label={ariaLabel} value={renaming!.value}
-      onChange={(e) => setRenaming({ ref, value: e.target.value })}
-      onBlur={commitRename}
-      onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') setRenaming(null) }}
-      className="w-full rounded bg-bg px-1 text-xs" />
 
   const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
     <label className="text-dim">Attached to
@@ -213,6 +213,7 @@ export function LiveWorkspace() {
   const toggleEditing = () => {
     if (editing) {
       setLiveEditing(false)
+      setPopupOpen(false)
       clearPageObjectSelection()
       return
     }
@@ -358,6 +359,7 @@ export function LiveWorkspace() {
       }
       if (key === 'escape' && selectedPageObjects.length) {
         event.preventDefault(); event.stopImmediatePropagation()
+        setPopupOpen(false)
         clearPageObjectSelection()
         return
       }
@@ -370,6 +372,7 @@ export function LiveWorkspace() {
       } else if (mod && key === 'd') {
         event.preventDefault(); duplicateSelectedPageObjects()
       } else if (key === 'escape') {
+        setPopupOpen(false)
         clearPageObjectSelection()
       }
     }
@@ -382,7 +385,7 @@ export function LiveWorkspace() {
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
-  return <section data-context-menu="page" aria-label="Live page canvas" className="flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
+  return <section data-context-menu="page" aria-label="Live page canvas" className="relative flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
     {/* LightKey-style edit toolbar: the Design / Live switch already sits
         centred on the divider directly above this panel (ViewSwitch); the
         toolbar below it holds New Button (+), New Frame, Insert Text (T)
@@ -417,7 +420,7 @@ export function LiveWorkspace() {
           const w = resizeDraft?.id === item.id ? resizeDraft.width : item.width
           const h = resizeDraft?.id === item.id ? resizeDraft.height : item.height
           return <div key={item.id} className={`absolute ${item.type === 'frame' ? 'border border-line rounded' : ''} ${editing && !locked && isSelected(ref) ? 'outline outline-1 outline-[var(--accent)]' : ''}`} style={{ left: draft?.id === item.id ? draft.x : item.x, top: draft?.id === item.id ? draft.y : item.y, width: w, height: h, pointerEvents: item.type === 'frame' && editing && !locked ? 'auto' : 'none' }} onDragOver={item.type === 'frame' ? allowDrop : undefined} onDrop={item.type === 'frame' ? (event) => dropAt(event, item.id) : undefined}>
-            <div className={`px-2 py-1 text-xs ${editing ? 'cursor-grab bg-panel2' : ''}`} style={{ pointerEvents: editing ? 'auto' : 'none', ...css(item.style) }} onPointerDown={(e) => beginDrag(e, ref, item.x, item.y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => editing && !locked && setRenaming({ ref, value: item.text })}>{renaming?.ref.type === 'annotation' && renaming.ref.id === item.id ? renameInput(ref, `${item.type} text`) : item.text}</div>
+            <div className={`px-2 py-1 text-xs ${editing ? 'cursor-grab bg-panel2' : ''}`} style={{ pointerEvents: editing ? 'auto' : 'none', ...css(item.style) }} onPointerDown={(e) => beginDrag(e, ref, item.x, item.y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{item.text}</div>
             {resizeHandle(ref, item.width, item.height)}
           </div>
         })}
@@ -427,8 +430,12 @@ export function LiveWorkspace() {
           const cw = control.width ?? LIVE_CUE_SIZE.width, ch = control.height ?? LIVE_CUE_SIZE.height
           const w = resizeDraft?.id === control.id ? resizeDraft.width : cw, h = resizeDraft?.id === control.id ? resizeDraft.height : ch
           const level = activeLiveValues[control.id] ?? 0
-          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onPointerDown={() => selectRef(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
-            {renaming?.ref.type === 'cue' && renaming.ref.id === control.id ? renameInput(ref, 'Cue name') : <div className="flex h-full flex-col">{editing && !locked && <button type="button" aria-label={`Drag ${control.name}`} className="cursor-grab rounded bg-bg px-2 py-0.5 text-left text-[10px] text-dim" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => setRenaming({ ref, value: control.name })}>↕ drag</button>}{cueBody(control, level)}</div>}
+          // Double-click opens the properties popup; it does not fire the
+          // cue: a toggle cue is clicked twice (on then off — or off then
+          // on), a flash cue is momentary, and a fader ignores double-click,
+          // so the cue's level is unchanged by opening the popup.
+          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onPointerDown={() => selectRef(ref)} onDoubleClick={() => openPropertiesPopup(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
+            <div className="flex h-full flex-col">{editing && !locked && <button type="button" aria-label={`Drag ${control.name}`} className="cursor-grab rounded bg-bg px-2 py-0.5 text-left text-[10px] text-dim" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>↕ drag</button>}{cueBody(control, level)}</div>
             {resizeHandle(ref, cw, ch)}
           </div>
         })}
@@ -438,24 +445,37 @@ export function LiveWorkspace() {
           const lw = widget.width ?? LIVE_LIST_SIZE.width, lh = widget.height ?? LIVE_LIST_SIZE.height
           const w = resizeDraft?.id === widget.id ? resizeDraft.width : lw, h = resizeDraft?.id === widget.id ? resizeDraft.height : lh
           return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
-            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
+            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? scenes.find((s) => s.id === list?.steps[current]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</p><p className="text-dim">Next: {next ? scenes.find((s) => s.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list'}</p>
             {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
             {resizeHandle(ref, lw, lh)}
           </div>
         })}
       </div></div>
-      {/* LightKey inspector: right of the canvas, for the selected button.
-          In Live mode there is no inspector — the canvas takes the space. */}
-      {editing && !locked && <aside className="w-[280px] shrink-0 overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs" aria-label={`${inspectorTarget} inspector`} data-fields={inspectorFields(inspectorTarget).join(',')}>
-        {!selection && <div className="space-y-2">
+      {/* Page inspector: fixed sidebar, only while nothing is selected.
+          Button properties moved out of this sidebar into the slide-in
+          popup below (double-click a button), so the two panels never
+          compete — selecting a button shows only its resize handles. */}
+      {editing && !locked && !selection && <aside className="w-[280px] shrink-0 overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs" aria-label="page inspector" data-fields={inspectorFields('page').join(',')}>
+        <div className="space-y-2">
           <strong className="block">Page inspector</strong>
           <label className="block">Name<input aria-label="Page name" value={page.name} onChange={(e) => savePage({ ...page, name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label>
           <label className="block">Fade (ms)<input aria-label="Page fade time" type="number" min="0" value={page.fadeMs ?? 0} onChange={(e) => savePage({ ...page, fadeMs: Math.max(0, Number(e.target.value)) })} className="ml-1 w-24 rounded bg-bg p-1" /></label>
           {defaultStylesFields()}
-        </div>}
+        </div>
+      </aside>}
+      {/* Button properties popup: slides in from the right over the canvas
+          on double-click (Jake, 18 Nov 2026). It scrolls on its own
+          (overflow-y-auto) while the canvas behind it does not scroll, so
+          the selected button stays visible while its properties are edited.
+          It follows the single selection while open; close with X, Esc or
+          Done. The same inspector fields as the old fixed sidebar, moved
+          here verbatim — Ad hoc properties, Timing mm:ss.t, Button Type,
+          Presets/Sequences, More, style, attachment. */}
+      {editing && !locked && popupOpen && selection && <div role="dialog" aria-label={`${inspectorTarget} properties`} data-fields={inspectorFields(inspectorTarget).join(',')} className="live-properties-popup absolute bottom-2 right-2 top-2 z-50 w-[300px] overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs shadow-2xl">
+        <div className="mb-1 flex items-center justify-between"><strong className="capitalize">{inspectorTarget} properties</strong><button type="button" aria-label="Close properties popup" title="Close properties popup" onClick={() => setPopupOpen(false)}>×</button></div>
         {selectedControl && cueTiming && <div className="space-y-3">
-          <div className="flex items-center justify-between"><strong>{selectedControl.name}</strong><button type="button" aria-label="Close inspector" title="Close inspector" onClick={clearPageObjectSelection}>×</button></div>
+          <div className="flex items-center justify-between"><strong>{selectedControl.name}</strong></div>
           <label className="block">Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label>
           <div>
             <h4 className="font-semibold text-text">Ad hoc properties</h4>
@@ -506,7 +526,7 @@ export function LiveWorkspace() {
           {attachmentSelect({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.attachedTo)}
           <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
         </div>}
-      </aside>}
+      </div>}
     </div>}
     {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>

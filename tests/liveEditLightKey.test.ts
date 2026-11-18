@@ -82,17 +82,31 @@ describe('Live Edit — LightKey layout', () => {
   })
 
   it('moves the Preset Palette to the right sidebar, with drag onto the page', () => {
-    // Groups & Presets side panel (the right sidebar when Live is open).
+    // Preset Palette side panel (the right sidebar when Live is open).
     expect(groupsPresets).toContain('Preset palette')
     expect(groupsPresets).toContain('Export JSON')
     expect(groupsPresets).toContain('Import JSON')
     expect(groupsPresets).toContain('Convert scenes')
-    expect(groupsPresets).toContain('dragPayload')
+    expect(groupsPresets).toContain('encodeLiveDrop')
     expect(groupsPresets).toContain('LIVE_DROP_MIME')
     expect(workspace).toContain('dropOnLivePage')
-    // Sequences are draggable from their editor summary too.
-    expect(sequenceEditor).toContain('encodeLiveDrop')
-    expect(sequenceEditor).toContain('LIVE_DROP_MIME')
+    // Presets AND sequences are draggable from their palette tree rows;
+    // the drag lives on the row now, not in the sequence editor.
+    expect(groupsPresets).toContain("kind: 'sequence', id: sequence.id")
+    expect(sequenceEditor).not.toContain('encodeLiveDrop')
+    expect(sequenceEditor).not.toContain('LIVE_DROP_MIME')
+  })
+
+  it('shows button properties in the slide-in popup, not the fixed sidebar', () => {
+    // 18 Nov 2026 (Jake): double-click a button opens a small popup
+    // sliding in from the right; the fixed sidebar is page-only.
+    expect(workspace).toContain('live-properties-popup')
+    expect(workspace).toContain('Close properties popup')
+    expect(workspace).toContain('openPropertiesPopup')
+    expect(workspace).toContain('onDoubleClick={() => openPropertiesPopup(ref)}')
+    expect(workspace).toContain('overflow-y-auto')
+    expect(workspace).toContain('Page inspector')
+    expect(workspace).not.toContain('renameInput')
   })
 
   it('shows LightKey edit shortcuts (Nudge / Clear selection) while editing', () => {
