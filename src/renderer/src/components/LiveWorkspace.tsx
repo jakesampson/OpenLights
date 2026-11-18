@@ -46,6 +46,10 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const selection: Selection | null = selectedPageObjects.length === 1 ? selectedPageObjects[0] : null
   const isSelected = (ref: Selection) => selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
 
+  // Selection follows interaction in both Live and Live Edit: pressing a cue
+  // or cue list selects it, so the inspector follows it when Edit is open.
+  const selectRef = (ref: Selection) => { if (!isSelected(ref)) setPageObjectSelection([ref]) }
+
   const commitRename = () => {
     if (renaming) renamePageObject(renaming.ref, renaming.value)
     setRenaming(null)
@@ -74,6 +78,13 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
 
   const resizeHandle = (ref: PageObjectRef, width: number, height: number) =>
     editing && !locked && isSelected(ref) ? <div role="button" aria-label="Resize object" className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize rounded-tl border-l-2 border-t-2 border-[var(--accent)] bg-[var(--accent)]/30" style={{ pointerEvents: 'auto' }} onPointerDown={(e) => beginResize(e, ref, width, height)} onPointerMove={moveResize} onPointerUp={endResize} onPointerCancel={() => { resize.current = null; setResizeDraft(null) }} /> : null
+
+  // The cue activation control is identical in Live and Live Edit: one code
+  // path renders the toggle / flash / fader body, so a cue fires, flashes,
+  // fades and shows its lit state the same way in both modes. In Edit mode a
+  // drag grip above it moves the cue; the body itself never drags.
+  const cueBody = (control: LiveControl, level: number) =>
+    control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={css(control.style)}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={css(control.style)} className={`pad w-full flex-1 rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>
 
   const renameInput = (ref: PageObjectRef, ariaLabel: string) =>
     <input autoFocus aria-label={ariaLabel} value={renaming!.value}
@@ -383,8 +394,8 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
           const cw = control.width ?? LIVE_CUE_SIZE.width, ch = control.height ?? LIVE_CUE_SIZE.height
           const w = resizeDraft?.id === control.id ? resizeDraft.width : cw, h = resizeDraft?.id === control.id ? resizeDraft.height : ch
           const level = activeLiveValues[control.id] ?? 0
-          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
-            {editing ? (renaming?.ref.type === 'cue' && renaming.ref.id === control.id ? renameInput(ref, 'Cue name') : <button type="button" className="w-full cursor-grab rounded bg-bg px-2 py-2 text-left" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => setRenaming({ ref, value: control.name })}>↕ {control.name}</button>) : control.type === 'fader' ? <label className="block p-1 text-center" style={css(control.style)}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={css(control.style)} className={`pad w-full rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>}
+          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onPointerDown={() => selectRef(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
+            {renaming?.ref.type === 'cue' && renaming.ref.id === control.id ? renameInput(ref, 'Cue name') : <div className="flex h-full flex-col">{editing && !locked && <button type="button" aria-label={`Drag ${control.name}`} className="cursor-grab rounded bg-bg px-2 py-0.5 text-left text-[10px] text-dim" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => setRenaming({ ref, value: control.name })}>↕ drag</button>}{cueBody(control, level)}</div>}
             {resizeHandle(ref, cw, ch)}
           </div>
         })}
@@ -393,10 +404,10 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
           const ref: PageObjectRef = { type: 'list', id: widget.id }
           const lw = widget.width ?? LIVE_LIST_SIZE.width, lh = widget.height ?? LIVE_LIST_SIZE.height
           const w = resizeDraft?.id === widget.id ? resizeDraft.width : lw, h = resizeDraft?.id === widget.id ? resizeDraft.height : lh
-          return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) && editing ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
-            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
+          return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
+            <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? scenes.find((s) => s.id === list?.steps[current]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</p><p className="text-dim">Next: {next ? scenes.find((s) => s.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list'}</p>
-            {!editing && list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
+            {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
             {resizeHandle(ref, lw, lh)}
           </div>
         })}
