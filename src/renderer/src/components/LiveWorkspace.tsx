@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import { clampModifier, clampLiveSize, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
@@ -47,7 +48,7 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
   return <label className="text-dim">{label}<input aria-label={label} value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); else if (event.key === 'Escape') setText(formatTimingMs(ms)) }} className="ml-1 w-20 rounded bg-bg p-1" /></label>
 }
 
-export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boolean } = {}) {
+export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null } = {}) {
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
@@ -369,6 +370,17 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
   // page sits directly on the background otherwise. border-transparent
   // (not no border at all) keeps the layout from shifting between modes.
   const panelBorder = editing ? 'border border-line' : 'border border-transparent'
+  const editToolbar = <div className={`flex flex-wrap items-center gap-2${!toolbarHost && masterOverlay ? ' master-overlay-inset' : ''}`}>
+    {editing && !locked && <>
+      <div className="ml-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
+        <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
+        <button type="button" aria-label="New frame" title="New frame" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('frame')}>▣</button>
+        <button type="button" aria-label="Insert text" title="Insert text" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('label')}>T</button>
+      </div>
+      <button type="button" className="live-page-edit rounded px-3 py-1 text-xs font-semibold" style={{ backgroundColor: '#22c55e', color: '#111' }} onClick={toggleEditing}>Done</button>
+    </>}
+    {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
+  </div>
   // The section is exactly the visible panel body's height (h-full, not
   // min-h-full): the canvas scroll container below shrinks to fit and
   // scrolls internally, so the section never grows taller than the panel.
@@ -386,17 +398,7 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
         header, the overrides banner and the canvas scroll container all
         take the master-overlay inset so their content starts clear of the
         column at rest and only slides underneath it when scrolled. */}
-    <div className={`flex flex-wrap items-center gap-2${masterOverlay ? ' master-overlay-inset' : ''}`}>
-      {editing && !locked && <>
-        <div className="ml-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
-          <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
-          <button type="button" aria-label="New frame" title="New frame" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('frame')}>▣</button>
-          <button type="button" aria-label="Insert text" title="Insert text" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('label')}>T</button>
-        </div>
-        <button type="button" className="live-page-edit rounded px-3 py-1 text-xs font-semibold" style={{ backgroundColor: '#22c55e', color: '#111' }} onClick={toggleEditing}>Done</button>
-      </>}
-      {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
-    </div>
+    {toolbarHost ? createPortal(editToolbar, toolbarHost) : editToolbar}
     {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
       {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>

@@ -129,8 +129,8 @@ describe('Master fader — panel-anchored overlay (LightKey screenshots 10.12.28
     // 106 − 18 + 10 = 98px), so page content starts 10px clear of the
     // column. The inset on the scroll container is inside its scrollport,
     // so scrolled content slides underneath the column, as in LightKey.
-    expect(app).toContain('<LiveWorkspace masterOverlay />')
-    expect(workspace).toContain('export function LiveWorkspace({ masterOverlay = false }')
+    expect(app).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />')
+    expect(workspace).toContain('export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }')
     expect(workspace.match(/master-overlay-inset/g)?.length).toBe(3)
     expect(css).toContain('.master-overlay-inset {')
     expect(css).toContain('padding-left: 98px;')

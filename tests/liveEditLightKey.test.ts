@@ -40,6 +40,8 @@ describe('Live Edit — LightKey layout', () => {
 
   it('has a LightKey-style toolbar: +, frame, T, green Done', () => {
     expect(workspace).toContain('aria-label="Live edit tools"')
+    expect(workspace).toContain('createPortal(editToolbar, toolbarHost)')
+    expect(app).toContain('className="bottom-panel-tools"')
     expect(workspace).toContain('aria-label="New button"')
     expect(workspace).toContain('aria-label="New frame"')
     expect(workspace).toContain('aria-label="Insert text"')

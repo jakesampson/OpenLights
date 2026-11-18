@@ -62,6 +62,7 @@ export default function App() {
     stopCue
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
+  const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
@@ -477,9 +478,10 @@ export default function App() {
           {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
           <div className="bottom-panel-switch">
             <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+            {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace masterOverlay /> : <BottomPlayback />}
+            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback />}
           </div>
         </div>
 

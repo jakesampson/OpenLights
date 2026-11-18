@@ -371,6 +371,13 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   z-index: 30;
 }
 
+.bottom-panel-tools {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .bottom-panel-body {
   flex: 1 1 auto;
   min-height: 0;

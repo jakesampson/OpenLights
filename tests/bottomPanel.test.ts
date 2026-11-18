@@ -23,7 +23,7 @@ describe('Lightkey-style bottom panel', () => {
     // Master column lives in the bottom panel shell in App.tsx, as an
     // overlay on top of the workspace — the workspace itself still renders
     // the canvas inline, with no master fader inside it.
-    expect(app).toContain("tab === 'Live' ? <LiveWorkspace masterOverlay />")
+    expect(app).toContain("tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />")
     expect(live.indexOf('<MasterFader')).toBe(-1)
     expect(app).not.toContain('liveEditorOpen')
     expect(app).not.toContain('<BottomPlayback view={tab}')
