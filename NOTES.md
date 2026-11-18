@@ -349,3 +349,6 @@ The full-window Patch header now detects macOS and reserves 120px at its leading
 
 ### Main — remove duplicate header marks (19 Nov 2026)
 At Jake's request, the OpenLights image and the connected-node graphic were removed from the main header. The project name and output-status block retain their prior horizontal position through reserved leading space, and the header item-order selectors were updated for the two removed elements so search, Edit, Patch and Settings keep their existing positions and behaviour. Packaged application and Dock icons are unchanged.
+
+### Main — Patch button moved to title-bar leading space (19 Nov 2026)
+At Jake's request, the existing Patch button was moved from the right-hand header actions into the empty leading space immediately before the project name. This is positioning only: the same button, icon, accessible label and full-window Patch action remain wired unchanged, and the project-name block stays at its existing position.

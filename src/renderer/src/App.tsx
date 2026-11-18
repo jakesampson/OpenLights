@@ -335,7 +335,7 @@ export default function App() {
           <details ref={editMenuRef} className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
-            className="lightkey-action"
+            className="lightkey-action header-patch-button"
             aria-label="Patch fixtures"
             title="Patch fixtures"
             onClick={() => setToolPanel('Patch')}
