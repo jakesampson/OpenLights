@@ -17,10 +17,14 @@ const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 const store = readFileSync(resolve(root, 'src/renderer/src/stores/showStore.ts'), 'utf8')
 
 describe('Fanning removed from the Design panel', () => {
-  it('does not render Fanning anywhere in DesignTab', () => {
+  it('does not render a fanning editor in DesignTab — only the single entry point', () => {
     expect(design).not.toContain('FanningEditor')
-    expect(design).not.toContain('Fanning')
     expect(design).not.toContain('<details')
+    expect(design).not.toContain('FanningHud')
+    // One entry point (LightKey Guide §8, p.119): a Fan… button that
+    // opens the HUD in the Preview — not a fanning section in the panel.
+    expect(design.match(/openlights-open-fan-hud/g)).toHaveLength(1)
+    expect(design).toContain('>Fan…')
   })
 
   it('deletes the FanningEditor component file', () => {

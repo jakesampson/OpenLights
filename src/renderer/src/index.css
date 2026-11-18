@@ -144,7 +144,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   gap: 14px;
   min-height: 50px;
   padding: 5px 150px 5px 28px;
-  background: color-mix(in srgb, var(--panel) 82%, #33413d);
+  /* LightKey's header grey, sampled from Jake's LightKey screenshot
+     (Screenshot_2026-11-19_at_8.23.23_am.png): the flat header band
+     measures RGB (68, 67, 69) across its full width. Header bar only —
+     the rest of the app keeps its own theme. */
+  background: #444345;
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
   -webkit-app-region: drag;

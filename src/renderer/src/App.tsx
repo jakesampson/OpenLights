@@ -51,7 +51,10 @@ export default function App() {
     blackout,
     blind,
     freeze,
+    locked,
     liveEditing,
+    previewEditing,
+    setPreviewEditing,
     editingPresetId,
     saveEditingPreset,
     cancelEditingPreset,
@@ -99,17 +102,14 @@ export default function App() {
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const headerTaps = useRef<number[]>([])
-  const editMenuRef = useRef<HTMLDetailsElement>(null)
   const settingsMenuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const closeHeaderMenus = (event: PointerEvent) => {
       const target = event.target as Node | null
-      if (editMenuRef.current?.open && (!target || !editMenuRef.current.contains(target))) editMenuRef.current.open = false
       if (!target || !settingsMenuRef.current?.contains(target)) setSettingsOpen(false)
     }
     const closeHeaderMenusOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (editMenuRef.current) editMenuRef.current.open = false
       setSettingsOpen(false)
     }
     window.addEventListener('pointerdown', closeHeaderMenus)
@@ -254,6 +254,7 @@ export default function App() {
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
       else if (command === 'design') { if (!state.locked) setTab('Design') }
       else if (command === 'live') setTab('Live')
+      else if (command === 'editPreview') { if (!state.locked && tab === 'Design') state.setPreviewEditing(!state.previewEditing) }
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
       else if (command === 'blackout') state.toggleBlackout()
@@ -265,7 +266,7 @@ export default function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout])
+  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab])
 
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)
@@ -332,7 +333,24 @@ export default function App() {
               target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
             })
           }} />
-          <details ref={editMenuRef} className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
+          {/* Header Edit is the Preview edit toggle (LightKey Guide p.53,
+              "Edit the Preview": click Edit in the toolbar to enter edit
+              mode, click Done to exit). It takes over the old "Edit layout"
+              button that hovered on the Preview — the Preview toolbar no
+              longer carries its own edit toggle. Undo/Redo used to live in
+              a dropdown on this button; they stay available from the native
+              app menu (Edit > Undo/Redo) and Ctrl+Z / Ctrl+Y. The toggle
+              only applies in Design, where the Preview is editable, and is
+              disabled while the project is locked. */}
+          <button
+            type="button"
+            className={`btn-theme ${previewEditing ? 'on' : ''}`}
+            aria-pressed={previewEditing}
+            aria-label="Edit preview"
+            title={tab === 'Design' ? 'Edit preview (LightKey Guide p.53)' : 'Edit preview (Design view)'}
+            disabled={locked || tab !== 'Design'}
+            onClick={() => setPreviewEditing(!previewEditing)}
+          >{previewEditing ? 'Done' : 'Edit'}</button>
           <button
             type="button"
             className="lightkey-action header-patch-button"

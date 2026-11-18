@@ -79,6 +79,9 @@ interface ShowState {
   /** Live Edit mode for the active Live page (LightKey "Edit Live View"). UI-only state, like the page selection: it is not persisted in the show, not undo history, and it does not gate firing — cues fire the same in Live and in Edit (see LiveWorkspace). */
   liveEditing: boolean
   setLiveEditing: (editing: boolean) => void
+  /** Preview edit mode (LightKey Guide p.53, "Edit the Preview"): the header Edit button toggles it, and the StagePreview becomes editable — fixtures and trusses can be moved, the grid is shown. UI-only state, like liveEditing: not persisted, not undo history. */
+  previewEditing: boolean
+  setPreviewEditing: (editing: boolean) => void
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
@@ -612,6 +615,7 @@ const actions: ShowState = {
   activeLivePageId: null,
   pageActiveValues: {},
   liveEditing: false,
+  previewEditing: false,
   editingPresetId: null,
   selectedPageObjects: [],
   pageClipboard: null,
@@ -663,6 +667,7 @@ const actions: ShowState = {
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       pageActiveValues: {},
       liveEditing: false,
+      previewEditing: false,
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
@@ -747,6 +752,7 @@ const actions: ShowState = {
 
   setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
   setLiveEditing: (editing) => set({ liveEditing: editing }),
+  setPreviewEditing: (editing) => set({ previewEditing: editing }),
   togglePageObjectSelection: (ref) => set((state) => {
     const exists = state.selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
     return {

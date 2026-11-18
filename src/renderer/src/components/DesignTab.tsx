@@ -127,6 +127,20 @@ export function DesignTab() {
         {editingPreset
           ? <span className="rounded bg-yellow-400 px-2 py-0.5 text-[10px] font-semibold text-black">Editing preset “{editingPreset.name}” — changes save to the preset</span>
           : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
+        {/* Fanning entry point (LightKey Guide §8, p.119: click a fixture
+            property's name in the Design view, then choose Add Fanning…).
+            This button is that entry point — it opens the Fanning HUD in
+            the Preview, around the fixtures' icons, for the selection's
+            default property; the HUD itself lets the property be changed.
+            It is a single entry point, not a fanning section in the panel
+            (the section was removed at Jake's request — see NOTES.md). */}
+        <button
+          type="button"
+          className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40"
+          disabled={selectedFixtures.length === 0}
+          onClick={() => window.dispatchEvent(new CustomEvent('openlights-open-fan-hud', { detail: {} }))}
+          title="Fan a property across the selected fixtures (LightKey Guide §8, p.118–122)"
+        >Fan…{activeCue?.fans?.length ? ` (${activeCue.fans.length})` : ''}</button>
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         {/* Dimmer: the shared FillFader — the same LightKey-style solid

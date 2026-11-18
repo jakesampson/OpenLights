@@ -41,7 +41,18 @@ describe('toolbar dispatch', () => {
     expect(styles).toContain('min-height: 50px')
     expect(styles).toContain('width: 32px')
     expect(styles).toContain('height: 34px')
-    expect(app).toContain('ref={editMenuRef}')
+    // Header grey is LightKey's, sampled from Jake's LightKey header
+    // screenshot (RGB 68, 67, 69) — the bar only, not a retheme.
+    expect(styles).toContain('background: #444345')
+    expect(styles).not.toContain('color-mix(in srgb, var(--panel) 82%, #33413d)')
+    // The header Edit control is the Preview edit toggle now (LightKey
+    // Guide p.53), not the old Undo/Redo dropdown — Undo/Redo live in
+    // the native app menu and on Ctrl+Z / Ctrl+Y instead.
+    expect(app).not.toContain('ref={editMenuRef}')
+    expect(app).not.toContain('Undo · Ctrl+Z')
+    expect(app).toContain('aria-pressed={previewEditing}')
+    expect(app).toContain("setPreviewEditing(!previewEditing)")
+    expect(app).toContain("{previewEditing ? 'Done' : 'Edit'}")
     expect(app).toContain('ref={settingsMenuRef}')
     expect(app).toContain("window.addEventListener('pointerdown', closeHeaderMenus)")
     expect(app).toContain("window.addEventListener('keydown', closeHeaderMenusOnEscape)")

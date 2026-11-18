@@ -78,18 +78,33 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses } = useShowStore()
+  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses, previewEditing, setPreviewEditing } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
   // when leaving Design or when the project locks.
   const [fanDraft, setFanDraft] = useState<FanDef | null>(null)
   useEffect(() => { if (!designMode || locked) setFanDraft(null) }, [designMode, locked])
-  const openFanHud = () => {
+  const openFanHud = (attribute?: string) => {
     const channels = availableProperties((show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id)))
-    const attribute = channels.some((c) => c.attribute === 'intensity') ? 'intensity' : channels[0]?.attribute ?? 'intensity'
-    setFanDraft(defaultFan(attribute, [...selectedFixtureIds], channels.find((c) => c.attribute === attribute)))
+    const wanted = attribute && channels.some((c) => c.attribute === attribute) ? attribute : undefined
+    const chosen = wanted ?? (channels.some((c) => c.attribute === 'intensity') ? 'intensity' : channels[0]?.attribute ?? 'intensity')
+    setFanDraft(defaultFan(chosen, [...selectedFixtureIds], channels.find((c) => c.attribute === chosen)))
   }
+  // The Fanning HUD's entry point (LightKey Guide §8, p.119: click the
+  // fixture property's name in the Design view, then choose Add Fanning…)
+  // lives in the Design panel, not on the Preview toolbar — the panel
+  // dispatches this event with the property that was picked, and the HUD
+  // opens here, in the Preview around the fixtures' icons.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (!designMode || locked) return
+      const attribute = (event as CustomEvent<{ attribute?: string }>).detail?.attribute
+      openFanHud(attribute)
+    }
+    window.addEventListener('openlights-open-fan-hud', handler)
+    return () => window.removeEventListener('openlights-open-fan-hud', handler)
+  }, [designMode, locked, show, selectedFixtureIds])
   const commitFan = (next: FanDef) => {
     // saveFan is a no-op with no active cue (and addCue does not activate
     // the cue it creates), so start a cue and activate it first — the same
@@ -108,8 +123,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     useShowStore.getState().deleteFan(id, keepValues)
     if (fanDraft?.id === id) setFanDraft(null)
   }
-  const [editing, setEditing] = useState(false)
-  useEffect(() => { if (locked) setEditing(false) }, [locked])
+  // Preview edit mode is owned by the header Edit toggle (store
+  // previewEditing, LightKey Guide p.53) — this component only reads it.
+  // Leaving Design or locking the project exits edit mode, mirroring how
+  // the Fanning HUD closes in the same cases.
+  const editing = previewEditing
+  useEffect(() => { if (locked || !designMode) setPreviewEditing(false) }, [locked, designMode, setPreviewEditing])
   const [outputChannels, setOutputChannels] = useState<number[]>([])
   useEffect(() => {
     let alive = true
@@ -149,6 +168,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     return { x: Math.round(clamp(result.x, 0, 800)), y: Math.round(clamp(result.y, 0, 340)) }
   }
   const storageTrayRef = useRef<HTMLDivElement>(null)
+  // Exiting edit mode clears any in-progress drag, as the old "Edit
+  // layout" button did when it was toggled off.
+  useEffect(() => {
+    if (editing) return
+    setDragPositions(null); dragRef.current = null; trussDragRef.current = null; setTrussDraft(null)
+  }, [editing])
   const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
   const cues: CueDef[] = show?.cues ?? []
@@ -254,10 +279,14 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
 
   return (
     <div className="panel stage min-h-0 overflow-hidden relative bg-bg p-2">
+      {/* The Preview toolbar carries no buttons of its own any more: the
+          header Edit toggle owns edit mode (LightKey Guide p.53), the
+          Fanning HUD is opened from the Design panel (Guide §8, p.119),
+          and Locate has no button — LightKey's nearest equivalent is
+          Highlight Mode, which OpenLights does not replicate yet (see
+          NOTES.md). The zoom cluster on the right stays. */}
       <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
-        <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span><button type="button" className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40" disabled={!selectedFixtureIds.length || locked} onClick={() => useShowStore.getState().locateFixtures(selectedFixtureIds)}>Locate</button>
-        {designMode && <button type="button" className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40" disabled={locked} onClick={openFanHud} title="Fan a property across the selected fixtures (LightKey Guide §8, p.118–122)">Fan…{(activeCue?.fans?.length ?? 0) > 0 ? ` (${activeCue?.fans?.length})` : ''}</button>}
-        <button type="button" disabled={locked} onClick={() => { setEditing(!editing); setDragPositions(null); dragRef.current = null; trussDragRef.current = null; setTrussDraft(null) }} className={`rounded px-2 py-1 text-xs ${editing ? 'bg-text text-bg' : 'bg-panel2 text-text'}`} aria-pressed={editing}>{editing ? 'Done' : 'Edit layout'}</button>
+        <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span>
         {editing && <div className="flex flex-wrap gap-1 rounded bg-bg/80 p-1 text-[10px] text-text">
           <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={addTruss}>+ Add truss</button><button type="button" className="rounded bg-panel2 px-2 py-1" onClick={() => { selectFixtures(fixtures.map((f) => f.id)); setSelectedLayoutTrussIds(trusses.map((t) => t.id)); setSelectedTrussId(trusses[0]?.id ?? null) }}>Select all</button>
           <select aria-label="Align selected preview objects" defaultValue="" className="rounded bg-panel2 px-2 py-1" onChange={(e) => { if (e.target.value) align(e.target.value as AlignMode); e.target.value = '' }}><option value="">Align / distribute…</option>{(['left', 'right', 'top', 'bottom', 'center-x', 'center-y', 'space-x', 'space-y'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select>
