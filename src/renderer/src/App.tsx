@@ -56,7 +56,6 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
-  const [liveEditorOpen, setLiveEditorOpen] = useState(false)
   const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   useEffect(() => {
@@ -377,9 +376,8 @@ export default function App() {
 
       {/* Bottom row */}
       <div className="bottom-grid">
-        <div className="panel playback-shell">
-          {tab === 'Live' && <button type="button" className="bottom-edit" onClick={() => setLiveEditorOpen(true)}>Edit</button>}
-          <BottomPlayback view={tab} />
+        <div className={`panel ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback view="Design" />}
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
@@ -401,12 +399,6 @@ export default function App() {
           </div>
         </div>
       </div>
-      {liveEditorOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLiveEditorOpen(false) }}>
-        <section role="dialog" aria-modal="true" aria-label="Edit Live page" className="panel flex max-h-[94vh] w-full max-w-[1200px] flex-col overflow-hidden shadow-2xl">
-          <header className="flex items-center justify-between border-b border-line px-4 py-3"><h2 className="text-sm font-semibold">Edit Live page</h2><button type="button" className="btn-theme" onClick={() => setLiveEditorOpen(false)}>Done</button></header>
-          <div className="min-h-0 overflow-auto p-3"><LiveWorkspace initialEditing /></div>
-        </section>
-      </div>}
       {toolPanel && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"

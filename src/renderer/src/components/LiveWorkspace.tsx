@@ -167,6 +167,20 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
     const next: LivePage = { id: crypto.randomUUID(), name: name.trim(), controls: [] }
     setLivePages([...pages, next]); selectLivePage(next.id); setName(''); setEditing(initialEditing)
   }
+  const toggleEditing = () => {
+    if (editing) {
+      setEditing(false)
+      clearPageObjectSelection()
+      return
+    }
+    if (!page) {
+      const next: LivePage = { id: crypto.randomUUID(), name: `Page ${pages.length + 1}`, controls: [] }
+      setLivePages([...pages, next])
+      selectLivePage(next.id)
+    }
+    setEditing(true)
+    clearPageObjectSelection()
+  }
   const addControl = () => {
     if (!page) return
     const at = position(page.controls.length + (page.cueListWidgets?.length ?? 0))
@@ -327,12 +341,12 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const selectedAnnotation = selection?.type === 'annotation' ? page?.annotations?.find((item) => item.id === selection.id) : undefined
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
-  return <section data-context-menu="page" className="flex flex-col gap-2 rounded border border-line bg-bg/30 p-3">
+  return <section data-context-menu="page" aria-label="Live page canvas" className="flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3">
     <div className="flex flex-wrap items-center gap-2">
       <label className="text-xs text-dim">Live page <select aria-label="Live page" className="rounded border border-line bg-panel2 px-2 py-1 text-text" value={page?.id ?? ''} onChange={(event) => { selectLivePage(event.target.value); setEditing(false); clearPageObjectSelection() }}><option value="" disabled>{pages.length ? 'Select page' : 'No pages yet'}</option>{pages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
       {!locked && !isLiveWindow() && <button type="button" className="btn-theme text-xs" onClick={() => { setManaging(!managing); setDeleteId(null) }}>Manage pages</button>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
-      {page && !locked && !isLiveWindow() && <button type="button" className="btn-theme ml-auto text-xs" onClick={() => { setEditing(!editing); clearPageObjectSelection() }}>{editing ? 'Done' : 'Edit'}</button>}
+      {!locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>{editing ? 'Done' : 'Edit'}</button>}
     </div>
     {managing && <div role="dialog" aria-label="Manage Live pages" className="rounded border border-line bg-panel2 p-3 text-xs">
       <div className="mb-2 flex justify-between"><strong>Manage Live pages</strong><button type="button" onClick={() => setManaging(false)}>Done</button></div>
@@ -345,7 +359,7 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
       </div>)}
     </div>}
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
-    {!page ? <p className="text-xs text-dim">Open Manage pages to create your first Live page.</p> : <>
+    {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <>
       {editing && !locked && <div className="flex flex-wrap items-center gap-2"><label className="btn-theme text-xs">+ Scene button <select aria-label="Add scene button" defaultValue="" onChange={(event) => { if (event.target.value) addSceneControl(event.target.value); event.target.value = '' }} className="ml-1 bg-transparent"><option value="" disabled>Choose scene…</option>{scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}</select></label><button type="button" className="btn-theme text-xs" onClick={addControl}>+ Custom cue</button><button type="button" className="btn-theme text-xs" onClick={addList} disabled={!cueLists.length}>+ Cue list</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('label')}>+ Label</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('frame')}>+ Frame</button>
         {selectedPageObjects.length > 0 && <><span className="text-xs text-dim">{selectedPageObjects.length} selected</span><button type="button" className="btn-theme text-xs" onClick={duplicateSelectedPageObjects}>Duplicate</button><button type="button" className="btn-theme text-xs" onClick={copySelectedPageObjects}>Copy</button><button type="button" className="btn-theme text-xs text-red-300" onClick={deleteSelectedPageObjects}>Delete</button></>}
         {!isClipboardEmpty(pageClipboard) && <button type="button" className="btn-theme text-xs" onClick={() => pastePageObjects()}>Paste</button>}

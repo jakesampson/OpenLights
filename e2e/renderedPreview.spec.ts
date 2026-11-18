@@ -33,18 +33,13 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   expect(await page.locator('.design-fixture-inspector').evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
 
   await page.locator('.view-switch').getByRole('button', { name: /Live/ }).click()
-  await expect(page.getByLabel('Live playback')).toBeVisible()
-  await page.locator('.bottom-edit').click()
-  await expect(page.getByRole('dialog', { name: 'Edit Live page' })).toBeVisible()
-  if (await page.getByText('Open Manage pages to create your first Live page.').isVisible()) {
-    await page.getByRole('button', { name: 'Manage pages' }).click()
-    await page.getByLabel('New Live page name').fill('Main')
-    await page.getByRole('button', { name: '+ Add page' }).click()
-    await page.getByRole('dialog', { name: 'Manage Live pages' }).getByRole('button', { name: 'Done' }).click()
-  }
+  await expect(page.getByLabel('Live page canvas')).toBeVisible()
+  await expect(page.locator('.bottom-grid').getByLabel('Master output')).toHaveCount(0)
+  await expect(page.locator('.bottom-grid').getByLabel('Scene buttons')).toHaveCount(0)
+  await page.locator('.live-page-edit').click()
   await page.getByRole('button', { name: '+ Custom cue' }).click()
-  await expect(page.getByText('New cue', { exact: true }).first()).toBeVisible()
-  await page.getByRole('dialog', { name: 'Edit Live page' }).locator('header').getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByRole('button', { name: /New cue/ }).first()).toBeVisible()
+  await page.locator('.live-page-edit').click()
 
   await page.getByRole('button', { name: 'Blind' }).click()
   await expect(page.getByText('BLIND · preview only')).toBeVisible()
@@ -53,7 +48,7 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Freeze' })).toHaveAttribute('aria-pressed', 'true')
   await page.getByRole('button', { name: 'Freeze' }).click()
 
-  await page.locator('.bottom-edit').click()
+  await page.locator('.live-page-edit').click()
   await page.getByLabel('Live page', { exact: true }).click({ button: 'right' })
   await expect(page.getByRole('menu', { name: 'page actions' })).toBeVisible()
   await page.screenshot({ path: '/tmp/openlights-rendered-preview.png', fullPage: true })

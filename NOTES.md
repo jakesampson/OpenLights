@@ -258,3 +258,6 @@ The production renderer was served locally and exercised in system Chromium thro
 
 ### Design fixture inspector correction
 The Design bottom panel is now a fixed, non-scrollable selected-fixture inspector. General selection, grouping, fanning, copy/paste and layout sections were removed from this playback surface; selecting fixtures in Preview exposes only the scene/manual mode, dimmer, colour and common fixture-property controls. All common attributes, including position and optical channels, remain directly editable as compact faders. Tests: `tests/bottomPanel.test.ts` and the rendered Playwright scroll-height assertion.
+
+### Inline blank Live pages
+The Live bottom panel now renders the selected Live page canvas directly instead of a separate playback surface and modal editor. A project with no Live pages shows a blank canvas; selecting Edit creates an empty `Page 1` and enters edit mode in place. Scene buttons are only added explicitly by the user, and the bottom Master fader is not injected into Live pages. Existing saved Live pages and controls are preserved unchanged. Tests: `tests/bottomPanel.test.ts` and `e2e/renderedPreview.spec.ts`.

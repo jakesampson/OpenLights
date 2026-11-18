@@ -3,10 +3,8 @@ import { BOTTOM_PANEL_REGIONS, LIVE_EDIT_ADD_KINDS, bottomPanelMode } from '../s
 import { readFileSync } from 'node:fs'
 
 describe('Lightkey-style bottom panel', () => {
-  it('uses scene tiles for Design and playback surfaces for Live', () => {
+  it('uses fixture controls for Design', () => {
     expect(bottomPanelMode('Design', false)).toBe('fixture-controls')
-    expect(bottomPanelMode('Live', false)).toBe('live-buttons')
-    expect(bottomPanelMode('Live', true)).toBe('cuelist-playback')
   })
 
   it('contains no scene or cue editing region', () => {
@@ -15,6 +13,12 @@ describe('Lightkey-style bottom panel', () => {
   })
   it('offers scene and custom controls from Live edit', () => {
     expect(LIVE_EDIT_ADD_KINDS).toEqual(['scene', 'cue', 'cuelist', 'label', 'frame'])
+  })
+  it('renders the Live page canvas inline without forced scene buttons or a master fader', () => {
+    const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
+    expect(app).toContain("tab === 'Live' ? <LiveWorkspace />")
+    expect(app).not.toContain('liveEditorOpen')
+    expect(app).not.toContain('<BottomPlayback view={tab}')
   })
   it('keeps Design as a fixed selected-fixture inspector', () => {
     const design = readFileSync('src/renderer/src/components/DesignTab.tsx', 'utf8')

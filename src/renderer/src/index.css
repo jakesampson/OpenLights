@@ -256,7 +256,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .preview-stack > .stage { height: 100%; }
 .design-property-overlay { position: absolute; left: 12px; bottom: 12px; z-index: 20; width: min(720px, calc(100% - 24px)); max-height: 42%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); padding: 8px; box-shadow: 0 8px 30px #0008; }
 .playback-shell { position: relative; min-height: 0; overflow: hidden; padding: 10px; }
-.bottom-edit { position: absolute; right: 12px; top: 5px; z-index: 3; color: var(--dim); font-size: 11px; }
+.live-page-shell { min-height: 0; overflow: auto; padding: 6px; }
 .playback-panel { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; }
 .playback-master { display: grid; grid-template-rows: auto 1fr auto auto; justify-items: center; min-height: 0; gap: 3px; color: var(--dim); font-size: 10px; }
 .playback-master input { appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 38px; min-height: 70px; accent-color: var(--text); }
