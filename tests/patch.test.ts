@@ -35,6 +35,16 @@ it('renders the full 512-address drag matrix with separate brand and model panel
   expect(source).toContain('onDrop')
 })
 
+it('keeps the full-window Done button clear of macOS window controls', () => {
+  const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
+  const styles = readFileSync('src/renderer/src/index.css', 'utf8')
+  expect(app).toContain("/Macintosh|Mac OS X/.test(navigator.userAgent)")
+  expect(app).toContain("'patch-dialog-header-mac'")
+  expect(styles).toContain('.patch-dialog-header-mac')
+  expect(styles).toContain('padding-left: 120px')
+  expect(styles).toContain('-webkit-app-region: no-drag')
+})
+
 it('reports overlaps and address overflow without flagging adjacent spans', () => {
  const a = allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 2, start: 1 })
  expect(findConflicts(a)).toEqual([])

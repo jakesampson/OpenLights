@@ -31,6 +31,7 @@ type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
 
 export default function App() {
+  const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent)
   const {
     show,
     cues,
@@ -515,7 +516,7 @@ export default function App() {
             aria-label={toolPanel}
             className={`panel flex w-full flex-col overflow-hidden shadow-2xl ${toolPanel === 'Patch' ? 'h-full max-w-none rounded-none' : 'max-h-[92vh] max-w-6xl'}`}
           >
-            <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+            <header className={`flex items-center gap-3 border-b border-line px-4 py-3 ${toolPanel === 'Patch' ? `patch-dialog-header ${isMac ? 'patch-dialog-header-mac' : ''}` : ''}`}>
               {toolPanel === 'Patch' && <button type="button" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={closeToolPanel}>Done</button>}
               <h2 className="flex-1 text-xs font-semibold uppercase tracking-wider text-dim">{toolPanel === 'Patch' ? show?.name ?? 'Fixture Patch' : toolPanel}</h2>
               {toolPanel !== 'Patch' && <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>Close</button>}
