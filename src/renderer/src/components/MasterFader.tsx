@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { BEAT_QUADRANTS, nextBeatQuadrant, quarterBeatMs, type BeatQuadrant } from '../lib/beatQuadrant'
+import { BEAT_QUADRANTS, nextBeatQuadrant, beatMs, type BeatQuadrant } from '../lib/beatQuadrant'
 
 const clampMaster = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
@@ -57,21 +57,23 @@ function MasterTrack({ value, onChange }: { value: number; onChange: (value: num
 // LightKey-style tap-tempo box (screenshots 9.56.45 / 9.58.58): a
 // separate element under the fader rail, the same width as the rail,
 // split into four quadrants — one lights up at a time, advancing
-// clockwise on every 1/4 beat (top-left → top-right → bottom-right →
-// bottom-left). The highlight steps on a DOM interval of one quarter
-// beat, reset whenever the tempo changes and cleared on unmount; it
-// lives in the sandboxed renderer, so it dies with the window and
-// cannot hold the main process open on quit. With no usable tempo
+// clockwise on every BEAT (top-left → top-right → bottom-right →
+// bottom-left; Jake's correction, 18 Nov 2026: at 60 bpm that is one
+// quadrant per second, 15 full rotations per minute — the earlier
+// quarter-beat step was 4x too fast). The highlight steps on a DOM
+// interval of one beat, reset whenever the tempo changes and cleared on
+// unmount; it lives in the sandboxed renderer, so it dies with the window
+// and cannot hold the main process open on quit. With no usable tempo
 // (bpm 0) no quadrant is lit.
 function BpmButton({ bpm, onTap }: { bpm: number; onTap: () => void }) {
   const [lit, setLit] = useState<BeatQuadrant | null>(null)
   useEffect(() => {
-    const quarter = quarterBeatMs(bpm)
-    if (quarter === null) { setLit(null); return }
+    const beat = beatMs(bpm)
+    if (beat === null) { setLit(null); return }
     setLit('top-left')
     const timer = window.setInterval(() => {
       setLit((current) => (current === null ? 'top-left' : nextBeatQuadrant(current)))
-    }, quarter)
+    }, beat)
     return () => window.clearInterval(timer)
   }, [bpm])
 

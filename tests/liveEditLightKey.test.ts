@@ -52,15 +52,18 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('>Edit<')
   })
 
-  it('has a vertical Master fader on a fixed rail left of the canvas, with tap tempo underneath', () => {
-    // 18 Nov 2026 (Jake): the Master fader is a fixed 96px × 172px rail,
-    // the same height in Live and in Live Edit, outside the canvas scroll
-    // container — never on the manipulatable canvas — with the BPM /
+  it('has a vertical Master fader on a panel-anchored rail left of the canvas, with tap tempo underneath', () => {
+    // 18 Nov 2026 (Jake): the Master fader is a 96px rail at the far left
+    // of the bottom panel, the same height in Live and in Live Edit,
+    // anchored to the panel as an overlay — canvas content scrolls
+    // underneath it, never the other way round — with the BPM /
     // tap-tempo box as a separate element under it. (It stretched in Edit
-    // mode until the rail got its own fixed height; see
+    // mode until the rail got its own fixed height, then rendered squashed
+    // when that height was overridden by a 96px flex basis; see
     // tests/faderWidths.test.ts. The thin line + knob is now a solid
     // filled bar; see tests/masterFader.test.ts.)
-    expect(workspace).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
+    expect(app).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
+    expect(workspace.indexOf('<MasterFader')).toBe(-1)
     expect(masterFader).toContain('live-master-rail')
     expect(masterFader).toContain('aria-label="Master fader"')
     expect(masterFader).toContain('aria-label="Live master"')
@@ -69,7 +72,6 @@ describe('Live Edit — LightKey layout', () => {
     expect(masterFader).toContain("master >= 255 ? 'Full'")
     expect(css).toContain('.live-master-rail {')
     expect(css).toContain('width: 96px')
-    expect(css).toContain('height: 172px')
     expect(css).toContain('.live-master-track {')
     expect(css).toContain('.live-master-fill {')
   })

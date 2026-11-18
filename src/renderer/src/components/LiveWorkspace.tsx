@@ -11,8 +11,6 @@ import {
   type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
 import { useShowStore } from '../stores/showStore'
-import { calculateTapTempo } from '../lib/tapTempo'
-import { MasterFader } from './MasterFader'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 import { CueListEditor } from './CueListEditor'
 
@@ -49,12 +47,12 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
   return <label className="text-dim">{label}<input aria-label={label} value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); else if (event.key === 'Escape') setText(formatTimingMs(ms)) }} className="ml-1 w-20 rounded bg-bg p-1" /></label>
 }
 
-export function LiveWorkspace() {
+export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boolean } = {}) {
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
-    master, setMaster, bpm, setBpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
+    editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
@@ -80,14 +78,6 @@ export function LiveWorkspace() {
   // follows the single selection; close with X, Esc or Done.
   const [popupOpen, setPopupOpen] = useState(false)
   const pageCanvas = useRef<HTMLDivElement>(null)
-  // Tap tempo for the Master rail's BPM box (LightKey: the "90 bpm" box
-  // under the Master fader). Same calculateTapTempo the header Tap button uses.
-  const masterTaps = useRef<number[]>([])
-  const tapTempo = () => {
-    const result = calculateTapTempo(masterTaps.current, performance.now())
-    masterTaps.current = result.taps
-    if (result.bpm !== null) setBpm(result.bpm)
-  }
   // LightKey-style context menu (Guide ch.11, p.176): right-click on the
   // canvas or a button in Edit mode. Each item wires to the existing store
   // actions the old bottom-strip buttons used.
@@ -405,8 +395,13 @@ export function LiveWorkspace() {
     {/* LightKey-style edit toolbar: the Design / Live switch sits in the
         bottom panel above this workspace (ViewSwitch, rendered by App);
         the toolbar below it holds New Button (+), New Frame, Insert Text
-        (T) and the green Done button, as in LightKey's bottom panel. */}
-    <div className="flex flex-wrap items-center gap-2">
+        (T) and the green Done button, as in LightKey's bottom panel.
+        When the Master fader overlays this workspace (masterOverlay, set
+        by App — the column sits on top of the panel's left edge), the
+        header, the overrides banner and the canvas scroll container all
+        take the master-overlay inset so their content starts clear of the
+        column at rest and only slides underneath it when scrolled. */}
+    <div className={`flex flex-wrap items-center gap-2${masterOverlay ? ' master-overlay-inset' : ''}`}>
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
       {editing && !locked && <>
         <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
@@ -418,18 +413,10 @@ export function LiveWorkspace() {
       </>}
       {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
     </div>
-    {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
+    {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
-      {/* Fixed Master fader column (LightKey): a fixed 96px-wide, 172px
-          tall solid filled bar with the tap-tempo BPM box separate
-          underneath it (MasterFader) — the same size in Live and in Live
-          Edit — OUTSIDE the canvas scroll container below, so it is never
-          on the manipulatable canvas and panning, zooming or editing the
-          canvas cannot move or stretch it. The value reads "Full" at 100%,
-          as in LightKey. */}
-      <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />
       {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      <div className={`min-w-0 flex-1 overflow-auto rounded ${panelBorder}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+      <div className={`min-w-0 flex-1 overflow-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }

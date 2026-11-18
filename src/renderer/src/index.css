@@ -293,8 +293,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   flex: 0 0 auto;
   /* 294px, not 260px: the pinned Design/Live switch row at the top of the
      bottom panel is 34px tall, and the grid grows by exactly that much so
-     the Live/Design workspace below it keeps the height it had — the
-     Master rail (172px) still fits without the panel scrolling. */
+     the Live/Design workspace below it keeps the height it had. */
   height: 294px;
   min-height: 0;
 }
@@ -346,6 +345,9 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  /* Positioning context for the Master fader overlay (below): the column
+     is absolutely positioned against this panel, so it never scrolls. */
+  position: relative;
 }
 
 .bottom-panel-switch {
@@ -425,24 +427,41 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 /* Manage Live Pages: the current page's row is highlighted blue (LightKey). */
 .live-pages-row.on { background: #2563eb; color: #fff; }
 
-/* Fixed Master fader rail (LightKey): a narrow 96px rail at the far left
-   of the Live area, OUTSIDE the canvas scroll container — never on the
-   manipulatable canvas, so panning/zooming/editing cannot move it. It has
-   a FIXED height (172px, the height of the Live row in the bottom panel —
-   the height it had in Live mode, Jake's screenshot 9.19.46) in both Live
-   and Live Edit: the rail used to stretch with align-self: stretch, and
-   in Edit mode the Live section grows taller than the bottom grid row
-   (the page inspector / 520px canvas force it taller), so the rail
-   stretched to the full edit height (Jake, 18 Nov 2026, screenshot
-   9.23.32). With a fixed height and align-self: flex-start it cannot
-   stretch, whatever the section height is. The BPM / tap-tempo box sits
-   directly underneath the fader, same width. */
+/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots 10.12.28
+   / 10.17.25): a narrow 96px column at the far left of the Live area,
+   OUTSIDE every scroll container — never on the manipulatable canvas, so
+   panning, zooming, editing or scrolling the canvas cannot move it.
+   - In the main window it is a direct child of the bottom panel shell
+     (App.tsx) and sits ON TOP of the panel: absolutely positioned, top
+     9px below the panel border (9px + the 1px panel border = 10px below
+     the panel's outer edge, as Jake asked) and 9px above the bottom
+     border, so the BPM button is fully inside the panel, never clipped.
+     z-index 20 puts it above the scrolling canvas content (which has no
+     z-index) but below the Design/Live switch row (z-index 30), so the
+     Live menu always opens over it. Canvas content flows underneath it:
+     at rest the workspace takes a 98px left inset (see
+     .master-overlay-inset) so content starts clear of the column, and
+     scrolling slides it underneath the column, exactly as in LightKey.
+   - In the separate Live window (LiveTab) there is no bottom panel, so
+     the column is a flex-row sibling of the workspace instead, stretching
+     to the workspace height.
+   The rail's height is set by the column, which is set by the panel —
+   never by the canvas or the edit section — so the fader keeps the same
+   height in Live and in Live Edit.
+   Earlier squash, found while fixing this (screenshot 10.12.28): the
+   rail used to carry `flex: 0 0 96px`, which inside the column-direction
+   flex container set its HEIGHT basis to 96px and overrode the intended
+   `height: 172px` — that is why it rendered as a small squat box. The
+   rail is now the flexible part of the column (`flex: 1 1 auto`,
+   `min-height: 0`) and fills whatever height the panel gives it; the
+   Master label, Full readout and BPM button are flex-none, so the track
+   ends above the tap-tempo button and can never overlap it. */
 .live-master-rail {
   display: flex;
   width: 96px;
-  height: 172px;
-  flex: 0 0 96px;
-  align-self: flex-start;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
   flex-direction: column;
   align-items: center;
   gap: 3px;
@@ -459,7 +478,26 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   gap: 6px;
   width: 96px;
   flex: 0 0 96px;
-  align-self: flex-start;
+}
+
+.bottom-panel-shell > .live-master-column {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  bottom: 9px;
+  z-index: 20;
+}
+
+/* Left inset for the Live workspace when the Master column overlays it
+   (LiveWorkspace masterOverlay, main window only): the column spans
+   10–106px from the shell's content left edge, and the workspace content
+   starts 18px in (6px shell padding + 12px section padding), so 98px =
+   106 − 18 + 10 puts page content 10px clear of the column at rest.
+   Applied to the header row, the overrides banner and the canvas scroll
+   container — the scroll container's padding is inside its scrollport,
+   so scrolled content slides underneath the column. */
+.master-overlay-inset {
+  padding-left: 98px;
 }
 
 .live-master-rail > span {
@@ -469,7 +507,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 /* LightKey-style Master track: a wide solid bar that fills from the
    bottom, not a thin line with a knob. The fill is a child div whose
    height is the master percentage; the track itself is the flexible
-   part of the fixed-height rail, so it can never run over the tap
+   part of the rail, so it can never run over the tap
    tempo button below the rail. */
 .live-master-track {
   position: relative;

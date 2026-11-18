@@ -3,6 +3,7 @@ import { useShowStore } from '../stores/showStore'
 import { getPresetColor } from '../lib/presetColor'
 import { calculateTapTempo } from '../lib/tapTempo'
 import { LiveWorkspace } from './LiveWorkspace'
+import { MasterFader } from './MasterFader'
 
 export function LiveTab() {
   const {
@@ -34,7 +35,15 @@ export function LiveTab() {
     if (result.bpm !== null) setBpm(result.bpm)
   }
   return (
-    <div className="flex flex-col gap-3 p-1">
+    <div className="flex gap-3 p-1">
+      {/* Master fader column (LightKey): a flex-row sibling of the Live
+          workspace, OUTSIDE the canvas scroll container — the separate Live
+          window has no bottom panel to anchor an overlay to, so the column
+          sits beside the workspace instead of on top of it, and canvas
+          pan/zoom/edit cannot move it. It stretches to the workspace
+          height, so the rail fills the window like LightKey's tall bar. */}
+      <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
       <LiveWorkspace />
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cues</h3>
@@ -112,7 +121,7 @@ export function LiveTab() {
         )}
       </section>
 
-
+      </div>
     </div>
   )
 }

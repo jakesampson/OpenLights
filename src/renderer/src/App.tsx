@@ -11,6 +11,7 @@ import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
+import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
@@ -45,6 +46,8 @@ export default function App() {
     bpm,
     activeCueId,
     master,
+    setMaster,
+    setBpm,
     blackout,
     blind,
     freeze,
@@ -70,6 +73,14 @@ export default function App() {
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const headerTaps = useRef<number[]>([])
+  // Tap tempo for the Master column's BPM box (LightKey: the "90 bpm" box
+  // under the Master fader). Shares the header Tap button's tap history —
+  // one tempo, tapped from either place.
+  const tapTempo = () => {
+    const result = calculateTapTempo(headerTaps.current, performance.now())
+    headerTaps.current = result.taps
+    if (result.bpm !== null) setBpm(result.bpm)
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
   }, [show?.preferences?.theme])
@@ -431,11 +442,20 @@ export default function App() {
           identically in Design, Live and Live Edit. */}
       <div className="bottom-grid">
         <div className="panel bottom-panel-shell">
+          {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
+              10.12.28 / 10.17.25): rendered here, as a child of the bottom
+              panel itself — NOT inside the scrolling Live workspace — so it
+              sits on top of the panel's left edge (see
+              .bottom-panel-shell > .live-master-column in index.css) and
+              canvas content scrolls underneath it, while the column itself
+              never moves or scrolls. Only in Live; Design keeps
+              BottomPlayback with its own playback master. */}
+          {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
           <div className="bottom-panel-switch">
             <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
+            {tab === 'Live' ? <LiveWorkspace masterOverlay /> : <BottomPlayback />}
           </div>
         </div>
 
