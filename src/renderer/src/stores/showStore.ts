@@ -1,7 +1,7 @@
 import type { FanDef, FrameConfig, LiveControl, LiveObjectStyle } from '@shared/types'
 import { cuesToPresets } from '@shared/cueConversion'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
-import { exclusiveSiblings, liveOutputLevels, setFrameConfig } from '../lib/liveFrames'
+import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
@@ -701,6 +701,10 @@ const actions: ShowState = {
       if (!page.controls.some((cue) => cue.id === id)) continue
       if (page.controls.find((cue) => cue.id === id)?.appearance?.releaseOthers) for (const cue of page.controls) if (cue.id !== id) delete activeLiveValues[cue.id]
       for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
+      // Activating a cue in a touching-button group releases the group's
+      // other cues (Guide ch.11, pp.183–184 "Attach buttons": only one
+      // attached button can be active at a time).
+      for (const sibling of touchingGroupSiblings(page, id)) delete activeLiveValues[sibling]
     }
     const liveActivationCounter = level > 0 ? state.liveActivationCounter + 1 : state.liveActivationCounter
     const liveActivationOrder = level > 0 ? { ...state.liveActivationOrder, [id]: liveActivationCounter } : state.liveActivationOrder

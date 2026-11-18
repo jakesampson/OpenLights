@@ -3,13 +3,31 @@ import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
-import { FanningEditor } from './FanningEditor'
+import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
 
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
 
 function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
+}
+
+// Fill colour for a channel fader: the fill follows the channel, like the
+// colour it controls — red/green/blue (and cyan/magenta/yellow/white/amber
+// for CMY/white/amber fixtures). The Dimmer uses the Master's lavender.
+// Any other attribute falls back to the theme accent.
+function channelFillColor(attribute: string) {
+  switch (attribute) {
+    case 'red': return '#ef4444'
+    case 'green': return '#22c55e'
+    case 'blue': return '#3b82f6'
+    case 'cyan': return '#22d3ee'
+    case 'magenta': return '#e879f9'
+    case 'yellow': return '#eab308'
+    case 'white': return '#e5e7eb'
+    case 'amber': return '#f59e0b'
+    default: return 'var(--accent)'
+  }
 }
 
 function colorHex(values: Record<string, number>) {
@@ -89,7 +107,7 @@ export function DesignTab() {
 
   return (
     <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-line pb-1">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <span
           className={
             selectedFixtures.length > 0
@@ -106,21 +124,19 @@ export function DesignTab() {
           : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
-        <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
+        {/* Dimmer: the shared FillFader — the same LightKey-style solid
+            fill bar as the Master fader (lavender fill), not a thin line
+            with a round knob. */}
+        <div className="flex w-16 shrink-0 flex-col items-center gap-0.5">
           <span className="text-[11px] font-medium uppercase text-dim">Dimmer</span>
-          <div className="fader">
-            <div className="fader-fill" style={{ height: `${(dimmer / 255) * 100}%` }} />
-            <input
-              type="range"
-              min={0}
-              max={255}
-              value={dimmer}
-              disabled={!canEdit || !dimmerSupported}
-              aria-label="Dimmer for selected fixtures"
-              onChange={(event) => updateValues({ intensity: Number(event.target.value) })}
-              className="fader-input"
-            />
-          </div>
+          <FillFader
+            value={dimmer}
+            onChange={(next) => updateValues({ intensity: next })}
+            label="Dimmer for selected fixtures"
+            fillColor="#d9d4f5"
+            disabled={!canEdit || !dimmerSupported}
+            trackClassName="design-fill-track"
+          />
           <span className="font-mono text-[12px] text-white">
             {dimmerSupported ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
           </span>
@@ -166,7 +182,10 @@ export function DesignTab() {
           </div>
         )}
 
-        <div className="flex h-full min-w-0 flex-1 gap-1 overflow-hidden">
+        {/* Channel faders: fixed 64px columns (LightKey's narrow vertical
+            faders), scrolling horizontally when there are many — they no
+            longer stretch into the wide Red / Green / Blue panels. */}
+        <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
           {channelAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
               {selectedFixtures.length > 0 ? 'No additional common channels' : 'Select fixtures in the preview to access controls'}
@@ -175,25 +194,18 @@ export function DesignTab() {
             channelAttributes.map((attribute) => {
               const value = activeCue ? valueFor(attribute) : 0
               return (
-                <div key={attribute} className="chan h-full min-w-7 flex-1">
+                <div key={attribute} className="chan h-full min-w-7">
                   <span className="text-center text-[10px] leading-none text-dim">
                     {attributeLabel(attribute)}
                   </span>
-                  <div className="chan-track">
-                    <div className="chan-fill" style={{ height: `${(value / 255) * 100}%` }} />
-                    <input
-                      type="range"
-                      min={0}
-                      max={255}
-                      value={value}
-                      disabled={!canEdit}
-                      aria-label={`${attributeLabel(attribute)} for selected fixtures`}
-                      onChange={(event) =>
-                        updateValues({ [attribute]: Number(event.target.value) })
-                      }
-                      className="chan-input"
-                    />
-                  </div>
+                  <FillFader
+                    value={value}
+                    onChange={(next) => updateValues({ [attribute]: next })}
+                    label={`${attributeLabel(attribute)} for selected fixtures`}
+                    fillColor={channelFillColor(attribute)}
+                    disabled={!canEdit}
+                    trackClassName="design-fill-track"
+                  />
                   <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
                     {value}
                   </span>
@@ -203,12 +215,6 @@ export function DesignTab() {
           )}
         </div>
       </div>
-
-      {/* Fanning spreads values across fixtures in a cue; it has no
-          meaning while editing a preset's stored values. */}
-      {!editingPreset && <div className="shrink-0">
-        <FanningEditor />
-      </div>}
     </div>
   )
 }

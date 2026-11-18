@@ -112,6 +112,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 
 .top-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -302,7 +303,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   gap: 12px;
   padding: 0 12px 12px;
   flex: 0 0 auto;
-  height: 260px;
+  /* 294px, not 260px: the pinned Design/Live switch row at the top of the
+     bottom panel is 34px tall, and the grid grows by exactly that much so
+     the Live/Design workspace below it keeps the height it had. */
+  height: 294px;
   min-height: 0;
 }
 
@@ -334,36 +338,250 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   text-transform: uppercase;
 }
 
-/* Design/Live switch: bottom-centre on the divider between preview and panel */
+/* Design/Live switch: built into the bottom panel (Jake, 18 Nov 2026) —
+   a pinned row at the top of the bottom panel, centred on the panel's own
+   width. The panel is the bottom-grid's first column, so its width
+   excludes the right sidebar — the pill stays centred, unlike the old
+   divider-straddling pill (centred on the whole window) and the header
+   pill that replaced it. The row is flex-none inside the flex-column
+   shell, so it never scrolls away with the Live canvas below it. */
 .view-switch {
   position: relative;
   z-index: 5;
   display: flex;
   justify-content: center;
-  height: 0;
+}
+
+.bottom-panel-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  /* Positioning context for the Master fader overlay (below): the column
+     is absolutely positioned against this panel, so it never scrolls. */
+  position: relative;
+}
+
+.bottom-panel-switch {
+  display: flex;
+  justify-content: center;
   flex: 0 0 auto;
+  padding: 4px 0 2px;
+  position: relative;
+  z-index: 30;
+}
+
+.bottom-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .view-switch-segment {
   position: relative;
   z-index: 6;
-  min-height: 24px;
-  padding: 2px 10px;
+  min-height: 28px;
+  padding: 4px 12px;
   border: 0;
-  background: var(--panel);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transform: translateY(-50%);
 }
 
-.view-switch-segment:first-child { border-radius: 5px 0 0 5px; }
-.view-switch-segment:last-of-type { border-radius: 0 5px 5px 0; }
 .view-switch-segment.on { background: var(--text); color: var(--bg); }
 .view-switch-segment:focus-visible { outline: 2px solid var(--sel); outline-offset: 1px; }
 .view-switch-caret { margin-left: 6px; font-size: 10px; }
+
+/* Live page menu: the dropdown under the Live pill (LightKey screenshot
+   8.54.48) — every page with a checkmark on the current one, a separator,
+   then "Manage Live Pages…". */
+.view-switch-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: 280px;
+  /* The menu opens downward from a pill at the top of the bottom panel,
+     and the panel clips its contents — a long page list scrolls inside
+     the menu instead of being cut off at the panel's bottom edge. */
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.view-switch-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.view-switch-menu-item:hover { background: var(--panel2); }
+.view-switch-menu-check { width: 16px; flex-shrink: 0; text-align: center; }
+.view-switch-menu-separator { margin: 4px 6px; border-top: 1px solid var(--line); }
+
+/* Manage Live Pages: the current page's row is highlighted blue (LightKey). */
+.live-pages-row.on { background: #2563eb; color: #fff; }
+
+/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots 10.12.28
+   / 10.17.25): a narrow 96px column at the far left of the Live area,
+   OUTSIDE every scroll container — never on the manipulatable canvas, so
+   panning, zooming, editing or scrolling the canvas cannot move it.
+   - In the main window it is a direct child of the bottom panel shell
+     (App.tsx) and sits ON TOP of the panel: absolutely positioned, top
+     9px below the panel border (9px + the 1px panel border = 10px below
+     the panel's outer edge, as Jake asked) and 9px above the bottom
+     border, so the BPM button is fully inside the panel, never clipped.
+     z-index 20 puts it above the scrolling canvas content (which has no
+     z-index) but below the Design/Live switch row (z-index 30), so the
+     Live menu always opens over it. Canvas content flows underneath it:
+     at rest the workspace takes a 98px left inset (see
+     .master-overlay-inset) so content starts clear of the column, and
+     scrolling slides it underneath the column, exactly as in LightKey.
+   - In the separate Live window (LiveTab) there is no bottom panel, so
+     the column is a flex-row sibling of the workspace instead, stretching
+     to the workspace height.
+   The rail's height is set by the column, which is set by the panel —
+   never by the canvas or the edit section — so the fader keeps the same
+   height in Live and in Live Edit.
+   Earlier squash, found while fixing this (screenshot 10.12.28): the
+   rail used to carry `flex: 0 0 96px`, which inside the column-direction
+   flex container set its HEIGHT basis to 96px and overrode the intended
+   `height: 172px` — that is why it rendered as a small squat box. The
+   rail is now the flexible part of the column (`flex: 1 1 auto`,
+   `min-height: 0`) and fills whatever height the panel gives it; the
+   Master label, Full readout and BPM button are flex-none, so the track
+   ends above the tap-tempo button and can never overlap it. */
+.live-master-rail {
+  display: flex;
+  width: 96px;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: auto;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2);
+  padding: 6px 4px;
+  overflow: hidden;
+}
+
+.live-master-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 96px;
+  flex: 0 0 96px;
+}
+
+.bottom-panel-shell > .live-master-column {
+  position: absolute;
+  left: 10px;
+  top: 9px;
+  bottom: 9px;
+  z-index: 20;
+}
+
+/* Left inset for the Live workspace when the Master column overlays it
+   (LiveWorkspace masterOverlay, main window only): the column spans
+   10–106px from the shell's content left edge, and the workspace content
+   starts 18px in (6px shell padding + 12px section padding), so 98px =
+   106 − 18 + 10 puts page content 10px clear of the column at rest.
+   Applied to the header row, the overrides banner and the canvas scroll
+   container — the scroll container's padding is inside its scrollport,
+   so scrolled content slides underneath the column. */
+.master-overlay-inset {
+  padding-left: 98px;
+}
+
+.live-master-rail > span {
+  flex: none;
+}
+
+/* LightKey-style Master track: a wide solid bar that fills from the
+   bottom, not a thin line with a knob. The fill is a child div whose
+   height is the master percentage; the track itself is the flexible
+   part of the rail, so it can never run over the tap
+   tempo button below the rail. */
+.live-master-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 64px;
+  margin: 0 auto;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: ns-resize;
+  overflow: hidden;
+  outline-offset: 2px;
+}
+
+.live-master-track:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.live-master-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #d9d4f5;
+}
+
+/* Tap-tempo box: a separate element under the rail, the same 96px
+   width, never inside the rail. Its four quadrants sit behind the
+   text; the lit one (one per beat, clockwise) is a lighter
+   lavender, as in LightKey. */
+.live-master-bpm {
+  position: relative;
+  width: 96px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 6px 2px;
+  text-align: center;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.live-master-bpm small { color: var(--dim); }
+
+.live-master-bpm-quadrants {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.bpm-quadrant[data-quadrant='top-left'] { grid-area: 1 / 1; }
+.bpm-quadrant[data-quadrant='top-right'] { grid-area: 1 / 2; }
+.bpm-quadrant[data-quadrant='bottom-right'] { grid-area: 2 / 2; }
+.bpm-quadrant[data-quadrant='bottom-left'] { grid-area: 2 / 1; }
+
+.bpm-quadrant-lit { background: rgba(217, 212, 245, 0.55); }
+
+.live-master-bpm-text { position: relative; z-index: 1; }
 
 .preview-stack { position: relative; min-height: 0; overflow: hidden; }
 .preview-stack > .stage { height: 100%; }
@@ -390,176 +608,40 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .scene-tree-edit { opacity: 0; }
 .group:hover > .scene-tree-edit, .scene-tree-edit:focus-visible { opacity: 1; }
 
-.view-switch-pages {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  width: 320px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  color: var(--text);
-  font-size: 11px;
-}
-
-.view-switch-pages-title {
-  padding: 2px 4px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-
-.view-switch-pages-list { display: flex; flex-direction: column; gap: 4px; }
-.view-switch-page-row { display: flex; align-items: center; gap: 4px; }
-.view-switch-page-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 6px 8px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-name.on { background: var(--accent); color: #111; border-color: var(--accent); }
-.view-switch-page-row input {
-  width: 90px;
-  min-width: 0;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 11px;
-}
-.view-switch-page-row button:not(.view-switch-page-name) {
-  min-width: 24px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-row button:disabled { opacity: 0.4; cursor: default; }
 .view-switch-pages-empty { padding: 8px 4px; color: var(--dim); }
-.view-switch-page-add { display: flex; gap: 4px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
-.view-switch-page-add input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 11px;
-}
-.view-switch-page-add button {
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-add button:disabled { opacity: 0.4; cursor: default; }
 
-/* Vertical fader (dimmer) */
-.fader {
+/* Design fill-fader track (Dimmer + channel faders): the same
+   LightKey-style solid fill bar as the Master track, via the shared
+   FillFader component — wide, filling from the bottom, no thin line +
+   knob. It is the flexible part of its column, so it fills the panel
+   height; the fill colour is set inline per channel. */
+.design-fill-track {
   position: relative;
-  width: 100%;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 90px;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  width: 100%;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: ns-resize;
   overflow: hidden;
-  cursor: ns-resize;
+  outline-offset: 2px;
 }
 
-.fader-input:focus-visible {
+.design-fill-track:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
-.fader-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(180deg, var(--accent), var(--sel));
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.chan-input {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  direction: rtl;
-  writing-mode: vertical-lr;
-  cursor: ns-resize;
-}
-
-.fader-input {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  appearance: slider-vertical;
-  -webkit-appearance: slider-vertical;
-  background: transparent;
-  accent-color: var(--text);
-  direction: rtl;
-  writing-mode: vertical-lr;
-  cursor: ns-resize;
-}
-
-.fader-input:disabled {
+.design-fill-track[aria-disabled="true"] {
   cursor: not-allowed;
 }
 
-.fader-input::-webkit-slider-runnable-track {
-  background: transparent;
-}
-
-.fader-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 80%;
-  height: 12px;
-  border: 2px solid var(--accent);
-  border-radius: 4px;
-  background: var(--text);
-}
-
-.chan-input {
-  opacity: 0;
-}
-
-.chan-input:disabled {
-  cursor: not-allowed;
-}
-
-/* Vertical channel slider column */
+/* Vertical channel slider column — LightKey's in-frame faders are narrow
+   (~60–70px including the track), so each channel is a fixed 64px column
+   instead of stretching to fill the panel. */
 .chan {
   display: flex;
+  width: 64px;
+  flex: 0 0 64px;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
@@ -567,25 +649,6 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
-}
-
-.chan-track {
-  position: relative;
-  flex: 1;
-  min-height: 90px;
-  background: var(--panel);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.chan-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--accent);
-  opacity: 0.8;
-  pointer-events: none;
 }
 
 .wheel-input {

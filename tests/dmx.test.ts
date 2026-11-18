@@ -98,6 +98,27 @@ it('clears test output on blackout and rejects invalid test channels', () => {
 })
 
 
+describe('DMXEngine shutdown', () => {
+  const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('pumps frames in virtual mode and stops pumping after shutdown', async () => {
+    const engine = new DMXEngine()
+    await delay(80)
+    const before = engine.getStatus().frameCount
+    expect(before).toBeGreaterThan(0)
+    await engine.shutdown()
+    const frozen = engine.getStatus().frameCount
+    await delay(80)
+    expect(engine.getStatus().frameCount).toBe(frozen)
+  })
+
+  it('releases the frame-pump handle on shutdown', async () => {
+    const engine = new DMXEngine()
+    await engine.shutdown()
+    expect((engine as unknown as { timer: unknown }).timer).toBeNull()
+  })
+})
+
 it('keeps RTS cleared while switching the Open DMX break', async () => {
   const set = vi.fn((_options, callback) => callback(null))
   const port = { set } as unknown as Parameters<typeof setOpenDmxBreak>[0]

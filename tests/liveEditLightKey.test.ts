@@ -3,10 +3,11 @@
 // styles for new objects" details and the "Preset palette / Export JSON /
 // Import JSON / Convert cues" section — was replaced by a LightKey-style
 // layout (Guide ch.11 pp.176-223, Jake's 18 Nov screenshots): grid canvas,
-// vertical Master fader left of the canvas, centred Design/Live switch +
-// toolbar (+ / frame / T / green Done), right-click context menu, inspector
-// right of the canvas, Preset Palette in the right sidebar, Nudge / esc
-// shortcuts. Capabilities were moved, not deleted; see NOTES.md.
+// vertical Master fader left of the canvas, Design/Live switch in the
+// bottom panel + toolbar (+ / frame / T / green Done), right-click context
+// menu, inspector right of the canvas, Preset Palette in the right
+// sidebar, Nudge / esc shortcuts. Capabilities were moved, not deleted;
+// see NOTES.md.
 // These are source/wiring assertions (no DOM renderer); they pin the
 // LightKey homes of each red-box item and guard the parity fix (30c8661a).
 import { describe, expect, it } from 'vitest'
@@ -15,6 +16,8 @@ import { resolve } from 'node:path'
 
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
+const masterFader = readFileSync(resolve(root, 'src/renderer/src/components/MasterFader.tsx'), 'utf8')
+const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 const groupsPresets = readFileSync(resolve(root, 'src/renderer/src/components/GroupsPresetsPanel.tsx'), 'utf8')
 const sequenceEditor = readFileSync(resolve(root, 'src/renderer/src/components/SequenceEditor.tsx'), 'utf8')
 const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
@@ -38,7 +41,7 @@ describe('Live Edit — LightKey layout', () => {
     ]) expect(workspace).not.toContain(text)
   })
 
-  it('has a LightKey-style toolbar: Design/Live switch, +, frame, T, green Done', () => {
+  it('has a LightKey-style toolbar: +, frame, T, green Done', () => {
     expect(workspace).toContain('aria-label="Live edit tools"')
     expect(workspace).toContain('aria-label="New button"')
     expect(workspace).toContain('aria-label="New frame"')
@@ -49,11 +52,31 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('>Edit<')
   })
 
-  it('has a vertical Master fader on the left of the bottom panel', () => {
-    expect(workspace).toContain('aria-label="Live master"')
-    expect(workspace).toContain('setMaster(Number(e.target.value))')
-    expect(workspace).toContain('writingMode')
-    expect(workspace).toContain('BPM')
+  it('has a vertical Master fader on a panel-anchored rail left of the canvas, with tap tempo underneath', () => {
+    // 18 Nov 2026 (Jake): the Master fader is a 96px rail at the far left
+    // of the bottom panel, the same height in Live and in Live Edit,
+    // anchored to the panel as an overlay — canvas content scrolls
+    // underneath it, never the other way round — with the BPM /
+    // tap-tempo box as a separate element under it. (It stretched in Edit
+    // mode until the rail got its own fixed height, then rendered squashed
+    // when that height was overridden by a 96px flex basis; see
+    // tests/faderWidths.test.ts. The thin line + knob is now a solid
+    // filled bar; see tests/masterFader.test.ts.)
+    expect(app).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
+    expect(workspace.indexOf('<MasterFader')).toBe(-1)
+    expect(masterFader).toContain('live-master-rail')
+    expect(masterFader).toContain('aria-label="Master fader"')
+    // The slider itself lives in the shared FillFader component (18 Nov
+    // 2026: the Design Dimmer/channel faders use the same control) —
+    // MasterFader wires it with the Live master label.
+    expect(masterFader).toContain('label="Live master"')
+    expect(masterFader).toContain('aria-label="Tap tempo"')
+    expect(masterFader).toContain('live-master-bpm')
+    expect(masterFader).toContain("master >= 255 ? 'Full'")
+    expect(css).toContain('.live-master-rail {')
+    expect(css).toContain('width: 96px')
+    expect(css).toContain('.live-master-track {')
+    expect(css).toContain('.live-master-fill {')
   })
 
   it('has a LightKey right-click context menu on the canvas', () => {

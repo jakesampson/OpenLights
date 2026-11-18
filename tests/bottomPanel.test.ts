@@ -19,7 +19,12 @@ describe('Lightkey-style bottom panel', () => {
   it('renders the Live page canvas inline without forced cue buttons or a master fader', () => {
     const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
     const live = readFileSync('src/renderer/src/components/LiveWorkspace.tsx', 'utf8')
-    expect(app).toContain("tab === 'Live' ? <LiveWorkspace />")
+    // The workspace takes a masterOverlay flag now (18 Nov 2026): the
+    // Master column lives in the bottom panel shell in App.tsx, as an
+    // overlay on top of the workspace — the workspace itself still renders
+    // the canvas inline, with no master fader inside it.
+    expect(app).toContain("tab === 'Live' ? <LiveWorkspace masterOverlay />")
+    expect(live.indexOf('<MasterFader')).toBe(-1)
     expect(app).not.toContain('liveEditorOpen')
     expect(app).not.toContain('<BottomPlayback view={tab}')
     expect(live).not.toContain('Manage pages')
@@ -30,14 +35,16 @@ describe('Lightkey-style bottom panel', () => {
     const css = readFileSync('src/renderer/src/index.css', 'utf8')
     expect(design).toContain('design-fixture-inspector')
     expect(design).not.toContain('<FixtureSelectionTools')
-    // MUSE branch, 18 Nov 2026: FanningEditor is wired back into DesignTab
-    // as a collapsed <details>, reversing the 10.x removal for fanning only.
-    // LightKey's Design view lists Fanning as a fixture-property control
-    // (guide §8, pp.118–122); the editor is closed by default, so the fixed,
-    // non-scrollable inspector invariant (see the e2e scroll-height
-    // assertion) is preserved. Grouping, selection tools and layout sections
+    // Jake, 18 Nov 2026: Fanning is NOT in LightKey's Design panel, so
+    // the <FanningEditor> wiring from batch 1 is reversed — the panel no
+    // longer renders it, and the component file is deleted. The fanning
+    // model/store (saveFan/deleteFan, lib/fanning.ts, fan data on cues)
+    // stays; only the Design panel UI goes. The header also has no
+    // separator rule under it anymore ("1 fixture selected" sits directly
+    // above the controls). Grouping, selection tools and layout sections
     // stay out of this panel.
-    expect(design).toContain('<FanningEditor')
+    expect(design).not.toContain('FanningEditor')
+    expect(design).not.toContain('border-b border-line')
     expect(design).toContain('<PositionControl')
     expect(design).not.toContain('Edit cue')
     expect(design).not.toContain('design-cue')
