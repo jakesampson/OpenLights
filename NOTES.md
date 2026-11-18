@@ -291,3 +291,6 @@ The former title row and lighting-control row are consolidated into one 72px hea
 
 ### Header menu and native-chrome correction
 The ellipsis menu now follows the supplied Lightkey reference: select a common fixture property, copy all properties, copy one property, paste properties or clear the selected property. The wand menu creates an effect for a property shared by the selected fixtures. System/layout preferences remain under the far-right layout icon. The main Electron window now uses the platform title-bar overlay instead of renderer-drawn window buttons, preserving native Windows/Linux controls and macOS traffic lights. Tests: `tests/toolbar.test.ts`, `tests/copyProperties.test.ts` and the rendered preview flow.
+
+### Header lock interaction correction
+The lock icon now opens an in-app header dialog before locking, with an optional PIN and an explicit blank-PIN explanation. Unlocking uses the same dialog, keeps the application locked after an incorrect PIN, and shows inline feedback. Header dropdown summaries are explicitly excluded from Electron's draggable title-bar region so the property and effect buttons continue receiving desktop clicks. The rendered Playwright flow exercises lock, failed unlock, successful unlock and the other header menus.
