@@ -28,6 +28,10 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.getByLabel('Default fade milliseconds')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()
 
+  await page.locator('.stage').getByRole('button', { name: 'Warm Wash Front' }).click()
+  await expect(page.getByText('1 fixture selected')).toBeVisible()
+  expect(await page.locator('.design-fixture-inspector').evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
+
   await page.locator('.view-switch').getByRole('button', { name: /Live/ }).click()
   await expect(page.getByLabel('Live playback')).toBeVisible()
   await page.locator('.bottom-edit').click()
