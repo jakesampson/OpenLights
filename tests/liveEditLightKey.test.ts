@@ -29,10 +29,7 @@ describe('Live Edit — LightKey layout', () => {
       '+ Custom cue',
       '+ Cue list',
       'Choose cue…',
-      // "Default styles for new objects" moved into the page inspector
-      // (defaultStylesFields); only its old bottom-strip details wrapper
-      // must be gone.
-      '<details className="rounded border border-line bg-panel2 p-2 text-xs"><summary>Default styles for new objects</summary>',
+      'Default styles for new objects',
       'Preset palette',
       'Export JSON',
       'Import JSON',
@@ -120,7 +117,7 @@ describe('Live Edit — LightKey layout', () => {
     expect(sequenceEditor).not.toContain('LIVE_DROP_MIME')
   })
 
-  it('shows button properties in the slide-in popup, not the fixed sidebar', () => {
+  it('shows button properties in the slide-in popup and has no page inspector', () => {
     // 18 Nov 2026 (Jake): double-click a button opens a small popup
     // sliding in from the right; the fixed sidebar is page-only.
     expect(workspace).toContain('live-properties-popup')
@@ -128,7 +125,9 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('openPropertiesPopup')
     expect(workspace).toContain('onDoubleClick={() => openPropertiesPopup(ref)}')
     expect(workspace).toContain('overflow-y-auto')
-    expect(workspace).toContain('Page inspector')
+    expect(workspace).not.toContain('Page inspector')
+    expect(workspace).toContain('overflow-x-auto overflow-y-hidden')
+    expect(workspace).toContain('h-full min-w-full')
     expect(workspace).not.toContain('renameInput')
   })
 

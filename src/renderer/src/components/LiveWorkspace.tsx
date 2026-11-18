@@ -175,29 +175,6 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
     </div>
   }
 
-  // "Default styles for new objects" used to live in the old bottom strip;
-  // it now lives in the page inspector (no object selected), as in LightKey
-  // where new-object defaults belong to the page being edited.
-  const defaultStylesFields = () => (
-    <details className="rounded border border-line bg-bg/40 p-2">
-      <summary className="cursor-pointer">Default styles for new objects</summary>
-      <div className="mt-2 space-y-2">
-        {(['cue', 'list', 'label', 'frame'] as const).map((kind) => {
-          const current = { ...DEFAULT_OBJECT_STYLES[kind], ...page?.defaultStyles?.[kind] }
-          const update = (patch: Partial<LiveObjectStyle>) => { if (page) savePage({ ...page, defaultStyles: { ...page.defaultStyles, [kind]: { ...current, ...patch } } }) }
-          return <div key={kind} className="flex flex-wrap items-end gap-2 border-t border-line pt-1">
-            <strong className="w-14 capitalize">{kind}</strong>
-            <label>Size<input type="number" aria-label={`Default ${kind} font size`} min={6} max={96} value={current.fontSize ?? 12} onChange={(e) => update({ fontSize: Math.max(6, Math.min(96, Number(e.target.value))) })} className="ml-1 w-16 rounded bg-bg p-1" /></label>
-            <label>Color<input type="color" aria-label={`Default ${kind} color`} value={current.color ?? '#e5e7eb'} onChange={(e) => update({ color: e.target.value })} className="ml-1 h-7 w-10 rounded bg-bg p-1" /></label>
-            <label>Align<select aria-label={`Default ${kind} align`} value={current.align ?? 'left'} onChange={(e) => update({ align: e.target.value as LiveObjectStyle['align'] })} className="ml-1 rounded bg-bg p-1"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-            <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} bold`} checked={current.bold === true} onChange={(e) => update({ bold: e.target.checked })} />Bold</label>
-            <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} italic`} checked={current.italic === true} onChange={(e) => update({ italic: e.target.checked })} />Italic</label>
-          </div>
-        })}
-      </div>
-    </details>
-  )
-
   useEffect(() => () => {
     const state = useShowStore.getState()
     for (const page of state.show?.livePages ?? []) for (const control of page.controls) {
@@ -385,6 +362,7 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
+  const canvasContentWidth = page ? Math.max(1, ...positionedObjects(page).map((item) => item.x + item.width + 20)) : 1
   // LightKey's Live view has no bordered boxes around the page: the
   // panel and canvas borders only render in Live Edit mode, so the
   // editable area is still clearly delineated while editing, and the
@@ -410,7 +388,7 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
         column at rest and only slides underneath it when scrolled. */}
     <div className={`flex flex-wrap items-center gap-2${masterOverlay ? ' master-overlay-inset' : ''}`}>
       {editing && !locked && <>
-        <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
+        <div className="ml-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
           <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
           <button type="button" aria-label="New frame" title="New frame" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('frame')}>▣</button>
           <button type="button" aria-label="Insert text" title="Insert text" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('label')}>T</button>
@@ -422,7 +400,7 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
     {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
       {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      <div className={`min-h-0 min-w-0 flex-1 overflow-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+      <div aria-label="Live canvas viewport" className={`min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative h-full min-w-full bg-panel" style={{ width: canvasContentWidth, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
@@ -461,18 +439,6 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
           </div>
         })}
       </div></div>
-      {/* Page inspector: fixed sidebar, only while nothing is selected.
-          Button properties moved out of this sidebar into the slide-in
-          popup below (double-click a button), so the two panels never
-          compete — selecting a button shows only its resize handles. */}
-      {editing && !locked && !selection && <aside className="w-[280px] shrink-0 overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs" aria-label="page inspector" data-fields={inspectorFields('page').join(',')}>
-        <div className="space-y-2">
-          <strong className="block">Page inspector</strong>
-          <label className="block">Name<input aria-label="Page name" value={page.name} onChange={(e) => savePage({ ...page, name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label>
-          <label className="block">Fade (ms)<input aria-label="Page fade time" type="number" min="0" value={page.fadeMs ?? 0} onChange={(e) => savePage({ ...page, fadeMs: Math.max(0, Number(e.target.value)) })} className="ml-1 w-24 rounded bg-bg p-1" /></label>
-          {defaultStylesFields()}
-        </div>
-      </aside>}
       {/* Button properties popup: slides in from the right over the canvas
           on double-click (Jake, 18 Nov 2026). It scrolls on its own
           (overflow-y-auto) while the canvas behind it does not scroll, so

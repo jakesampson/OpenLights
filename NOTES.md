@@ -2,6 +2,8 @@
 
 ## Decisions
 
+- The Live Edit page inspector was removed because page name/fade management belongs in Page Manager. The canvas now fills the freed width and only gains horizontal scrolling when positioned content extends beyond the visible panel; add-object tools and Done share the right side of its header, matching the supplied Lightkey layout.
+
 - Header Edit and Layout/Settings menus dismiss on outside click or Escape, consistent with the other header menus.
 
 ### 0.2 Audit

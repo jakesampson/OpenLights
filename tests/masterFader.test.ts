@@ -143,11 +143,11 @@ describe('Live panel borders — gone in Live mode, back in Live Edit mode', () 
     // One shared border choice, used by all three bordered boxes.
     expect(workspace).toContain("const panelBorder = editing ? 'border border-line' : 'border border-transparent'")
     expect(workspace).toContain('rounded ${panelBorder} bg-bg/30 p-3')
-    expect(workspace).toContain('min-w-0 flex-1 overflow-auto rounded ${panelBorder}')
+    expect(workspace).toContain('min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded ${panelBorder}')
     expect(workspace).toContain('items-center justify-center rounded ${panelBorder} bg-panel')
     // No hard-coded panel border is left on the section or canvas.
     expect(workspace).not.toContain('rounded border border-line bg-bg/30 p-3')
-    expect(workspace).not.toContain('min-w-0 flex-1 overflow-auto rounded border border-line')
+    expect(workspace).not.toContain('min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded border border-line')
   })
 
   it('keeps the borders that are not the page panel — cue buttons, frames, Master rail, inspector', () => {

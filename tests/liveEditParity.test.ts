@@ -62,17 +62,14 @@ describe('Live / Live Edit parity', () => {
   })
 
   it('leaves layout editing as edit-only affordances that do not change output', () => {
-    // The edit toolbar, context menu, page inspector and the edit keyboard
+    // The edit toolbar, context menu, properties popup and edit keyboard
     // shortcuts stay gated on `editing` — they arrange the page, they do
     // not fire anything. The old bottom strip (button row, default-styles
     // details, preset palette) was replaced by the LightKey layout in
-    // tests/liveEditLightKey.test.ts; the toolbar and inspector below are
-    // its replacements. The fixed sidebar is page-only (it renders only
-    // while nothing is selected); button properties live in the slide-in
-    // popup (tests/livePropertiesPopup.test.ts).
+    // tests/liveEditLightKey.test.ts. Page properties are managed from Page
+    // Manager; object properties live in the slide-in popup.
     for (const text of [
       '{editing && !locked && <>',
-      '{editing && !locked && !selection && <aside',
       '{editing && !locked && popupOpen && selection &&',
       'if (!editing || locked) return'
     ]) expect(workspace).toContain(text)

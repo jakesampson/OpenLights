@@ -55,9 +55,9 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).toContain('setPopupOpen(false)\n      clearPageObjectSelection()')
   })
 
-  it('leaves the fixed sidebar for page properties only — no competing button panel', () => {
-    expect(workspace).toContain('{editing && !locked && !selection && <aside')
-    expect(workspace).toContain('Page inspector')
+  it('removes the page inspector so the canvas uses the full panel width', () => {
+    expect(workspace).not.toContain('aria-label="page inspector"')
+    expect(workspace).not.toContain('Page inspector')
     // The old double-click-to-rename is gone: renaming lives in the popup
     // Name field (and the annotation text field).
     expect(workspace).not.toContain('renameInput')
@@ -76,7 +76,7 @@ describe('Live Edit — double-click properties popup', () => {
     // The canvas scroll container must be allowed to shrink below the
     // 520px canvas height, so the canvas scrolls internally and the
     // section never grows past the panel body.
-    expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-auto')
+    expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden')
     // The popup itself is unchanged: anchored top and bottom with its own
     // internal scroll, so a long properties list is reachable without
     // moving the canvas behind it.
