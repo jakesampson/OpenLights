@@ -2,6 +2,7 @@ import { fixtureMode } from '@shared/fixtureProfiles'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
+import { hexToRgb } from '../lib/colorMix'
 import { useShowStore } from '../stores/showStore'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
@@ -49,6 +50,8 @@ export function DesignTab() {
     updateSelectedBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
+    addColorFavorite,
+    removeColorFavorite,
     editingPresetId,
     updateEditingPresetValues,
   } = useShowStore()
@@ -96,12 +99,14 @@ export function DesignTab() {
   const colorSupported = previewOnlyColor || ['cyan', 'magenta', 'yellow'].every((a) => commonAttributes.includes(a)) || ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
   )
+  const colorFavorites = show?.colorFavorites ?? []
   const wheelPosition = colorWheelPosition(colorValues)
 
   const setColor = (hex: string) => {
-    const rgb = { red: parseInt(hex.slice(1, 3), 16), green: parseInt(hex.slice(3, 5), 16), blue: parseInt(hex.slice(5, 7), 16) }
-    if (editingPreset) updateEditingPresetValues(rgb)
-    else if (selectedBeams.length) updateSelectedBeamValues(rgb, false)
+    const rgb = hexToRgb(hex)
+    if (!rgb) return
+    if (editingPreset) updateEditingPresetValues({ ...rgb })
+    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
     else setSelectedColor(rgb, false)
   }
 
@@ -214,6 +219,55 @@ export function DesignTab() {
             })
           )}
         </div>
+      </div>
+
+      {/* Colour favourites (LightKey Guide p.86): saved colours appear below
+          the colour controls in the Design view, are stored in the project,
+          and clicking one applies it to the selection — via the same setColor
+          path as the colour picker, so it also works while editing a preset
+          or with beams selected. LightKey saves a favourite by dragging the
+          current colour onto a swatch; OpenLights has no draggable colour
+          centre (the picker is a native colour input), so a "+" button saves
+          the current colour instead — see NOTES.md. The "×" removes a
+          favourite; LightKey has no remove gesture to copy. Nothing else in
+          this panel changed. */}
+      <div className="flex shrink-0 flex-wrap items-center gap-1.5 pt-1" aria-label="Colour favourites">
+        <span className="text-[11px] font-medium uppercase text-dim">Colour favourites</span>
+        {colorFavorites.length === 0 && (
+          <span className="text-[10px] text-dim">No favourites yet — save the current colour with +</span>
+        )}
+        {colorFavorites.map((favorite) => (
+          <span key={favorite} className="flex items-center">
+            <button
+              type="button"
+              title={`Apply colour favourite ${favorite}`}
+              aria-label={`Apply colour favourite ${favorite}`}
+              disabled={!canEdit}
+              onClick={() => setColor(favorite)}
+              className="h-5 w-5 rounded-sm border border-white/30 disabled:opacity-40"
+              style={{ backgroundColor: favorite }}
+            />
+            <button
+              type="button"
+              title={`Remove colour favourite ${favorite}`}
+              aria-label={`Remove colour favourite ${favorite}`}
+              onClick={() => removeColorFavorite(favorite)}
+              className="px-0.5 text-[12px] leading-none text-dim hover:text-white"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <button
+          type="button"
+          title="Save current colour as favourite"
+          aria-label="Save current colour as favourite"
+          disabled={!canEdit || !colorSupported}
+          onClick={() => addColorFavorite(colorHex(colorValues))}
+          className="btn-theme px-2 py-0.5 text-xs"
+        >
+          +
+        </button>
       </div>
     </div>
   )

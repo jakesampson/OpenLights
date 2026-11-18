@@ -4,6 +4,7 @@ import { getPresetColor } from '../lib/presetColor'
 import { calculateTapTempo } from '../lib/tapTempo'
 import { LiveWorkspace } from './LiveWorkspace'
 import { MasterFader } from './MasterFader'
+import { XfadeSlider } from './XfadeSlider'
 
 export function LiveTab() {
   const {
@@ -89,6 +90,7 @@ export function LiveTab() {
                 <div><span className="block text-[10px] uppercase text-dim">Next</span>{(() => { const index = activeCueListId === list.id ? activeCueIndex + 1 : 0; const step = list.steps[index] ?? (list.loop ? list.steps[0] : undefined); return step ? `${cues.find((cue) => cue.id === step.cueId)?.name ?? 'Missing cue'} · ${step.fadeMs / 1000}s fade` : 'End of list' })()}</div>
               </div>
               {activeCueListId === list.id && activeCueIndex >= 0 && <p className="text-[10px] text-dim">Next: {(() => { const next = list.steps[activeCueIndex + 1] ?? (list.loop ? list.steps[0] : undefined); return next ? cues.find((cue) => cue.id === next.cueId)?.name ?? 'Missing cue' : 'End of list' })()}</p>}
+              <XfadeSlider listId={list.id} />
               {list.steps.length === 0 ? (
                 <span className="text-[10px] text-dim">No cues yet</span>
               ) : (

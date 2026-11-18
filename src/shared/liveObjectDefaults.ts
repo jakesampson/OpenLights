@@ -2,7 +2,7 @@ import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle } 
 
 /** Default and bounds for Live page object sizes (in page pixels). */
 export const LIVE_CUE_SIZE = { width: 160, height: 90 }
-export const LIVE_LIST_SIZE = { width: 240, height: 120 }
+export const LIVE_LIST_SIZE = { width: 240, height: 150 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 

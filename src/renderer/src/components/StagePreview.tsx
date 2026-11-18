@@ -6,9 +6,13 @@ import { marqueeSelection } from '../lib/previewSelection'
 import { fitPreview, type Bounds } from '../lib/previewViewport'
 import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
 import { fixtureMode } from '@shared/fixtureProfiles'
+import { availableProperties } from '../lib/availableProperties'
+import { orderedFanFixtures } from '../lib/fanning'
+import { defaultFan, definedFanIndexes } from '../lib/fanningHud'
 import { StageObjectLayer, StageObjectTools } from './StageObjects'
+import { FanningHud } from './FanningHud'
 import { useShowStore } from '../stores/showStore'
-import type { FixtureDef, CueDef, PreviewTruss } from '@shared/types'
+import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
 interface FixtureView extends FixtureDef {
@@ -73,8 +77,37 @@ function fixturePositions(count: number) {
   return positions.slice(0, count)
 }
 
-export function StagePreview() {
+export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses } = useShowStore()
+  // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
+  // Preview, around the fixtures' icons, and is a Design-view activity —
+  // so its toolbar button only shows in Design mode, and the HUD closes
+  // when leaving Design or when the project locks.
+  const [fanDraft, setFanDraft] = useState<FanDef | null>(null)
+  useEffect(() => { if (!designMode || locked) setFanDraft(null) }, [designMode, locked])
+  const openFanHud = () => {
+    const channels = availableProperties((show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id)))
+    const attribute = channels.some((c) => c.attribute === 'intensity') ? 'intensity' : channels[0]?.attribute ?? 'intensity'
+    setFanDraft(defaultFan(attribute, [...selectedFixtureIds], channels.find((c) => c.attribute === attribute)))
+  }
+  const commitFan = (next: FanDef) => {
+    // saveFan is a no-op with no active cue (and addCue does not activate
+    // the cue it creates), so start a cue and activate it first — the same
+    // "editing starts a new cue" the Design panel promises.
+    const committed = { ...next, id: next.id || crypto.randomUUID() }
+    setFanDraft(committed)
+    const state = useShowStore.getState()
+    if (!state.activeCueId) {
+      state.addCue()
+      const created = useShowStore.getState().cues[useShowStore.getState().cues.length - 1]
+      if (created) useShowStore.getState().activateCue(created.id)
+    }
+    useShowStore.getState().saveFan(committed)
+  }
+  const deleteFanFromHud = (id: string, keepValues: boolean) => {
+    useShowStore.getState().deleteFan(id, keepValues)
+    if (fanDraft?.id === id) setFanDraft(null)
+  }
   const [editing, setEditing] = useState(false)
   useEffect(() => { if (locked) setEditing(false) }, [locked])
   const [outputChannels, setOutputChannels] = useState<number[]>([])
@@ -150,6 +183,15 @@ export function StagePreview() {
   }, [fixtures, activeCue, dragPositions, outputChannels])
 
   const trusses = show?.previewTrusses ?? []
+  // Blue dots (Guide p.121) while the Fanning HUD is open: the fixtures
+  // in the fan that have a defined value — the two endpoints plus any
+  // intermediate anchors — get a dot next to their icon.
+  const fanDefined = useMemo(() => {
+    if (!fanDraft) return null
+    const ordered = orderedFanFixtures(fixtures, fanDraft)
+    const defined = new Set(definedFanIndexes(fanDraft, ordered.length))
+    return new Map(ordered.map((f, i) => [f.id, defined.has(i)]))
+  }, [fanDraft, fixtures])
   const selectedTruss = trussDraft ?? trusses.find((item) => item.id === selectedTrussId)
   const fit = (selectionOnly: boolean) => {
     const bounds: Bounds[] = fixtureViews.filter((f) => !selectionOnly || selectedFixtureIds.includes(f.id)).map((f) => ({ x: f.pos.x - 10, y: f.pos.y - 10, width: 20, height: 20 }))
@@ -214,12 +256,14 @@ export function StagePreview() {
     <div className="panel stage min-h-0 overflow-hidden relative bg-bg p-2">
       <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
         <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span><button type="button" className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40" disabled={!selectedFixtureIds.length || locked} onClick={() => useShowStore.getState().locateFixtures(selectedFixtureIds)}>Locate</button>
+        {designMode && <button type="button" className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40" disabled={locked} onClick={openFanHud} title="Fan a property across the selected fixtures (LightKey Guide §8, p.118–122)">Fan…{(activeCue?.fans?.length ?? 0) > 0 ? ` (${activeCue?.fans?.length})` : ''}</button>}
         <button type="button" disabled={locked} onClick={() => { setEditing(!editing); setDragPositions(null); dragRef.current = null; trussDragRef.current = null; setTrussDraft(null) }} className={`rounded px-2 py-1 text-xs ${editing ? 'bg-text text-bg' : 'bg-panel2 text-text'}`} aria-pressed={editing}>{editing ? 'Done' : 'Edit layout'}</button>
         {editing && <div className="flex flex-wrap gap-1 rounded bg-bg/80 p-1 text-[10px] text-text">
           <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={addTruss}>+ Add truss</button><button type="button" className="rounded bg-panel2 px-2 py-1" onClick={() => { selectFixtures(fixtures.map((f) => f.id)); setSelectedLayoutTrussIds(trusses.map((t) => t.id)); setSelectedTrussId(trusses[0]?.id ?? null) }}>Select all</button>
           <select aria-label="Align selected preview objects" defaultValue="" className="rounded bg-panel2 px-2 py-1" onChange={(e) => { if (e.target.value) align(e.target.value as AlignMode); e.target.value = '' }}><option value="">Align / distribute…</option>{(['left', 'right', 'top', 'bottom', 'center-x', 'center-y', 'space-x', 'space-y'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select>
         </div>}
       </div>
+      {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={activeCue?.fans ?? []} selectedCount={selectedFixtureIds.length} hasActiveCue={Boolean(activeCue)} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => setFanDraft(null)} />}
       <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded bg-bg/80 p-1">
         <button type="button" aria-label="Zoom out preview" onClick={() => setZoom((z) => Math.max(1, z - 0.25))} className="px-2 text-sm text-text">−</button>
         <button type="button" onClick={() => { setZoom(1); setViewCentre({ x: 400, y: 170 }) }} className="px-1 text-[10px] text-dim" title="Reset preview zoom">{Math.round(zoom * 100)}%</button>
@@ -322,6 +366,7 @@ export function StagePreview() {
                 />
               )}
               {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.name}</text>}
+              {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
               <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
               {selected && (

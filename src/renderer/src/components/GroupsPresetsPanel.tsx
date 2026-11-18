@@ -3,6 +3,7 @@ import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
+import { findRelatedCues, findRelatedCuesForSequence } from '../lib/presetPalette'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
 import type { PresetCategory, PresetGroup } from '@shared/types'
 
@@ -132,6 +133,19 @@ export function GroupsPresetsPanel() {
     window.addEventListener('openlights-preset-palette-context', open)
     return () => window.removeEventListener('openlights-preset-palette-context', open)
   }, [])
+
+  // --- "Show in Cue" (LightKey Guide p.144) --------------------------------
+  // The cues containing the right-clicked preset or sequence, for the
+  // context-menu submenu. Presets reuse the existing pure findRelatedCues
+  // as-is; sequences use its sibling findRelatedCuesForSequence (controls
+  // carry sequenceIds alongside presetIds).
+  const relatedCues = useMemo(() => {
+    const target = contextMenu?.target
+    if (!target || !show) return []
+    if (target.kind === 'preset') return findRelatedCues(show, target.id)
+    if (target.kind === 'sequence') return findRelatedCuesForSequence(show, target.id)
+    return []
+  }, [contextMenu, show])
 
   // --- membership helpers -------------------------------------------------
   const groupOfPreset = (presetId: string) => groups.find((g) => g.presetIds.includes(presetId))
@@ -654,6 +668,13 @@ export function GroupsPresetsPanel() {
         x={contextMenu.x} y={contextMenu.y} target={contextMenu.target}
         menuRef={menuRef}
         hasSelection={selected.length > 0}
+        relatedCues={relatedCues}
+        onShowInCue={(cue) => {
+          setContextMenu(null)
+          // Reveal the cue in the Live view (Guide p.144); App listens
+          // for this event — see openlights-reveal-live-control there.
+          window.dispatchEvent(new CustomEvent('openlights-reveal-live-control', { detail: { pageId: cue.pageId, controlId: cue.controlId } }))
+        }}
         onClose={() => setContextMenu(null)}
         onAction={(action) => {
           const target = contextMenu.target
@@ -699,19 +720,26 @@ type PaletteMenuAction =
   | 'new-sequence' | 'new-sequence-from-selection'
 
 // Right-click menu modelled on LightKey's palette menu (Jake's 18 Nov
-// screenshot 1): Show Properties, Apply, Edit, Add Overrides, Rename,
-// Duplicate, Delete, then New Preset / New Preset With Snapshot / New Group
+// screenshot 1): Show Properties, Apply, Edit, "Show in Cue" submenu
+// (Guide p.144 — lists the cues containing the preset/sequence; picking
+// one reveals it in the Live view), Add Overrides, Rename, Duplicate,
+// Delete, then New Preset / New Preset With Snapshot / New Group
 // / New Group From Selection / New Sequence / New Sequence From Selection.
 // Two LightKey items are NOT here: "External Control" — no such feature
 // exists in OpenLights — and group "Duplicate" — a preset can belong to
 // only one group, so a duplicated group could not share its members.
-function PaletteContextMenu({ x, y, target, menuRef, hasSelection, onClose, onAction }: {
+function PaletteContextMenu({ x, y, target, menuRef, hasSelection, relatedCues, onShowInCue, onClose, onAction }: {
   x: number; y: number; target: PaletteItem | null
   menuRef: { current: HTMLDivElement | null }
   hasSelection: boolean
+  relatedCues: { pageId: string; pageName: string; controlId: string; controlName: string }[]
+  onShowInCue: (cue: { pageId: string; pageName: string; controlId: string; controlName: string }) => void
   onClose: () => void
   onAction: (action: PaletteMenuAction) => void
 }) {
+  // The submenu opens on hover or click, to the left — the palette is the
+  // right sidebar, so a right-opening submenu would run off-screen.
+  const [showInCueOpen, setShowInCueOpen] = useState(false)
   const item = (action: PaletteMenuAction, label: string, disabled = false) => (
     <button key={action} type="button" role="menuitem" disabled={disabled}
       className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40"
@@ -723,6 +751,29 @@ function PaletteContextMenu({ x, y, target, menuRef, hasSelection, onClose, onAc
         {item('show-properties', 'Show Properties')}
         {item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
         {item('edit', 'Edit')}
+        {(target.kind === 'preset' || target.kind === 'sequence') && (
+          <div className="relative" onMouseEnter={() => setShowInCueOpen(true)} onMouseLeave={() => setShowInCueOpen(false)}>
+            <button type="button" role="menuitem" aria-haspopup="true" aria-expanded={showInCueOpen}
+              className="flex w-full items-center justify-between rounded px-3 py-2 text-left text-xs hover:bg-panel2"
+              onClick={() => setShowInCueOpen((open) => !open)}>
+              <span>Show in Cue</span><span aria-hidden="true">▸</span>
+            </button>
+            {showInCueOpen && (
+              <div role="menu" aria-label="Cues using this item" className="absolute right-full top-0 z-[301] mr-1 min-w-48 rounded border border-line bg-panel p-1 shadow-xl">
+                {relatedCues.length === 0 ? (
+                  <span className="block rounded px-3 py-2 text-left text-xs text-dim">No cues use this {target.kind === 'preset' ? 'preset' : 'sequence'}</span>
+                ) : relatedCues.map((cue) => (
+                  <button key={cue.controlId} type="button" role="menuitem"
+                    className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2"
+                    title={`Live page: ${cue.pageName}`}
+                    onClick={() => onShowInCue(cue)}>
+                    {cue.controlName} <span className="text-dim">· {cue.pageName}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {target.kind === 'preset' && item('add-overrides', 'Add Overrides')}
         <div className="my-1 border-t border-line" />
         {item('rename', 'Rename')}

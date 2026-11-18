@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PresetDef, SequenceDef, ShowDef } from '../src/shared/types'
-import { filterPresets, filterSequences, findRelatedCues } from '../src/renderer/src/lib/presetPalette'
+import { filterPresets, filterSequences, findRelatedCues, findRelatedCuesForSequence } from '../src/renderer/src/lib/presetPalette'
 
 describe('preset palette filter and related cues (6.12)', () => {
   const presets: PresetDef[] = [
@@ -60,5 +60,27 @@ describe('preset palette filter and related cues (6.12)', () => {
     expect(related[0]).toMatchObject({ pageName: 'Main', controlName: 'Cue 1' })
     expect(related[1]).toMatchObject({ pageName: 'Second', controlName: 'Cue 3' })
     expect(findRelatedCues(show, 'p99')).toHaveLength(0)
+  })
+
+  it('finds related cues that reference a sequence', () => {
+    const show: ShowDef = {
+      id: 'show1', name: 'Test', createdAt: 0, updatedAt: 0,
+      fixtures: [], cues: [], automations: [],
+      livePages: [
+        { id: 'page1', name: 'Main', controls: [
+          { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: [], sequenceIds: ['s1'], x: 0, y: 0 },
+          { id: 'c2', name: 'Cue 2', type: 'toggle', presetIds: ['p1'], x: 50, y: 0 },
+        ] },
+        { id: 'page2', name: 'Second', controls: [
+          { id: 'c3', name: 'Cue 3', type: 'flash', presetIds: [], sequenceIds: ['s1', 's2'], x: 0, y: 0 },
+        ] },
+      ],
+    }
+    const related = findRelatedCuesForSequence(show, 's1')
+    expect(related).toHaveLength(2)
+    expect(related[0]).toMatchObject({ pageName: 'Main', controlName: 'Cue 1' })
+    expect(related[1]).toMatchObject({ pageName: 'Second', controlName: 'Cue 3' })
+    expect(findRelatedCuesForSequence(show, 's2')).toHaveLength(1)
+    expect(findRelatedCuesForSequence(show, 's99')).toHaveLength(0)
   })
 })

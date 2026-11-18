@@ -57,6 +57,22 @@ export function findRelatedCues(
   return results
 }
 
+/** Find Live cues (controls) that reference a given sequence. */
+export function findRelatedCuesForSequence(
+  show: ShowDef,
+  sequenceId: string
+): { pageId: string; pageName: string; controlId: string; controlName: string }[] {
+  const results: { pageId: string; pageName: string; controlId: string; controlName: string }[] = []
+  for (const page of show.livePages ?? []) {
+    for (const control of page.controls) {
+      if ((control.sequenceIds ?? []).includes(sequenceId)) {
+        results.push({ pageId: page.id, pageName: page.name, controlId: control.id, controlName: control.name })
+      }
+    }
+  }
+  return results
+}
+
 /** Find cue lists that contain cues referencing a preset (via cue→preset mapping). */
 export function findRelatedCueLists(
   show: ShowDef,

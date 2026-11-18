@@ -57,7 +57,7 @@ export interface FanDef {
   attribute: string
   fixtureIds: string[]
   mode: 'linear' | 'centre' | 'reverse'
-  order: 'selection' | 'left-right' | 'top-bottom' | 'name' | 'address'
+  order: 'selection' | 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top' | 'name' | 'address'
   start: number
   end: number
   considerSpacing?: boolean

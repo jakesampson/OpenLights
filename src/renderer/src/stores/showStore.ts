@@ -5,6 +5,7 @@ import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSibli
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
+import { manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress } from '../lib/cueListPlayback'
 import { stepFrame } from '../lib/frameStepping'
 import {
   copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
@@ -45,7 +46,7 @@ import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { canParentGroup, syncFixtureGroups } from '../lib/fixtureGroups'
-import { mixColor, type RgbColor } from '../lib/colorMix'
+import { mixColor, normalizeColorFavorite, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
@@ -101,6 +102,15 @@ interface ShowState {
   cuePlaying: boolean
   cueRevision: number
   manualCrossfade: number
+  /**
+   * The Xfade slider end (0 or 1) that represents the current cue.
+   * LightKey's slider alternates direction (Guide ch.11, p.219): it rests
+   * at one end for the current cue and a drag to the opposite end
+   * crossfades to the next cue, so the blend is the distance from this
+   * end, not the raw position. Operator state, like `manualCrossfade`:
+   * not persisted in the show, not undo history.
+   */
+  manualCrossfadeAnchor: number
 
   setShow: (show: ShowDef | null) => void
   updateProject: (patch: Partial<ShowDef>) => void
@@ -161,6 +171,10 @@ interface ShowState {
   removeFixtureGroup: (id: string) => void
   updateSelectedFixtures: (values: Record<string, number>) => void
   setSelectedColor: (color: RgbColor, manual?: boolean) => void
+  /** Save a colour to the project's colour favourites (Guide p.86); duplicates and non-colours are ignored. */
+  addColorFavorite: (hex: string) => void
+  /** Remove a colour from the project's colour favourites. */
+  removeColorFavorite: (hex: string) => void
   propertyClipboard: { fixture: FixtureDef; values: Record<string, number>; property?: string } | null
   copyFixtureProperties: (property?: string) => void
   pasteFixtureProperties: (manual?: boolean) => void
@@ -619,6 +633,7 @@ const actions: ShowState = {
   cuePlaying: false,
   cueRevision: 0,
   manualCrossfade: 1,
+  manualCrossfadeAnchor: 1,
 
   setShow: (show) => {
     if (show) show = migrateShow(show)
@@ -668,7 +683,8 @@ const actions: ShowState = {
       activeCueIndex: -1,
       cuePlaying: false,
       cueRevision: get().cueRevision + 1,
-      manualCrossfade: 1
+      manualCrossfade: 1,
+      manualCrossfadeAnchor: 1
     })
     const restored = get().cues.find((cue) => cue.id === get().activeCueId)
     if (restored) sendImmediate(cueOutput(get(), restored))
@@ -907,6 +923,24 @@ const actions: ShowState = {
     const fixtureValues = { ...cue.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
     get().updateCue(cue.id, { fixtureValues })
+  },
+  addColorFavorite: (hex) => {
+    const favorite = normalizeColorFavorite(hex)
+    if (!favorite) return
+    set((state) => {
+      const colorFavorites = state.show?.colorFavorites ?? []
+      if (colorFavorites.includes(favorite)) return state
+      return persistState(state, { colorFavorites: [...colorFavorites, favorite] })
+    })
+  },
+  removeColorFavorite: (hex) => {
+    const favorite = normalizeColorFavorite(hex)
+    if (!favorite) return
+    set((state) => {
+      const colorFavorites = state.show?.colorFavorites ?? []
+      if (!colorFavorites.includes(favorite)) return state
+      return persistState(state, { colorFavorites: colorFavorites.filter((c) => c !== favorite) })
+    })
   },
   locateFixtures: (ids) => { const state = get(); if (!state.blackout) configureLocateOutput(locateFixturePatch(state.show?.fixtures ?? [], ids, state.master)) },
   setBpm: (bpm) =>
@@ -1717,7 +1751,11 @@ const actions: ShowState = {
         activeCueIndex: index,
         activeCueId: cue.id,
         cuePlaying: true,
-        cueRevision: state.cueRevision + 1
+        cueRevision: state.cueRevision + 1,
+        // The jump lands the slider where it is: the jumped-to cue is now
+        // the current cue at whatever end the slider rests on, so a drag
+        // in either direction starts a crossfade from it.
+        manualCrossfadeAnchor: state.manualCrossfade
       }
     }),
 
@@ -1738,7 +1776,8 @@ const actions: ShowState = {
         activeCueIndex: next,
         activeCueId: cue.id,
         cuePlaying: true,
-        cueRevision: state.cueRevision + 1
+        cueRevision: state.cueRevision + 1,
+        manualCrossfadeAnchor: state.manualCrossfade
       }
     }),
 
@@ -1756,12 +1795,46 @@ const actions: ShowState = {
         activeCueIndex: prev,
         activeCueId: cue.id,
         cuePlaying: true,
-        cueRevision: state.cueRevision + 1
+        cueRevision: state.cueRevision + 1,
+        manualCrossfadeAnchor: state.manualCrossfade
       }
     }),
 
   stopCue: () => set({ cuePlaying: false }),
-  setManualCrossfade: (value) => set({ manualCrossfade: Math.max(0, Math.min(1, value)) }),
+  /**
+   * Manual crossfade (8.8a, LightKey Guide ch.11, pp.193, 219): dragging
+   * the Xfade slider blends live output between the current cue and the
+   * next cue in the active cuelist, ignoring the cue's fade time — the
+   * blend is sent immediately (which also cancels any in-flight timed
+   * fade), and reaching the opposite end completes the crossfade: the
+   * next cue becomes current, the hold clock reschedules for it via
+   * `cueRevision`, and the slider rests at that end ready for the next
+   * drag back the other way. With no active cue or no next cue the
+   * position is still stored (and clamped, with no undo history), but
+   * nothing is sent.
+   */
+  setManualCrossfade: (value) =>
+    set((state) => {
+      const position = Math.max(0, Math.min(1, value))
+      const list = state.cueLists.find((l) => l.id === state.activeCueListId)
+      const nextIndex = list ? manualCrossfadeNextIndex(list, state.activeCueIndex) : -1
+      if (!list || nextIndex < 0 || state.activeCueIndex < 0) return { manualCrossfade: position }
+      const current = state.cues.find((s) => s.id === list.steps[state.activeCueIndex]?.cueId)
+      const next = state.cues.find((s) => s.id === list.steps[nextIndex]?.cueId)
+      if (!current || !next) return { manualCrossfade: position }
+      const progress = manualCrossfadeProgress(state.manualCrossfadeAnchor, position)
+      if (!state.blackout) sendImmediate(manualCrossfade(cueOutput(state, current), cueOutput(state, next), progress))
+      if (progress >= 1) {
+        return {
+          manualCrossfade: position,
+          manualCrossfadeAnchor: position,
+          activeCueIndex: nextIndex,
+          activeCueId: next.id,
+          cueRevision: state.cueRevision + 1
+        }
+      }
+      return { manualCrossfade: position }
+    }),
   stepLiveFrame: (frameId, direction) => set((state) => {
     const page = activeLivePage(state)
     return page ? { activeLiveValues: stepFrame(page, frameId, state.activeLiveValues, direction) } : state
@@ -1780,7 +1853,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

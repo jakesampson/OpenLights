@@ -876,6 +876,52 @@ describe('cuelist manual crossfade (8.8)', () => {
     useShowStore.getState().setManualCrossfade(2)
     expect(useShowStore.getState().manualCrossfade).toBe(1)
   })
+
+  it('blends live output between the current and next cue at 50 percent (8.8a)', () => {
+    useShowStore.getState().goToCue('c1', 0)
+    expect(lastPatch()[1]).toBe(255)
+    useShowStore.getState().setManualCrossfade(0.5)
+    expect(useShowStore.getState().manualCrossfade).toBe(0.5)
+    // Halfway between cue One (ch1 255, ch5 0, ch6 pan 10) and cue Two
+    // (ch1 0, ch5 200, ch6 pan 100) — the 50% blend the pure
+    // manualCrossfade() blender produces, sent as live output.
+    expect(lastPatch()).toEqual({ 1: 128, 2: 128, 3: 0, 4: 0, 5: 100, 6: 55, 7: 65, 8: 128, 9: 128, 10: 128, 11: 0, 12: 0 })
+    // The fader only blends; it does not advance until it reaches the end.
+    expect(useShowStore.getState().activeCueIndex).toBe(0)
+  })
+
+  it('completes the crossfade at the opposite end, then fades back the other way (8.8a)', () => {
+    useShowStore.getState().updateCueList('c1', { loop: true })
+    useShowStore.getState().goToCue('c1', 0)
+    // Drag from the resting end (1) to the opposite end (0).
+    useShowStore.getState().setManualCrossfade(0)
+    const afterFirst = useShowStore.getState()
+    expect(afterFirst.activeCueIndex).toBe(1)
+    expect(afterFirst.activeCueId).toBe('s2')
+    expect(lastPatch()[5]).toBe(200)
+    // The slider now rests at 0: dragging back toward 1 blends Two into One.
+    useShowStore.getState().setManualCrossfade(0.5)
+    expect(lastPatch()[1]).toBe(128)
+    expect(lastPatch()[5]).toBe(100)
+    useShowStore.getState().setManualCrossfade(1)
+    const afterSecond = useShowStore.getState()
+    expect(afterSecond.activeCueIndex).toBe(0)
+    expect(afterSecond.activeCueId).toBe('s1')
+    expect(lastPatch()[1]).toBe(255)
+  })
+
+  it('sends nothing before playback starts or past the last cue (8.8a)', () => {
+    const calls = setChannels.mock.calls.length
+    useShowStore.getState().setManualCrossfade(0.5)
+    expect(useShowStore.getState().manualCrossfade).toBe(0.5)
+    expect(setChannels.mock.calls.length).toBe(calls)
+    useShowStore.getState().goToCue('c1', 1)
+    const afterGo = setChannels.mock.calls.length
+    useShowStore.getState().setManualCrossfade(0)
+    // Last step of a non-looping list: no next cue, so no blend is sent.
+    expect(setChannels.mock.calls.length).toBe(afterGo)
+    expect(useShowStore.getState().activeCueIndex).toBe(1)
+  })
 })
 
 describe('frame stepping and effect continuity (8.10)', () => {

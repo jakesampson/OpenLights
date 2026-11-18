@@ -7,9 +7,17 @@ export function fanValues(count: number, start: number, end: number, mode: FanDe
   return Array.from({ length: count }, (_, i) => {
     let ratio = last ? i / last : 0
     if (positions?.length === count && positions[last] !== positions[0]) ratio = (positions[i] - positions[0]) / (positions[last] - positions[0])
-    if (anchors && anchors.length >= 2) {
-      const sorted = [...anchors].sort((a, b) => a.index - b.index)
-      const left = [...sorted].reverse().find((a) => a.index <= i) ?? sorted[0], right = sorted.find((a) => a.index >= i) ?? sorted[sorted.length - 1]
+    if (anchors && anchors.length >= 1) {
+      // Defined values interpolate piecewise: the endpoints (start/end)
+      // are always defined, so a single intermediate anchor already bends
+      // the fan through it (Guide p.121 — define values for at least two
+      // fixtures, usually the first and last, and the rest are calculated).
+      // An anchor at an endpoint overrides that endpoint's value.
+      const byIndex = new Map<number, number>([[0, start]])
+      if (last > 0) byIndex.set(last, end)
+      for (const a of anchors) if (a.index >= 0 && a.index <= last) byIndex.set(a.index, a.value)
+      const points = [...byIndex.entries()].map(([index, value]) => ({ index, value })).sort((a, b) => a.index - b.index)
+      const left = [...points].reverse().find((a) => a.index <= i) ?? points[0], right = points.find((a) => a.index >= i) ?? points[points.length - 1]
       return Math.round(left.value + (right.value - left.value) * (right.index === left.index ? 0 : (i - left.index) / (right.index - left.index)))
     }
     if (mode === 'reverse') ratio = 1 - ratio
@@ -22,13 +30,15 @@ export function orderedFanFixtures(fixtures: FixtureDef[], fan: FanDef): Fixture
   const selected = fan.fixtureIds.map((id) => fixtures.find((f) => f.id === id)).filter((f): f is FixtureDef => Boolean(f))
   if (fan.order === 'name') selected.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
   if (fan.order === 'address') selected.sort((a, b) => (a.universe ?? 1) - (b.universe ?? 1) || a.channelStart - b.channelStart)
-  if (fan.order === 'left-right' || fan.order === 'top-bottom') { const axis = fan.order === 'left-right' ? 'x' : 'y'; selected.sort((a, b) => (a.previewPosition?.[axis] ?? 0) - (b.previewPosition?.[axis] ?? 0)) }
+  // Guide §8, p.120: Right to Left and Bottom to Top are order options
+  // alongside Left to Right and Top to Bottom — same axis, descending.
+  if (['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order)) { const axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'; const descending = fan.order === 'right-left' || fan.order === 'bottom-top'; selected.sort((a, b) => ((a.previewPosition?.[axis] ?? 0) - (b.previewPosition?.[axis] ?? 0)) * (descending ? -1 : 1)) }
   return selected
 }
 
 export function evaluateFan(fixtures: FixtureDef[], fan: FanDef): Record<string, Record<string, number>> {
-  const ordered = orderedFanFixtures(fixtures, fan), axis = fan.order === 'top-bottom' ? 'y' : 'x'
-  const positions = fan.considerSpacing && ['left-right', 'top-bottom'].includes(fan.order) ? ordered.map((f) => f.previewPosition?.[axis] ?? 0) : undefined
+  const ordered = orderedFanFixtures(fixtures, fan), axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
+  const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? ordered.map((f) => f.previewPosition?.[axis] ?? 0) : undefined
   const values = fanValues(ordered.length, fan.start, fan.end, fan.mode, positions, fan.anchors)
   return Object.fromEntries(ordered.flatMap((f, i) => {
     const channel = fixtureMode(f)?.channels.find((c) => c.attribute === fan.attribute)

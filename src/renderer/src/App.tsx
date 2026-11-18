@@ -66,6 +66,31 @@ export default function App() {
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  // "Show in Cue" from the Preset Palette (LightKey Guide p.144): reveal
+  // a Live cue — select its page, select the button (accent border),
+  // switch to Live and scroll it into view. Mirrors ProjectSearch's
+  // reveal above; an open preset is saved first, like goTab does.
+  useEffect(() => {
+    const reveal = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageId: string; controlId: string }>).detail
+      if (!detail?.pageId || !detail?.controlId) return
+      const state = useShowStore.getState()
+      if (state.editingPresetId) state.saveEditingPreset()
+      state.selectLivePage(detail.pageId)
+      // selectLivePage clears the page-object selection, so select after.
+      state.setPageObjectSelection([{ type: 'cue', id: detail.controlId }])
+      setTab('Live')
+      requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(detail.controlId)}"]`)
+        if (!target) return
+        target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+        target.tabIndex = -1
+        target.focus({ preventScroll: true })
+      })
+    }
+    window.addEventListener('openlights-reveal-live-control', reveal)
+    return () => window.removeEventListener('openlights-reveal-live-control', reveal)
+  }, [])
   // Switching to Live while a preset is open ends the session, keeping
   // the edits (they were written live, undoable); Cancel is explicit.
   const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); setTab(view) }
@@ -437,7 +462,7 @@ export default function App() {
 
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
         <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label="Preset palette sidebar" onContextMenu={(event) => {
           if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return

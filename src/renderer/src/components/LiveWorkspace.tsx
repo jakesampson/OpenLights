@@ -14,6 +14,7 @@ import {
 import { useShowStore } from '../stores/showStore'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 import { CueListEditor } from './CueListEditor'
+import { XfadeSlider } from './XfadeSlider'
 
 type Selection = PageObjectRef
 const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.floor(index / 4) * 90 })
@@ -437,6 +438,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? cues.find((s) => s.id === list?.steps[current]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</p><p className="text-dim">Next: {next ? cues.find((s) => s.id === next.cueId)?.name ?? 'Missing cue' : 'End of list'}</p>
             {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
+            {list && <div className="mt-2"><XfadeSlider listId={list.id} /></div>}
             {resizeHandle(ref, lw, lh)}
           </div>
         })}
