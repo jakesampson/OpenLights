@@ -11,6 +11,7 @@ import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
+import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
@@ -45,6 +46,8 @@ export default function App() {
     bpm,
     activeCueId,
     master,
+    setMaster,
+    setBpm,
     blackout,
     blind,
     freeze,
@@ -90,6 +93,14 @@ export default function App() {
       window.removeEventListener('keydown', closeHeaderMenusOnEscape)
     }
   }, [])
+  // Tap tempo for the Master column's BPM box (LightKey: the "90 bpm" box
+  // under the Master fader). Shares the header Tap button's tap history —
+  // one tempo, tapped from either place.
+  const tapTempo = () => {
+    const result = calculateTapTempo(headerTaps.current, performance.now())
+    headerTaps.current = result.taps
+    if (result.bpm !== null) setBpm(result.bpm)
+  }
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
   }, [show?.preferences?.theme])
@@ -443,13 +454,33 @@ export default function App() {
         </div>
       </div>
 
-      {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
-      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
-
-      {/* Bottom row */}
+      {/* Bottom row — the Design / Live switch lives here, built into the
+          bottom panel (Jake, 18 Nov 2026, screenshots 9.17.29): a pinned row
+          at the top of the bottom panel, centred on the panel's own width
+          with flex justify-center. The panel is the bottom-grid's first
+          column, so its width excludes the right sidebar (Preset Palette /
+          Shortcuts) — that is what keeps the pill centred, where the old
+          divider-straddling pill drifted off-centre and the header pill was
+          in the wrong place entirely. The row is flex-none, so it never
+          scrolls away with the Live canvas below it, and the switch works
+          identically in Design, Live and Live Edit. */}
       <div className="bottom-grid">
-        <div className={`panel ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
+        <div className="panel bottom-panel-shell">
+          {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
+              10.12.28 / 10.17.25): rendered here, as a child of the bottom
+              panel itself — NOT inside the scrolling Live workspace — so it
+              sits on top of the panel's left edge (see
+              .bottom-panel-shell > .live-master-column in index.css) and
+              canvas content scrolls underneath it, while the column itself
+              never moves or scrolls. Only in Live; Design keeps
+              BottomPlayback with its own playback master. */}
+          {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
+          <div className="bottom-panel-switch">
+            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+          </div>
+          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+            {tab === 'Live' ? <LiveWorkspace masterOverlay /> : <BottomPlayback />}
+          </div>
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">

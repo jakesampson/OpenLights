@@ -211,6 +211,8 @@ export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-c
 export interface LivePage {
   id: string
   name: string
+  /** 'page' is a plain button page; 'cuelist' is a page built around a cue list (Guide ch.11, p.176). */
+  kind?: 'page' | 'cuelist'
   controls: LiveControl[]
   cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string; style?: LiveObjectStyle }[]
   annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string; style?: LiveObjectStyle; frame?: FrameConfig }[]

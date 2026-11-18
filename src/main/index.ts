@@ -24,7 +24,23 @@ const liveWindows = new Map<number, { window: BrowserWindow; spec: LiveWindowSpe
 const liveWindowsFile = path.join(app.getPath('userData'), 'live-windows.json')
 let liveState: Record<string, unknown> = {}
 let quitting = false
-app.on('before-quit', () => { quitting = true })
+let dmxShutdownDone = false
+/** Stop the DMX engine (frame pump, reconnect timer, serial port) so no live handle keeps the process alive after quit is requested. Best-effort and non-blocking: the port close is async, and Electron exits regardless once quit proceeds. */
+function shutdownDmx() {
+  if (!dmxEngine || dmxShutdownDone) return
+  dmxShutdownDone = true
+  void dmxEngine.shutdown().catch(() => {})
+}
+app.on('before-quit', () => {
+  quitting = true
+  // Tell the renderer the app itself is quitting (Cmd+Q / menu Quit), so
+  // the ProjectBar's beforeunload prompt does not veto the quit and park
+  // the close behind a Save/Discard modal. The 1.5s autosave is the
+  // protection for unsaved work on this path; the modal still guards a
+  // plain window close (red dot / title-bar close button).
+  mainWindow?.webContents.send('app:quitting')
+  shutdownDmx()
+})
 function saveLiveWindows() { fs.writeFileSync(liveWindowsFile, JSON.stringify([...liveWindows.values()].map(({ window, spec }) => ({ ...spec, width: window.getBounds().width, height: window.getBounds().height })))) }
 function openLiveWindow(spec: LiveWindowSpec) {
   const window = new BrowserWindow({ width: spec.width, height: spec.height, minWidth: 640, minHeight: 480, title: 'OpenLights Live', webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
@@ -80,6 +96,9 @@ function createWindow() {
 
   mainWindow.on('closed', () => {
     mainWindow = null
+    // Don't leave orphan Live windows behind with no main window: closing
+    // them lets window-all-closed fire below, which quits the app.
+    for (const { window } of [...liveWindows.values()]) window.close()
   })
 }
 
@@ -120,8 +139,14 @@ app.whenReady().then(async () => {
   })
 })
 
+// Deliberate departure from the macOS stay-in-Dock convention: closing the
+// last window quits OpenLights on every platform, including darwin. Jake
+// expects the app to quit when its window closes; the old darwin exception
+// left it running in the Dock with no window, so the only way out was
+// Force Quit. The activate handler above still recreates the window if the
+// app is re-activated while running.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  app.quit()
 })
 
 // DMX port handling

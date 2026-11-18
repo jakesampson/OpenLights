@@ -47,12 +47,12 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
   return <label className="text-dim">{label}<input aria-label={label} value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); else if (event.key === 'Escape') setText(formatTimingMs(ms)) }} className="ml-1 w-20 rounded bg-bg p-1" /></label>
 }
 
-export function LiveWorkspace() {
+export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boolean } = {}) {
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
-    activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
+    activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
-    master, setMaster, bpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
+    editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
@@ -385,14 +385,30 @@ export function LiveWorkspace() {
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
-  return <section data-context-menu="page" aria-label="Live page canvas" className="relative flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
-    {/* LightKey-style edit toolbar: the Design / Live switch already sits
-        centred on the divider directly above this panel (ViewSwitch); the
-        toolbar below it holds New Button (+), New Frame, Insert Text (T)
-        and the green Done button, as in LightKey's bottom panel. */}
-    <div className="flex flex-wrap items-center gap-2">
-      {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
-      {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
+  // LightKey's Live view has no bordered boxes around the page: the
+  // panel and canvas borders only render in Live Edit mode, so the
+  // editable area is still clearly delineated while editing, and the
+  // page sits directly on the background otherwise. border-transparent
+  // (not no border at all) keeps the layout from shifting between modes.
+  const panelBorder = editing ? 'border border-line' : 'border border-transparent'
+  // The section is exactly the visible panel body's height (h-full, not
+  // min-h-full): the canvas scroll container below shrinks to fit and
+  // scrolls internally, so the section never grows taller than the panel.
+  // That matters for the properties popup further down, whose top-2 /
+  // bottom-2 insets are against this section — with a definite section
+  // height they span the visible panel, so the popup can never run off
+  // the page (Jake, 18 Nov 2026).
+  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex h-full flex-col gap-2 rounded ${panelBorder} bg-bg/30 p-3`} onContextMenu={openContextMenu}>
+    {/* LightKey-style edit toolbar: the Design / Live switch sits in the
+        bottom panel above this workspace (ViewSwitch, rendered by App);
+        the toolbar below it holds New Button (+), New Frame, Insert Text
+        (T) and the green Done button, as in LightKey's bottom panel.
+        When the Master fader overlays this workspace (masterOverlay, set
+        by App — the column sits on top of the panel's left edge), the
+        header, the overrides banner and the canvas scroll container all
+        take the master-overlay inset so their content starts clear of the
+        column at rest and only slides underneath it when scrolled. */}
+    <div className={`flex flex-wrap items-center gap-2${masterOverlay ? ' master-overlay-inset' : ''}`}>
       {editing && !locked && <>
         <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
           <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
@@ -403,17 +419,10 @@ export function LiveWorkspace() {
       </>}
       {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
     </div>
-    {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
-    {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <div className="flex min-h-0 flex-1 gap-2">
-      {/* LightKey bottom panel: vertical Master fader on the far left. */}
-      <div className="flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2" aria-label="Live master fader">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Master</span>
-        <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} style={{ writingMode: 'vertical-lr', direction: 'rtl', height: 180, width: 24 }} />
-        <span className="text-xs text-text">{Math.round(master / 255 * 100)}%</span>
-        <span className="text-[10px] text-dim">Full</span>
-        <span className="text-[10px] text-dim" title="Tap tempo BPM (see the toolbar Tap button)">{bpm > 0 ? `${Math.round(bpm)} BPM` : '— BPM'}</span>
-      </div>
-      <div className="min-w-0 flex-1 overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+    {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
+    <div className="flex min-h-0 flex-1 gap-2">
+      {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
+      <div className={`min-h-0 min-w-0 flex-1 overflow-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
@@ -468,9 +477,15 @@ export function LiveWorkspace() {
           on double-click (Jake, 18 Nov 2026). It scrolls on its own
           (overflow-y-auto) while the canvas behind it does not scroll, so
           the selected button stays visible while its properties are edited.
-          It follows the single selection while open; close with X, Esc or
-          Done. The same inspector fields as the old fixed sidebar, moved
-          here verbatim — Ad hoc properties, Timing mm:ss.t, Button Type,
+          Its top-2/bottom-2 insets are against this section, and the section
+          is exactly the visible panel body's height (h-full, see above), so
+          the popup always fits entirely inside the visible panel — its
+          bottom never runs off the page, and reaching the bottom of the
+          properties list needs only the popup's own scroll, never the
+          canvas scroll that would hide the button being edited. It follows
+          the single selection while open; close with X, Esc or Done. The
+          same inspector fields as the old fixed sidebar, moved here
+          verbatim — Ad hoc properties, Timing mm:ss.t, Button Type,
           Presets/Sequences, More, style, attachment. */}
       {editing && !locked && popupOpen && selection && <div role="dialog" aria-label={`${inspectorTarget} properties`} data-fields={inspectorFields(inspectorTarget).join(',')} className="live-properties-popup absolute bottom-2 right-2 top-2 z-50 w-[300px] overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs shadow-2xl">
         <div className="mb-1 flex items-center justify-between"><strong className="capitalize">{inspectorTarget} properties</strong><button type="button" aria-label="Close properties popup" title="Close properties popup" onClick={() => setPopupOpen(false)}>×</button></div>
@@ -527,7 +542,8 @@ export function LiveWorkspace() {
           <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
         </div>}
       </div>}
-    </div>}
+      </>}
+    </div>
     {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>

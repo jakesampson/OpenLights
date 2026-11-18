@@ -65,6 +65,69 @@ export function exclusiveSiblings(page: LivePage, cueId: string): string[] {
   return frameMembers(page, frameId).filter((id) => id !== cueId)
 }
 
+/** Rect of a cue button on the page, with the render defaults (LIVE_CUE_SIZE). */
+export function controlRect(page: LivePage, cueId: string): Bounds | null {
+  const cue = page.controls.find((c) => c.id === cueId)
+  if (!cue) return null
+  return {
+    x: cue.x ?? 0,
+    y: cue.y ?? 0,
+    width: cue.width ?? LIVE_CUE_SIZE.width,
+    height: cue.height ?? LIVE_CUE_SIZE.height
+  }
+}
+
+/** Buttons snap to a 10px grid while dragging, so a 2px tolerance covers rounding. */
+const TOUCH_TOLERANCE_PX = 2
+
+/**
+ * True when two button rects share an edge (one edge meets the other, with
+ * real overlap along that edge). Corner-only contact does not count: the
+ * buttons must sit side by side or one above the other.
+ */
+export function controlsTouch(a: Bounds, b: Bounds): boolean {
+  const horizontalOverlap = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y)
+  const verticalOverlap = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)
+  const touchingX = Math.abs(a.x + a.width - b.x) <= TOUCH_TOLERANCE_PX || Math.abs(b.x + b.width - a.x) <= TOUCH_TOLERANCE_PX
+  const touchingY = Math.abs(a.y + a.height - b.y) <= TOUCH_TOLERANCE_PX || Math.abs(b.y + b.height - a.y) <= TOUCH_TOLERANCE_PX
+  return (touchingX && horizontalOverlap > 0) || (touchingY && verticalOverlap > 0)
+}
+
+/**
+ * Touching-button group siblings (Guide ch.11, pp.183–184, "Attach buttons"):
+ * "Move two or more buttons together so their borders touch… If you attach
+ * two or more buttons they act as a group where only one button can be active
+ * at a time. To detach a button from the group, move it away from the other
+ * buttons." The buttons must be in the same frame, or in no frame. Grouping
+ * is derived from the buttons' positions, so dragging a button against
+ * another attaches it and dragging it away detaches it — nothing is stored.
+ * The group is transitive: a button touching any member joins the group.
+ */
+export function touchingGroupSiblings(page: LivePage, cueId: string): string[] {
+  const start = controlRect(page, cueId)
+  if (!start) return []
+  const frame = frameForCue(page, cueId)
+  const seen = new Set<string>([cueId])
+  const queue = [cueId]
+  const siblings: string[] = []
+  while (queue.length) {
+    const current = queue.pop()!
+    const rect = controlRect(page, current)
+    if (!rect) continue
+    for (const other of page.controls) {
+      if (seen.has(other.id)) continue
+      if (frameForCue(page, other.id) !== frame) continue
+      const otherRect = controlRect(page, other.id)
+      if (otherRect && controlsTouch(rect, otherRect)) {
+        seen.add(other.id)
+        queue.push(other.id)
+        siblings.push(other.id)
+      }
+    }
+  }
+  return siblings
+}
+
 /** Intensity multiplier (0–2) contributed by the cue's frame. */
 export function frameIntensity(page: LivePage, cueId: string): number {
   const frameId = frameForCue(page, cueId)

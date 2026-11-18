@@ -144,6 +144,15 @@ export function ProjectBar() {
     }
   }
 
+  // When the app itself is quitting (Cmd+Q / menu Quit), the main process
+  // says so first: allow the close so beforeunload below does not veto the
+  // quit and strand the app in the Dock with no window. The 1.5s autosave
+  // is the protection for unsaved work on this path.
+  useEffect(() => {
+    if (!window.electronAPI?.onAppQuitting) return
+    return window.electronAPI.onAppQuitting(() => { allowCloseRef.current = true })
+  }, [])
+
   useEffect(() => {
     const beforeClose = (event: BeforeUnloadEvent) => {
       if (allowCloseRef.current || !hasUnsavedChanges(useShowStore.getState().show, savedSnapshotRef.current)) return
@@ -211,7 +220,7 @@ export function ProjectBar() {
   const dirty = hasUnsavedChanges(show, savedSnapshotRef.current)
   return (
     <div className="relative" ref={rootRef}>
-      {pendingTransition && <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => setPendingTransition(null)}>Cancel</button></div></div></div>}
+      {pendingTransition && <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => { allowCloseRef.current = false; setPendingTransition(null) }}>Cancel</button></div></div></div>}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
