@@ -73,6 +73,26 @@ export default function App() {
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const headerTaps = useRef<number[]>([])
+  const editMenuRef = useRef<HTMLDetailsElement>(null)
+  const settingsMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const closeHeaderMenus = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (editMenuRef.current?.open && (!target || !editMenuRef.current.contains(target))) editMenuRef.current.open = false
+      if (!target || !settingsMenuRef.current?.contains(target)) setSettingsOpen(false)
+    }
+    const closeHeaderMenusOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (editMenuRef.current) editMenuRef.current.open = false
+      setSettingsOpen(false)
+    }
+    window.addEventListener('pointerdown', closeHeaderMenus)
+    window.addEventListener('keydown', closeHeaderMenusOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', closeHeaderMenus)
+      window.removeEventListener('keydown', closeHeaderMenusOnEscape)
+    }
+  }, [])
   // Tap tempo for the Master column's BPM box (LightKey: the "90 bpm" box
   // under the Master fader). Shares the header Tap button's tap history —
   // one tempo, tapped from either place.
@@ -289,7 +309,7 @@ export default function App() {
               target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
             })
           }} />
-          <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
+          <details ref={editMenuRef} className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
             className="lightkey-action"
@@ -299,7 +319,7 @@ export default function App() {
           >
             +
           </button>
-          <div className="relative">
+          <div ref={settingsMenuRef} className="relative">
             <button
               type="button"
               className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
@@ -420,7 +440,11 @@ export default function App() {
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label="Preset palette sidebar" onContextMenu={(event) => {
+          if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
+          event.preventDefault()
+          window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
+        }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
               Preset Palette
