@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useShowStore } from '../stores/showStore'
+import { channelFixtureLabels } from '../lib/channelLabels'
 
 export function DmxMonitor() {
-  const [channels, setChannels] = useState<number[]>([])
-  const [showFull, setShowFull] = useState(false)
+  const [channels, setChannels] = useState<number[]>(Array(512).fill(0))
+  const [showFull, setShowFull] = useState(true)
+  const fixtures = useShowStore((state) => state.show?.fixtures ?? [])
+  const labels = channelFixtureLabels(fixtures)
 
   useEffect(() => {
     let alive = true
@@ -50,19 +54,21 @@ export function DmxMonitor() {
       </div>
       {visible.length === 0 ? (
         <div className="py-2 text-xs text-zinc-600">
-          Output is black. Fire a scene or cue to see channel values here.
+          Output is black. Fire a cue to see channel values here.
         </div>
       ) : (
         <div className="grid max-h-40 grid-cols-4 gap-1 overflow-y-auto sm:grid-cols-6 lg:grid-cols-8">
           {visible.map(({ channel, value }) => (
             <div
               key={channel}
+              title={labels[channel]?.join('; ') ?? 'Unpatched channel'}
               className={`rounded px-2 py-1 font-mono text-[10px] ${
                 value > 0 ? 'bg-indigo-500/15 text-indigo-300' : 'bg-zinc-950/60 text-zinc-600'
               }`}
             >
               <span className="text-zinc-500">{channel}</span>
               <span className="float-right">{value}</span>
+              <span className="block truncate text-[9px] text-dim">{labels[channel]?.join('; ') ?? 'Unpatched'}</span>
             </div>
           ))}
         </div>

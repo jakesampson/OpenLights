@@ -6,16 +6,16 @@ import { LiveWorkspace } from './LiveWorkspace'
 
 export function LiveTab() {
   const {
-    scenes,
+    cues,
     presets,
     activePresetIds,
     togglePreset,
     clearPresets,
     cueLists,
-    activeSceneId,
+    activeCueId,
     activeCueListId,
     activeCueIndex,
-    goToScene,
+    activateCue,
     goToCue,
     cueNext,
     cuePrev,
@@ -36,29 +36,24 @@ export function LiveTab() {
   return (
     <div className="flex flex-col gap-3 p-1">
       <LiveWorkspace />
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-line bg-bg/30 px-3 py-2">
-        <div><span className="block text-[10px] font-semibold uppercase tracking-wider text-dim">Live output</span><span className="text-xs text-text">{scenes.find((scene) => scene.id === activeSceneId)?.name ?? 'No scene selected'}</span></div>
-        <label className="flex items-center gap-2 text-xs text-dim">Master <input aria-label="Master intensity" type="range" min={0} max={255} value={master} onChange={(event) => setMaster(Number(event.target.value))} className="w-32 accent-[var(--accent)]" /><span className="w-10 text-right font-mono text-text">{Math.round(master / 255 * 100)}%</span></label>
-      </div>
-      <div className="flex items-center gap-2 text-xs text-dim"><span>Tempo</span><input aria-label="Tempo in BPM" type="number" min={30} max={240} value={bpm} onChange={(event) => setBpm(Number(event.target.value))} className="w-16 rounded border border-line bg-panel2 px-2 py-1 text-center text-text" /><span>BPM</span><button type="button" onClick={tapTempo} className="btn-theme text-xs">Tap tempo</button><span className="text-[10px]">Syncs beat-based effects</span></div>
       <section className="flex flex-col gap-1">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Scenes</h3>
-        {scenes.length === 0 ? (
-          <p className="py-2 text-xs text-dim">Create scenes in the Edit tab.</p>
+        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cues</h3>
+        {cues.length === 0 ? (
+          <p className="py-2 text-xs text-dim">No cues yet — edit fixtures in Design to start a new cue, then add it in Live Edit.</p>
         ) : (
           <div className="grid grid-cols-4 gap-1.5">
-            {scenes.map((scene) => (
+            {cues.map((cue) => (
               <button
-                key={scene.id}
+                key={cue.id}
                 type="button"
-                onClick={() => goToScene(scene.id)}
+                onClick={() => activateCue(cue.id)}
                 className={`pad rounded border border-line px-2 py-2 text-xs transition-colors ${
-                  scene.id === activeSceneId
+                  cue.id === activeCueId
                     ? 'active'
                     : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
                 }`}
               >
-                <span className="flex items-center justify-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPresetColor(scene) }} />{scene.name}</span>
+                <span className="flex items-center justify-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPresetColor(cue) }} />{cue.name}</span>
               </button>
             ))}
           </div>
@@ -72,7 +67,7 @@ export function LiveTab() {
       <section className="flex flex-col gap-1">
         <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cue Lists</h3>
         {cueLists.length === 0 ? (
-          <p className="py-2 text-xs text-dim">Create cue lists in the Edit tab.</p>
+          <p className="py-2 text-xs text-dim">Create or select cue lists from Live Edit.</p>
         ) : (
           cueLists.map((list) => (
             <div key={list.id} className="flex flex-col gap-1 rounded border border-line p-2">
@@ -81,16 +76,16 @@ export function LiveTab() {
                 <div className="flex gap-1"><button type="button" className="btn-theme text-xs disabled:opacity-40" disabled={activeCueListId !== list.id || !cuePlaying} onClick={stopCue}>Stop</button><button type="button" className="btn-theme text-xs disabled:opacity-40" disabled={activeCueListId !== list.id || activeCueIndex < 0} onClick={cuePrev}>Back</button><button type="button" className="btn-theme on text-xs disabled:opacity-40" disabled={list.steps.length === 0} onClick={() => activeCueListId === list.id && activeCueIndex >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>
               </div>
               <div className="grid grid-cols-2 gap-2 rounded bg-bg/40 p-2 text-xs">
-                <div><span className="block text-[10px] uppercase text-dim">Current</span>{activeCueListId === list.id && activeCueIndex >= 0 ? scenes.find((scene) => scene.id === list.steps[activeCueIndex]?.sceneId)?.name ?? 'Missing scene' : 'Not started'}</div>
-                <div><span className="block text-[10px] uppercase text-dim">Next</span>{(() => { const index = activeCueListId === list.id ? activeCueIndex + 1 : 0; const step = list.steps[index] ?? (list.loop ? list.steps[0] : undefined); return step ? `${scenes.find((scene) => scene.id === step.sceneId)?.name ?? 'Missing scene'} · ${step.fadeMs / 1000}s fade` : 'End of list' })()}</div>
+                <div><span className="block text-[10px] uppercase text-dim">Current</span>{activeCueListId === list.id && activeCueIndex >= 0 ? cues.find((cue) => cue.id === list.steps[activeCueIndex]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</div>
+                <div><span className="block text-[10px] uppercase text-dim">Next</span>{(() => { const index = activeCueListId === list.id ? activeCueIndex + 1 : 0; const step = list.steps[index] ?? (list.loop ? list.steps[0] : undefined); return step ? `${cues.find((cue) => cue.id === step.cueId)?.name ?? 'Missing cue'} · ${step.fadeMs / 1000}s fade` : 'End of list' })()}</div>
               </div>
-              {activeCueListId === list.id && activeCueIndex >= 0 && <p className="text-[10px] text-dim">Next: {(() => { const next = list.steps[activeCueIndex + 1] ?? (list.loop ? list.steps[0] : undefined); return next ? scenes.find((scene) => scene.id === next.sceneId)?.name ?? 'Missing scene' : 'End of list' })()}</p>}
+              {activeCueListId === list.id && activeCueIndex >= 0 && <p className="text-[10px] text-dim">Next: {(() => { const next = list.steps[activeCueIndex + 1] ?? (list.loop ? list.steps[0] : undefined); return next ? cues.find((cue) => cue.id === next.cueId)?.name ?? 'Missing cue' : 'End of list' })()}</p>}
               {list.steps.length === 0 ? (
                 <span className="text-[10px] text-dim">No cues yet</span>
               ) : (
                 <div className="grid grid-cols-4 gap-1.5">
                   {list.steps.map((step, index) => {
-                    const sceneName = scenes.find((scene) => scene.id === step.sceneId)?.name
+                    const cueName = cues.find((cue) => cue.id === step.cueId)?.name
                     const active =
                       activeCueListId === list.id && activeCueIndex === index
                     return (
@@ -103,9 +98,9 @@ export function LiveTab() {
                             ? 'active'
                             : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
                         }`}
-                        title={`${sceneName ?? 'Missing scene'} · ${step.fadeMs}ms fade`}
+                        title={`${cueName ?? 'Missing cue'} · ${step.fadeMs}ms fade`}
                       >
-                        <span className="block truncate">{sceneName ?? 'Missing scene'}</span>
+                        <span className="block truncate">{cueName ?? 'Missing cue'}</span>
                         <span className="text-[9px] opacity-70">Cue {index + 1}</span>
                       </button>
                     )

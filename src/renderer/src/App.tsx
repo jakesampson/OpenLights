@@ -1,84 +1,78 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
-import { EffectsPanel } from './components/EffectsPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
+import { FixtureGroups } from './components/FixtureGroups'
 import { ProjectBar } from './components/ProjectBar'
-import { DesignTab } from './components/DesignTab'
+import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
+import { WorkspaceToolbar } from './components/WorkspaceToolbar'
+import { ProjectSearch } from './components/ProjectSearch'
+import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
-import { EditTab } from './components/EditTab'
+import { LiveWorkspace } from './components/LiveWorkspace'
 import { StagePreview } from './components/StagePreview'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
-import { configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
-import { computeSceneChannels } from './lib/automationRuntime'
+import { ViewSwitch } from './components/ViewSwitch'
+import { BottomPlayback } from './components/BottomPlayback'
+import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
+import { computeCueChannels } from './lib/automationRuntime'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
+import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
+import { activeCueSequenceIds } from './lib/liveDrops'
+import { orderedLiveControls } from './lib/cuePriority'
+import { activeOwnedEffects } from './lib/effectOwnership'
+import { ContextMenu } from './components/ContextMenu'
 
-type Tab = 'Design' | 'Live' | 'Edit'
+type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
-
-const bottomTabs: Array<{ id: Tab; label: string }> = [
-  { id: 'Design', label: 'Design' },
-  { id: 'Live', label: 'Live' },
-  { id: 'Edit', label: 'Edit' }
-]
-
-const BASE_SHORTCUTS = [
-  { key: '1–9', label: 'Recall scene' },
-  { key: 'B', label: 'Blackout' },
-  { key: 'N / →', label: 'Next cue' },
-  { key: 'P / ←', label: 'Previous cue' },
-  { key: 'Esc', label: 'Stop' }
-]
-
-const TAB_SHORTCUTS: Record<string, Array<{ key: string; label: string }>> = {
-  Design: [
-    { key: '↑ ↓', label: 'Dimmer step (stub)' },
-    { key: 'C', label: 'Colour picker (stub)' },
-    { key: 'S', label: 'Shutter toggle (stub)' }
-  ],
-  Live: [
-    { key: 'F1–F8', label: 'Scene bank (stub)' },
-    { key: '⇧ 1–9', label: 'Preset recall (stub)' }
-  ],
-  Edit: [{ key: '⌫', label: 'Delete step (stub)' }],
-  Scenes: [{ key: 'Double-click', label: 'Rename scene' }],
-  Cues: [{ key: 'Space', label: 'Go to next step' }],
-  Effects: [{ key: 'E', label: 'Enable selected (stub)' }],
-  Automation: [{ key: 'Space', label: 'Play / pause lane' }],
-  Patch: [{ key: 'Del', label: 'Remove fixture' }],
-  MIDI: [{ key: 'L', label: 'MIDI learn (stub)' }]
-}
 
 export default function App() {
   const {
     show,
-    scenes,
+    cues,
     effects,
     presets,
     activePresetIds,
+    activeSequenceIds,
     activeLiveValues,
+    liveActivationOrder,
     activeLivePageId,
     manualOverrides,
     bpm,
-    activeSceneId,
+    activeCueId,
     master,
     blackout,
+    blind,
+    freeze,
+    liveEditing,
+    editingPresetId,
+    saveEditingPreset,
+    cancelEditingPreset,
     toggleBlackout,
-    goToScene,
+    activateCue,
     cueNext,
     cuePrev,
     stopCue
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
+  const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
+  // In-place preset editing opens in Design (LightKey, Guide ch.9).
+  useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  // Switching to Live while a preset is open ends the session, keeping
+  // the edits (they were written live, undoable); Cancel is explicit.
+  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); setTab(view) }
   const [windowMaximized, setWindowMaximized] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const titleClickTimeout = useRef<number | null>(null)
-  const activeScene = scenes.find((scene) => scene.id === activeSceneId)
+  const activeCue = cues.find((cue) => cue.id === activeCueId)
+  useEffect(() => {
+    document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
+  }, [show?.preferences?.theme])
 
   const previousLivePage = useRef<string | null>(null)
   useEffect(() => {
@@ -95,8 +89,8 @@ export default function App() {
         const channels = await window.electronAPI.getChannels()
         if (!alive) return
         const state = useShowStore.getState()
-        const scene = state.scenes.find((item) => item.id === state.activeSceneId)
-        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, scene)
+        const cue = state.cues.find((item) => item.id === state.activeCueId)
+        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue)
         root.style.setProperty('--adaptive-hue', String(hue ?? 283))
       } catch { /* Keep the previous appearance if output is unavailable. */ }
       finally { pending = false }
@@ -123,49 +117,60 @@ export default function App() {
 
   useEffect(() => {
     configureEffects({
-      effects,
+      effects: activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }),
       fixtures: show?.fixtures ?? [],
       bpm,
       master,
       blackout
     })
-  }, [effects, show?.fixtures, bpm, master, blackout])
+  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout])
+
+  useEffect(() => {
+    // Sequences can be started globally or dropped onto a live cue; an active
+    // cue's sequences run for as long as that cue is lit.
+    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues)])
+    configureSequences([...ids].flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets)
+  }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
     for (const id of activePresetIds) {
       const preset = presets.find((item) => item.id === id)
       if (!preset) continue
-      Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
-    for (const page of show?.livePages ?? []) for (const control of page.controls) {
-      const level = activeLiveValues[control.id] ?? 0
-      if (!level && !(control.type === 'fader' && control.id in activeLiveValues)) continue
+    const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
+    for (const control of orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)) {
+      const level = outputLevels[control.id] ?? 0
+      if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
-      const scene = scenes.find((item) => item.id === control.sceneId)
-      if (scene && !scene.blackout) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], scene, scaledMaster))
+      const cue = cues.find((item) => item.id === control.cueId)
+      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], cue, scaledMaster))
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
       }
-      if (control.adHocValues) Object.assign(patch, computeSceneChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
+      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
-    const pageFade = show?.livePages?.find((page) => page.id === activeLivePageId)?.fadeMs ?? 0
+    const activePage = show?.livePages?.find((page) => page.id === activeLivePageId)
+    const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? 0)
     configureLiveOutput(patch, changed ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, scenes, presets, activeLiveValues, activeLivePageId, master])
+  }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
 
   useEffect(() => {
-    configureOverrideOutput(computeSceneChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
+    configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
   }, [manualOverrides, show?.fixtures, master])
 
-  useEffect(() => startCuePlaybackClock(), [])
+  useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
+  useEffect(() => startLiveWindowBridge(), [])
+
 
   const blackoutDMX = async () => {
     try {
@@ -183,99 +188,70 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null
-      if (
-        target &&
-        (target.isContentEditable ||
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.tagName === 'SELECT')
-      ) {
-        return
-      }
-      if (event.metaKey || event.ctrlKey || event.altKey) return
-
-      if (event.key === 'Escape') {
-        if (toolPanel) {
-          setToolPanel(null)
-          return
-        }
-        if (settingsOpen) {
-          setSettingsOpen(false)
-          return
-        }
-        stopCue()
-        return
-      }
-      if (event.key === ' ' || event.key === 'Spacebar') {
-        event.preventDefault()
-        if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play'))
-        else cueNext()
-        return
-      }
-
-      const key = event.key.toLowerCase()
-      if (key === 'b') {
-        event.preventDefault()
-        toggleBlackout()
-        return
-      }
-      if (key === 'n' || event.key === 'ArrowRight') {
-        event.preventDefault()
-        cueNext()
-        return
-      }
-      if (key === 'p' || event.key === 'ArrowLeft') {
-        event.preventDefault()
-        cuePrev()
-        return
-      }
-      if (/^[1-9]$/.test(event.key)) {
-        const scene = scenes[Number(event.key) - 1]
-        if (scene) {
-          event.preventDefault()
-          goToScene(scene.id)
-        }
-      }
+      const binding = matchShortcut(event, event.target as HTMLElement | null)
+      if (!binding) return
+      event.preventDefault()
+      const state = useShowStore.getState()
+      const command = binding.command
+      if (command === 'undo' || command === 'redo') state[command]()
+      else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
+      else if (command === 'design') { if (!state.locked) setTab('Design') }
+      else if (command === 'live') setTab('Live')
+      else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
+      else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
+      else if (command === 'blackout') state.toggleBlackout()
+      else if (command === 'next') state.cueNext()
+      else if (command === 'previous') state.cuePrev()
+      else if (command === 'go') { if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, scenes, goToScene, cueNext, cuePrev, stopCue, toggleBlackout])
+  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout])
 
-  const renderPanel = () => {
-    switch (tab) {
-      case 'Design':
-        return (
-          <div className="flex h-full min-h-0 flex-col gap-2">
-            <div className="min-h-0 flex-1">
-              <DesignTab />
-            </div>
-            <details className="shrink-0 rounded-lg border border-line bg-panel p-2">
-              <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-dim">
-                Effects
-              </summary>
-              <div className="pt-3">
-                <EffectsPanel />
-              </div>
-            </details>
-          </div>
-        )
-      case 'Live':
-        return <LiveTab />
-      case 'Edit':
-        return <EditTab />
-      default:
-        return null
-    }
-  }
+  useEffect(() => window.electronAPI.onMenuCommand((command) => {
+    const binding = SHORTCUTS.find((item) => item.command === command)
+    if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
+  }), [])
 
-  const shortcuts = [...(TAB_SHORTCUTS[tab] ?? []), ...BASE_SHORTCUTS].filter(
-    (shortcut) => !shortcut.label.toLowerCase().includes('(stub)')
-  )
+  // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots): arrows
+  // select presets, esc clears, Return renames, Cmd/Ctrl+N new preset,
+  // Shift+Cmd/Ctrl+N new group, Shift+Cmd/Ctrl+E edit preset. They are
+  // active only while the palette tree has focus — Cmd/Ctrl+N is still
+  // "New project" elsewhere (see GroupsPresetsPanel).
+  const paletteShortcuts = [
+    { key: '↑ ↓', label: 'Select presets' },
+    { key: 'esc', label: 'Clear selection' },
+    { key: 'Return', label: 'Rename' },
+    { key: 'Cmd+N', label: 'New preset' },
+    { key: 'Shift+Cmd+N', label: 'New group' },
+    { key: 'Shift+Cmd+E', label: 'Edit preset' }
+  ]
+  const shortcuts = [
+    // While a preset is open for editing, Esc cancels it (the top bar
+    // has Save / Cancel too). The palette's own Esc handler stops
+    // propagation while the tree has focus.
+    ...(editingPresetId ? [{ key: 'esc', label: 'Cancel preset edit' }] : []),
+    ...(tab === 'Live' && liveEditing
+      // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
+      // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
+      // shortcuts do not apply while editing a Live page.
+      ? [
+        { key: '↑ ← ↓ →', label: 'Nudge' },
+        { key: 'esc', label: 'Clear selection' },
+        { key: 'Ctrl+Z', label: 'Undo' },
+        { key: 'Ctrl+Y', label: 'Redo' }
+      ]
+      : SHORTCUTS),
+    ...paletteShortcuts
+  ]
   const closeToolPanel = () => setToolPanel(null)
 
+  if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
     <div className="app">
+      <ContextMenu />
       {/* Top bar */}
       <header className="top-bar">
         <div className="flex items-center gap-2">
@@ -283,6 +259,26 @@ export default function App() {
             OL
           </div>
           <ProjectBar />
+          <ProjectSearch onReveal={(result) => {
+            const state = useShowStore.getState()
+            // Cues are not in the palette (LightKey has no scene
+            // concept, Guide ch.9); Project Search is one of the ways to
+            // pick one — it jumps straight to Design on that cue.
+            // 'cue' results also cover cuelist steps (listId) and Live
+            // buttons (pageId); only a bare cue result is a stored cue.
+            if (result.type === 'cue' && !result.listId && !result.pageId) { state.activateCue(result.id); setTab('Design') }
+            else if (result.type === 'fixture' || result.type === 'group') { state.selectFixtures(result.type === 'fixture' ? [result.id] : (state.show?.fixtures ?? []).filter((f) => f.group === result.id).map((f) => f.id)); setTab('Design') }
+            else if (result.type === 'page' || result.pageId) { state.selectLivePage(result.pageId ?? result.id); setTab('Live') }
+            else if (result.listId || result.type === 'cueList') { state.setActiveCueList(result.listId ?? result.id); setTab('Live') }
+            requestAnimationFrame(() => {
+              const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(result.id)}"]`)
+              if (!target) return
+              let parent = target.parentElement
+              while (parent) { if (parent instanceof HTMLDetailsElement) parent.open = true; parent = parent.parentElement }
+              target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
+            })
+          }} />
+          <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
             className="btn-theme text-xs"
@@ -305,7 +301,16 @@ export default function App() {
                   <span>Adaptive background colour</span>
                   <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />
                 </label>
+                <label className="px-3 py-2 text-xs">On project open<select aria-label="Project startup state" value={show?.startup?.mode ?? 'none'} onChange={(event) => useShowStore.getState().setStartupMode(event.target.value as 'none' | 'restore')} className="mt-1 w-full rounded bg-panel2 p-1"><option value="none">No active looks</option><option value="restore">Restore saved looks</option></select></label>
+                <label className="px-3 py-2 text-xs">Default fade (ms)<input aria-label="Default fade milliseconds" type="number" min="0" value={show?.preferences?.defaultFadeMs ?? 1000} onChange={(event) => useShowStore.getState().updatePreferences({ defaultFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
+                <label className="px-3 py-2 text-xs">Page fade (ms)<input aria-label="Page fade milliseconds" type="number" min="0" value={show?.preferences?.pageFadeMs ?? 500} onChange={(event) => useShowStore.getState().updatePreferences({ pageFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
+                <label className="px-3 py-2 text-xs">Appearance<select aria-label="Application appearance" value={show?.preferences?.theme ?? 'dark'} onChange={(event) => useShowStore.getState().updatePreferences({ theme: event.target.value as 'dark' | 'system' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="dark">Dark</option><option value="system">System</option></select></label>
+                <label className="px-3 py-2 text-xs">Default USB DMX interface<select aria-label="Default USB DMX interface" value={show?.preferences?.dmxProtocol ?? 'open-dmx-usb'} onChange={(event) => useShowStore.getState().updatePreferences({ dmxProtocol: event.target.value as 'open-dmx-usb' | 'enttec-usb-pro' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="open-dmx-usb">Open DMX USB</option><option value="enttec-usb-pro">DMX USB Pro</option></select></label>
+                <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
                 <div className="my-1 border-t border-line" />
+                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
+                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
+                {(['preview', 'palette', 'inspector'] as const).map((panel) => <label key={panel} className="flex items-center justify-between px-3 py-1 text-xs capitalize">{panel}<input type="checkbox" aria-label={`Show ${panel}`} checked={show?.layout?.[panel] ?? true} onChange={(event) => useShowStore.getState().updateProject({ layout: { preview: true, palette: true, inspector: true, ...show?.layout, [panel]: event.target.checked } })} /></label>)}
                 <button
                   type="button"
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
@@ -332,6 +337,14 @@ export default function App() {
         </div>
 
         <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
+          {editingPreset && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">{editingPreset.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingPreset}>Save</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
+            </span>
+          )}
           <span
             className="window-title"
             onClick={() => {
@@ -348,21 +361,12 @@ export default function App() {
           >
             {show?.name ?? 'OpenLights'}
             <span className="ml-2 text-[10px] font-normal text-dim">
-              {blackout ? '· Blackout' : activeScene ? `· ${activeScene.name}` : '· No scene'}
+              {blackout ? '· Blackout' : activeCue ? `· ${activeCue.name}` : '· No cue'}
             </span>
           </span>
         </div>
 
         <div className="flex items-center gap-2">
-          <DmxConnection />
-          <button
-            onClick={handleBlackout}
-            className={`btn-panic rounded px-5 py-2 text-xs font-bold uppercase tracking-wider ${
-              blackout ? 'bg-amber-500 border-amber-400 text-black' : ''
-            }`}
-          >
-            {blackout ? 'RESTORE' : 'BLACKOUT'}
-          </button>
           <div className="window-controls">
             <button
               type="button"
@@ -407,37 +411,28 @@ export default function App() {
         </div>
       </header>
 
+      <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
       {/* Main row */}
-      <div className="main-grid">
-        <StagePreview />
+      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1">
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Groups & Presets
+              Preset Palette
             </div>
-            <div className="text-[9px] uppercase tracking-wider text-dim">fixture tree</div>
           </div>
           <GroupsPresetsPanel />
         </div>
       </div>
 
+      {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
+      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+
       {/* Bottom row */}
       <div className="bottom-grid">
-        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
-          <div className="relative flex h-7 shrink-0 items-center justify-center px-1" role="tablist" aria-label="Lighting workspace">
-            <div className="flex items-center gap-1 rounded-full bg-bg/40 p-0.5">
-              {bottomTabs.filter((item) => item.id !== 'Edit').map((item) => (
-                <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`rounded-full px-3 py-0.5 text-[11px] font-semibold transition-colors ${tab === item.id ? 'bg-text text-bg shadow-sm' : 'text-dim hover:text-text'}`}>
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            <button type="button" role="tab" aria-selected={tab === 'Edit'} onClick={() => setTab('Edit')} className={`absolute right-1 rounded-full px-3 py-1 text-[10px] font-semibold transition-colors ${tab === 'Edit' ? 'bg-text text-bg' : 'bg-panel2 text-dim hover:text-text'}`}>
-              Scenes & cues
-            </button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-auto">{renderPanel()}</div>
+        <div className={`panel ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
@@ -482,7 +477,12 @@ export default function App() {
               </button>
             </header>
             <div className="min-h-0 overflow-auto p-4">
-              {toolPanel === 'Patch' && <PatchPanel />}
+              {toolPanel === 'Patch' && <><PatchPanel />
+                {/* Fixture groups moved here from the Preset Palette (LightKey,
+                    18 Nov 2026): groups of fixtures belong to patching, not
+                    to the preset/sequence browser. */}
+                <div className="mt-4"><FixtureGroups /></div>
+              </>}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>

@@ -1,33 +1,8 @@
-import type { AutomationDef, FixtureDef, SceneDef, ShowDef } from '@shared/types'
+import { transformPosition } from './position'
+import { BUILTIN_PROFILES, fixtureChannelMap, fixtureMode } from '@shared/fixtureProfiles'
+import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '@shared/types'
 
-export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = {
-  par: { intensity: 0, red: 1, green: 2, blue: 3 },
-  'led-wash': { intensity: 0, red: 1, green: 2, blue: 3, white: 4, amber: 5, uv: 6 },
-  'moving-head': { intensity: 0, pan: 1, tilt: 2, red: 3, green: 4, blue: 5, gobo: 6, strobe: 7 },
-  dimmer: { intensity: 0 },
-  'generic-led': { intensity: 0, red: 1, green: 2, blue: 3 },
-  'pixel-bar-17ch': {
-    red: 0,
-    green: 1,
-    blue: 2,
-    red2: 3,
-    green2: 4,
-    blue2: 5,
-    red3: 6,
-    green3: 7,
-    blue3: 8,
-    red4: 9,
-    green4: 10,
-    blue4: 11,
-    intensity: 12,
-    strobe: 13,
-    function: 14,
-    speed: 15,
-    listType: 16
-  },
-  'rgba-4ch': { red: 0, green: 1, blue: 2, amber: 3 },
-  'rgbw-4ch': { red: 0, green: 1, blue: 2, white: 3 }
-}
+export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = Object.fromEntries(BUILTIN_PROFILES.map((profile) => [profile.legacyType, Object.fromEntries(profile.modes[0].channels.map((c) => [c.attribute, c.number]))]))
 
 /** Attributes that respond to the master intensity fader. */
 const DIMMER_ATTRIBUTES = new Set([
@@ -50,8 +25,8 @@ const DIMMER_ATTRIBUTES = new Set([
 ])
 
 /** List valid attributes for a fixture type, in channel order. */
-export function fixtureAttributes(type: FixtureDef['type']): string[] {
-  const map = FIXTURE_ATTRIBUTE_MAP[type] ?? {}
+export function fixtureAttributes(fixture: FixtureDef | FixtureDef['type']): string[] {
+  const map = typeof fixture === 'string' ? FIXTURE_ATTRIBUTE_MAP[fixture] ?? {} : fixtureChannelMap(fixture)
   return Object.entries(map)
     .sort((a, b) => a[1] - b[1])
     .map(([attr]) => attr)
@@ -64,29 +39,31 @@ function scaleAttribute(attr: string, value: number, master: number): number {
 export { scaleAttribute }
 
 /**
- * Map a scene's fixture values onto a 1-based DMX channel patch.
+ * Map a cue's fixture values onto a 1-based DMX channel patch.
  * fixture.channelStart is already 1-based, so the first attribute of a
  * fixture starting at channel 1 lands on channel 1.
  *
  * With zeroMissing, every channel owned by the patch is included and set to
- * 0 when the scene doesn't specify it — this makes scene transitions fade the
+ * 0 when the cue doesn't specify it — this makes cue transitions fade the
  * whole rig instead of leaving stale channels lit.
  */
-export function computeSceneChannels(
+export function computeCueChannels(
   fixtures: FixtureDef[],
-  scene: SceneDef,
+  cue: CueDef,
   master = 255,
   zeroMissing = false
 ): Record<number, number> {
   const channels: Record<number, number> = {}
 
   for (const fixture of fixtures) {
-    const attrs = scene.fixtureValues[fixture.id] ?? {}
-    const map = FIXTURE_ATTRIBUTE_MAP[fixture.type] ?? {}
+    const attrs = transformPosition(cue.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
+    const map = fixtureChannelMap(fixture)
+    if (fixture.disabled) { for (const offset of Object.values(map)) channels[fixture.channelStart + offset] = 0; continue }
 
     if (zeroMissing) {
       for (const attr of Object.keys(map)) {
-        channels[fixture.channelStart + map[attr]] = 0
+        const channel = fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)
+        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, master)
       }
     }
 
@@ -139,7 +116,8 @@ export function computeAutomationChannels(
   for (const auto of automations) {
     const fixture = show.fixtures.find((f) => f.id === auto.fixtureId)
     if (!fixture) continue
-    const map = FIXTURE_ATTRIBUTE_MAP[fixture.type] ?? {}
+    if (fixture.disabled) { for (let offset = 0; offset < fixture.channels; offset++) channels[fixture.channelStart + offset] = 0; continue }
+    const map = fixtureChannelMap(fixture)
     const offset = map[auto.attribute]
     if (offset === undefined) continue
 

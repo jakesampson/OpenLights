@@ -485,7 +485,7 @@ export function AutomationPanel() {
                 setNewAutomationFixture(e.target.value)
                 const fixture = show?.fixtures.find((f) => f.id === e.target.value)
                 if (fixture) {
-                  const attrs = fixtureAttributes(fixture.type)
+                  const attrs = fixtureAttributes(fixture)
                   if (!attrs.includes(newAutomationAttr)) setNewAutomationAttr(attrs[0] ?? 'intensity')
                 }
               }}

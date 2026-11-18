@@ -4,6 +4,7 @@ import {
   computeEffectPatch,
   effectFrequency,
   mergeEffects,
+  orderedEffectFixtures,
   waveformValue
 } from '../src/renderer/src/lib/effects'
 
@@ -44,6 +45,10 @@ describe('waveforms', () => {
     expect(waveformValue('square', 0.75)).toBe(-1)
     expect(waveformValue('saw', 0)).toBeCloseTo(-1)
     expect(waveformValue('saw', 0.5)).toBeCloseTo(0)
+    expect(waveformValue('cosine', 0)).toBeCloseTo(1)
+    expect(waveformValue('pulse', 0.1)).toBe(1)
+    expect(waveformValue('pulse', 0.3)).toBe(-1)
+    expect(waveformValue('smooth', 0.5)).toBeCloseTo(0)
   })
 
   it('steps random values per cycle, stably', () => {
@@ -58,6 +63,16 @@ describe('effect frequency', () => {
   it('syncs cycles to beats, or runs in Hz', () => {
     expect(effectFrequency(effect({ speed: 2, syncToBpm: true }), 120)).toBe(4)
     expect(effectFrequency(effect({ speed: 0.5, syncToBpm: false }), 120)).toBe(0.5)
+  })
+})
+
+describe('effect fixture order', () => {
+  it('orders forward, reverse, stable random and custom', () => {
+    expect(orderedEffectFixtures(effect(), fixtures).map((item) => item.id)).toEqual(['f1', 'f2'])
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'reverse' }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
+    const random = orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)).toEqual(random)
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'custom', customFixtureOrder: ['f2', 'f1'] }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
   })
 })
 
@@ -104,6 +119,12 @@ describe('computeEffectPatch', () => {
     expect(pan[6]).toBe(255)
   })
 
+  it('maps every curve to explicit minimum and maximum values on any property', () => {
+    const low = computeEffectPatch(fixtures, [effect({ waveform: 'square', minValue: 40, maxValue: 200, attribute: 'red' })], 0.75, 120)
+    const high = computeEffectPatch(fixtures, [effect({ waveform: 'square', minValue: 40, maxValue: 200, attribute: 'red' })], 0.25, 120)
+    expect(low[2]).toBe(40); expect(high[2]).toBe(200)
+  })
+
   it('skips disabled effects and handles no fixtures', () => {
     expect(computeEffectPatch(fixtures, [effect({ enabled: false })], 0.25, 120)).toEqual({})
     expect(computeEffectPatch([], [effect()], 0.25, 120)).toEqual({})
@@ -112,5 +133,14 @@ describe('computeEffectPatch', () => {
   it('layers over the base look without dropping channels', () => {
     const merged = mergeEffects({ 1: 10, 2: 20 }, { 1: 99 })
     expect(merged).toEqual({ 1: 99, 2: 20 })
+  })
+
+  it('overlays additive and maximum effects on the same property', () => {
+    const patch = computeEffectPatch(fixtures, [
+      effect({ id: 'base', size: 0, offset: 40 }),
+      effect({ id: 'add', size: 0, offset: 30, blendMode: 'add' }),
+      effect({ id: 'max', size: 0, offset: 90, blendMode: 'max' })
+    ], 0, 120)
+    expect(patch[1]).toBe(90)
   })
 })

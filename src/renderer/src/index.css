@@ -63,6 +63,11 @@ body {
   border-color: var(--accent);
 }
 
+button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--sel);
+  outline-offset: 2px;
+}
+
 .btn-panic {
   background: var(--panic);
   border: 1px solid var(--panic-line);
@@ -184,7 +189,7 @@ body {
   gap: 12px;
   padding: 0 12px 12px;
   flex: 0 0 auto;
-  height: 340px;
+  height: 260px;
   min-height: 0;
 }
 
@@ -215,6 +220,148 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
+
+/* Design/Live switch: bottom-centre on the divider between preview and panel */
+.view-switch {
+  position: relative;
+  z-index: 5;
+  display: flex;
+  justify-content: center;
+  height: 0;
+  flex: 0 0 auto;
+}
+
+.view-switch-segment {
+  position: relative;
+  z-index: 6;
+  min-height: 24px;
+  padding: 2px 10px;
+  border: 0;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.view-switch-segment:first-child { border-radius: 5px 0 0 5px; }
+.view-switch-segment:last-of-type { border-radius: 0 5px 5px 0; }
+.view-switch-segment.on { background: var(--text); color: var(--bg); }
+.view-switch-segment:focus-visible { outline: 2px solid var(--sel); outline-offset: 1px; }
+.view-switch-caret { margin-left: 6px; font-size: 10px; }
+
+.preview-stack { position: relative; min-height: 0; overflow: hidden; }
+.preview-stack > .stage { height: 100%; }
+.design-property-overlay { position: absolute; left: 12px; bottom: 12px; z-index: 20; width: min(720px, calc(100% - 24px)); max-height: 42%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); padding: 8px; box-shadow: 0 8px 30px #0008; }
+.playback-shell { position: relative; min-height: 0; overflow: hidden; padding: 10px; }
+.live-page-shell { min-height: 0; overflow: auto; padding: 6px; }
+.playback-panel { display: grid; grid-template-columns: 78px minmax(0, 1fr); gap: 12px; height: 100%; min-height: 0; }
+.playback-master { display: grid; grid-template-rows: auto 1fr auto auto; justify-items: center; min-height: 0; gap: 3px; color: var(--dim); font-size: 10px; }
+.playback-master input { appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 38px; min-height: 70px; accent-color: var(--text); }
+.playback-master strong, .playback-master button { width: 100%; border-radius: 4px; background: var(--panel2); padding: 4px; text-align: center; color: var(--text); }
+.playback-content { min-width: 0; min-height: 0; overflow: hidden; padding-top: 12px; }
+.scene-playback-grid, .live-playback-grid { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 6px; }
+.live-playback-stack { display: grid; gap: 8px; }
+.fixture-controls-bottom { height: 100%; min-height: 0; overflow: hidden; }
+.scene-playback-grid button, .live-playback-grid button, .live-playback-grid label { display: flex; min-height: 54px; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 5px; background: color-mix(in srgb, var(--scene-colour, var(--panel2)) 28%, var(--panel2)); color: var(--text); }
+.scene-playback-grid button span { font-size: 9px; color: var(--dim); }
+.scene-playback-grid button.active, .live-playback-grid button.active { background: var(--text); color: var(--bg); }
+.cuelist-playback { position: relative; display: grid; gap: 1px; padding-right: 58px; font-size: 11px; }
+.cuelist-head, .cuelist-playback > button { display: grid; grid-template-columns: 1fr 100px 100px; gap: 8px; padding: 4px 8px; text-align: left; }
+.cuelist-head { color: var(--dim); border-bottom: 1px solid var(--line); }
+.cuelist-playback > button.active { background: var(--panel2); }
+.cuelist-transport { position: absolute; right: 4px; top: 2px; display: grid; gap: 5px; }
+.cuelist-transport button { width: 42px; height: 32px; border-radius: 5px; background: var(--panel2); }
+.scene-tree-edit { opacity: 0; }
+.group:hover > .scene-tree-edit, .scene-tree-edit:focus-visible { opacity: 1; }
+
+.view-switch-pages {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 40;
+  width: 320px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.view-switch-pages-title {
+  padding: 2px 4px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.view-switch-pages-list { display: flex; flex-direction: column; gap: 4px; }
+.view-switch-page-row { display: flex; align-items: center; gap: 4px; }
+.view-switch-page-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 8px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+}
+.view-switch-page-name.on { background: var(--accent); color: #111; border-color: var(--accent); }
+.view-switch-page-row input {
+  width: 90px;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+}
+.view-switch-page-row button:not(.view-switch-page-name) {
+  min-width: 24px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+}
+.view-switch-page-row button:disabled { opacity: 0.4; cursor: default; }
+.view-switch-pages-empty { padding: 8px 4px; color: var(--dim); }
+.view-switch-page-add { display: flex; gap: 4px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
+.view-switch-page-add input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 11px;
+}
+.view-switch-page-add button {
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel2);
+  color: var(--text);
+  cursor: pointer;
+}
+.view-switch-page-add button:disabled { opacity: 0.4; cursor: default; }
 
 /* Vertical fader (dimmer) */
 .fader {
@@ -373,6 +520,17 @@ body {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8);
   pointer-events: none;
   transform: translate(-50%, -50%);
+}
+
+/* Live Edit button properties popup: slides in from the right over the
+   canvas (Jake, 18 Nov 2026). The popup scrolls on its own; the canvas
+   behind it does not move. */
+@keyframes live-properties-slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+.live-properties-popup {
+  animation: live-properties-slide-in 160ms ease-out;
 }
 
 /* Scene pad button */

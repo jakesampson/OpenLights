@@ -1,12 +1,34 @@
+import type { SequenceDef, PresetDef } from '@shared/types'
+import { sequenceValues } from './sequenceClock'
 /**
- * Renderer-side DMX output. Keeps the base look (scenes, cues, automation)
+ * Renderer-side DMX output. Keeps the base look (cues, cues, automation)
  * separate from the effects layer, so animated effects can be applied on top
  * without losing what the operator selected. Every write funnels through here.
  */
 
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
+import { composeOutput } from './outputModel'
+import { computeCueChannels } from './automationRuntime'
 
+let sequences: SequenceDef[] = []
+let sequencePresets: PresetDef[] = []
+const sequenceStarts = new Map<string, number>()
+function sequencePatch(now: number): Record<number, number> {
+  if (runtime.blackout || presetSuppressed) return {}
+  const patch: Record<number, number> = {}
+  for (const sequence of sequences) Object.assign(patch, computeCueChannels(runtime.fixtures, { id: sequence.id, name: sequence.name, fadeMs: 0, fixtureValues: sequenceValues(sequence, sequencePresets, runtime.fixtures, now - (sequenceStarts.get(sequence.id) ?? now), 1, runtime.bpm) }, runtime.master))
+  return patch
+}
+export function configureSequences(active: SequenceDef[], presets: PresetDef[] = []) {
+  const now = performance.now()
+  for (const id of sequenceStarts.keys()) if (!active.some((s) => s.id === id)) sequenceStarts.delete(id)
+  for (const sequence of active) if (!sequenceStarts.has(sequence.id)) sequenceStarts.set(sequence.id, now)
+  sequences = active; sequencePresets = presets
+  if (active.length && !runtime.blackout) startEffectLoop()
+  else if (!runtime.effects.some((e) => e.enabled)) stopEffectLoop()
+  flush()
+}
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null
 let effectFrame: number | null = null
@@ -16,8 +38,19 @@ let live: Record<number, number> = {}
 let liveFadeFrame: number | null = null
 let liveFadeTarget: Record<number, number> | null = null
 let overrides: Record<number, number> = {}
+let locate: Record<number, number> = {}
+let locateTimer: ReturnType<typeof setTimeout> | null = null
 let presetSuppressed = false
 let previousPresetChannels = new Set<number>()
+let blind = false
+let blindFrame: Record<number, number> | null = null
+let lastOutput: Record<number, number> = {}
+let freeze = false
+let freezeFrame: Record<number, number> | null = null
+let thawFrame: number | null = null
+let thawFrom: Record<number, number> | null = null
+let thawStartedAt = 0
+let thawDuration = 0
 
 interface EffectRuntime {
   effects: EffectDef[]
@@ -36,13 +69,15 @@ let runtime: EffectRuntime = {
 }
 
 function push(patch: Record<number, number>) {
+  if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
+  lastOutput = { ...patch }
   window.electronAPI?.setChannels?.(patch)
 }
 
 /** Effects are suppressed while the rig is blacked out. */
 function effectPatch(now: number): Record<number, number> {
   if (runtime.blackout || presetSuppressed) return {}
-  if (!runtime.effects.some((effect) => effect.enabled)) return {}
+  if (!(runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) return {}
   const time = (now - effectStartedAt) / 1000
   return computeEffectPatch(
     runtime.fixtures,
@@ -53,13 +88,58 @@ function effectPatch(now: number): Record<number, number> {
   )
 }
 
+export function interpolateOutputFrame(from: Record<number, number>, to: Record<number, number>, progress: number): Record<number, number> {
+  const amount = Math.max(0, Math.min(1, progress))
+  return Object.fromEntries([...new Set([...Object.keys(from), ...Object.keys(to)])].map((key) => {
+    const channel = Number(key)
+    return [channel, Math.round((from[channel] ?? 0) + ((to[channel] ?? 0) - (from[channel] ?? 0)) * amount)]
+  }))
+}
+
 function flush(now = performance.now()) {
-  const output = mergeEffects(base, effectPatch(now))
-  // Clear channels that only belonged to an overlay after it is released.
-  for (const channel of previousPresetChannels) if (!(channel in output)) output[channel] = 0
-  if (!runtime.blackout && !presetSuppressed) Object.assign(output, live, presets, overrides)
-  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides)].map(Number))
+  const suppressed = runtime.blackout || presetSuppressed
+  let output = composeOutput({ defaults: computeCueChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  if (!runtime.blackout && thawFrom && thawDuration > 0) {
+    const progress = (now - thawStartedAt) / thawDuration
+    output = interpolateOutputFrame(thawFrom, output, progress)
+    if (progress >= 1) thawFrom = null
+  }
+  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
   push(output)
+}
+
+/** Hold physical output while edits continue to update the internal look. Exiting commits the edited look. */
+export function setBlindOutput(active: boolean) {
+  if (active === blind) return
+  if (active) blindFrame = { ...lastOutput }
+  blind = active
+  if (!active) blindFrame = null
+  flush()
+}
+
+/** Freeze the composed frame while playback changes, then crossfade to the current state. */
+export function setFreezeOutput(active: boolean, resumeFadeMs = 300) {
+  if (active === freeze) return
+  if (thawFrame !== null) { cancelAnimationFrame(thawFrame); thawFrame = null }
+  if (active) {
+    freezeFrame = { ...lastOutput }
+    thawFrom = null
+    freeze = true
+    flush()
+    return
+  }
+  freeze = false
+  thawFrom = freezeFrame ? { ...freezeFrame } : null
+  freezeFrame = null
+  thawStartedAt = performance.now()
+  thawDuration = Math.max(0, resumeFadeMs)
+  const tick = (now: number) => {
+    flush(now)
+    if (thawFrom) thawFrame = requestAnimationFrame(tick)
+    else thawFrame = null
+  }
+  if (thawDuration > 0) thawFrame = requestAnimationFrame(tick)
+  else { thawFrom = null; flush() }
 }
 
 export function cancelFade() {
@@ -151,7 +231,7 @@ function startEffectLoop() {
  */
 export function configureEffects(config: Partial<EffectRuntime>) {
   runtime = { ...runtime, ...config }
-  if (!runtime.blackout && runtime.effects.some((effect) => effect.enabled)) {
+  if (!runtime.blackout && (runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()
   } else {
     stopEffectLoop()
@@ -164,12 +244,12 @@ export function setEffectBlackout(active: boolean) {
   runtime = { ...runtime, blackout: active }
   if (active) {
     stopEffectLoop()
-  } else if (runtime.effects.some((effect) => effect.enabled)) {
+  } else if ((runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()
   }
 }
 
-/** Presets overlay the scene and effects; blackout always wins. */
+/** Presets overlay the cue and effects; blackout always wins. */
 export function configurePresetOutput(patch: Record<number, number>) {
   presets = { ...patch }
   flush()
@@ -185,7 +265,7 @@ export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
   const channels = new Set([...Object.keys(from), ...Object.keys(target)].map(Number))
   const tick = (now: number) => {
     const t = smoothstep(Math.max(0, Math.min(1, (now - start) / fadeMs)))
-    const underneath = mergeEffects(base, effectPatch(now))
+    const underneath = mergeEffects({ ...base, ...sequencePatch(now) }, effectPatch(now))
     const next: Record<number, number> = {}
     for (const channel of channels) {
       const fallback = underneath[channel] ?? 0
@@ -199,6 +279,11 @@ export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
   liveFadeFrame = requestAnimationFrame(tick)
 }
 export function configureOverrideOutput(patch: Record<number, number>) { overrides = { ...patch }; flush() }
+export function configureLocateOutput(patch: Record<number, number>, durationMs = 2000) {
+  if (locateTimer !== null) clearTimeout(locateTimer)
+  locateTimer = null; locate = { ...patch }; flush()
+  if (Object.keys(locate).length) locateTimer = setTimeout(() => { locate = {}; locateTimer = null; flush() }, Math.max(0, durationMs))
+}
 
-/** Blackout scenes suppress preset layers until another scene is recalled. */
-export function suppressPresetsForScene(active: boolean) { presetSuppressed = active }
+/** Blackout cues suppress preset layers until another cue is recalled. */
+export function suppressPresetsForCue(active: boolean) { presetSuppressed = active }

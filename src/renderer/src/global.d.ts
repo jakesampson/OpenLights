@@ -19,6 +19,16 @@ export interface IpcResult<T = unknown> {
 declare global {
   interface Window {
     electronAPI: {
+      printPatch: (html: string) => Promise<IpcResult>
+      toggleFullscreen: () => Promise<void>
+      openLiveWindow: (pageId: string | null) => Promise<import('@shared/liveWindows').LiveWindowSpec>
+      publishLiveWindowState: (state: Record<string, unknown>) => void
+      requestLiveWindowState: () => void
+      liveWindowCommand: (command: string, args: unknown[]) => void
+      onLiveWindowState: (callback: (state: Record<string, unknown>) => void) => () => void
+      onLiveWindowCommand: (callback: (command: string, args: unknown[]) => void) => () => void
+      renameShow: (path: string, name: string) => Promise<IpcResult>
+      duplicateShow: (path: string) => Promise<IpcResult>
       loadShow: (path: string) => Promise<IpcResult>
       openShow: () => Promise<IpcResult>
       saveShow: (data: unknown, path?: string) => Promise<IpcResult>
@@ -30,7 +40,6 @@ declare global {
       >
       blackout: () => Promise<IpcResult>
       setDmxPort: (port: string, protocol: SerialDmxProtocol) => Promise<IpcResult & { status?: DmxStatus }>
-      connectArtNet: (host: string, universe?: number) => Promise<IpcResult & { status?: DmxStatus }>
       getDmxStatus: () => Promise<DmxStatus>
       getChannels: () => Promise<number[]>
       startDmxTest: () => Promise<void>
@@ -44,6 +53,7 @@ declare global {
       closeWindow: () => void
       getWindowMaximized: () => Promise<boolean>
       onWindowMaximized: (callback: (maximized: boolean) => void) => () => void
+      onMenuCommand: (callback: (command: string) => void) => () => void
     }
   }
 }

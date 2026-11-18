@@ -1,3 +1,4 @@
+import { BUILTIN_PROFILES } from './fixtureProfiles'
 export type FixtureType =
   | 'par'
   | 'led-wash'
@@ -9,6 +10,16 @@ export type FixtureType =
   | 'rgbw-4ch'
 
 export interface FixtureDef {
+  universe?: number
+  notes?: string
+  disabled?: boolean
+  positionOptions?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }
+  propertyOrder?: string[]
+  hiddenProperties?: string[]
+  defaultValues?: Record<string, number>
+  profileId?: string
+  modeId?: string
+  profile?: FixtureProfile
   id: string
   name: string
   type: FixtureType
@@ -16,9 +27,15 @@ export interface FixtureDef {
   channels: number
   group?: string
   previewPosition?: { x: number; y: number }
+  inStorage?: boolean
+  iconSize?: number
+  namePosition?: 'above' | 'below' | 'hidden'
+  previewBeam?: { direction: number | 'auto'; color?: string }
+  rotation?: number
 }
 
-export interface SceneDef {
+export interface CueDef {
+  fans?: FanDef[]
   id: string
   name: string
   fixtureValues: Record<string, Record<string, number>> // fixtureId -> attribute -> value (0-255)
@@ -28,10 +45,46 @@ export interface SceneDef {
 
 export type PresetCategory = 'intensity' | 'color' | 'position' | 'other'
 export interface PresetDef {
+  fans?: FanDef[]
   id: string
   name: string
   category: PresetCategory
   fixtureValues: Record<string, Record<string, number>>
+}
+
+export interface FanDef {
+  id: string
+  attribute: string
+  fixtureIds: string[]
+  mode: 'linear' | 'centre' | 'reverse'
+  order: 'selection' | 'left-right' | 'top-bottom' | 'name' | 'address'
+  start: number
+  end: number
+  considerSpacing?: boolean
+  anchors?: { index: number; value: number }[]
+}
+
+export interface SequenceStep {
+  beats?: number
+  id: string
+  name: string
+  fixtureValues: Record<string, Record<string, number>>
+  presetIds: string[]
+  fans?: FanDef[]
+  fadeMs: number
+  holdMs: number
+}
+export interface SequenceDef {
+  timeScale?: number
+  repeatCount?: number
+  freezeOnCompletion?: boolean
+  id: string
+  name: string
+  steps: SequenceStep[]
+  order: 'forward' | 'backward' | 'bounce' | 'random'
+  loop: boolean
+  timing: 'manual' | 'beat'
+  stepsPerBeat: number
 }
 
 export interface AutomationPoint {
@@ -39,13 +92,14 @@ export interface AutomationPoint {
   v: number // 0-255
 }
 
-export type MidiTargetType = 'scene' | 'blackout' | 'cue-next' | 'master'
+export type MidiTargetType = 'cue' | 'preset' | 'sequence' | 'live-cue' | 'blackout' | 'blind' | 'freeze' | 'cue-next' | 'cue-prev' | 'tap-tempo' | 'master'
 
 export interface MidiMapping {
   id: string
   targetType: MidiTargetType
-  targetId: string | null // scene id / cue list id, null for blackout & master
-  midiType: 'noteon' | 'cc'
+  targetId: string | null // cue id / cue list id, null for blackout & master
+  midiType: 'noteon' | 'noteoff' | 'cc'
+  trigger?: 'press' | 'release' | 'value'
   channel: number // 1-16
   number: number // note / CC number 0-127
   name?: string
@@ -61,9 +115,10 @@ export interface AutomationDef {
 
 export interface CueStepDef {
   id: string
-  sceneId: string
+  cueId: string
   fadeMs: number
   holdMs: number // time to wait before auto-advancing
+  groupId?: string
 }
 
 export interface CueListDef {
@@ -73,7 +128,7 @@ export interface CueListDef {
   loop?: boolean
 }
 
-export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random'
+export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random' | 'cosine' | 'pulse' | 'smooth'
 
 export interface EffectDef {
   id: string
@@ -85,7 +140,13 @@ export interface EffectDef {
   syncToBpm: boolean
   size: number // depth, 0-255
   offset: number // centre value, 0-255
+  owner?: { type: 'preset' | 'sequence' | 'cue'; id: string }
   phaseSpread: number // degrees of fan-out across targeted fixtures
+  fixtureOrder?: 'forward' | 'reverse' | 'random' | 'custom'
+  customFixtureOrder?: string[]
+  minValue?: number
+  maxValue?: number
+  blendMode?: 'replace' | 'add' | 'max'
   enabled: boolean
 }
 
@@ -100,27 +161,77 @@ export interface PreviewTruss {
   rotation: number
 }
 
+/** Text formatting for Live page objects (7.8). */
+export interface LiveObjectStyle {
+  fontSize?: number
+  bold?: boolean
+  italic?: boolean
+  color?: string
+  align?: 'left' | 'center' | 'right'
+}
+
+export type LiveObjectKind = 'cue' | 'list' | 'label' | 'frame'
+export type LiveDefaultStyles = Partial<Record<LiveObjectKind, LiveObjectStyle>>
+
+/** Configuration for a frame annotation (7.9). Percentages default to 100. */
+export interface FrameConfig {
+  /** When true, activating one cue in the frame releases the others. */
+  exclusive?: boolean
+  /** Intensity modifier applied to cues in the frame, as a percentage (0–200). */
+  intensity?: number
+  /** Speed modifier for effects on cues in the frame, as a percentage (0–200). */
+  speed?: number
+}
+
 export interface LiveControl {
   id: string
   name: string
   type: 'toggle' | 'flash' | 'fader'
-  sceneId?: string
+  cueId?: string
   presetIds: string[]
+  /** Sequences started while this cue is active (7.10). */
+  sequenceIds?: string[]
   adHocValues?: Record<string, Record<string, number>>
   x?: number
   y?: number
+  width?: number
+  height?: number
+  /** Id of another object on this page; this object moves with it (7.7). */
+  attachedTo?: string
+  style?: LiveObjectStyle
+  timing?: { fadeInMs: number; fadeOutMs: number; delayMs: number; curve: FadeCurve }
+  appearance?: { color: string; releaseOthers: boolean }
+  modifiers?: { intensity: number; speed: number; size: number }
+  priority?: number
+  frameStep?: 'next' | 'previous'
 }
+
+export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'
 
 export interface LivePage {
   id: string
   name: string
   controls: LiveControl[]
-  cueListWidgets?: { id: string; cueListId: string; x: number; y: number }[]
-  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number }[]
+  cueListWidgets?: { id: string; cueListId: string; x: number; y: number; width?: number; height?: number; attachedTo?: string; style?: LiveObjectStyle }[]
+  annotations?: { id: string; type: 'label' | 'frame'; text: string; x: number; y: number; width: number; height: number; attachedTo?: string; style?: LiveObjectStyle; frame?: FrameConfig }[]
   fadeMs?: number
+  /** Styles applied to newly created objects on this page (7.8). */
+  defaultStyles?: LiveDefaultStyles
 }
 
 export interface ShowDef {
+  sequences?: SequenceDef[]
+  presetGroups?: PresetGroup[]
+  colorFavorites?: string[]
+  fixtureGroups?: FixtureGroup[]
+  fixtureProfiles?: FixtureProfile[]
+  favoriteProfileIds?: string[]
+  stageObjects?: StageObject[]
+  layout?: { preview: boolean; palette: boolean; inspector: boolean }
+  /** When true, switching Live pages releases cues instead of restoring that page's active levels. */
+  deactivateOnPageSwitch?: boolean
+  startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; cueId?: string | null }
+  schemaVersion?: number // Missing in legacy version-0 project inputs.
   id: string
   name: string
   description?: string
@@ -129,15 +240,45 @@ export interface ShowDef {
   fixtures: FixtureDef[]
   previewTrusses?: PreviewTruss[]
   livePages?: LivePage[]
-  scenes: SceneDef[]
+  cues: CueDef[]
   presets?: PresetDef[]
   automations: AutomationDef[]
   cueLists?: CueListDef[]
   midiMappings?: MidiMapping[]
   effects?: EffectDef[]
+  effectTemplates?: EffectDef[]
   masterIntensity?: number // 0-255
   bpm?: number
   audioPath?: string
+  preferences?: {
+    defaultFadeMs: number
+    pageFadeMs: number
+    theme: 'dark' | 'system'
+    dmxProtocol: SerialDmxProtocol
+  }
+}
+
+export interface FixtureGroup { id: string; name: string; parentId?: string | null; fixtureIds: string[] }
+export interface PresetGroup { id: string; name: string; parentId?: string | null; exclusive: boolean; presetIds: string[]; sequenceIds?: string[] }
+
+export interface StageObject {
+  id: string
+  kind: 'rectangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss'
+  name: string
+  x: number
+  y: number
+  width: number
+  height: number
+  rotation: number
+  fill?: string
+  stroke?: string
+  opacity?: number
+  text?: string
+  imageSrc?: string
+  fontSize?: number
+  flipX?: boolean
+  flipY?: boolean
+  trussShape?: PreviewTruss['shape']
 }
 
 export interface DmxStatus {
@@ -172,13 +313,23 @@ export interface FixturePreset {
   channels: number
 }
 
-export const FIXTURE_PRESETS: FixturePreset[] = [
-  { id: 'par-rgb', name: 'Generic PAR (RGB)', type: 'par', channels: 4 },
-  { id: 'wash-rgbaw', name: 'LED Wash (RGBAW+UV)', type: 'led-wash', channels: 7 },
-  { id: 'head-8ch', name: 'Moving Head (8ch)', type: 'moving-head', channels: 8 },
-  { id: 'dimmer-1ch', name: 'Single Dimmer', type: 'dimmer', channels: 1 },
-  { id: 'led-simple', name: 'Generic LED (dim + RGB)', type: 'generic-led', channels: 4 },
-  { id: 'pan-4x1x30-17ch', name: 'PAN 4x1x30 (17ch)', type: 'pixel-bar-17ch', channels: 17 },
-  { id: 'simger-q12bt-rgba-4ch', name: 'Simger Q12BT (RGBA 4ch)', type: 'rgba-4ch', channels: 4 },
-  { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch', channels: 4 }
-]
+export interface FixtureChannel {
+  control?: 'slider' | 'color-wheel' | 'gobo-wheel' | 'options'
+  slots?: { id: string; name: string; from: number; to: number; kind: 'slot' | 'spin' | 'scroll' }[]
+  number: number // zero-based offset within the fixture mode
+  attribute: string
+  propertyType: 'intensity' | 'color' | 'position' | 'other'
+  min: number
+  max: number
+  defaultValue: number
+  highlightValue: number
+}
+export interface FixtureProfile {
+  id: string
+  name: string
+  manufacturer: string
+  legacyType: FixtureType
+  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[] }[]
+}
+
+export const FIXTURE_PRESETS: FixturePreset[] = BUILTIN_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))

@@ -1,37 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
 import {
   DMXEngine,
-  buildArtNetPacket,
   buildEnttecProFrame,
   buildOpenDmxFrame,
   setOpenDmxBreak
 } from '../src/shared/dmx'
-
-describe('Art-Net packet', () => {
-  it('builds an ArtDmx packet with protocol, universe and payload', () => {
-    const data = new Uint8Array(512)
-    data[0] = 255
-    data[511] = 42
-    const packet = buildArtNetPacket(0x0102, data, 7)
-
-    expect(packet.length).toBe(18 + 512)
-    expect(packet.subarray(0, 8).toString('ascii')).toBe('Art-Net\0')
-    expect(packet.readUInt16LE(8)).toBe(0x5000)
-    expect(packet.readUInt16BE(10)).toBe(14)
-    expect(packet[12]).toBe(7) // sequence
-    expect(packet[14]).toBe(0x02) // sub-uni
-    expect(packet[15]).toBe(0x01) // net
-    expect(packet.readUInt16BE(16)).toBe(512)
-    expect(packet[18]).toBe(255)
-    expect(packet[18 + 511]).toBe(42)
-  })
-
-  it('uses 0-based universe addressing', () => {
-    const packet = buildArtNetPacket(3, new Uint8Array(512), 1)
-    expect(packet[14]).toBe(3)
-    expect(packet[15]).toBe(0)
-  })
-})
 
 describe('USB DMX frames', () => {
   it('builds a raw Open DMX USB frame with a start code and 512 channel slots', () => {

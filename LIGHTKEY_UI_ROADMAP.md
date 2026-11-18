@@ -2,8 +2,7 @@
 
 Goal: align OpenLights' main user interface and user workflows with the Lightkey user guide. Use the guide as the acceptance reference, and preserve existing show data during migration. Windows interaction conventions and USB DMX support remain necessary platform adaptations.
 
-Reference: https://www.lightkeyapp.com/media/pages/help/manual/0def2c007d-1793179423/Lightkey%20User%20Guide.pdf
-Feature inventory: https://lightkeyapp.com/en/specs
+Authoritative reference: [Lightkey User Guide](docs/Lightkey-User-Guide.pdf), supplied with this repository. Use this edition's contents and page numbers when defining acceptance criteria. Online documentation may describe a newer edition and must not silently change the target workflow.
 
 ## Delivery rules
 
