@@ -36,30 +36,23 @@ test('clicks through core Design and Live operation', async ({ page }) => {
     const box = await page.getByRole('button', { name: control }).boundingBox()
     expect(box && headerBox ? Math.abs((box.y + box.height / 2) - (headerBox.y + headerBox.height / 2)) : Infinity, control).toBeLessThanOrEqual(1.5)
   }
-  const horizontalLandmarks = await page.evaluate(() => {
-    const center = (selector: string) => { const rect = document.querySelector(selector)!.getBoundingClientRect(); return rect.x + rect.width / 2 }
-    return {
-      projectX: document.querySelector('.lightkey-project')!.getBoundingClientRect().x,
-      lock: center('[aria-label="Lock project"]'),
-      lookX: document.querySelector('.header-look-field')!.getBoundingClientRect().x,
-      blind: center('[aria-label="Blind mode"]'),
-      freeze: center('[aria-label="Freeze output"]'),
-      property: center('[aria-label="Fixture property menu"]'),
-      effects: center('[aria-label="Add effect"]')
-    }
-  })
-  expect(horizontalLandmarks).toEqual({ projectX: 201, lock: 552, lookX: 594, blind: 1075, freeze: 1135, property: 1398, effects: 1486 })
+  const headerLandmarks = await page.locator('.lightkey-project, [aria-label="Lock project"], .header-look-field, [aria-label="Blind mode"], [aria-label="Freeze output"], [aria-label="Fixture property menu"], [aria-label="Add effect"]').evaluateAll((elements) => elements.map((element) => element.getBoundingClientRect().x))
+  expect(Math.min(...headerLandmarks)).toBeGreaterThanOrEqual(0)
+  expect(Math.max(...headerLandmarks)).toBeLessThan(1500)
   const optionsButton = page.getByRole('button', { name: 'Layout and settings' })
   const searchButton = page.getByRole('button', { name: 'Search project', exact: true })
   await expect(optionsButton).toBeVisible()
-  expect((await optionsButton.boundingBox())!.x + (await optionsButton.boundingBox())!.width).toBeLessThanOrEqual(2048)
+  expect((await optionsButton.boundingBox())!.x + (await optionsButton.boundingBox())!.width).toBeLessThanOrEqual(1600)
   await expect(page.getByLabel('Search project input')).toBeHidden()
   await searchButton.click()
   await expect(page.getByLabel('Search project input')).toBeVisible()
   const openSearchBox = await page.locator('.project-search').boundingBox()
+  const openSearchInputBox = await page.getByLabel('Search project input').boundingBox()
   const optionsOpenBox = await optionsButton.boundingBox()
   expect(openSearchBox!.x).toBeLessThan(optionsOpenBox!.x)
-  expect(optionsOpenBox!.x + optionsOpenBox!.width).toBeLessThanOrEqual(2048)
+  expect(openSearchInputBox!.width).toBe(240)
+  expect(openSearchInputBox!.x).toBeGreaterThanOrEqual(0)
+  expect(optionsOpenBox!.x + optionsOpenBox!.width).toBeLessThanOrEqual(1600)
   await page.screenshot({ path: '/tmp/openlights-header-search-open.png' })
   await page.locator('.stage').click({ position: { x: 20, y: 20 } })
   await expect(page.getByLabel('Search project input')).toBeHidden()

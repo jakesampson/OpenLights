@@ -282,6 +282,26 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar > .flex:last-child { order: 10; }
 .top-bar > .flex:first-child > :nth-child(5) { transform: translateX(-18px); }
 
+/* A 1920×1080 macOS display commonly gives Electron about 1600 CSS pixels
+   after display scaling. Keep the Lightkey hierarchy, but remove the large
+   presentation-width spacers so the complete right control group remains
+   inside that real-world viewport. */
+@media (max-width: 1800px) {
+  .top-bar { gap: 10px; }
+  .top-bar-mac { padding-right: 20px; }
+  .lightkey-project { min-width: 260px; }
+  .header-look-field { max-width: 360px; flex-basis: 360px; }
+  .lighting-toolbar > .header-icon:nth-child(2) { margin-left: 14px; }
+  .lighting-toolbar > .header-icon:nth-child(3) { margin-left: 8px; }
+  .lighting-toolbar > .header-more:first-of-type { margin-left: 80px; }
+  .lighting-toolbar > .effects-menu { margin-left: 18px; }
+  .top-bar > .flex:first-child > :nth-child(3) { margin-left: 18px; transform: none; }
+  .top-bar > .flex:first-child > :nth-child(5) { transform: none; }
+  .top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type,
+  .top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-14px); }
+  .top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-14px); }
+}
+
 .top-bar button,
 .top-bar details,
 .top-bar summary,
