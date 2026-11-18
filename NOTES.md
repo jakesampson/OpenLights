@@ -2,6 +2,8 @@
 
 ## Decisions
 
+- Header Edit and Layout/Settings menus dismiss on outside click or Escape, consistent with the other header menus.
+
 ### 0.2 Audit
 The audit uses one row per checklist index entry. Partial means code exists but full guide behaviour has not been verified. USB diagnostics and the audio timeline are explicit retained exceptions.
 

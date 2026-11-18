@@ -70,6 +70,26 @@ export default function App() {
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const headerTaps = useRef<number[]>([])
+  const editMenuRef = useRef<HTMLDetailsElement>(null)
+  const settingsMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const closeHeaderMenus = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      if (editMenuRef.current?.open && (!target || !editMenuRef.current.contains(target))) editMenuRef.current.open = false
+      if (!target || !settingsMenuRef.current?.contains(target)) setSettingsOpen(false)
+    }
+    const closeHeaderMenusOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (editMenuRef.current) editMenuRef.current.open = false
+      setSettingsOpen(false)
+    }
+    window.addEventListener('pointerdown', closeHeaderMenus)
+    window.addEventListener('keydown', closeHeaderMenusOnEscape)
+    return () => {
+      window.removeEventListener('pointerdown', closeHeaderMenus)
+      window.removeEventListener('keydown', closeHeaderMenusOnEscape)
+    }
+  }, [])
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
   }, [show?.preferences?.theme])
@@ -278,7 +298,7 @@ export default function App() {
               target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
             })
           }} />
-          <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
+          <details ref={editMenuRef} className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
             className="lightkey-action"
@@ -288,7 +308,7 @@ export default function App() {
           >
             +
           </button>
-          <div className="relative">
+          <div ref={settingsMenuRef} className="relative">
             <button
               type="button"
               className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
