@@ -28,7 +28,15 @@ describe('Lightkey-style bottom panel', () => {
     const css = readFileSync('src/renderer/src/index.css', 'utf8')
     expect(design).toContain('design-fixture-inspector')
     expect(design).not.toContain('<FixtureSelectionTools')
-    expect(design).not.toContain('<FanningEditor')
+    // MUSE branch, 18 Nov 2026: FanningEditor is wired back into DesignTab
+    // as a collapsed <details>, reversing the 10.x removal for fanning only.
+    // LightKey's Design view lists Fanning as a fixture-property control
+    // (guide §8, pp.118–122); the editor is closed by default, so the fixed,
+    // non-scrollable inspector invariant (see the e2e scroll-height
+    // assertion) is preserved. Grouping, selection tools and layout sections
+    // stay out of this panel.
+    expect(design).toContain('<FanningEditor')
+    expect(design).toContain('<PositionControl')
     expect(design).not.toContain('Edit scene')
     expect(design).not.toContain('design-scene')
     expect(design).not.toContain('Manual override')

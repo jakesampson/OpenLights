@@ -3,6 +3,10 @@ import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
+import { FanningEditor } from './FanningEditor'
+import { PositionControl } from './PositionControl'
+
+const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
 
 function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
@@ -32,8 +36,14 @@ export function DesignTab() {
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
   const commonAttributes = beamProperties.length ? Object.keys(beamProperties[0]).filter((key) => beamProperties.every((b) => key in b)) : availableProperties(selectedFixtures).map((property) => property.attribute)
+  // Pan/tilt as one XY pad (LightKey-style position control) instead of two
+  // raw 0–255 sliders — only when every selected fixture has pan+tilt and no
+  // individual beam is selected (beam values are keyed by beam property, not
+  // by pan/tilt). Otherwise the raw sliders stay as the fallback.
+  const hasPanTilt = selectedBeams.length === 0 && selectedFixtures.length > 0 &&
+    selectedFixtures.every((fixture) => fixtureAttributes(fixture).includes('pan') && fixtureAttributes(fixture).includes('tilt'))
   const channelAttributes = selectedFixtures.length
-    ? commonAttributes.filter((attribute) => attribute !== 'intensity')
+    ? commonAttributes.filter((attribute) => attribute !== 'intensity' && !(hasPanTilt && POSITION_ATTRIBUTES.includes(attribute)))
     : []
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
@@ -132,6 +142,16 @@ export function DesignTab() {
           </span>
         </div>
 
+        {hasPanTilt && (
+          <div className="flex shrink-0 flex-col items-center gap-0.5">
+            <span className="text-[11px] font-medium uppercase text-dim">Position</span>
+            <PositionControl fixtures={selectedFixtures} update={updateValues} />
+            <span className="font-mono text-[10px] text-dim">
+              Pan {activeScene ? valueFor('pan') : 0} · Tilt {activeScene ? valueFor('tilt') : 0}
+            </span>
+          </div>
+        )}
+
         <div className="flex h-full min-w-0 flex-1 gap-1 overflow-hidden">
           {channelAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
@@ -170,7 +190,9 @@ export function DesignTab() {
         </div>
       </div>
 
-
+      <div className="shrink-0">
+        <FanningEditor />
+      </div>
     </div>
   )
 }

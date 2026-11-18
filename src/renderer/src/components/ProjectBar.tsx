@@ -205,6 +205,10 @@ export function ProjectBar() {
   }, [show, currentPath, newName])
 
   if (useShowStore.getState().locked) return <button className="btn-theme text-xs" disabled>Project locked</button>
+  // Persistent save state in the top bar (LightKey: an operator must see at a
+  // glance whether the show on screen is saved). Derived from the saved
+  // snapshot, so it turns to Unsaved on any edit and back on save/autosave.
+  const dirty = hasUnsavedChanges(show, savedSnapshotRef.current)
   return (
     <div className="relative" ref={rootRef}>
       {pendingTransition && <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => setPendingTransition(null)}>Cancel</button></div></div></div>}
@@ -212,9 +216,9 @@ export function ProjectBar() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={`btn-theme text-xs font-medium ${open ? 'on' : ''}`}
-        title="Project menu"
+        title={dirty ? 'Unsaved changes — autosave runs 1.5s after your last edit' : status ?? 'Project menu'}
       >
-        Project
+        Project{dirty ? <span className="ml-1 text-amber-300" role="status">● Unsaved</span> : status ? <span className="ml-1 text-dim">· {status}</span> : null}
       </button>
 
       {open && (
