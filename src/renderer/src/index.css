@@ -536,7 +536,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 /* Tap-tempo box: a separate element under the rail, the same 96px
    width, never inside the rail. Its four quadrants sit behind the
-   text; the lit one (one per quarter beat, clockwise) is a lighter
+   text; the lit one (one per beat, clockwise) is a lighter
    lavender, as in LightKey. */
 .live-master-bpm {
   position: relative;
@@ -598,84 +598,28 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .view-switch-pages-empty { padding: 8px 4px; color: var(--dim); }
 
-/* Vertical fader (dimmer) */
-.fader {
+/* Design fill-fader track (Dimmer + channel faders): the same
+   LightKey-style solid fill bar as the Master track, via the shared
+   FillFader component — wide, filling from the bottom, no thin line +
+   knob. It is the flexible part of its column, so it fills the panel
+   height; the fill colour is set inline per channel. */
+.design-fill-track {
   position: relative;
-  width: 100%;
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 90px;
-  background: var(--panel2);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  width: 100%;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: ns-resize;
   overflow: hidden;
-  cursor: ns-resize;
+  outline-offset: 2px;
 }
 
-.fader-input:focus-visible {
+.design-fill-track:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 1px;
 }
 
-.fader-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(180deg, var(--accent), var(--sel));
-  opacity: 0.85;
-  pointer-events: none;
-}
-
-.chan-input {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  direction: rtl;
-  writing-mode: vertical-lr;
-  cursor: ns-resize;
-}
-
-.fader-input {
-  position: absolute;
-  z-index: 1;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  appearance: slider-vertical;
-  -webkit-appearance: slider-vertical;
-  background: transparent;
-  accent-color: var(--text);
-  direction: rtl;
-  writing-mode: vertical-lr;
-  cursor: ns-resize;
-}
-
-.fader-input:disabled {
-  cursor: not-allowed;
-}
-
-.fader-input::-webkit-slider-runnable-track {
-  background: transparent;
-}
-
-.fader-input::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 80%;
-  height: 12px;
-  border: 2px solid var(--accent);
-  border-radius: 4px;
-  background: var(--text);
-}
-
-.chan-input {
-  opacity: 0;
-}
-
-.chan-input:disabled {
+.design-fill-track[aria-disabled="true"] {
   cursor: not-allowed;
 }
 
@@ -693,25 +637,6 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
-}
-
-.chan-track {
-  position: relative;
-  flex: 1;
-  min-height: 90px;
-  background: var(--panel);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.chan-fill {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--accent);
-  opacity: 0.8;
-  pointer-events: none;
 }
 
 .wheel-input {

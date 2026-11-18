@@ -391,7 +391,14 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
   // page sits directly on the background otherwise. border-transparent
   // (not no border at all) keeps the layout from shifting between modes.
   const panelBorder = editing ? 'border border-line' : 'border border-transparent'
-  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex min-h-full flex-col gap-2 rounded ${panelBorder} bg-bg/30 p-3`} onContextMenu={openContextMenu}>
+  // The section is exactly the visible panel body's height (h-full, not
+  // min-h-full): the canvas scroll container below shrinks to fit and
+  // scrolls internally, so the section never grows taller than the panel.
+  // That matters for the properties popup further down, whose top-2 /
+  // bottom-2 insets are against this section — with a definite section
+  // height they span the visible panel, so the popup can never run off
+  // the page (Jake, 18 Nov 2026).
+  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex h-full flex-col gap-2 rounded ${panelBorder} bg-bg/30 p-3`} onContextMenu={openContextMenu}>
     {/* LightKey-style edit toolbar: the Design / Live switch sits in the
         bottom panel above this workspace (ViewSwitch, rendered by App);
         the toolbar below it holds New Button (+), New Frame, Insert Text
@@ -416,7 +423,7 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
     {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
       {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      <div className={`min-w-0 flex-1 overflow-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+      <div className={`min-h-0 min-w-0 flex-1 overflow-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
@@ -471,9 +478,15 @@ export function LiveWorkspace({ masterOverlay = false }: { masterOverlay?: boole
           on double-click (Jake, 18 Nov 2026). It scrolls on its own
           (overflow-y-auto) while the canvas behind it does not scroll, so
           the selected button stays visible while its properties are edited.
-          It follows the single selection while open; close with X, Esc or
-          Done. The same inspector fields as the old fixed sidebar, moved
-          here verbatim — Ad hoc properties, Timing mm:ss.t, Button Type,
+          Its top-2/bottom-2 insets are against this section, and the section
+          is exactly the visible panel body's height (h-full, see above), so
+          the popup always fits entirely inside the visible panel — its
+          bottom never runs off the page, and reaching the bottom of the
+          properties list needs only the popup's own scroll, never the
+          canvas scroll that would hide the button being edited. It follows
+          the single selection while open; close with X, Esc or Done. The
+          same inspector fields as the old fixed sidebar, moved here
+          verbatim — Ad hoc properties, Timing mm:ss.t, Button Type,
           Presets/Sequences, More, style, attachment. */}
       {editing && !locked && popupOpen && selection && <div role="dialog" aria-label={`${inspectorTarget} properties`} data-fields={inspectorFields(inspectorTarget).join(',')} className="live-properties-popup absolute bottom-2 right-2 top-2 z-50 w-[300px] overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs shadow-2xl">
         <div className="mb-1 flex items-center justify-between"><strong className="capitalize">{inspectorTarget} properties</strong><button type="button" aria-label="Close properties popup" title="Close properties popup" onClick={() => setPopupOpen(false)}>×</button></div>

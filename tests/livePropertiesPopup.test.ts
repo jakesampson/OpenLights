@@ -64,6 +64,26 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).not.toContain('setRenaming')
   })
 
+  it('fits entirely inside the visible panel — its height is bounded by the panel, not the canvas', () => {
+    // The popup's top-2/bottom-2 insets are against the Live section, so
+    // the section must be exactly the visible panel body's height. It used
+    // to be min-h-full (a floor, not a ceiling): the 520px canvas forced
+    // the section to ~600px tall, the popup ran off the bottom of the page,
+    // and reaching its bottom meant scrolling the panel — which scrolled
+    // the button being edited out of view (Jake, 18 Nov 2026).
+    expect(workspace).toContain('relative flex h-full flex-col gap-2')
+    expect(workspace).not.toContain('relative flex min-h-full flex-col gap-2')
+    // The canvas scroll container must be allowed to shrink below the
+    // 520px canvas height, so the canvas scrolls internally and the
+    // section never grows past the panel body.
+    expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-auto')
+    // The popup itself is unchanged: anchored top and bottom with its own
+    // internal scroll, so a long properties list is reachable without
+    // moving the canvas behind it.
+    expect(workspace).toContain('absolute bottom-2 right-2 top-2')
+    expect(workspace).toContain('overflow-y-auto')
+  })
+
   it('double-click does not fire the cue', () => {
     // A toggle cue is clicked twice (on then off, or off then on), a flash
     // cue is momentary, a fader ignores double-click — the level is

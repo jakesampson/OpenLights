@@ -14,6 +14,7 @@ import { resolve } from 'node:path'
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
 const masterFader = readFileSync(resolve(root, 'src/renderer/src/components/MasterFader.tsx'), 'utf8')
+const fillFader = readFileSync(resolve(root, 'src/renderer/src/components/FillFader.tsx'), 'utf8')
 const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
 const liveTab = readFileSync(resolve(root, 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
 const design = readFileSync(resolve(root, 'src/renderer/src/components/DesignTab.tsx'), 'utf8')
@@ -34,14 +35,17 @@ describe('Master fader — panel-anchored overlay (LightKey screenshots 10.12.28
     expect(css).not.toContain(".live-master-rail input[type='range']")
     expect(masterFader).toContain('live-master-rail')
     expect(masterFader).toContain('aria-label="Master fader"')
-    expect(masterFader).toContain('role="slider"')
-    expect(masterFader).toContain('aria-label="Live master"')
-    expect(masterFader).toContain('aria-valuenow={value}')
-    expect(masterFader).toContain('live-master-fill')
-    expect(masterFader).toContain("height: `${(value / 255) * 100}%`")
+    // The slider itself lives in the shared FillFader component (18 Nov
+    // 2026: the Design Dimmer/channel faders use the same control) —
+    // MasterFader wires it with the Live master label and value.
+    expect(fillFader).toContain('role="slider"')
+    expect(fillFader).toContain('aria-valuenow={value}')
+    expect(fillFader).toContain('live-master-fill')
+    expect(fillFader).toContain("height: `${(value / 255) * 100}%`")
+    expect(masterFader).toContain('label="Live master"')
     // Dragging still sets the same store master (0–255) through setMaster.
-    expect(masterFader).toContain('setPointerCapture')
-    expect(masterFader).toContain('onChange(clampMaster(')
+    expect(fillFader).toContain('setPointerCapture')
+    expect(fillFader).toContain('onChange(clampFader(')
     // The value reads "Full" at 100%, as in LightKey — not a separate label.
     expect(masterFader).toContain("master >= 255 ? 'Full'")
     expect(workspace).not.toContain('flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2')
@@ -146,8 +150,11 @@ describe('Master fader — panel-anchored overlay (LightKey screenshots 10.12.28
     expect(app).toContain('setBpm(result.bpm)')
     expect(css).toContain('.live-master-bpm {')
     expect(css).toContain('width: 96px')
-    // The BPM box comes after the fader.
-    expect(masterFader.indexOf('aria-label="Live master"')).toBeLessThan(masterFader.indexOf('aria-label="Tap tempo"'))
+    // The BPM box comes after the fader in the render (both are rendered
+    // by MasterFader; the button's own definition sits above it in the
+    // file, so the order is checked on the rendered elements, not the
+    // aria-label strings).
+    expect(masterFader.indexOf('<FillFader')).toBeLessThan(masterFader.indexOf('<BpmButton bpm={bpm}'))
   })
 
   it('still renders in the separate Live window, beside the workspace', () => {

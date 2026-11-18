@@ -66,7 +66,10 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace.indexOf('<MasterFader')).toBe(-1)
     expect(masterFader).toContain('live-master-rail')
     expect(masterFader).toContain('aria-label="Master fader"')
-    expect(masterFader).toContain('aria-label="Live master"')
+    // The slider itself lives in the shared FillFader component (18 Nov
+    // 2026: the Design Dimmer/channel faders use the same control) —
+    // MasterFader wires it with the Live master label.
+    expect(masterFader).toContain('label="Live master"')
     expect(masterFader).toContain('aria-label="Tap tempo"')
     expect(masterFader).toContain('live-master-bpm')
     expect(masterFader).toContain("master >= 255 ? 'Full'")

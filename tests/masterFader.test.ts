@@ -17,6 +17,7 @@ import {
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
 const masterFader = readFileSync(resolve(root, 'src/renderer/src/components/MasterFader.tsx'), 'utf8')
+const fillFader = readFileSync(resolve(root, 'src/renderer/src/components/FillFader.tsx'), 'utf8')
 const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
 const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 
@@ -116,20 +117,24 @@ describe('quadrant BPM button — separate from the fader, one lit quadrant at a
 
 describe('Master track — drag and keyboard still set the store master', () => {
   it('is a slider with pointer drag and full keyboard support', () => {
-    expect(masterFader).toContain('role="slider"')
-    expect(masterFader).toContain('aria-orientation="vertical"')
-    expect(masterFader).toContain('aria-valuemin={0}')
-    expect(masterFader).toContain('aria-valuemax={255}')
-    expect(masterFader).toContain('aria-valuenow={value}')
-    expect(masterFader).toContain('setPointerCapture')
-    expect(masterFader).toContain("event.key === 'ArrowUp'")
-    expect(masterFader).toContain("event.key === 'ArrowDown'")
-    expect(masterFader).toContain("event.key === 'Home'")
-    expect(masterFader).toContain("event.key === 'End'")
-    expect(masterFader).toContain("event.key === 'PageUp'")
-    expect(masterFader).toContain("event.key === 'PageDown'")
+    // The slider lives in the shared FillFader component (18 Nov 2026:
+    // the Design Dimmer/channel faders use the same control); MasterFader
+    // wires it with the Live master label and the setMaster output path.
+    expect(fillFader).toContain('role="slider"')
+    expect(fillFader).toContain('aria-orientation="vertical"')
+    expect(fillFader).toContain('aria-valuemin={0}')
+    expect(fillFader).toContain('aria-valuemax={255}')
+    expect(fillFader).toContain('aria-valuenow={value}')
+    expect(fillFader).toContain('setPointerCapture')
+    expect(fillFader).toContain("event.key === 'ArrowUp'")
+    expect(fillFader).toContain("event.key === 'ArrowDown'")
+    expect(fillFader).toContain("event.key === 'Home'")
+    expect(fillFader).toContain("event.key === 'End'")
+    expect(fillFader).toContain("event.key === 'PageUp'")
+    expect(fillFader).toContain("event.key === 'PageDown'")
     // Top of the track is Full (255), bottom is 0.
-    expect(masterFader).toContain('(1 - (clientY - rect.top) / rect.height) * 255')
+    expect(fillFader).toContain('(1 - (clientY - rect.top) / rect.height) * 255')
+    expect(masterFader).toContain('<FillFader value={master} onChange={setMaster} label="Live master"')
   })
 })
 
