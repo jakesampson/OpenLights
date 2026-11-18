@@ -1,34 +1,69 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import type { FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
+import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import { clampModifier, clampLiveSize, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
-import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
+import {
+  decodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
+} from '../lib/liveDrops'
+import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import {
   isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectLabel, positionedObjects,
   type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
-import {
-  decodeLiveDrop, encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
-} from '../lib/liveDrops'
 import { useShowStore } from '../stores/showStore'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
-import { CueContentsEditor } from './CueContentsEditor'
 import { CueListEditor } from './CueListEditor'
 
 type Selection = PageObjectRef
 const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.floor(index / 4) * 90 })
+// Canvas object space: the grid canvas is 900x520 and objects snap to 10px.
+const clampCanvasPoint = (x: number, y: number) => ({
+  x: Math.max(0, Math.min(740, Math.round(x / 10) * 10)),
+  y: Math.max(0, Math.min(440, Math.round(y / 10) * 10))
+})
 
-export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boolean } = {}) {
+// LightKey button types (Guide ch.11, "Button", p.199): the model has three
+// cue kinds, labelled the LightKey way. Push Button is the momentary
+// (hold-to-flash) kind; Toggle latches; Fader is a level control.
+const BUTTON_TYPE_LABELS: Record<LiveControl['type'], string> = {
+  toggle: 'Toggle Button',
+  flash: 'Push Button',
+  fader: 'Fader'
+}
+
+/**
+ * A fade time shown the LightKey way — mm:ss.t (e.g. 500ms is "00:00.5").
+ * The text is committed on blur / Enter; an unparsable value restores the
+ * stored time instead of inventing one.
+ */
+function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCommit: (ms: number) => void }) {
+  const [text, setText] = useState(formatTimingMs(ms))
+  useEffect(() => { setText(formatTimingMs(ms)) }, [ms])
+  const commit = () => {
+    const parsed = parseTimingMs(text)
+    if (parsed !== null) onCommit(parsed)
+    else setText(formatTimingMs(ms))
+  }
+  return <label className="text-dim">{label}<input aria-label={label} value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); else if (event.key === 'Escape') setText(formatTimingMs(ms)) }} className="ml-1 w-20 rounded bg-bg p-1" /></label>
+}
+
+export function LiveWorkspace() {
   const {
     locked, show, scenes, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
-    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, updateProject, convertScenesToPresets,
+    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
+    master, setMaster, bpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
+    configureCuePriority, configureCueFrameStep,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject,
     attachPageObject, setPageObjectStyle, configureFrame, dropOnLivePage
   } = useShowStore()
-  const [editing, setEditing] = useState(initialEditing)
+  // Live Edit mode is store UI state (not show data, not undo history), so
+  // the Shortcuts panel in App.tsx can show the LightKey edit shortcuts
+  // while Edit is open. Firing is unaffected by the flag: cues fire the
+  // same in Live and in Edit (see cueBody).
+  const editing = liveEditing
   const [draft, setDraft] = useState<{ id: string; x: number; y: number } | null>(null)
   const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null)
@@ -36,10 +71,20 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const resize = useRef<{ ref: PageObjectRef; startX: number; startY: number; width: number; height: number } | null>(null)
   const [resizeDraft, setResizeDraft] = useState<{ id: string; width: number; height: number } | null>(null)
   const [renaming, setRenaming] = useState<{ ref: PageObjectRef; value: string } | null>(null)
-  const paletteFile = useRef<HTMLInputElement>(null)
   const pageCanvas = useRef<HTMLDivElement>(null)
-  const [paletteNote, setPaletteNote] = useState('')
-  const [paletteSelection, setPaletteSelection] = useState<{ presets: string[]; sequences: string[] }>({ presets: [], sequences: [] })
+  // LightKey-style context menu (Guide ch.11, p.176): right-click on the
+  // canvas or a button in Edit mode. Each item wires to the existing store
+  // actions the old bottom-strip buttons used.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; at: { x: number; y: number } } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!contextMenu) return
+    const close = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setContextMenu(null)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [contextMenu])
 
   // The inspector follows a single selection; multiple selected objects are
   // handled entirely by the store's multi-object commands.
@@ -130,33 +175,28 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
     </div>
   }
 
-  const exportPalette = () => {
-    try {
-      const doc = exportPresetPalette(presets, show?.fixtures ?? [])
-      const url = URL.createObjectURL(new Blob([serializePresetPalette(doc)], { type: 'application/json' }))
-      const a = document.createElement('a')
-      a.href = url
-      a.download = 'openlights-preset-palette.json'
-      a.click()
-      URL.revokeObjectURL(url)
-      setPaletteNote(`Exported ${presets.length} preset${presets.length === 1 ? '' : 's'}.`)
-    } catch (error) {
-      setPaletteNote(`Export failed: ${String(error)}`)
-    }
-  }
-
-  const importPalette = async (text: string) => {
-    try {
-      const result = importPresetPalette(text, show?.fixtures ?? [], {
-        onSkip: (info) => console.warn(`Preset palette: skipped fixture ${info.fixtureName} (${info.fixtureId}) — ${info.reason}`)
-      })
-      updateProject({ presets: [...presets, ...result.presets] })
-      const skipped = result.skipped.length
-      setPaletteNote(`Imported ${result.presets.length} preset${result.presets.length === 1 ? '' : 's'}${skipped ? `; skipped ${skipped} fixture${skipped === 1 ? '' : 's'} (see console)` : ''}.`)
-    } catch (error) {
-      setPaletteNote(`Import failed: ${String(error)}`)
-    }
-  }
+  // "Default styles for new objects" used to live in the old bottom strip;
+  // it now lives in the page inspector (no object selected), as in LightKey
+  // where new-object defaults belong to the page being edited.
+  const defaultStylesFields = () => (
+    <details className="rounded border border-line bg-bg/40 p-2">
+      <summary className="cursor-pointer">Default styles for new objects</summary>
+      <div className="mt-2 space-y-2">
+        {(['cue', 'list', 'label', 'frame'] as const).map((kind) => {
+          const current = { ...DEFAULT_OBJECT_STYLES[kind], ...page?.defaultStyles?.[kind] }
+          const update = (patch: Partial<LiveObjectStyle>) => { if (page) savePage({ ...page, defaultStyles: { ...page.defaultStyles, [kind]: { ...current, ...patch } } }) }
+          return <div key={kind} className="flex flex-wrap items-end gap-2 border-t border-line pt-1">
+            <strong className="w-14 capitalize">{kind}</strong>
+            <label>Size<input type="number" aria-label={`Default ${kind} font size`} min={6} max={96} value={current.fontSize ?? 12} onChange={(e) => update({ fontSize: Math.max(6, Math.min(96, Number(e.target.value))) })} className="ml-1 w-16 rounded bg-bg p-1" /></label>
+            <label>Color<input type="color" aria-label={`Default ${kind} color`} value={current.color ?? '#e5e7eb'} onChange={(e) => update({ color: e.target.value })} className="ml-1 h-7 w-10 rounded bg-bg p-1" /></label>
+            <label>Align<select aria-label={`Default ${kind} align`} value={current.align ?? 'left'} onChange={(e) => update({ align: e.target.value as LiveObjectStyle['align'] })} className="ml-1 rounded bg-bg p-1"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+            <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} bold`} checked={current.bold === true} onChange={(e) => update({ bold: e.target.checked })} />Bold</label>
+            <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} italic`} checked={current.italic === true} onChange={(e) => update({ italic: e.target.checked })} />Italic</label>
+          </div>
+        })}
+      </div>
+    </details>
+  )
 
   useEffect(() => () => {
     const state = useShowStore.getState()
@@ -172,7 +212,7 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   }
   const toggleEditing = () => {
     if (editing) {
-      setEditing(false)
+      setLiveEditing(false)
       clearPageObjectSelection()
       return
     }
@@ -181,57 +221,21 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
       setLivePages([...pages, next])
       selectLivePage(next.id)
     }
-    setEditing(true)
+    setLiveEditing(true)
     clearPageObjectSelection()
   }
-  const addControl = () => {
+  const addControl = (at?: { x: number; y: number }) => {
     if (!page) return
-    const at = position(page.controls.length + (page.cueListWidgets?.length ?? 0))
-    const control = newCueObject(crypto.randomUUID(), at.x, at.y, page.defaultStyles, {
+    const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
+    const control = newCueObject(crypto.randomUUID(), point.x, point.y, page.defaultStyles, {
       presetIds: [...activePresetIds],
       adHocValues: Object.fromEntries(Object.entries(manualOverrides).map(([id, values]) => [id, { ...values }]))
     })
     savePage({ ...page, controls: [...page.controls, control] }); setPageObjectSelection([{ type: 'cue', id: control.id }])
   }
-  const addSceneControl = (sceneId: string) => {
-    if (!page) return
-    const scene = scenes.find((item) => item.id === sceneId)
-    if (!scene) return
-    const at = position(page.controls.length + (page.cueListWidgets?.length ?? 0))
-    const control = newCueObject(crypto.randomUUID(), at.x, at.y, page.defaultStyles, { name: scene.name, sceneId: scene.id })
-    savePage({ ...page, controls: [...page.controls, control] })
-    setPageObjectSelection([{ type: 'cue', id: control.id }])
-  }
-  // Palette drag sources: clicking selects several presets/sequences, and
-  // dragging a selected chip carries the whole selection (7.10).
-  const paletteItems = (kind: 'presets' | 'sequences', id: string): string[] => {
-    const selected = paletteSelection[kind]
-    return selected.includes(id) ? selected : [id]
-  }
-  const togglePaletteItem = (kind: 'presets' | 'sequences', id: string) =>
-    setPaletteSelection((prev) => ({
-      ...prev,
-      [kind]: prev[kind].includes(id) ? prev[kind].filter((item) => item !== id) : [...prev[kind], id]
-    }))
-  const palettePayload = (kind: 'presets' | 'sequences', id: string): LiveDropPayload | null => {
-    const ids = paletteItems(kind, id)
-    const named = (items: { id: string; name: string }[]) =>
-      Object.fromEntries(items.filter((item) => ids.includes(item.id)).map((item) => [item.id, item.name]))
-    if (kind === 'presets') {
-      if (!ids.some((presetId) => presets.some((preset) => preset.id === presetId))) return null
-      return { presetIds: ids, sequenceIds: [], presetNames: named(presets) }
-    }
-    const sequences = show?.sequences ?? []
-    if (!ids.some((sequenceId) => sequences.some((sequence) => sequence.id === sequenceId))) return null
-    return { presetIds: [], sequenceIds: ids, sequenceNames: named(sequences) }
-  }
-  const startPaletteDrag = (event: React.DragEvent, kind: 'presets' | 'sequences', id: string) => {
-    const payload = palettePayload(kind, id)
-    if (!payload) return
-    event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop(payload))
-    if (kind === 'presets' && payload.presetIds.length === 1) event.dataTransfer.setData(LEGACY_PRESET_MIME, payload.presetIds[0])
-    event.dataTransfer.effectAllowed = 'copy'
-  }
+  // Scene buttons are created the LightKey way: New Button, then pick a
+  // scene in the inspector — or drag a preset / sequence from the Preset
+  // Palette in the right sidebar onto the canvas.
   const hasDropData = (event: React.DragEvent) =>
     event.dataTransfer.types.includes(LIVE_DROP_MIME) || event.dataTransfer.types.includes(LEGACY_PRESET_MIME)
   const readDrop = (event: React.DragEvent): LiveDropPayload | null => {
@@ -262,16 +266,31 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
     event.preventDefault(); event.stopPropagation()
     dropOnLivePage(payload, { kind: 'cue', cueId })
   }
-  const addList = () => {
+  const addList = (at?: { x: number; y: number }) => {
     if (!page || !cueLists[0]) return
-    const at = position(page.controls.length + (page.cueListWidgets?.length ?? 0))
-    const widget = newWidgetObject(crypto.randomUUID(), cueLists[0].id, at.x, at.y, page.defaultStyles)
+    const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
+    const widget = newWidgetObject(crypto.randomUUID(), cueLists[0].id, point.x, point.y, page.defaultStyles)
     savePage({ ...page, cueListWidgets: [...(page.cueListWidgets ?? []), widget] }); setPageObjectSelection([{ type: 'list', id: widget.id }])
   }
-  const addAnnotation = (type: 'label' | 'frame') => {
+  const addAnnotation = (type: 'label' | 'frame', at?: { x: number; y: number }) => {
     if (!page) return
-    const item = newAnnotationObject(crypto.randomUUID(), type, 20, 20, page.defaultStyles)
+    const point = at ?? { x: 20, y: 20 }
+    const item = newAnnotationObject(crypto.randomUUID(), type, point.x, point.y, page.defaultStyles)
     savePage({ ...page, annotations: [...(page.annotations ?? []), item] }); setPageObjectSelection([{ type: 'annotation', id: item.id }])
+  }
+  // Right-click menu (LightKey, Guide ch.11 p.176). Only in Edit mode: in
+  // Live mode the global page context menu still applies. stopPropagation
+  // keeps the global menu from opening on top of this one.
+  const openContextMenu = (event: React.MouseEvent) => {
+    if (!editing || locked) return
+    event.preventDefault(); event.stopPropagation()
+    const rect = pageCanvas.current?.getBoundingClientRect()
+    const at = clampCanvasPoint(event.clientX - (rect?.left ?? 0), event.clientY - (rect?.top ?? 0))
+    setContextMenu({ x: event.clientX, y: event.clientY, at })
+  }
+  const cutSelected = () => {
+    copySelectedPageObjects()
+    deleteSelectedPageObjects()
   }
   const beginDrag = (event: React.PointerEvent, ref: Selection, x: number, y: number) => {
     if (!editing || event.button !== 0) return
@@ -324,6 +343,24 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
       if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
       const mod = event.ctrlKey || event.metaKey
       const key = event.key.toLowerCase()
+      // LightKey edit shortcuts: arrow keys nudge the selection (10px, or
+      // 1px with Shift) and Esc clears it. Swallow them here so the global
+      // handlers do not also advance a cue (arrows) or stop one (Esc) while
+      // a selection is being edited.
+      if (selectedPageObjects.length && event.key.startsWith('Arrow')) {
+        event.preventDefault(); event.stopImmediatePropagation()
+        const step = event.shiftKey ? 1 : 10
+        moveSelectedPageObjects(
+          event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0,
+          event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0
+        )
+        return
+      }
+      if (key === 'escape' && selectedPageObjects.length) {
+        event.preventDefault(); event.stopImmediatePropagation()
+        clearPageObjectSelection()
+        return
+      }
       if (key === 'delete' || key === 'backspace') {
         if (selectedPageObjects.length) { event.preventDefault(); deleteSelectedPageObjects() }
       } else if (mod && key === 'c') {
@@ -338,46 +375,42 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [editing, locked, selectedPageObjects, deleteSelectedPageObjects, copySelectedPageObjects, pastePageObjects, duplicateSelectedPageObjects, clearPageObjectSelection])
+  }, [editing, locked, selectedPageObjects, deleteSelectedPageObjects, copySelectedPageObjects, pastePageObjects, duplicateSelectedPageObjects, clearPageObjectSelection, moveSelectedPageObjects])
   const selectedControl = selection?.type === 'cue' ? page?.controls.find((item) => item.id === selection.id) : undefined
   const selectedList = selection?.type === 'list' ? page?.cueListWidgets?.find((item) => item.id === selection.id) : undefined
   const selectedAnnotation = selection?.type === 'annotation' ? page?.annotations?.find((item) => item.id === selection.id) : undefined
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
-  return <section data-context-menu="page" aria-label="Live page canvas" className="flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3">
+  const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
+  return <section data-context-menu="page" aria-label="Live page canvas" className="flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
+    {/* LightKey-style edit toolbar: the Design / Live switch already sits
+        centred on the divider directly above this panel (ViewSwitch); the
+        toolbar below it holds New Button (+), New Frame, Insert Text (T)
+        and the green Done button, as in LightKey's bottom panel. */}
     <div className="flex flex-wrap items-center gap-2">
       {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
-      {!locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>{editing ? 'Done' : 'Edit'}</button>}
+      {editing && !locked && <>
+        <div className="mx-auto flex items-center gap-1" role="toolbar" aria-label="Live edit tools">
+          <button type="button" aria-label="New button" title="New button" className="btn-theme px-2 text-base leading-none" onClick={() => addControl()}>+</button>
+          <button type="button" aria-label="New frame" title="New frame" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('frame')}>▣</button>
+          <button type="button" aria-label="Insert text" title="Insert text" className="btn-theme px-2 text-base leading-none" onClick={() => addAnnotation('label')}>T</button>
+        </div>
+        <button type="button" className="live-page-edit rounded px-3 py-1 text-xs font-semibold" style={{ backgroundColor: '#22c55e', color: '#111' }} onClick={toggleEditing}>Done</button>
+      </>}
+      {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
     </div>
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
-    {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      {editing && !locked && <div className="flex flex-wrap items-center gap-2"><label className="btn-theme text-xs">+ Scene button <select aria-label="Add scene button" defaultValue="" onChange={(event) => { if (event.target.value) addSceneControl(event.target.value); event.target.value = '' }} className="ml-1 bg-transparent"><option value="" disabled>Choose scene…</option>{scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}</select></label><button type="button" className="btn-theme text-xs" onClick={addControl}>+ Custom cue</button><button type="button" className="btn-theme text-xs" onClick={addList} disabled={!cueLists.length}>+ Cue list</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('label')}>+ Label</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('frame')}>+ Frame</button>
-        {selectedPageObjects.length > 0 && <><span className="text-xs text-dim">{selectedPageObjects.length} selected</span><button type="button" className="btn-theme text-xs" onClick={duplicateSelectedPageObjects}>Duplicate</button><button type="button" className="btn-theme text-xs" onClick={copySelectedPageObjects}>Copy</button><button type="button" className="btn-theme text-xs text-red-300" onClick={deleteSelectedPageObjects}>Delete</button></>}
-        {!isClipboardEmpty(pageClipboard) && <button type="button" className="btn-theme text-xs" onClick={() => pastePageObjects()}>Paste</button>}
-        <span className="text-xs text-dim">Shift-click or drag on empty space to select several. Drag to move them together. Use "Attached to" in the inspector so a button follows a frame. Del / Ctrl+C / Ctrl+V / Ctrl+D.</span></div>}
-      {editing && !locked && <details className="rounded border border-line bg-panel2 p-2 text-xs"><summary>Default styles for new objects</summary>
-        <div className="mt-2 space-y-2">
-          {(['cue', 'list', 'label', 'frame'] as const).map((kind) => {
-            const current = { ...DEFAULT_OBJECT_STYLES[kind], ...page.defaultStyles?.[kind] }
-            const update = (patch: Partial<LiveObjectStyle>) => savePage({ ...page, defaultStyles: { ...page.defaultStyles, [kind]: { ...current, ...patch } } })
-            return <div key={kind} className="flex flex-wrap items-end gap-2 border-t border-line pt-1">
-              <strong className="w-14 capitalize">{kind}</strong>
-              <label>Size<input type="number" aria-label={`Default ${kind} font size`} min={6} max={96} value={current.fontSize ?? 12} onChange={(e) => update({ fontSize: Math.max(6, Math.min(96, Number(e.target.value))) })} className="ml-1 w-16 rounded bg-bg p-1" /></label>
-              <label>Color<input type="color" aria-label={`Default ${kind} color`} value={current.color ?? '#e5e7eb'} onChange={(e) => update({ color: e.target.value })} className="ml-1 h-7 w-10 rounded bg-bg p-1" /></label>
-              <label>Align<select aria-label={`Default ${kind} align`} value={current.align ?? 'left'} onChange={(e) => update({ align: e.target.value as LiveObjectStyle['align'] })} className="ml-1 rounded bg-bg p-1"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-              <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} bold`} checked={current.bold === true} onChange={(e) => update({ bold: e.target.checked })} />Bold</label>
-              <label className="flex items-center gap-1"><input type="checkbox" aria-label={`Default ${kind} italic`} checked={current.italic === true} onChange={(e) => update({ italic: e.target.checked })} />Italic</label>
-            </div>
-          })}
-        </div>
-      </details>}
-      {editing && !locked && show?.layout?.palette !== false && <div className="rounded border border-line bg-panel2 p-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2"><strong>Preset palette</strong><span className="text-dim">Click to select several, then drag onto the page, a frame or a cue button. Hold Ctrl to make one button per item.</span><button type="button" className="btn-theme" onClick={exportPalette} disabled={!presets.length}>Export JSON</button><button type="button" className="btn-theme" onClick={() => paletteFile.current?.click()}>Import JSON</button><button type="button" className="btn-theme" disabled={!scenes.length} onClick={() => { const added = convertScenesToPresets(); setPaletteNote(added ? `Converted ${added} scene${added === 1 ? '' : 's'} to presets (originals kept).` : 'Scenes already converted.') }}>Convert scenes</button><input ref={paletteFile} type="file" accept="application/json,.json" aria-label="Import preset palette JSON" className="hidden" onChange={async (event) => { const file = event.target.files?.[0]; event.target.value = ''; if (file) await importPalette(await file.text()) }} />{paletteNote && <span className="text-dim" role="status">{paletteNote}</span>}</div>
-        <div className="mt-2 flex flex-wrap gap-1">{presets.map((preset) => <button key={preset.id} type="button" draggable aria-pressed={paletteSelection.presets.includes(preset.id)} onClick={() => togglePaletteItem('presets', preset.id)} onDragStart={(event) => startPaletteDrag(event, 'presets', preset.id)} className={`cursor-grab rounded border bg-bg px-2 py-1 ${paletteSelection.presets.includes(preset.id) ? 'border-[var(--accent)]' : 'border-line'}`}>{preset.name}</button>)}{!presets.length && <span className="text-dim">Capture or import a preset to populate this palette.</span>}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-1"><strong className="mr-1 text-dim">Sequences</strong>{(show?.sequences ?? []).map((sequence) => <button key={sequence.id} type="button" draggable aria-pressed={paletteSelection.sequences.includes(sequence.id)} onClick={() => togglePaletteItem('sequences', sequence.id)} onDragStart={(event) => startPaletteDrag(event, 'sequences', sequence.id)} className={`cursor-grab rounded border bg-bg px-2 py-1 ${paletteSelection.sequences.includes(sequence.id) ? 'border-[var(--accent)]' : 'border-line'}`}>{sequence.name}</button>)}{!show?.sequences?.length && <span className="text-dim">No sequences in this project yet.</span>}</div>
-      </div>}
-      <div className="overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+    {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <div className="flex min-h-0 flex-1 gap-2">
+      {/* LightKey bottom panel: vertical Master fader on the far left. */}
+      <div className="flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2" aria-label="Live master fader">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Master</span>
+        <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} style={{ writingMode: 'vertical-lr', direction: 'rtl', height: 180, width: 24 }} />
+        <span className="text-xs text-text">{Math.round(master / 255 * 100)}%</span>
+        <span className="text-[10px] text-dim">Full</span>
+        <span className="text-[10px] text-dim" title="Tap tempo BPM (see the toolbar Tap button)">{bpm > 0 ? `${Math.round(bpm)} BPM` : '— BPM'}</span>
+      </div>
+      <div className="min-w-0 flex-1 overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
@@ -412,14 +445,81 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
           </div>
         })}
       </div></div>
-      {editing && !locked && selectedControl && <CueContentsEditor control={selectedControl} />}
-      {editing && !locked && selectedList && <CueListEditor listId={selectedList.cueListId} />}
-      {editing && !locked && <aside className="rounded border border-line bg-panel2 p-2 text-xs" aria-label={`${inspectorTarget} inspector`} data-fields={inspectorFields(inspectorTarget).join(',')}><strong className="mb-2 block capitalize">{inspectorTarget} inspector</strong>
-      {!selection && <div className="flex flex-wrap gap-2"><label>Name<input aria-label="Page name" value={page.name} onChange={(e) => savePage({ ...page, name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label><label>Fade (ms)<input aria-label="Page fade time" type="number" min="0" value={page.fadeMs ?? 0} onChange={(e) => savePage({ ...page, fadeMs: Math.max(0, Number(e.target.value)) })} className="ml-1 w-24 rounded bg-bg p-1" /></label></div>}
-      {selectedControl && <div className="flex flex-wrap items-end gap-2"><label>Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="block rounded bg-bg p-1" /></label><label>Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="block rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Hold to flash</option><option value="fader">Fader</option></select></label><label>Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="block rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label><details><summary>Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details><details><summary>Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>{Object.keys(selectedControl.adHocValues ?? {}).length > 0 && <button type="button" className="text-dim" onClick={() => patchControl(selectedControl.id, { adHocValues: {} })}>Remove captured overrides</button>}{styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}{attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}<button type="button" className="text-red-300" onClick={() => { setLiveValue(selectedControl.id, 0); savePage({ ...page, controls: page.controls.filter((c) => c.id !== selectedControl.id) }); clearPageObjectSelection() }}>Remove</button></div>}
-      {editing && !locked && show?.layout?.inspector !== false && selectedList && <div className="flex gap-2 rounded border border-line bg-panel2 p-2 text-xs"><label>Cue list <select aria-label="Widget cue list" value={selectedList.cueListId} onChange={(e) => savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).map((w) => w.id === selectedList.id ? { ...w, cueListId: e.target.value } : w) })} className="rounded bg-bg p-1">{cueLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label>{styleFields({ type: 'list', id: selectedList.id }, 'list', selectedList.style)}{attachmentSelect({ type: 'list', id: selectedList.id }, selectedList.attachedTo)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).filter((w) => w.id !== selectedList.id) }); clearPageObjectSelection() }}>Remove</button></div>}
-      {editing && !locked && show?.layout?.inspector !== false && selectedAnnotation && <div className="flex flex-wrap items-end gap-2">{(['text', 'width', 'height'] as const).map((key) => <label key={key} className="capitalize">{key}<input aria-label={`${selectedAnnotation.type} ${key}`} type={key === 'text' ? 'text' : 'number'} min={key === 'text' ? undefined : 20} value={selectedAnnotation[key]} onChange={(e) => { const ref: PageObjectRef = { type: 'annotation', id: selectedAnnotation.id }; if (key === 'text') renamePageObject(ref, e.target.value); else { const other = key === 'width' ? selectedAnnotation.height : selectedAnnotation.width; resizePageObject(ref, key === 'width' ? Number(e.target.value) : other, key === 'height' ? Number(e.target.value) : other) } }} className="block w-32 rounded bg-bg p-1" /></label>)}{styleFields({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.type, selectedAnnotation.style)}{selectedAnnotation.type === 'frame' && frameConfigFields(selectedAnnotation.id, selectedAnnotation.frame)}{attachmentSelect({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.attachedTo)}<button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button></div>}
+      {/* LightKey inspector: right of the canvas, for the selected button.
+          In Live mode there is no inspector — the canvas takes the space. */}
+      {editing && !locked && <aside className="w-[280px] shrink-0 overflow-y-auto rounded border border-line bg-panel2 p-2 text-xs" aria-label={`${inspectorTarget} inspector`} data-fields={inspectorFields(inspectorTarget).join(',')}>
+        {!selection && <div className="space-y-2">
+          <strong className="block">Page inspector</strong>
+          <label className="block">Name<input aria-label="Page name" value={page.name} onChange={(e) => savePage({ ...page, name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label>
+          <label className="block">Fade (ms)<input aria-label="Page fade time" type="number" min="0" value={page.fadeMs ?? 0} onChange={(e) => savePage({ ...page, fadeMs: Math.max(0, Number(e.target.value)) })} className="ml-1 w-24 rounded bg-bg p-1" /></label>
+          {defaultStylesFields()}
+        </div>}
+        {selectedControl && cueTiming && <div className="space-y-3">
+          <div className="flex items-center justify-between"><strong>{selectedControl.name}</strong><button type="button" aria-label="Close inspector" title="Close inspector" onClick={clearPageObjectSelection}>×</button></div>
+          <label className="block">Name<input aria-label="Cue name" value={selectedControl.name} onChange={(e) => patchControl(selectedControl.id, { name: e.target.value })} className="ml-1 rounded bg-bg p-1" /></label>
+          <div>
+            <h4 className="font-semibold text-text">Ad hoc properties</h4>
+            {Object.entries(selectedControl.adHocValues ?? {}).flatMap(([fixtureId, values]) => Object.entries(values).map(([property, value]) => <label key={`${fixtureId}:${property}`} className="flex items-center gap-1"><span className="min-w-0 flex-1 truncate">{fixtureId} · {property}</span><input aria-label={`${fixtureId} ${property}`} type="number" min="0" max="255" value={value} className="w-16 rounded bg-bg p-1" onChange={(event) => editCueContents(selectedControl.id, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) })} /><button type="button" aria-label={`Remove ${fixtureId} ${property}`} onClick={() => editCueContents(selectedControl.id, { type: 'remove-ad-hoc', fixtureId, property })}>×</button></label>))}
+            {!Object.keys(selectedControl.adHocValues ?? {}).length && <span className="text-dim">None</span>}
+          </div>
+          <div>
+            <h4 className="font-semibold text-text">Timing</h4>
+            <div className="flex flex-wrap items-end gap-2">
+              <TimingInput label="Fade In" ms={cueTiming.fadeInMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeInMs: ms })} />
+              <TimingInput label="Fade Out" ms={cueTiming.fadeOutMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeOutMs: ms })} />
+              <label className="text-dim">Curve<select aria-label="Fade curve" value={cueTiming.curve} onChange={(event) => configureCueTiming(selectedControl.id, { curve: event.target.value as FadeCurve })} className="ml-1 rounded bg-bg p-1">{['linear', 'ease-in', 'ease-out', 'ease-in-out', 's-curve'].map((curve) => <option key={curve}>{curve}</option>)}</select></label>
+            </div>
+          </div>
+          <div>
+            <h4 className="font-semibold text-text">Button</h4>
+            <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
+            <label className="mt-1 block text-dim">Scene<select aria-label="Cue scene" value={selectedControl.sceneId ?? ''} onChange={(e) => patchControl(selectedControl.id, { sceneId: e.target.value || undefined })} className="ml-1 rounded bg-bg p-1"><option value="">No scene</option>{scenes.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+          </div>
+          <details><summary className="cursor-pointer">Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>
+          <details><summary className="cursor-pointer">Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>
+          <details><summary className="cursor-pointer">More</summary>
+            <div className="mt-1 flex flex-wrap items-end gap-2">
+              <label className="text-dim">Colour<input aria-label="Cue colour" type="color" value={selectedControl.appearance?.color ?? '#47235a'} className="ml-1" onChange={(event) => configureCueAppearance(selectedControl.id, { color: event.target.value })} /></label>
+              <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.appearance?.releaseOthers === true} onChange={(event) => configureCueAppearance(selectedControl.id, { releaseOthers: event.target.checked })} /> Release other buttons</label>
+              <label className="text-dim">Frame action<select aria-label="Frame step action" value={selectedControl.frameStep ?? ''} onChange={(event) => configureCueFrameStep(selectedControl.id, event.target.value ? event.target.value as 'next' | 'previous' : undefined)} className="ml-1 rounded bg-bg p-1"><option value="">Normal cue</option><option value="next">Next button</option><option value="previous">Previous button</option></select></label>
+              {(['intensity', 'speed', 'size'] as const).map((key) => <label key={key} className="capitalize text-dim">{key} %<input aria-label={`Cue ${key}`} type="number" min="0" max="200" value={selectedControl.modifiers?.[key] ?? 100} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCueModifiers(selectedControl.id, { [key]: Number(event.target.value) })} /></label>)}
+              <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? 0} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
+            </div>
+          </details>
+          {Object.keys(selectedControl.adHocValues ?? {}).length > 0 && <button type="button" className="text-dim" onClick={() => patchControl(selectedControl.id, { adHocValues: {} })}>Remove captured overrides</button>}
+          {styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}
+          {attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}
+          <button type="button" className="text-red-300" onClick={() => { setLiveValue(selectedControl.id, 0); savePage({ ...page, controls: page.controls.filter((c) => c.id !== selectedControl.id) }); clearPageObjectSelection() }}>Remove</button>
+        </div>}
+        {selectedList && <div className="space-y-2">
+          <CueListEditor listId={selectedList.cueListId} />
+          <label>Cue list <select aria-label="Widget cue list" value={selectedList.cueListId} onChange={(e) => savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).map((w) => w.id === selectedList.id ? { ...w, cueListId: e.target.value } : w) })} className="rounded bg-bg p-1">{cueLists.map((list) => <option key={list.id} value={list.id}>{list.name}</option>)}</select></label>
+          {styleFields({ type: 'list', id: selectedList.id }, 'list', selectedList.style)}
+          {attachmentSelect({ type: 'list', id: selectedList.id }, selectedList.attachedTo)}
+          <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).filter((w) => w.id !== selectedList.id) }); clearPageObjectSelection() }}>Remove</button>
+        </div>}
+        {selectedAnnotation && <div className="space-y-2">
+          <strong className="block capitalize">{selectedAnnotation.type} inspector</strong>
+          <div className="flex flex-wrap items-end gap-2">{(['text', 'width', 'height'] as const).map((key) => <label key={key} className="capitalize text-dim">{key}<input aria-label={`${selectedAnnotation.type} ${key}`} type={key === 'text' ? 'text' : 'number'} min={key === 'text' ? undefined : 20} value={selectedAnnotation[key]} onChange={(e) => { const ref: PageObjectRef = { type: 'annotation', id: selectedAnnotation.id }; if (key === 'text') renamePageObject(ref, e.target.value); else { const other = key === 'width' ? selectedAnnotation.height : selectedAnnotation.width; resizePageObject(ref, key === 'width' ? Number(e.target.value) : other, key === 'height' ? Number(e.target.value) : other) } }} className="block w-32 rounded bg-bg p-1" /></label>)}</div>
+          {styleFields({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.type, selectedAnnotation.style)}
+          {selectedAnnotation.type === 'frame' && frameConfigFields(selectedAnnotation.id, selectedAnnotation.frame)}
+          {attachmentSelect({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.attachedTo)}
+          <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
+        </div>}
       </aside>}
-    </>}
+    </div>}
+    {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }}>
+      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
+      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>
+      <button type="button" role="menuitem" disabled={!cueLists.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addList(contextMenu.at); setContextMenu(null) }}>Insert Cuelist</button>
+      <div className="my-1 border-t border-line" />
+      <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { cutSelected(); setContextMenu(null) }}>Cut</button>
+      <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { copySelectedPageObjects(); setContextMenu(null) }}>Copy</button>
+      <button type="button" role="menuitem" disabled={isClipboardEmpty(pageClipboard)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { pastePageObjects(); setContextMenu(null) }}>Paste</button>
+      <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { duplicateSelectedPageObjects(); setContextMenu(null) }}>Duplicate</button>
+      <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { deleteSelectedPageObjects(); setContextMenu(null) }}>Delete</button>
+      <div className="my-1 border-t border-line" />
+      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setContextMenu(null); toggleEditing() }}>✓ Edit Live View</button>
+    </div>}
   </section>
 }

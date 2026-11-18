@@ -51,22 +51,26 @@ describe('Live / Live Edit parity', () => {
   })
 
   it('activation goes through the same store path in both modes', () => {
-    // `editing` is component state in LiveWorkspace; the store has no mode
-    // flag, and setLiveValue does not check the lock or any mode.
-    expect(store).not.toMatch(/editing\s*:/)
+    // `liveEditing` is store UI state (like the page selection) so App can
+    // show the LightKey edit shortcuts while Edit is open — but it is a
+    // plain flag, not show data and not undo history, and setLiveValue does
+    // not check the lock or any mode.
+    expect(store).toContain('liveEditing: boolean')
+    expect(store).toContain('setLiveEditing: (editing) => set({ liveEditing: editing })')
     expect(store).toContain('setLiveValue: (id, value) => set((state) => {')
     expect(store).not.toContain('setLiveValue: (id, value) => set((state) => {\n    if (state.locked)')
   })
 
   it('leaves layout editing as edit-only affordances that do not change output', () => {
-    // Add controls, palette, default styles, inspector, marquee, resize and
-    // the edit keyboard shortcuts stay gated on `editing` — they arrange the
-    // page, they do not fire anything.
+    // The edit toolbar, context menu, inspector and the edit keyboard
+    // shortcuts stay gated on `editing` — they arrange the page, they do
+    // not fire anything. The old bottom strip (button row, default-styles
+    // details, preset palette) was replaced by the LightKey layout in
+    // tests/liveEditLightKey.test.ts; the toolbar and inspector below are
+    // its replacements.
     for (const text of [
-      '{editing && !locked && <div className="flex flex-wrap items-center gap-2">',
-      '{editing && !locked && <details',
-      '{editing && !locked && show?.layout?.palette !== false',
-      '{editing && !locked && selectedControl && <CueContentsEditor',
+      '{editing && !locked && <>',
+      '{editing && !locked && <aside',
       'if (!editing || locked) return'
     ]) expect(workspace).toContain(text)
   })

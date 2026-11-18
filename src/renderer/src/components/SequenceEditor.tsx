@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { SequenceStep } from '@shared/types'
 import { useShowStore } from '../stores/showStore'
+import { encodeLiveDrop, LIVE_DROP_MIME } from '../lib/liveDrops'
 
 /**
  * Sequence editor (LightKey guide ch.9, "Create a sequence", p.131).
@@ -87,7 +88,15 @@ export function SequenceEditor() {
             open={expanded}
             onToggle={(event) => setExpandedId(event.currentTarget.open ? sequence.id : null)}
           >
-            <summary className="cursor-pointer">
+            <summary
+              className="cursor-pointer"
+              draggable
+              title="Drag onto a Live page in Edit mode to add this sequence as a button"
+              onDragStart={(event) => {
+                event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop({ presetIds: [], sequenceIds: [sequence.id], sequenceNames: { [sequence.id]: sequence.name } }))
+                event.dataTransfer.effectAllowed = 'copy'
+              }}
+            >
               {sequence.name} · {sequence.steps.length} step{sequence.steps.length === 1 ? '' : 's'}
               {running ? ' · running' : ''}
             </summary>

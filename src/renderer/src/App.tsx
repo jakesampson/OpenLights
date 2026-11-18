@@ -46,6 +46,7 @@ export default function App() {
     blackout,
     blind,
     freeze,
+    liveEditing,
     toggleBlackout,
     goToScene,
     cueNext,
@@ -204,7 +205,17 @@ export default function App() {
     if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
   }), [])
 
-  const shortcuts = SHORTCUTS
+  const shortcuts = tab === 'Live' && liveEditing
+    // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
+    // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
+    // shortcuts do not apply while editing a Live page.
+    ? [
+      { key: '↑ ← ↓ →', label: 'Nudge' },
+      { key: 'esc', label: 'Clear selection' },
+      { key: 'Ctrl+Z', label: 'Undo' },
+      { key: 'Ctrl+Y', label: 'Redo' }
+    ]
+    : SHORTCUTS
   const closeToolPanel = () => setToolPanel(null)
 
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>

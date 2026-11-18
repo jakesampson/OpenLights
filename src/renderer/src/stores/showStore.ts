@@ -74,6 +74,9 @@ interface ShowState {
   liveActivationCounter: number
   activeLivePageId: string | null
   pageActiveValues: PageActiveValues
+  /** Live Edit mode for the active Live page (LightKey "Edit Live View"). UI-only state, like the page selection: it is not persisted in the show, not undo history, and it does not gate firing — cues fire the same in Live and in Edit (see LiveWorkspace). */
+  liveEditing: boolean
+  setLiveEditing: (editing: boolean) => void
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
@@ -578,6 +581,7 @@ const actions: ShowState = {
   liveActivationCounter: 0,
   activeLivePageId: null,
   pageActiveValues: {},
+  liveEditing: false,
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
@@ -626,6 +630,7 @@ const actions: ShowState = {
       liveActivationCounter: 0,
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       pageActiveValues: {},
+      liveEditing: false,
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
@@ -704,6 +709,7 @@ const actions: ShowState = {
   setPageSwitchMode: (deactivateOnSwitch) => set((state) => persistState(state, { deactivateOnPageSwitch: deactivateOnSwitch })),
 
   setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
+  setLiveEditing: (editing) => set({ liveEditing: editing }),
   togglePageObjectSelection: (ref) => set((state) => {
     const exists = state.selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
     return {

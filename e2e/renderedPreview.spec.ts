@@ -42,7 +42,7 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.locator('.bottom-grid').getByLabel('Master output')).toHaveCount(0)
   await expect(page.locator('.bottom-grid').getByLabel('Scene buttons')).toHaveCount(0)
   await page.locator('.live-page-edit').click()
-  await page.getByRole('button', { name: '+ Custom cue' }).click()
+  await page.getByRole('button', { name: 'New button' }).click()
   await expect(page.getByRole('button', { name: /New cue/ }).first()).toBeVisible()
   await page.locator('.live-page-edit').click()
   await page.locator('.view-switch').getByRole('button', { name: 'Live pages' }).click()
@@ -58,6 +58,6 @@ test('clicks through core Design and Live operation', async ({ page }) => {
 
   await page.locator('.live-page-edit').click()
   await page.getByLabel('Live page canvas').click({ button: 'right', position: { x: 8, y: 8 } })
-  await expect(page.getByRole('menu', { name: 'page actions' })).toBeVisible()
+  await expect(page.getByRole('menu', { name: 'Live edit actions' })).toBeVisible()
   await page.screenshot({ path: '/tmp/openlights-rendered-preview.png', fullPage: true })
 })
