@@ -17,10 +17,13 @@ interface Props {
 }
 
 /**
- * Design / Live switch, the LightKey way (Jake's 18 Nov screenshots
- * 8.54.48 / 8.57.25): "Design   Live ⌄" sits top-centre of the window — in
- * the header, centred on the whole window, not on the divider between the
- * preview and the bottom panel. Design is plain text; Live is a light pill
+ * Design / Live switch (Jake's 18 Nov screenshots 8.54.48 / 8.57.25, and
+ * the 9.17.29 correction): "Design   Live ⌄" sits in a pinned row at the
+ * top of the BOTTOM panel, centred on the bottom panel's own width —
+ * not in the header (where the previous batch put it) and not floating on
+ * the divider between the preview and the bottom panel (where the old pill
+ * drifted off-centre, because it was centred on the whole window
+ * including the right sidebar). Design is plain text; Live is a light pill
  * with a chevron. Clicking Live from Design switches to Live; clicking it
  * while already in Live opens the page menu: every Live page with a
  * checkmark on the current one, a separator, then "Manage Live Pages…".
@@ -126,9 +129,9 @@ export function ViewSwitch({ view, onView }: Props) {
         </div>
       )}
 
-      {/* Portalled to the body: the switch itself is centred with a CSS
-          transform, and a transformed ancestor would trap a fixed-position
-          modal inside the pill's box instead of the viewport. */}
+      {/* Portalled to the body: the bottom panel clips its contents
+          (overflow: hidden on the shell), which would clip a modal
+          rendered inside it. */}
       {managerOpen && createPortal(
         <ManageLivePages
           pages={pages}

@@ -41,21 +41,39 @@ describe('Live page menu (LightKey screenshot 8.54.48)', () => {
     expect(viewSwitch).not.toContain('view-switch-pages-list')
   })
 
-  it('the Design / Live switch lives in the header, centred on the window', () => {
-    // App renders the switch inside <header>, not on the divider.
+  it('the Design / Live switch lives in the bottom panel, centred on the panel', () => {
+    // Jake, 18 Nov 2026 (screenshots 9.17.29): the header pill looked
+    // cleaner but the switch belongs in the bottom panel — a pinned row at
+    // the top of the bottom panel, centred on the panel's own width (which
+    // excludes the right sidebar), not in the header and not floating on
+    // the divider between the preview and the bottom panel.
     const headerStart = app.indexOf('<header')
     const headerEnd = app.indexOf('</header>')
     const switchAt = app.indexOf('<ViewSwitch')
     expect(headerStart).toBeGreaterThan(-1)
-    expect(switchAt).toBeGreaterThan(headerStart)
-    expect(switchAt).toBeLessThan(headerEnd)
-    expect(app).not.toContain('on the divider between preview and bottom panel')
-    expect(app).not.toContain('Design/Live view switch — bottom centre')
-    // CSS centres it on the whole window: absolute, left 50%.
-    expect(css).toContain('.top-bar .view-switch {')
-    expect(css).toContain('left: 50%')
-    expect(css).toContain('transform: translate(-50%, -50%)')
-    expect(css).not.toContain('justify-content: center;\n  height: 0;')
+    expect(switchAt).toBeGreaterThan(headerEnd)
+    // The switch renders inside the bottom-grid, in the pinned switch row
+    // at the top of the bottom panel's first cell.
+    const gridAt = app.indexOf('bottom-grid')
+    const rowAt = app.indexOf('bottom-panel-switch')
+    expect(gridAt).toBeGreaterThan(-1)
+    expect(rowAt).toBeGreaterThan(gridAt)
+    expect(switchAt).toBeGreaterThan(rowAt)
+    expect(app).not.toContain('top-centre of the window')
+    // No duplicate pill left in the header, and no header-centring rule.
+    expect(app.match(/<ViewSwitch/g)?.length).toBe(1)
+    expect(css).not.toContain('.top-bar .view-switch {')
+    // The row centres the pill on the bottom panel with flex.
+    expect(css).toContain('.bottom-panel-switch {')
+    expect(css).toContain('justify-content: center')
+    // The shell is a flex column with the row pinned on top of the body.
+    expect(css).toContain('.bottom-panel-shell {')
+    expect(css).toContain('flex-direction: column')
+    expect(css).toContain('.bottom-panel-body {')
+    // The row is paid for: the bottom grid grows 260px → 294px by exactly
+    // the row's height, so the workspace below keeps its height and the
+    // Master rail still fits without the panel scrolling.
+    expect(css).toContain('height: 294px')
   })
 })
 
@@ -107,8 +125,9 @@ describe('Manage Live Pages modal (LightKey screenshot 8.56.01)', () => {
     expect(viewSwitch).toContain('applyPageCommand({ pages, activeId: activeLivePageId }, command)')
     expect(viewSwitch).toContain('setLivePages(result.pages)')
     expect(viewSwitch).toContain('selectLivePage(result.activeId)')
-    // The modal is portalled to the body: the switch is centred with a CSS
-    // transform, which would trap a fixed-position modal inside the pill.
+    // The modal is portalled to the body: the bottom panel clips its
+    // contents (overflow: hidden on the shell), which would clip a modal
+    // rendered inside it.
     expect(viewSwitch).toContain('createPortal(')
     expect(viewSwitch).toContain('document.body')
   })

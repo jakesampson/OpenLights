@@ -360,10 +360,6 @@ export default function App() {
         </div>
 
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
-        {/* Design / Live switch — top-centre of the window (LightKey):
-            centred on the whole window in the header, not floating on the
-            divider between the preview and the bottom panel. */}
-        <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
         <div className="flex items-center gap-2">
           <div className="window-controls">
             <button
@@ -423,10 +419,24 @@ export default function App() {
         </div>
       </div>
 
-      {/* Bottom row */}
+      {/* Bottom row — the Design / Live switch lives here, built into the
+          bottom panel (Jake, 18 Nov 2026, screenshots 9.17.29): a pinned row
+          at the top of the bottom panel, centred on the panel's own width
+          with flex justify-center. The panel is the bottom-grid's first
+          column, so its width excludes the right sidebar (Preset Palette /
+          Shortcuts) — that is what keeps the pill centred, where the old
+          divider-straddling pill drifted off-centre and the header pill was
+          in the wrong place entirely. The row is flex-none, so it never
+          scrolls away with the Live canvas below it, and the switch works
+          identically in Design, Live and Live Edit. */}
       <div className="bottom-grid">
-        <div className={`panel ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
+        <div className="panel bottom-panel-shell">
+          <div className="bottom-panel-switch">
+            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+          </div>
+          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+            {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
+          </div>
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">

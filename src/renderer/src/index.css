@@ -291,7 +291,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   gap: 12px;
   padding: 0 12px 12px;
   flex: 0 0 auto;
-  height: 260px;
+  /* 294px, not 260px: the pinned Design/Live switch row at the top of the
+     bottom panel is 34px tall, and the grid grows by exactly that much so
+     the Live/Design workspace below it keeps the height it had — the
+     Master rail (172px) still fits without the panel scrolling. */
+  height: 294px;
   min-height: 0;
 }
 
@@ -323,8 +327,13 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   text-transform: uppercase;
 }
 
-/* Design/Live switch: top-centre of the window (LightKey) — centred on the
-   whole window inside the header, never floating on a panel divider. */
+/* Design/Live switch: built into the bottom panel (Jake, 18 Nov 2026) —
+   a pinned row at the top of the bottom panel, centred on the panel's own
+   width. The panel is the bottom-grid's first column, so its width
+   excludes the right sidebar — the pill stays centred, unlike the old
+   divider-straddling pill (centred on the whole window) and the header
+   pill that replaced it. The row is flex-none inside the flex-column
+   shell, so it never scrolls away with the Live canvas below it. */
 .view-switch {
   position: relative;
   z-index: 5;
@@ -332,11 +341,25 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   justify-content: center;
 }
 
-.top-bar .view-switch {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
+.bottom-panel-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.bottom-panel-switch {
+  display: flex;
+  justify-content: center;
+  flex: 0 0 auto;
+  padding: 4px 0 2px;
+  position: relative;
+  z-index: 30;
+}
+
+.bottom-panel-body {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .view-switch-segment {
@@ -368,6 +391,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   transform: translateX(-50%);
   z-index: 60;
   width: 280px;
+  /* The menu opens downward from a pill at the top of the bottom panel,
+     and the panel clips its contents — a long page list scrolls inside
+     the menu instead of being cut off at the panel's bottom edge. */
+  max-height: 240px;
+  overflow-y: auto;
   padding: 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -397,15 +425,24 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 /* Manage Live Pages: the current page's row is highlighted blue (LightKey). */
 .live-pages-row.on { background: #2563eb; color: #fff; }
 
-/* Fixed Master fader rail (LightKey): a narrow rail at the far left of the
-   Live area, full height, outside the canvas scroll container — never on
-   the manipulatable canvas, so panning/zooming/editing cannot move it. The
-   BPM / tap-tempo box sits directly underneath the fader, same width. */
+/* Fixed Master fader rail (LightKey): a narrow 96px rail at the far left
+   of the Live area, OUTSIDE the canvas scroll container — never on the
+   manipulatable canvas, so panning/zooming/editing cannot move it. It has
+   a FIXED height (172px, the height of the Live row in the bottom panel —
+   the height it had in Live mode, Jake's screenshot 9.19.46) in both Live
+   and Live Edit: the rail used to stretch with align-self: stretch, and
+   in Edit mode the Live section grows taller than the bottom grid row
+   (the page inspector / 520px canvas force it taller), so the rail
+   stretched to the full edit height (Jake, 18 Nov 2026, screenshot
+   9.23.32). With a fixed height and align-self: flex-start it cannot
+   stretch, whatever the section height is. The BPM / tap-tempo box sits
+   directly underneath the fader, same width. */
 .live-master-rail {
   display: flex;
   width: 96px;
+  height: 172px;
   flex: 0 0 96px;
-  align-self: stretch;
+  align-self: flex-start;
   flex-direction: column;
   align-items: center;
   gap: 4px;
@@ -420,7 +457,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   writing-mode: vertical-lr;
   direction: rtl;
   flex: 1;
-  min-height: 120px;
+  min-height: 96px;
   width: 56px;
   margin: 0;
   accent-color: var(--text);

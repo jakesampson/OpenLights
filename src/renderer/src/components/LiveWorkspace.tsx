@@ -395,10 +395,10 @@ export function LiveWorkspace() {
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
   return <section data-context-menu="page" aria-label="Live page canvas" className="relative flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
-    {/* LightKey-style edit toolbar: the Design / Live switch sits
-        top-centre of the window in the header (ViewSwitch); the toolbar
-        below it holds New Button (+), New Frame, Insert Text (T) and the
-        green Done button, as in LightKey's bottom panel. */}
+    {/* LightKey-style edit toolbar: the Design / Live switch sits in the
+        bottom panel above this workspace (ViewSwitch, rendered by App);
+        the toolbar below it holds New Button (+), New Frame, Insert Text
+        (T) and the green Done button, as in LightKey's bottom panel. */}
     <div className="flex flex-wrap items-center gap-2">
       {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
@@ -414,11 +414,12 @@ export function LiveWorkspace() {
     </div>
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
-      {/* Fixed Master fader rail (LightKey): full height of the Live area,
-          fixed 96px width, OUTSIDE the canvas scroll container below — it
-          is never on the manipulatable canvas, so panning, zooming or
-          editing the canvas cannot move it. The value reads "Full" at 100%,
-          as in LightKey, and the tap-tempo box sits directly underneath. */}
+      {/* Fixed Master fader rail (LightKey): fixed 96px wide and fixed
+          192px tall — the same height in Live and in Live Edit — OUTSIDE
+          the canvas scroll container below, so it is never on the
+          manipulatable canvas and panning, zooming or editing the canvas
+          cannot move or stretch it. The value reads "Full" at 100%, as in
+          LightKey, and the tap-tempo box sits directly underneath. */}
       <div className="live-master-rail" aria-label="Master fader">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Master</span>
         <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} />

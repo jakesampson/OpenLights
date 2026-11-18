@@ -13,11 +13,12 @@ const design = readFileSync(resolve(root, 'src/renderer/src/components/DesignTab
 const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 
 describe('Master fader — fixed left rail (LightKey screenshots 8.54.48 / 8.57.25)', () => {
-  it('is a fixed 96px rail, full height of the Live area', () => {
+  it('is a fixed 96px wide, 172px tall rail', () => {
     expect(css).toContain('.live-master-rail {')
     expect(css).toContain('width: 96px')
     expect(css).toContain('flex: 0 0 96px')
-    expect(css).toContain('align-self: stretch')
+    expect(css).toContain('height: 172px')
+    expect(css).toContain('align-self: flex-start')
     expect(css).toContain(".live-master-rail input[type='range'] {")
     expect(css).toContain('flex: 1')
     expect(css).toContain('width: 56px')
@@ -28,6 +29,28 @@ describe('Master fader — fixed left rail (LightKey screenshots 8.54.48 / 8.57.
     // The value reads "Full" at 100%, as in LightKey — not a separate label.
     expect(workspace).toContain("master >= 255 ? 'Full'")
     expect(workspace).not.toContain('flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2')
+  })
+
+  it('keeps the same fixed height in Live Edit mode — it never stretches', () => {
+    // Jake, 18 Nov 2026 (screenshot 9.23.32): toggling Edit on stretched
+    // the Master fader to the full height of the edit area. Root cause:
+    // the rail used align-self: stretch, and in Edit mode the Live section
+    // grows taller than the 260px bottom grid row (the page inspector and
+    // the 520px canvas force it taller), so the rail stretched with it.
+    // The fix is a fixed height on the rail itself, not a cap on the
+    // section — so there must be exactly one rail rule, with that fixed
+    // height, and no stretch or full-height rule anywhere.
+    const railRules = css.split('.live-master-rail {').length - 1
+    expect(railRules).toBe(1)
+    const railBlock = css.slice(css.indexOf('.live-master-rail {'), css.indexOf('}', css.indexOf('.live-master-rail {')))
+    expect(railBlock).toContain('height: 172px')
+    expect(railBlock).toContain('align-self: flex-start')
+    expect(railBlock).not.toContain('align-self: stretch')
+    expect(railBlock).not.toContain('height: 100%')
+    // The rail is rendered once, outside any editing-gated block: the
+    // same rail shows in Live and in Live Edit.
+    expect(workspace.match(/live-master-rail/g)?.length).toBe(1)
+    expect(workspace.indexOf('live-master-rail')).toBeLessThan(workspace.indexOf('This Live page is blank'))
   })
 
   it('sits outside the canvas scroll container, so canvas pan/zoom/edit cannot move it', () => {
