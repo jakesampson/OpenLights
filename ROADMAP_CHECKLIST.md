@@ -4,6 +4,8 @@ Supersedes the planning in `LIGHTKEY_UI_ROADMAP.md`, which stays in place for re
 
 Reference guide: `docs/Lightkey-User-Guide.pdf` (351 pages). Page numbers below are the guide's printed page numbers. Once item 0.2 is done, `docs/lightkey-audit.md` is the working reference.
 
+Maintenance note (19 Nov 2026): 'scene' was renamed to 'cue' throughout the live item text following the 18 Nov 2026 rename (scenes are now cues; see NOTES.md). Evidence lines are left verbatim as historical records of work done under the old name, except where a dated note corrects a claim that is no longer true. Four ticked items were split because part of each is still missing — see 5.4a, 5.12a, 6.12a and 8.8a.
+
 ---
 
 ## How to work this file (read this first, every session)
@@ -37,7 +39,7 @@ Reference guide: `docs/Lightkey-User-Guide.pdf` (351 pages). Page numbers below 
 - Shared: `src/shared/types.ts` (show model), `src/shared/dmx.ts`, `src/shared/dmxPorts.ts` (Open DMX USB discovery).
 - Renderer state: `src/renderer/src/stores/showStore.ts` (zustand, all editing actions).
 - Output layering: `src/renderer/src/lib/output.ts` (preset / live / override / effects layers, fades, blackout).
-- UI: `App.tsx`, `DesignTab.tsx`, `LiveTab.tsx`, `LiveWorkspace.tsx` (Live page editor), `StagePreview.tsx`, `PatchPanel.tsx`, `SceneGrid.tsx` and `CueListPanel.tsx` (the separate Scenes & cues editor), `EffectsPanel.tsx`, `AutomationPanel.tsx`, `MidiPanel.tsx`.
+- UI: `App.tsx`, `DesignTab.tsx`, `LiveTab.tsx`, `LiveWorkspace.tsx` (Live page editor), `StagePreview.tsx`, `PatchPanel.tsx`, `EffectsPanel.tsx`, `AutomationPanel.tsx`, `MidiPanel.tsx`.
 
 ---
 
@@ -54,7 +56,7 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 ## 1. Foundation: show model, migration, undo, output order
 
 - [x] 1.1 Add `schemaVersion` to `ShowDef` and set it on every newly created show. Old files without it count as version 0.
-  Done when: a test loads a version-0 show object (copy the current default or demo show from `showStore.ts`) and gets the current version back with all fixtures, scenes, presets, cue lists, live pages, trusses, effects, automations and MIDI mappings intact.
+  Done when: a test loads a version-0 show object (copy the current default or demo show from `showStore.ts`) and gets the current version back with all fixtures, cues, presets, cue lists, live pages, trusses, effects, automations and MIDI mappings intact.
 - [x] 1.2 Create `src/shared/migrations.ts` with a `migrateShow(raw): ShowDef` step chain, and run it on every load path (load-show, open-show, the list-shows preview). Invalid or partial input is filled with defaults instead of throwing.
   Evidence: `shared/migrations.ts`, all main-process load paths, store entry, `tests/migrations.test.ts`; typecheck, 106 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover a version-0 round trip (load, then save, then load gives the same data), missing optional arrays, unknown extra fields being kept, and a future-version file loading read-only or warning (log the choice in NOTES).
@@ -95,22 +97,22 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   - **Note from Jake:** the mzx-0125/0208 frames have a live video of the stage lights in the bottom-right corner. That is camera footage edited into the video, NOT part of the Lightkey GUI; ignore it and do not build it.
   Primary source: YouTube https://www.youtube.com/watch?v=SQw-4lZBp9s (Simple Stage Lighting Automation with Lightkey). Secondary, only for Live pages SQw does not show: https://www.youtube.com/watch?v=mzx-1e0tRWk from 1:20, plus Jake's cuelist screenshot `docs/reference/lightkey-design-live-switch.png`. Frames live in `docs/reference/lightkey/`. Base the layout on the SQw frames; use mzx and the cuelist screenshot only to fill Live-page gaps.
   Frames:
-  - `docs/reference/lightkey/SQw-0240.jpg` — Design overview. Bottom panel is *playback only*: Master fader at far left (Full / BPM), a grid of scene tiles you fire (not an editor), small centred "Design" + "Live ⌄" switch on the Preview/bottom divider, "Edit" on the right of the bottom bar, Shortcuts–Preview in the bottom-right. Scenes are a tree in the *right sidebar*. Compact top toolbar (no Design/Live control there).
-  - `docs/reference/lightkey/SQw-0450.jpg` — Design with fixtures selected; same bottom playback tiles and right-sidebar Scenes list.
+  - `docs/reference/lightkey/SQw-0240.jpg` — Design overview. Bottom panel is *playback only*: Master fader at far left (Full / BPM), a grid of cue tiles you fire (not an editor), small centred "Design" + "Live ⌄" switch on the Preview/bottom divider, "Edit" on the right of the bottom bar, Shortcuts–Preview in the bottom-right. Cues are a tree in the *right sidebar*. Compact top toolbar (no Design/Live control there).
+  - `docs/reference/lightkey/SQw-0450.jpg` — Design with fixtures selected; same bottom playback tiles and right-sidebar Cues list.
   - `docs/reference/lightkey/SQw-0610.jpg` — same Design bottom panel with output on and a camera preview.
   - `docs/reference/lightkey/SQw-0555.jpg` — fixture Dim/Color controls are a floating overlay on the Preview, not a section of the bottom panel.
-  - `docs/reference/lightkey/SQw-0905.jpg` — right-click on a bottom tile opens a small context menu; it is not a scene/cue editor in the bottom panel.
-  - `docs/reference/lightkey/mzx-0125.jpg`, `mzx-0208.jpg` — Live view (from mzx-1e0tRWk). Same switch, Master and right-sidebar Scenes tree; the bottom panel is large *playback* buttons for the current Live page (Pre/Post, Live Talk, Worship 1.1, etc.). Still no scene/cue editor in the bottom.
+  - `docs/reference/lightkey/SQw-0905.jpg` — right-click on a bottom tile opens a small context menu; it is not a cue editor in the bottom panel.
+  - `docs/reference/lightkey/mzx-0125.jpg`, `mzx-0208.jpg` — Live view (from mzx-1e0tRWk). Same switch, Master and right-sidebar Cues tree; the bottom panel is large *playback* buttons for the current Live page (Pre/Post, Live Talk, Worship 1.1, etc.). Still no cue editor in the bottom.
   - `docs/reference/lightkey-design-live-switch.png` — Live *cuelist* page (not clear in the SQw frames): Name / Hold Time / Fade Time table with +/-, Master at left, stop/pause/next at right, Shortcuts–Cuelist.
   Differences to fix vs current OpenLights:
   1. The Design/Live control is a large pink pill sitting right of centre. Lightkey uses small centred "Design" text and a "Live ⌄" dropdown on the Preview/bottom divider.
-  2. OpenLights' bottom panel is collapsible property and scene-editing sections (Copy/Paste properties, Custom properties and layout, colour wheel, Edit scene). Lightkey's bottom panel is playback only — Design: scene tiles; Live: a button page or a cuelist (Name/Hold/Fade) with Master, transport and shortcuts.
-  3. **Jake: scenes are only edited from the right side panel.** The bottom panel must not contain scene or cue lists or editors. Remove those from the bottom panel and move that editing to the right sidebar (the Scenes tree).
+  2. OpenLights' bottom panel is collapsible property and cue-editing sections (Copy/Paste properties, Custom properties and layout, colour wheel, Edit cue). Lightkey's bottom panel is playback only — Design: cue tiles; Live: a button page or a cuelist (Name/Hold/Fade) with Master, transport and shortcuts.
+  3. **Jake: cues are only edited from the right side panel.** The bottom panel must not contain cue lists or editors. Remove those from the bottom panel and move that editing to the right sidebar (the Cues tree).
   4. Match the bottom chrome: Master at far left, centred view switch, Edit on the right, shortcuts in the bottom-right corner.
   Use OpenLights' own icons and typography; do not copy Lightkey artwork, icons or manual wording.
-  Done when: Design and Live bottom panels and the Design/Live switch match the frames above, scene/cue editing is only in the right sidebar, tests cover the switch, the Live dropdown/page manager, and that the bottom panel has no scene/cue editor, and typecheck, tests and build pass.
+  Done when: Design and Live bottom panels and the Design/Live switch match the frames above, cue editing is only in the right sidebar, tests cover the switch, the Live dropdown/page manager, and that the bottom panel has no cue editor, and typecheck, tests and build pass.
   Evidence: superseded in part by Jake's 2.4c correction below; `BottomPlayback.tsx`, `App.tsx`, `GroupsPresetsPanel.tsx`, compact `ViewSwitch.tsx`, `lib/bottomPanel.ts` and `tests/bottomPanel.test.ts`; visual comparison added to Needs Jake.
-- [x] 2.4c **Correction from Jake:** Design's bottom panel is fixture programming; scene buttons belong to Live. Live's divider Edit button must open the page editor and allow adding scene buttons and custom cue/list/label/frame controls.
+- [x] 2.4c **Correction from Jake:** Design's bottom panel is fixture programming; cue buttons belong to Live. Live's divider Edit button must open the page editor and allow adding cue buttons and custom cue/list/label/frame controls.
   Evidence: `BottomPlayback.tsx` mounts `DesignTab` for Design and scene/page playback for Live; `App.tsx` opens `LiveWorkspace` from the Live Edit button; `LiveWorkspace.tsx` starts in edit mode and adds existing scenes as page buttons alongside custom controls; `tests/bottomPanel.test.ts` covers the corrected modes and add-control set. Typecheck, tests and build passed.
 
 - [x] 2.5 Customise the window: panels can be shown or hidden (Preview, Fixture/Preset palette, inspector), and the layout is saved per project. Guide: p.47.
@@ -214,9 +216,11 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   Evidence: profile property intersection and Design integration, `tests/availableProperties.test.ts`; typecheck, 157 tests and build passed; commit blocked by Git permissions.
   Done when: a pure `availableProperties(fixtures)` is tested for a mixed selection.
 - [x] 5.3 Dimmer control and master dimmer. *(Evidence: `DesignTab.tsx`, `showStore.setMaster`, commit `62e1b21`.)* (verify that master behaves as on p.82)
-- [x] 5.4 Colour: a colour picker that maps to RGB, RGBW, RGBA, RGBAW+UV and CMY (white/amber/UV extraction), plus colour favourites. Guide: Colour, p.83 to 86. (The colour wheel UI exists.)
+- [x] 5.4 Colour: a colour picker that maps to RGB, RGBW, RGBA, RGBAW+UV and CMY (white/amber/UV extraction). (Colour favourites UI is 5.4a.) Guide: Colour, p.83 to 86. (The colour wheel UI exists.)
   Evidence: emitter mixing, per-fixture colour programming/favourites and Design controls, `tests/colorMix.test.ts`; typecheck, 159 tests and build passed; commit blocked by Git permissions.
   Done when: `lib/colorMix.ts` is tested for each emitter set, and favourites are saved.
+- [ ] 5.4a Colour favourites UI: save the current colour as a favourite and recall a favourite onto the selection, from the Design controls. The favourites model already saves favourites (see 5.4); there is no UI to save or pick one yet. Guide: Colour, p.83 to 86.
+  Done when: a favourite can be saved from the current colour and recalled onto the selection, with a test.
 - [x] 5.5 Colour wheel and gobo wheel properties (slots from the profile, plus spin/scroll modes). Guide: p.87 to 90.
   Evidence: profile wheel ranges/editor, Design wheel controls, `tests/wheelProperties.test.ts`; typecheck, 160 tests and build passed; commit blocked by Git permissions.
   Done when: tests cover slot-to-DMX mapping and mode values.
@@ -238,9 +242,11 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 5.11 Overridden properties: show which properties are manually overridden (per fixture, per property), with Clear for all, for the selection, or for one property. Guide: View overridden fixture properties, p.116, and Clear fixture properties, p.116.
   Evidence: `propertyOverrides.ts`, `OverrideProperties.tsx`, store and output-fallback test; typecheck, 166 tests and build passed. Commit blocked by Git permissions.
   Done when: store tests cover selective clearing and the output falling back to the layer below (using the 1.5 output model).
-- [x] 5.12 Fanning: fan a property across the selection (linear, from the centre, and so on), edit it, and delete it. Guide: Fanning, p.118 to 122.
-  Evidence: `fanning.ts`, `FanningEditor.tsx`, saved fan definitions and `tests/fanning.test.ts`; typecheck, 169 tests and build passed. Graphical HUD/beam workflow gap recorded in NOTES; commit blocked by Git permissions.
+- [x] 5.12 Fanning: fan a property across the selection (linear, from the centre, and so on), edit it, and delete it. (Fanning UI is 5.12a.) Guide: Fanning, p.118 to 122.
+  Evidence: `fanning.ts`, `FanningEditor.tsx`, saved fan definitions and `tests/fanning.test.ts`; typecheck, 169 tests and build passed. Graphical HUD/beam workflow gap recorded in NOTES; commit blocked by Git permissions. (Note 19 Nov 2026: `FanningEditor.tsx` was removed from the Design panel — LightKey has no fanning control there; the lib behaviour this item's Done-when covers still holds. The missing piece is a UI that can create/edit a fan — see 5.12a.)
   Done when: `lib/fanning.ts` is tested for each fan mode with 1, 2 and odd/even fixture counts.
+- [ ] 5.12a Fanning UI: create, edit and delete a fan from wherever LightKey exposes fanning. The fan model (`saveFan`/`deleteFan`, `lib/fanning.ts`, fan data on cues/presets/sequence steps) and its tests still exist, but the Design-panel UI (`FanningEditor.tsx`) was removed 19 Nov 2026 — LightKey has no fanning control in the Design panel — so no UI can create a fan right now. Confirm against Guide §8, p.118 to 122 where fanning lives in LightKey, then build that UI.
+  Done when: a fan can be created, edited and deleted from the UI and its values land on the selected fixtures.
 
 ## 6. Presets and sequences (guide ch.9)
 
@@ -271,14 +277,16 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
   Evidence: 16-bit paired interpolation in `sequenceClock.ts`, `tests/sequenceMovement.test.ts`; typecheck, 180 tests and build passed.
   Done when: a test covers interpolated pan/tilt between steps.
 - [x] 6.11 Preset Palette shown in Live edit mode. *(Evidence: `LiveWorkspace.tsx` preset palette block.)*
-- [x] 6.12 Split the Preset Palette, filter it (by name, type, fixtures in the selection), and find related cues (which cues use this preset). Guide: p.143 to 144.
+- [x] 6.12 Split the Preset Palette and filter it (by name, type, fixtures in the selection). (Find related cues is 6.12a.) Guide: p.143 to 144.
   Evidence: `lib/presetPalette.ts`, `tests/presetPalette.test.ts`; typecheck, 186 tests and build passed.
   Done when: there are pure filter and related-cue functions with tests.
+- [ ] 6.12a Find related cues UI: from a preset in the palette, show the cues that use it. The pure `findRelatedCues` function already exists and is tested (see 6.12); there is no UI that calls it yet. Guide: p.143 to 144.
+  Done when: choosing 'Find related cues' (or equivalent) on a preset lists the cues using it, with a test.
 - [x] 6.13 Export and import Preset Palette items as JSON, with fixture matching by name and profile. Guide: p.144.
   Done when: there's a round-trip test, including a fixture that isn't found and gets skipped and logged.
   Evidence: `lib/presetPaletteIo.ts` (portable export doc + fixture descriptors, import re-maps values/fans by name+profile, skips+logs unmatched), Export/Import JSON buttons in `LiveWorkspace.tsx` palette, `tests/presetPaletteIo.test.ts` (round-trip, id re-map, unmatched fixture skipped+logged); typecheck, 202 tests and build passed; UI check on Needs Jake.
-- [x] 6.14 Convert existing scenes into presets or sequences (one-way, keeping the originals until 8.9). This feeds the retirement of the Scenes & cues editor.
-  Done when: a migration helper converts every `SceneDef` to an equivalent preset with identical DMX output (tested).
+- [x] 6.14 Convert existing cues into presets or sequences (one-way, keeping the originals until 8.9). This feeds the retirement of the Cues editor.
+  Done when: a migration helper converts every `CueDef` to an equivalent preset with identical DMX output (tested).
   Evidence: `shared/sceneConversion.ts` (stable id, deep-copied values/fans, profile-based category inference), store `convertScenesToPresets` action (idempotent, keeps scenes) + "Convert scenes" button in the Live palette, `tests/sceneConversion.test.ts` (identical `computeSceneChannels` output for every scene at multiple master levels) and `tests/store.test.ts`; typecheck, 208 tests and build passed; UI check on Needs Jake.
 
 ## 7. Live view pages (guide ch.11, p.177 to 190)
@@ -332,11 +340,13 @@ Evidence 1.1: `shared/types.ts`, default/new shows, `tests/migrations.test.ts`; 
 - [x] 8.7 Cuelists in Live: add, remove, reorder, copy/paste, rename and filter cues inside the cuelist widget, and show the current and next cue with remaining time. Guide: Edit cuelists, p.191 to 198.
   Done when: store tests cover each command, and a pure "current/next/remaining" function is tested.
   Evidence: `lib/cueListEditing.ts` immutable commands/filter/status, history/lock-gated store command, `CueListEditor.tsx` Live widget authoring UI, `tests/cueListEditing.test.ts` + `tests/store.test.ts`; typecheck, 330 tests and build passed.
-- [x] 8.8 Cuelist playback: Go, Back, jump to any cue, auto-advance with follow times, loop, cue groups, and a manual crossfade fader. Guide: Cuelist timing, p.193, Cue groups, p.192, and Live control with cuelists, p.218 to 220. (Next/prev, hold and loop exist in `showStore` and `cuePlaybackClock.ts`; extend them.)
+- [x] 8.8 Cuelist playback: Go, Back, jump to any cue, auto-advance with follow times, loop and cue groups. (Manual crossfade fader is 8.8a.) Guide: Cuelist timing, p.193, Cue groups, p.192, and Live control with cuelists, p.218 to 220. (Next/prev, hold and loop exist in `showStore` and `cuePlaybackClock.ts`; extend them.)
   Done when: clock tests cover auto-follow, loop, a jump while fading, and a manual crossfade at 50%.
-  Evidence: existing Go/Back/jump/follow/loop store+clock extended with cue `groupId`, manual-crossfade operator state/UI and pure `cueListPlayback.ts` patch blend/group bounds; clock jump/loop tests and `tests/cueListPlayback.test.ts`; typecheck, 335 tests and build passed.
-- [x] 8.9 Retire the separate Scenes & cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate scenes to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.
-  Done when: a test opens the demo show and a version-0 show, migrates them, and gets identical DMX output for each former scene and cue step. Add a Needs Jake check on a real show.
+  Evidence: existing Go/Back/jump/follow/loop store+clock extended with cue `groupId`, manual-crossfade operator state and pure `cueListPlayback.ts` patch blend/group bounds; clock jump/loop tests and `tests/cueListPlayback.test.ts`; typecheck, 335 tests and build passed. (Note 19 Nov 2026: the crossfade blender and store value exist, but no fader UI exists and nothing reads the value yet — see 8.8a.)
+- [ ] 8.8a Manual crossfade fader UI: a fader that blends between the current and next cue in a cuelist, wired to the existing `manualCrossfade` store value and the pure `manualCrossfade()` blender in `lib/cueListPlayback.ts` (currently model-only — no UI and nothing reads the value). Guide: Cuelist timing, p.193, and Live control with cuelists, p.218 to 220.
+  Done when: dragging the fader crossfades live output between the two cues, and the 50% blend test still passes.
+- [x] 8.9 Retire the separate Cues editor (`SceneGrid.tsx`, `CueListPanel.tsx`): migrate cues to presets (6.14) and cue steps to cuelist cues, and remove the tab once every capability exists in Live. Keep the migration code.
+  Done when: a test opens the demo show and a version-0 show, migrates them, and gets identical DMX output for each former cue and cue step. Add a Needs Jake check on a real show.
   Evidence: removed `EditTab.tsx`, `SceneGrid.tsx`, `CueListPanel.tsx` and toolbar entry; retained non-destructive scene→preset conversion and cuelist migration paths; `tests/editorRetirement.test.ts` verifies demo/version-0 scene and cue-step output equivalence; typecheck, 337 tests and build passed; real-show check remains on Needs Jake.
 - [x] 8.10 Step through buttons in a frame (next/previous button), and continue effects across cues. Guide: p.216 to 217 and p.221.
   Done when: store tests cover both.
@@ -417,10 +427,10 @@ The agent never waits on these. It adds a line here (item number plus what to ch
 - [ ] (Jake) Open a real existing show (for example the PRBC test fixtures show) after 1.2, after 4.1 and after 8.9, then save, reopen and check nothing is lost.
 - [ ] (Jake) Visual comparison of the toolbar, Design view, Preview and Live view against the guide's layout.
 - [ ] (Jake) Visual check of the bottom-centre Design/Live switch against `docs/reference/lightkey-design-live-switch.png`: placement on the Preview/bottom divider, segmented look in Design view, chevron dropdown in Live view, and page manager pick/add/rename/reorder (2.4a).
-- [ ] (Jake) Compare the complete bottom panel against all 2.4b reference frames: compact centred switch, Master at left, Design scene tiles, Live buttons/cuelist, Edit and shortcuts chrome, Preview property overlay, and scene Edit appearing on hover in the right tree; confirm no camera footage or bottom editor appears.
-- [ ] (Jake) Test the corrected 2.4c flow: Design bottom shows fixture controls; Live shows scenes and page controls; Live Edit opens immediately and can add an existing scene button, custom cue, cuelist, label and frame.
+- [ ] (Jake) Compare the complete bottom panel against all 2.4b reference frames: compact centred switch, Master at left, Design cue tiles, Live buttons/cuelist, Edit and shortcuts chrome, Preview property overlay, and cue Edit appearing on hover in the right tree; confirm no camera footage or bottom editor appears.
+- [ ] (Jake) Test the corrected 2.4c flow: Design bottom shows fixture controls; Live shows cues and page controls; Live Edit opens immediately and can add an existing cue button, custom cue, cuelist, label and frame.
 - [ ] (Jake) Preset palette Export/Import JSON click-through in Live edit mode: export a palette, import it into a show with renamed fixture ids, and confirm values re-map by name/profile and an unmatched fixture is skipped and reported (6.13).
-- [ ] (Jake) Click "Convert scenes" in the Live palette and confirm presets appear with the same looks while the originals remain in Scenes & cues (6.14).
+- [ ] (Jake) Click "Convert cues to presets" in the Live palette and confirm presets appear with the same looks while the original cues remain (6.14).
 - [ ] (Jake) Live page switching click-through (7.2): active cues restore when you return to a page by default, the "Deactivate cues when switching pages" checkbox releases them instead, and the page fade visibly crossfades outgoing/incoming looks (check blackout and opening another project mid-fade).
 - [ ] (Jake) Multi-select click-through in Live edit mode (7.5): Shift-click and marquee-select several cues/labels/frames, drag them together, then try Delete, Duplicate, Copy, Paste (buttons and Del / Ctrl+C / Ctrl+V / Ctrl+D) and undo each one.
 - [ ] (Jake) Resize and inline-rename click-through in Live edit mode (7.6): select a cue/list/frame and drag its bottom-right handle (sizes snap to 10px and stay within 40–900px), double-click a cue or label to rename it, and try the width/height inspector inputs; reopen an older show to confirm object sizes are kept and undo works.
