@@ -310,7 +310,7 @@ export default function App() {
     <div className="app">
       <ContextMenu />
       {/* Top bar */}
-      <header className="top-bar">
+      <header className={`top-bar ${isMac ? 'top-bar-mac' : ''}`}>
         <div className="flex items-center gap-2">
           <ProjectBar />
           <ProjectSearch onReveal={(result) => {

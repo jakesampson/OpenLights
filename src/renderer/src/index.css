@@ -115,15 +115,26 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
    header must reserve the native traffic-light area, just like the main
    title bar, while leaving the rest of the header available for dragging. */
 .patch-dialog-header {
+  position: relative;
+  min-height: 72px;
+  padding-top: 8px;
+  padding-bottom: 8px;
   -webkit-app-region: drag;
 }
 
 .patch-dialog-header > button {
+  min-height: 40px;
   -webkit-app-region: no-drag;
 }
 
 .patch-dialog-header-mac {
-  padding-left: 120px;
+  padding-left: 184px;
+}
+
+.patch-dialog-header-mac > button {
+  position: absolute;
+  left: 108px;
+  width: 64px;
 }
 
 .top-bar {
@@ -159,7 +170,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   display: flex;
   align-items: center;
   min-width: 180px;
-  margin-left: 96px;
+  margin-left: 40px;
   border: 0;
   background: transparent;
   color: var(--text);
@@ -172,10 +183,18 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .header-patch-button {
   position: absolute;
-  left: 84px;
+  left: 16px;
   top: 50%;
   z-index: 1;
   transform: translateY(-50%);
+}
+
+.top-bar-mac .header-patch-button {
+  left: 120px;
+}
+
+.top-bar-mac .lightkey-project {
+  margin-left: 156px;
 }
 
 .header-look-field {

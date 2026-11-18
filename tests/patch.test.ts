@@ -46,7 +46,10 @@ it('keeps the full-window Done button clear of macOS window controls', () => {
   expect(app).toContain("/Macintosh|Mac OS X/.test(navigator.userAgent)")
   expect(app).toContain("'patch-dialog-header-mac'")
   expect(styles).toContain('.patch-dialog-header-mac')
-  expect(styles).toContain('padding-left: 120px')
+  expect(styles).toContain('padding-left: 184px')
+  expect(styles).toContain('left: 108px')
+  expect(styles).toContain('width: 64px')
+  expect(styles).toContain('min-height: 72px')
   expect(styles).toContain('-webkit-app-region: no-drag')
 })
 
