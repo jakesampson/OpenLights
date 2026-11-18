@@ -190,12 +190,18 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   transform: translateY(-50%);
 }
 
+/* macOS: the native traffic lights end at ~64px, so the patch (fixture
+   editor) icon sits just right of them — the same tight left-edge placement
+   as LightKey's header, where the icon sits close to the left edge. */
 .top-bar-mac .header-patch-button {
-  left: 124px;
+  left: 80px;
 }
 
+/* macOS: the project title follows ~20px after the 32px patch icon, the
+   same icon-to-title gap as LightKey's header (icon, then title close
+   after it). The traffic lights themselves are native chrome, untouched. */
 .top-bar-mac .lightkey-project {
-  margin-left: 173px;
+  margin-left: 104px;
 }
 
 .top-bar-mac {
@@ -228,7 +234,12 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lighting-toolbar > .header-icon:nth-child(3) { margin-left: 14px; }
 .lighting-toolbar > .header-more:first-of-type { margin-left: 217px; }
 .lighting-toolbar > .effects-menu { margin-left: 42px; }
-.top-bar > .flex:first-child > :nth-child(3) { margin-left: 41px; transform: translateX(-10px); }
+/* The Edit control starts the right cluster (Edit, search, layout/settings).
+   margin-left: auto absorbs all free space here, so the cluster is pinned to
+   the header's right edge: when the search field expands, this margin
+   shrinks and Edit slides left while the layout/settings button stays
+   exactly where it was — the LightKey slide-to-fit behaviour. */
+.top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }
 .header-icon {
   display: inline-flex;
   align-items: center;
@@ -269,21 +280,21 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lightkey-action:hover, .lightkey-action.on { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
 .lightkey-action svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
-.project-search { position: absolute; right: 196px; order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; margin-left: 0; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
-.project-search.open { width: 280px; flex-basis: 280px; }
+/* Project search: an in-flow flex item at the right of the header (Edit,
+   search, layout/settings), NOT an absolutely positioned overlay. Opening
+   it grows its flex-basis 32px -> 280px and the flex row reflows around
+   it, so the field can never paint over the Edit button: the auto margin
+   on Edit shrinks and Edit slides left, as in LightKey. The field and its
+   input may shrink below their open size (minima 40px / 120px) on narrow
+   windows instead of overflowing or overlapping anything. */
+.project-search { order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
+.project-search.open { width: 280px; flex: 0 1 280px; min-width: 40px; }
 .project-search-button { display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 25px; line-height: 1; }
 .project-search-button:hover, .project-search.open .project-search-button { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
 .project-search > input { width: 0; min-width: 0; height: 32px; margin-right: 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); opacity: 0; pointer-events: none; transition: width 160ms ease, opacity 120ms ease, padding 160ms ease, margin 160ms ease; }
-.project-search.open > input { width: 240px; flex: 0 0 240px; margin-right: 8px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel2); opacity: 1; pointer-events: auto; }
-.top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type { transform: translateX(-18px); }
-.top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-18px); }
-.top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-28px); }
+.project-search.open > input { width: 240px; flex: 0 1 240px; min-width: 120px; margin-right: 8px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel2); opacity: 1; pointer-events: auto; }
 
 .top-bar > .flex:last-child { order: 10; }
-.top-bar > .flex:first-child > :nth-child(5) { position: absolute; right: 150px; transform: none; }
-
-.top-bar-mac .project-search { right: 66px; }
-.top-bar-mac > .flex:first-child > :nth-child(5) { right: 20px; }
 
 /* A 1920×1080 macOS display commonly gives Electron about 1600 CSS pixels
    after display scaling. Keep the Lightkey hierarchy, but remove the large
@@ -298,10 +309,17 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   .lighting-toolbar > .header-icon:nth-child(3) { margin-left: 8px; }
   .lighting-toolbar > .header-more:first-of-type { margin-left: 80px; }
   .lighting-toolbar > .effects-menu { margin-left: 18px; }
-  .top-bar > .flex:first-child > :nth-child(3) { margin-left: 18px; transform: none; }
-  .top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type,
-  .top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-14px); }
-  .top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-14px); }
+  .top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }
+}
+
+/* Narrow windows (Jake's ~1270 CSS px Mac window): shrink the open search
+   field, the project title and the spacer before the property menu, so the
+   expanding search still fits the row without overlap. */
+@media (max-width: 1400px) {
+  .lightkey-project { min-width: 200px; }
+  .lighting-toolbar > .header-more:first-of-type { margin-left: 40px; }
+  .project-search.open { width: 200px; flex-basis: 200px; }
+  .project-search.open > input { width: 160px; flex-basis: 160px; }
 }
 
 .top-bar button,

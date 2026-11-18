@@ -34,10 +34,10 @@ describe('toolbar dispatch', () => {
     expect(projectBar).not.toContain('<svg viewBox="0 0 28 18"')
     expect(app).toContain("top-bar ${isMac ? 'top-bar-mac' : ''}")
     expect(styles).toContain('.top-bar-mac .lightkey-project')
-    expect(styles).toContain('margin-left: 173px')
+    expect(styles).toContain('margin-left: 104px')
     expect(styles).toContain('.header-patch-button')
     expect(styles).toContain('.top-bar-mac .header-patch-button')
-    expect(styles).toContain('left: 124px')
+    expect(styles).toContain('left: 80px')
     expect(styles).toContain('min-height: 50px')
     expect(styles).toContain('width: 32px')
     expect(styles).toContain('height: 34px')
@@ -52,6 +52,16 @@ describe('toolbar dispatch', () => {
     expect(search).toContain("window.addEventListener('keydown', closeOnEscape)")
     expect(styles).toContain('.project-search.open')
     expect(styles).not.toContain('.project-search:hover > input')
+    // Search expands by flex reflow, not by overlay: it is an in-flow item,
+    // the right cluster is pinned by an auto margin on Edit, and no
+    // :has() transform nudges remain (they moved paint, not layout, and
+    // let the open field paint over Edit).
+    expect(styles).toContain('.top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }')
+    expect(styles).not.toContain('.project-search { position: absolute')
+    expect(styles).not.toContain(':nth-child(5) { position: absolute')
+    expect(styles).not.toContain(':has(.project-search.open)')
+    expect(styles).not.toContain('right: 196px')
+    expect(styles).not.toContain('.top-bar-mac .project-search')
     expect(main).toContain("titleBarStyle: 'hidden'")
     expect(main).toContain('titleBarOverlay:')
     expect(main).toContain("ipcMain.on('app:quit'")
