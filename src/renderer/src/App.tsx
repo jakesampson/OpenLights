@@ -354,7 +354,7 @@ export default function App() {
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M15 9v11"/></svg>
             </button>
             {settingsOpen && (
-              <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
+              <div data-header-settings-menu className="absolute right-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
                 <label className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 text-xs text-text hover:bg-panel2">
                   <span>Adaptive background colour</span>
                   <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />

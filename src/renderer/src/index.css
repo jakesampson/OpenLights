@@ -269,7 +269,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lightkey-action:hover, .lightkey-action.on { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
 .lightkey-action svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
-.project-search { order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; margin-left: auto; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
+.project-search { position: absolute; right: 196px; order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; margin-left: 0; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
 .project-search.open { width: 280px; flex-basis: 280px; }
 .project-search-button { display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 25px; line-height: 1; }
 .project-search-button:hover, .project-search.open .project-search-button { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
@@ -280,7 +280,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-28px); }
 
 .top-bar > .flex:last-child { order: 10; }
-.top-bar > .flex:first-child > :nth-child(5) { transform: translateX(-18px); }
+.top-bar > .flex:first-child > :nth-child(5) { position: absolute; right: 150px; transform: none; }
+
+.top-bar-mac .project-search { right: 66px; }
+.top-bar-mac > .flex:first-child > :nth-child(5) { right: 20px; }
 
 /* A 1920×1080 macOS display commonly gives Electron about 1600 CSS pixels
    after display scaling. Keep the Lightkey hierarchy, but remove the large
@@ -296,7 +299,6 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   .lighting-toolbar > .header-more:first-of-type { margin-left: 80px; }
   .lighting-toolbar > .effects-menu { margin-left: 18px; }
   .top-bar > .flex:first-child > :nth-child(3) { margin-left: 18px; transform: none; }
-  .top-bar > .flex:first-child > :nth-child(5) { transform: none; }
   .top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type,
   .top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-14px); }
   .top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-14px); }
