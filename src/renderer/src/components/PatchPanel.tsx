@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
+import { exportOflFixture, oflFilename } from '@shared/oflFixtureFormat'
 import { fixtureWidth, placementError } from '../lib/patch'
 import { useShowStore } from '../stores/showStore'
 import { FixtureGroups } from './FixtureGroups'
@@ -19,7 +20,8 @@ function fixtureProfile(fixture: FixtureDef, library: FixtureProfile[]): Fixture
 
 export function PatchPanel() {
   const { show, removeFixture } = useShowStore()
-  const library = useMemo(() => [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? [])], [show?.fixtureProfiles])
+  const [oflProfiles, setOflProfiles] = useState<FixtureProfile[]>([])
+  const library = useMemo(() => [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? []), ...oflProfiles], [show?.fixtureProfiles, oflProfiles])
   const fixtures = show?.fixtures ?? []
   const manufacturers = useMemo(() => [...new Set(library.map((profile) => profile.manufacturer || 'Generic'))].sort((a, b) => a.localeCompare(b)), [library])
   const [query, setQuery] = useState('')
@@ -31,8 +33,15 @@ export function PatchPanel() {
   const [dragRange, setDragRange] = useState<{ start: number; end: number; valid: boolean } | null>(null)
   const [dragging, setDragging] = useState<DragProfile | null>(null)
   const [patchError, setPatchError] = useState('')
+  const [patchNotice, setPatchNotice] = useState('')
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    void window.electronAPI.listOflProfiles().then((profiles) => { if (active && Array.isArray(profiles)) setOflProfiles(profiles) }).catch(() => {})
+    return () => { active = false }
+  }, [])
 
   const matchingProfiles = library.filter((profile) => {
     const matchesBrand = (profile.manufacturer || 'Generic') === manufacturer
@@ -104,6 +113,33 @@ export function PatchPanel() {
   const occupiedCount = occupied.size
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId)
 
+  const importOflLibrary = async () => {
+    try {
+      const result = await window.electronAPI.importOflLibrary()
+      if (result.canceled) return
+      if (!result.success) throw new Error(result.error ?? 'Could not import the OFL library')
+      const profiles = Array.isArray(result.profiles) ? result.profiles : []
+      setOflProfiles(profiles)
+      if (profiles[0]) { setManufacturer(profiles[0].manufacturer); chooseProfile(profiles[0]) }
+      setPatchError('')
+      setPatchNotice(`Imported ${result.imported ?? profiles.length} OFL fixtures${result.skipped ? ` · skipped ${result.skipped} unsupported files` : ''}`)
+    } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+  }
+
+  const exportSelectedOfl = () => {
+    if (!selectedProfile) return
+    try {
+      const url = URL.createObjectURL(new Blob([exportOflFixture(selectedProfile)], { type: 'application/json' }))
+      const anchor = document.createElement('a')
+      anchor.href = url
+      anchor.download = oflFilename(selectedProfile)
+      anchor.click()
+      URL.revokeObjectURL(url)
+      setPatchError('')
+      setPatchNotice('Exported selected fixture as OFL JSON')
+    } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+  }
+
   return <section className="relative flex h-full min-h-0 gap-3" aria-label="Fixture patch workspace">
     <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Fixture library">
       <div className="border-b border-line p-3"><input aria-label="Search fixture library" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search fixtures" className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" /></div>
@@ -120,7 +156,7 @@ export function PatchPanel() {
           {!matchingProfiles.length && <p className="p-2 text-xs text-dim">No matching models</p>}
         </div>
       </div>
-      <footer className="flex items-center justify-between border-t border-line px-3 py-2 text-[10px] text-dim"><span>{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibrary()}>Import OFL library</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile} onClick={exportSelectedOfl}>Export OFL</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
     </aside>
 
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">
@@ -130,6 +166,7 @@ export function PatchPanel() {
         {selectedFixture && <div className="flex items-center gap-2 text-xs"><span>{selectedFixture.name} · {selectedFixture.channelStart}–{selectedFixture.channelStart + selectedFixture.channels - 1}</span><button type="button" className="text-red-300" onClick={() => { removeFixture(selectedFixture.id); setSelectedFixtureId(null) }}>Remove</button></div>}
       </header>
       {patchError && <div role="alert" className="border-b border-red-500/40 bg-red-950/40 px-4 py-2 text-xs text-red-200">{patchError}</div>}
+      {patchNotice && <div role="status" className="border-b border-emerald-500/40 bg-emerald-950/30 px-4 py-2 text-xs text-emerald-200">{patchNotice}</div>}
       <div className="grid min-h-0 flex-1 gap-px overflow-hidden bg-line p-px" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))', gridTemplateRows: 'repeat(22, minmax(0, 1fr))' }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragRange(null) }}>
         {Array.from({ length: 512 }, (_, index) => index + 1).map((channel) => {
           const item = occupied.get(channel)

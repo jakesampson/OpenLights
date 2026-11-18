@@ -1,4 +1,5 @@
 import type { FixtureProfile } from './types'
+import { importOflFixture, isOflFixture, type OflImportOptions } from './oflFixtureFormat'
 export function validateProfile(raw: unknown): string[] {
   const p = raw as Partial<FixtureProfile> | null
   if (!p || typeof p !== 'object') return ['A profile object is required']
@@ -20,5 +21,5 @@ export function validateProfile(raw: unknown): string[] {
   }
   return errors
 }
-export function importProfile(json: string): FixtureProfile { const raw = JSON.parse(json); const errors = validateProfile(raw); if (errors.length) throw new Error(errors.join('; ')); return raw }
+export function importProfile(json: string, options?: OflImportOptions): FixtureProfile { const raw = JSON.parse(json); if (isOflFixture(raw)) return importOflFixture(raw, options); const errors = validateProfile(raw); if (errors.length) throw new Error(errors.join('; ')); return raw }
 export function exportProfile(profile: FixtureProfile): string { const errors = validateProfile(profile); if (errors.length) throw new Error(errors.join('; ')); return JSON.stringify(profile, null, 2) }

@@ -22,6 +22,8 @@ declare global {
       printPatch: (html: string) => Promise<IpcResult>
       toggleFullscreen: () => Promise<void>
       openLiveWindow: (pageId: string | null) => Promise<import('@shared/liveWindows').LiveWindowSpec>
+      listOflProfiles: () => Promise<import('@shared/types').FixtureProfile[]>
+      importOflLibrary: () => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; imported?: number; skipped?: number }>
       publishLiveWindowState: (state: Record<string, unknown>) => void
       requestLiveWindowState: () => void
       liveWindowCommand: (command: string, args: unknown[]) => void

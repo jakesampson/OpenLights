@@ -10,6 +10,8 @@ import * as fs from 'fs'
 import { DMXEngine } from '../shared/dmx'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 import { WINDOWS_MENU } from '../shared/menuModel'
+import { importOflFixture, isOflFixture } from '../shared/oflFixtureFormat'
+import type { FixtureProfile } from '../shared/types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // Capture the established data directory before changing the development
@@ -19,6 +21,7 @@ const USER_DATA_DIR = app.getPath('userData')
 app.setName('OpenLights')
 const APP_ICON = path.join(app.getAppPath(), 'assets/branding/openlights-icon.png')
 const SHOWS_DIR = path.join(USER_DATA_DIR, 'shows')
+const OFL_LIBRARY_FILE = path.join(USER_DATA_DIR, 'ofl-library.json')
 
 if (!fs.existsSync(SHOWS_DIR)) {
   fs.mkdirSync(SHOWS_DIR, { recursive: true })
@@ -60,6 +63,41 @@ function openLiveWindow(spec: LiveWindowSpec) {
 }
 ipcMain.handle('window:fullscreen', (event) => { const window = BrowserWindow.fromWebContents(event.sender); if (window) window.setFullScreen(!window.isFullScreen()) })
 ipcMain.handle('window:open-live', (_, pageId: string | null) => { const spec = { id: crypto.randomUUID(), pageId, width: 1000, height: 700 }; openLiveWindow(spec); return spec })
+ipcMain.handle('ofl-library:list', () => {
+  try { return JSON.parse(fs.readFileSync(OFL_LIBRARY_FILE, 'utf8')) as FixtureProfile[] } catch { return [] }
+})
+ipcMain.handle('ofl-library:import', async () => {
+  const selection = await dialog.showOpenDialog(mainWindow!, { title: 'Choose the extracted OFL export folder', properties: ['openDirectory'] })
+  if (selection.canceled || !selection.filePaths[0]) return { success: false, canceled: true, profiles: [] }
+  const root = selection.filePaths[0]
+  const jsonFiles: string[] = []
+  const visit = (directory: string) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const target = path.join(directory, entry.name)
+      if (entry.isDirectory()) visit(target)
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) jsonFiles.push(target)
+    }
+  }
+  try {
+    visit(root)
+    const manufacturerFile = jsonFiles.find((file) => path.basename(file).toLowerCase() === 'manufacturers.json')
+    const manufacturers = manufacturerFile ? JSON.parse(fs.readFileSync(manufacturerFile, 'utf8')) as Record<string, { name?: string }> : {}
+    const profiles: FixtureProfile[] = []
+    let skipped = 0
+    for (const file of jsonFiles) {
+      if (file === manufacturerFile) continue
+      try {
+        const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+        if (!isOflFixture(raw)) { skipped++; continue }
+        const manufacturerKey = typeof raw.manufacturerKey === 'string' ? raw.manufacturerKey : path.basename(path.dirname(file))
+        const fixtureKey = typeof raw.fixtureKey === 'string' ? raw.fixtureKey : path.basename(file, '.json')
+        profiles.push(importOflFixture(raw, { manufacturerKey, manufacturer: manufacturers[manufacturerKey]?.name, fixtureKey, preserveSource: false }))
+      } catch { skipped++ }
+    }
+    fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
+    return { success: true, canceled: false, profiles, imported: profiles.length, skipped }
+  } catch (error) { return { success: false, canceled: false, profiles: [], error: error instanceof Error ? error.message : String(error) } }
+})
 ipcMain.on('live-window:state', (event, state) => { if (event.sender.id !== mainWindow?.webContents.id) return; liveState = state; for (const { window } of liveWindows.values()) window.webContents.send('live-window:state', state) })
 ipcMain.on('live-window:request', (event) => { if (liveWindows.has(event.sender.id)) event.sender.send('live-window:state', liveState) })
 ipcMain.on('live-window:command', (event, command: string, args: unknown[]) => { if (liveWindows.has(event.sender.id) && (LIVE_WINDOW_COMMANDS as readonly string[]).includes(command) && Array.isArray(args)) mainWindow?.webContents.send('live-window:command', command, args) })

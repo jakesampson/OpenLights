@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   printPatch: (html: string) => ipcRenderer.invoke('print-patch', html),
   toggleFullscreen: () => ipcRenderer.invoke('window:fullscreen'),
   openLiveWindow: (pageId: string | null) => ipcRenderer.invoke('window:open-live', pageId),
+  listOflProfiles: () => ipcRenderer.invoke('ofl-library:list'),
+  importOflLibrary: () => ipcRenderer.invoke('ofl-library:import'),
   publishLiveWindowState: (state: Record<string, unknown>) => ipcRenderer.send('live-window:state', state),
   requestLiveWindowState: () => ipcRenderer.send('live-window:request'),
   liveWindowCommand: (command: string, args: unknown[]) => ipcRenderer.send('live-window:command', command, args),

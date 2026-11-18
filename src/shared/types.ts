@@ -331,6 +331,8 @@ export interface FixtureProfile {
   name: string
   manufacturer: string
   legacyType: FixtureType
+  /** Original OFL document is retained so unsupported metadata is never lost. */
+  ofl?: { manufacturerKey: string; fixtureKey: string; source?: unknown }
   modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[] }[]
 }
 
