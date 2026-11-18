@@ -30,10 +30,15 @@ describe('preview edit toggle (LightKey Guide p.53)', () => {
   })
 
   it('makes the header Edit button the toggle, labelled Edit / Done', () => {
-    expect(appSource).toContain('aria-pressed={previewEditing}')
-    expect(appSource).toContain("onClick={() => setPreviewEditing(!previewEditing)}")
-    expect(appSource).toContain("{previewEditing ? 'Done' : 'Edit'}")
-    expect(appSource).toContain("disabled={locked || tab !== 'Design'}")
+    // The toggle follows the CURRENT view (Jake, 19 Nov 2026): Design
+    // toggles preview editing, Live toggles live page editing — LightKey
+    // does not care which view the Design/Live switch is on.
+    expect(appSource).toContain("aria-pressed={tab === 'Design' ? previewEditing : liveEditing}")
+    expect(appSource).toContain('onClick={toggleCurrentViewEditing}')
+    expect(appSource).toContain("{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}")
+    expect(appSource).toContain('disabled={locked}')
+    expect(appSource).not.toContain("disabled={locked || tab !== 'Design'}")
+    expect(appSource).toContain('setLiveEditing(!state.liveEditing)')
     expect(appSource).not.toContain('ref={editMenuRef}')
     expect(appSource).not.toContain('Undo · Ctrl+Z')
   })
@@ -46,6 +51,8 @@ describe('preview edit toggle (LightKey Guide p.53)', () => {
     expect(matchShortcut({ key: 'j', metaKey: true }, { tagName: 'DIV' })?.command).toBe('editPreview')
     expect(matchShortcut({ key: 'j' }, { tagName: 'DIV' })).toBeUndefined()
     expect(appSource).toContain("command === 'editPreview'")
+    // Cmd-J toggles the current view's edit mode, not just Design's.
+    expect(appSource).toContain("command === 'editPreview') toggleCurrentViewEditing()")
   })
 
   it('paints the header LightKey’s grey, sampled from Jake’s screenshot', () => {

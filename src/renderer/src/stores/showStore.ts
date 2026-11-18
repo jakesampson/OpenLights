@@ -82,6 +82,16 @@ interface ShowState {
   /** Preview edit mode (LightKey Guide p.53, "Edit the Preview"): the header Edit button toggles it, and the StagePreview becomes editable — fixtures and trusses can be moved, the grid is shown. UI-only state, like liveEditing: not persisted, not undo history. */
   previewEditing: boolean
   setPreviewEditing: (editing: boolean) => void
+  /** Preview editing selection — also session-only. The right side panel
+      becomes the Preview inspector in edit mode (LightKey's Inspector,
+      Guide p.53), so the selection lives in the store where both the
+      canvas (StagePreview) and the panel (PreviewEditPanel) can reach it. */
+  selectedPreviewTrussId: string | null
+  setSelectedPreviewTrussId: (value: string | null) => void
+  selectedLayoutTrussIds: string[]
+  setSelectedLayoutTrussIds: (value: string[]) => void
+  selectedStageObjectId: string | null
+  setSelectedStageObjectId: (value: string | null) => void
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
@@ -616,6 +626,9 @@ const actions: ShowState = {
   pageActiveValues: {},
   liveEditing: false,
   previewEditing: false,
+  selectedPreviewTrussId: null,
+  selectedLayoutTrussIds: [],
+  selectedStageObjectId: null,
   editingPresetId: null,
   selectedPageObjects: [],
   pageClipboard: null,
@@ -668,6 +681,9 @@ const actions: ShowState = {
       pageActiveValues: {},
       liveEditing: false,
       previewEditing: false,
+      selectedPreviewTrussId: null,
+      selectedLayoutTrussIds: [],
+      selectedStageObjectId: null,
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
@@ -753,6 +769,9 @@ const actions: ShowState = {
   setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
   setLiveEditing: (editing) => set({ liveEditing: editing }),
   setPreviewEditing: (editing) => set({ previewEditing: editing }),
+  setSelectedPreviewTrussId: (value) => set({ selectedPreviewTrussId: value }),
+  setSelectedLayoutTrussIds: (value) => set({ selectedLayoutTrussIds: value }),
+  setSelectedStageObjectId: (value) => set({ selectedStageObjectId: value }),
   togglePageObjectSelection: (ref) => set((state) => {
     const exists = state.selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
     return {

@@ -12,6 +12,8 @@ import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
+import { PreviewEditPanel } from './components/PreviewEditPanel'
+import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxConnection } from './components/DmxConnection'
 import { ViewSwitch } from './components/ViewSwitch'
@@ -53,6 +55,8 @@ export default function App() {
     freeze,
     locked,
     liveEditing,
+    setLiveEditing,
+    clearPageObjectSelection,
     previewEditing,
     setPreviewEditing,
     editingPresetId,
@@ -243,6 +247,21 @@ export default function App() {
     toggleBlackout()
   }
 
+  // The header Edit toggle works in both views (Jake, 19 Nov 2026 — in
+  // LightKey it does not matter whether the Design/Live switch is on
+  // Design or Live): in Design it toggles Preview editing (Guide p.53,
+  // "Edit the Preview"), in Live it toggles Live page editing (Guide
+  // ch.11, "Edit Live View"). Disabled only while locked.
+  const toggleCurrentViewEditing = () => {
+    const state = useShowStore.getState()
+    if (state.locked) return
+    if (tab === 'Design') state.setPreviewEditing(!state.previewEditing)
+    else {
+      state.clearPageObjectSelection()
+      state.setLiveEditing(!state.liveEditing)
+    }
+  }
+
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const binding = matchShortcut(event, event.target as HTMLElement | null)
@@ -254,13 +273,13 @@ export default function App() {
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
       else if (command === 'design') { if (!state.locked) setTab('Design') }
       else if (command === 'live') setTab('Live')
-      else if (command === 'editPreview') { if (!state.locked && tab === 'Design') state.setPreviewEditing(!state.previewEditing) }
+      else if (command === 'editPreview') toggleCurrentViewEditing()
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
       else if (command === 'blackout') state.toggleBlackout()
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
-      else if (command === 'go') { if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
+      else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
       else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
@@ -301,7 +320,7 @@ export default function App() {
         { key: 'Ctrl+Z', label: 'Undo' },
         { key: 'Ctrl+Y', label: 'Redo' }
       ]
-      : SHORTCUTS),
+      : SHORTCUTS.map((item) => item.command === 'editPreview' && tab === 'Live' ? { ...item, label: 'Edit live page' } : item)),
     ...paletteShortcuts
   ]
   const closeToolPanel = () => setToolPanel(null)
@@ -333,24 +352,27 @@ export default function App() {
               target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
             })
           }} />
-          {/* Header Edit is the Preview edit toggle (LightKey Guide p.53,
-              "Edit the Preview": click Edit in the toolbar to enter edit
-              mode, click Done to exit). It takes over the old "Edit layout"
-              button that hovered on the Preview — the Preview toolbar no
-              longer carries its own edit toggle. Undo/Redo used to live in
-              a dropdown on this button; they stay available from the native
-              app menu (Edit > Undo/Redo) and Ctrl+Z / Ctrl+Y. The toggle
-              only applies in Design, where the Preview is editable, and is
-              disabled while the project is locked. */}
+          {/* Header Edit toggles edit mode for the CURRENT view (LightKey
+              Guide p.53, "Edit the Preview": click Edit in the toolbar to
+              enter edit mode, click Done to exit; Guide ch.11 for Live
+              page editing). In Design it toggles Preview editing, in Live
+              it toggles Live page editing — LightKey does not care which
+              view the Design/Live switch is on (Jake, 19 Nov 2026). It
+              takes over the old "Edit layout" button that hovered on the
+              Preview — the Preview toolbar no longer carries its own edit
+              toggle. Undo/Redo used to live in a dropdown on this button;
+              they stay available from the native app menu (Edit >
+              Undo/Redo) and Ctrl+Z / Ctrl+Y. The toggle is disabled only
+              while the project is locked. */}
           <button
             type="button"
-            className={`btn-theme ${previewEditing ? 'on' : ''}`}
-            aria-pressed={previewEditing}
-            aria-label="Edit preview"
-            title={tab === 'Design' ? 'Edit preview (LightKey Guide p.53)' : 'Edit preview (Design view)'}
-            disabled={locked || tab !== 'Design'}
-            onClick={() => setPreviewEditing(!previewEditing)}
-          >{previewEditing ? 'Done' : 'Edit'}</button>
+            className={`btn-theme ${(tab === 'Design' ? previewEditing : liveEditing) ? 'on' : ''}`}
+            aria-pressed={tab === 'Design' ? previewEditing : liveEditing}
+            aria-label={tab === 'Design' ? 'Edit preview' : 'Edit live page'}
+            title={tab === 'Design' ? 'Edit preview (LightKey Guide p.53)' : 'Edit live page (LightKey Guide ch.11)'}
+            disabled={locked}
+            onClick={toggleCurrentViewEditing}
+          >{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}</button>
           <button
             type="button"
             className="lightkey-action header-patch-button"
@@ -481,17 +503,26 @@ export default function App() {
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label="Preset palette sidebar" onContextMenu={(event) => {
+        {/* In Design edit mode the side panel becomes the Preview
+            Inspector (LightKey Guide p.53: "On the right of the window is
+            the Inspector where you can change the properties of the
+            selected objects") — the shape tools, layout tools and the
+            selected truss/fixture properties move out of the canvas
+            overlays and in here, so the canvas stays clean. Otherwise
+            it is the Preset Palette as before. */}
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'} onContextMenu={tab === 'Design' && previewEditing ? undefined : (event) => {
           if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
           event.preventDefault()
           window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
         }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
-          <div className="flex items-center justify-between px-2 py-1">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
-              Preset Palette
+          {tab === 'Design' && previewEditing ? <PreviewEditPanel /> : (<>
+            <div className="flex items-center justify-between px-2 py-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
+                Preset Palette
+              </div>
             </div>
-          </div>
-          <GroupsPresetsPanel />
+            <GroupsPresetsPanel />
+          </>)}
         </div>
       </div>
 

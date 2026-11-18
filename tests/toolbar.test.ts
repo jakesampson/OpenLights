@@ -50,9 +50,9 @@ describe('toolbar dispatch', () => {
     // the native app menu and on Ctrl+Z / Ctrl+Y instead.
     expect(app).not.toContain('ref={editMenuRef}')
     expect(app).not.toContain('Undo · Ctrl+Z')
-    expect(app).toContain('aria-pressed={previewEditing}')
-    expect(app).toContain("setPreviewEditing(!previewEditing)")
-    expect(app).toContain("{previewEditing ? 'Done' : 'Edit'}")
+    expect(app).toContain("aria-pressed={tab === 'Design' ? previewEditing : liveEditing}")
+    expect(app).toContain('toggleCurrentViewEditing')
+    expect(app).toContain("{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}")
     expect(app).toContain('ref={settingsMenuRef}')
     expect(app).toContain("window.addEventListener('pointerdown', closeHeaderMenus)")
     expect(app).toContain("window.addEventListener('keydown', closeHeaderMenusOnEscape)")
