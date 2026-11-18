@@ -11,6 +11,7 @@ import {
   type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
 import { useShowStore } from '../stores/showStore'
+import { calculateTapTempo } from '../lib/tapTempo'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 import { CueListEditor } from './CueListEditor'
 
@@ -52,7 +53,7 @@ export function LiveWorkspace() {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
-    master, setMaster, bpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
+    master, setMaster, bpm, setBpm, editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
@@ -78,6 +79,14 @@ export function LiveWorkspace() {
   // follows the single selection; close with X, Esc or Done.
   const [popupOpen, setPopupOpen] = useState(false)
   const pageCanvas = useRef<HTMLDivElement>(null)
+  // Tap tempo for the Master rail's BPM box (LightKey: the "90 bpm" box
+  // under the Master fader). Same calculateTapTempo the header Tap button uses.
+  const masterTaps = useRef<number[]>([])
+  const tapTempo = () => {
+    const result = calculateTapTempo(masterTaps.current, performance.now())
+    masterTaps.current = result.taps
+    if (result.bpm !== null) setBpm(result.bpm)
+  }
   // LightKey-style context menu (Guide ch.11, p.176): right-click on the
   // canvas or a button in Edit mode. Each item wires to the existing store
   // actions the old bottom-strip buttons used.
@@ -386,10 +395,10 @@ export function LiveWorkspace() {
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
   return <section data-context-menu="page" aria-label="Live page canvas" className="relative flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
-    {/* LightKey-style edit toolbar: the Design / Live switch already sits
-        centred on the divider directly above this panel (ViewSwitch); the
-        toolbar below it holds New Button (+), New Frame, Insert Text (T)
-        and the green Done button, as in LightKey's bottom panel. */}
+    {/* LightKey-style edit toolbar: the Design / Live switch sits
+        top-centre of the window in the header (ViewSwitch); the toolbar
+        below it holds New Button (+), New Frame, Insert Text (T) and the
+        green Done button, as in LightKey's bottom panel. */}
     <div className="flex flex-wrap items-center gap-2">
       {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
@@ -404,15 +413,19 @@ export function LiveWorkspace() {
       {!editing && !locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>Edit</button>}
     </div>
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
-    {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <div className="flex min-h-0 flex-1 gap-2">
-      {/* LightKey bottom panel: vertical Master fader on the far left. */}
-      <div className="flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2" aria-label="Live master fader">
+    <div className="flex min-h-0 flex-1 gap-2">
+      {/* Fixed Master fader rail (LightKey): full height of the Live area,
+          fixed 96px width, OUTSIDE the canvas scroll container below — it
+          is never on the manipulatable canvas, so panning, zooming or
+          editing the canvas cannot move it. The value reads "Full" at 100%,
+          as in LightKey, and the tap-tempo box sits directly underneath. */}
+      <div className="live-master-rail" aria-label="Master fader">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Master</span>
-        <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} style={{ writingMode: 'vertical-lr', direction: 'rtl', height: 180, width: 24 }} />
-        <span className="text-xs text-text">{Math.round(master / 255 * 100)}%</span>
-        <span className="text-[10px] text-dim">Full</span>
-        <span className="text-[10px] text-dim" title="Tap tempo BPM (see the toolbar Tap button)">{bpm > 0 ? `${Math.round(bpm)} BPM` : '— BPM'}</span>
+        <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} />
+        <span className="text-xs text-text">{master >= 255 ? 'Full' : `${Math.round(master / 255 * 100)}%`}</span>
+        <button type="button" className="live-master-bpm" aria-label="Tap tempo" title="Tap tempo — click to set the tempo" onClick={tapTempo}><strong>{bpm > 0 ? Math.round(bpm) : '—'}</strong> <small>bpm</small></button>
       </div>
+      {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <>
       <div className="min-w-0 flex-1 overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
@@ -527,7 +540,8 @@ export function LiveWorkspace() {
           <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
         </div>}
       </div>}
-    </div>}
+      </>}
+    </div>
     {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>

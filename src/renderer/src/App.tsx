@@ -360,6 +360,10 @@ export default function App() {
         </div>
 
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
+        {/* Design / Live switch — top-centre of the window (LightKey):
+            centred on the whole window in the header, not floating on the
+            divider between the preview and the bottom panel. */}
+        <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
         <div className="flex items-center gap-2">
           <div className="window-controls">
             <button
@@ -418,9 +422,6 @@ export default function App() {
           <GroupsPresetsPanel />
         </div>
       </div>
-
-      {/* Design/Live view switch — bottom centre, on the divider between preview and bottom panel */}
-      <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
 
       {/* Bottom row */}
       <div className="bottom-grid">

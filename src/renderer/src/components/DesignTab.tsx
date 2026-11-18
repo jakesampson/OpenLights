@@ -106,7 +106,9 @@ export function DesignTab() {
           : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
-        <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
+        {/* Dimmer: a narrow 64px column, the LightKey fader width — the
+            track fills the column, as LightKey's in-frame Dimmer does. */}
+        <div className="flex w-16 shrink-0 flex-col items-center gap-0.5">
           <span className="text-[11px] font-medium uppercase text-dim">Dimmer</span>
           <div className="fader">
             <div className="fader-fill" style={{ height: `${(dimmer / 255) * 100}%` }} />
@@ -166,7 +168,10 @@ export function DesignTab() {
           </div>
         )}
 
-        <div className="flex h-full min-w-0 flex-1 gap-1 overflow-hidden">
+        {/* Channel faders: fixed 64px columns (LightKey's narrow vertical
+            faders), scrolling horizontally when there are many — they no
+            longer stretch into the wide Red / Green / Blue panels. */}
+        <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
           {channelAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
               {selectedFixtures.length > 0 ? 'No additional common channels' : 'Select fixtures in the preview to access controls'}
@@ -175,7 +180,7 @@ export function DesignTab() {
             channelAttributes.map((attribute) => {
               const value = activeCue ? valueFor(attribute) : 0
               return (
-                <div key={attribute} className="chan h-full min-w-7 flex-1">
+                <div key={attribute} className="chan h-full min-w-7">
                   <span className="text-center text-[10px] leading-none text-dim">
                     {attributeLabel(attribute)}
                   </span>

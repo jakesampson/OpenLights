@@ -15,6 +15,7 @@ import { resolve } from 'node:path'
 
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
+const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 const groupsPresets = readFileSync(resolve(root, 'src/renderer/src/components/GroupsPresetsPanel.tsx'), 'utf8')
 const sequenceEditor = readFileSync(resolve(root, 'src/renderer/src/components/SequenceEditor.tsx'), 'utf8')
 const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
@@ -49,11 +50,20 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('>Edit<')
   })
 
-  it('has a vertical Master fader on the left of the bottom panel', () => {
+  it('has a vertical Master fader on a fixed rail left of the canvas, with tap tempo underneath', () => {
+    // 18 Nov 2026 (Jake): the Master fader is a fixed 96px rail, full
+    // height of the Live area, outside the canvas scroll container — never
+    // on the manipulatable canvas — with the BPM / tap-tempo box under it.
+    expect(workspace).toContain('live-master-rail')
+    expect(workspace).toContain('aria-label="Master fader"')
     expect(workspace).toContain('aria-label="Live master"')
     expect(workspace).toContain('setMaster(Number(e.target.value))')
-    expect(workspace).toContain('writingMode')
-    expect(workspace).toContain('BPM')
+    expect(workspace).toContain('aria-label="Tap tempo"')
+    expect(workspace).toContain('live-master-bpm')
+    expect(workspace).toContain("master >= 255 ? 'Full'")
+    expect(css).toContain('.live-master-rail {')
+    expect(css).toContain('width: 96px')
+    expect(css).toContain('writing-mode: vertical-lr')
   })
 
   it('has a LightKey right-click context menu on the canvas', () => {

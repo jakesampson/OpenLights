@@ -112,6 +112,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 
 .top-bar {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -322,36 +323,122 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   text-transform: uppercase;
 }
 
-/* Design/Live switch: bottom-centre on the divider between preview and panel */
+/* Design/Live switch: top-centre of the window (LightKey) — centred on the
+   whole window inside the header, never floating on a panel divider. */
 .view-switch {
   position: relative;
   z-index: 5;
   display: flex;
   justify-content: center;
-  height: 0;
-  flex: 0 0 auto;
+}
+
+.top-bar .view-switch {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .view-switch-segment {
   position: relative;
   z-index: 6;
-  min-height: 24px;
-  padding: 2px 10px;
+  min-height: 28px;
+  padding: 4px 12px;
   border: 0;
-  background: var(--panel);
+  border-radius: 6px;
+  background: transparent;
   color: var(--text);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   cursor: pointer;
-  transform: translateY(-50%);
 }
 
-.view-switch-segment:first-child { border-radius: 5px 0 0 5px; }
-.view-switch-segment:last-of-type { border-radius: 0 5px 5px 0; }
 .view-switch-segment.on { background: var(--text); color: var(--bg); }
 .view-switch-segment:focus-visible { outline: 2px solid var(--sel); outline-offset: 1px; }
 .view-switch-caret { margin-left: 6px; font-size: 10px; }
+
+/* Live page menu: the dropdown under the Live pill (LightKey screenshot
+   8.54.48) — every page with a checkmark on the current one, a separator,
+   then "Manage Live Pages…". */
+.view-switch-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: 280px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: 13px;
+}
+
+.view-switch-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  text-align: left;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.view-switch-menu-item:hover { background: var(--panel2); }
+.view-switch-menu-check { width: 16px; flex-shrink: 0; text-align: center; }
+.view-switch-menu-separator { margin: 4px 6px; border-top: 1px solid var(--line); }
+
+/* Manage Live Pages: the current page's row is highlighted blue (LightKey). */
+.live-pages-row.on { background: #2563eb; color: #fff; }
+
+/* Fixed Master fader rail (LightKey): a narrow rail at the far left of the
+   Live area, full height, outside the canvas scroll container — never on
+   the manipulatable canvas, so panning/zooming/editing cannot move it. The
+   BPM / tap-tempo box sits directly underneath the fader, same width. */
+.live-master-rail {
+  display: flex;
+  width: 96px;
+  flex: 0 0 96px;
+  align-self: stretch;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel2);
+  padding: 8px 4px;
+}
+
+.live-master-rail input[type='range'] {
+  appearance: slider-vertical;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  flex: 1;
+  min-height: 120px;
+  width: 56px;
+  margin: 0;
+  accent-color: var(--text);
+  cursor: ns-resize;
+}
+
+.live-master-bpm {
+  width: 100%;
+  border-radius: 4px;
+  background: var(--panel);
+  padding: 6px 2px;
+  text-align: center;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.live-master-bpm small { color: var(--dim); }
 
 .preview-stack { position: relative; min-height: 0; overflow: hidden; }
 .preview-stack > .stage { height: 100%; }
@@ -378,91 +465,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .scene-tree-edit { opacity: 0; }
 .group:hover > .scene-tree-edit, .scene-tree-edit:focus-visible { opacity: 1; }
 
-.view-switch-pages {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  width: 320px;
-  max-height: 340px;
-  overflow-y: auto;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-  color: var(--text);
-  font-size: 11px;
-}
-
-.view-switch-pages-title {
-  padding: 2px 4px 8px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-
-.view-switch-pages-list { display: flex; flex-direction: column; gap: 4px; }
-.view-switch-page-row { display: flex; align-items: center; gap: 4px; }
-.view-switch-page-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 6px 8px;
-  text-align: left;
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-name.on { background: var(--accent); color: #111; border-color: var(--accent); }
-.view-switch-page-row input {
-  width: 90px;
-  min-width: 0;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 11px;
-}
-.view-switch-page-row button:not(.view-switch-page-name) {
-  min-width: 24px;
-  padding: 4px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-row button:disabled { opacity: 0.4; cursor: default; }
 .view-switch-pages-empty { padding: 8px 4px; color: var(--dim); }
-.view-switch-page-add { display: flex; gap: 4px; margin-top: 8px; border-top: 1px solid var(--line); padding-top: 8px; }
-.view-switch-page-add input {
-  flex: 1;
-  min-width: 0;
-  padding: 5px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 11px;
-}
-.view-switch-page-add button {
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 4px;
-  background: var(--panel2);
-  color: var(--text);
-  cursor: pointer;
-}
-.view-switch-page-add button:disabled { opacity: 0.4; cursor: default; }
 
 /* Vertical fader (dimmer) */
 .fader {
@@ -545,9 +548,13 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   cursor: not-allowed;
 }
 
-/* Vertical channel slider column */
+/* Vertical channel slider column — LightKey's in-frame faders are narrow
+   (~60–70px including the track), so each channel is a fixed 64px column
+   instead of stretching to fill the panel. */
 .chan {
   display: flex;
+  width: 64px;
+  flex: 0 0 64px;
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
