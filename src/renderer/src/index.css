@@ -141,11 +141,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .top-bar > .flex:first-child { display: contents; }
 .top-bar > .flex:first-child > :first-child { display: block; order: 0; }
-.top-bar > .flex:first-child > :nth-child(2) { order: 1; }
-.top-bar > .flex:first-child > :nth-child(3) { order: 8; }
-.top-bar > .flex:first-child > :nth-child(4) { order: 6; }
-.top-bar > .flex:first-child > :nth-child(5) { order: 7; }
-.top-bar > .flex:first-child > :nth-child(6) { order: 9; }
+.top-bar > .flex:first-child > :nth-child(2) { order: 8; }
+.top-bar > .flex:first-child > :nth-child(3) { order: 6; }
+.top-bar > .flex:first-child > :nth-child(4) { order: 7; }
+.top-bar > .flex:first-child > :nth-child(5) { order: 9; }
 .top-bar > .flex:first-child > details summary,
 .top-bar > .flex:first-child > button:not(.lightkey-action),
 .top-bar > .flex:first-child > div:last-child > button:not(.lightkey-action) {
@@ -159,15 +158,14 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lightkey-project {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-width: 230px;
+  min-width: 180px;
+  margin-left: 96px;
   border: 0;
   background: transparent;
   color: var(--text);
   text-align: left;
   cursor: pointer;
 }
-.lightkey-project svg { width: 38px; height: 26px; fill: var(--dim); stroke: var(--dim); stroke-width: 1.7; }
 .lightkey-project span { display: flex; min-width: 0; flex-direction: column; line-height: 1.15; }
 .lightkey-project strong { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; }
 .lightkey-project small { margin-top: 2px; color: var(--dim); font-size: 11px; }

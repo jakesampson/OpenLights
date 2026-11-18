@@ -312,7 +312,6 @@ export default function App() {
       {/* Top bar */}
       <header className="top-bar">
         <div className="flex items-center gap-2">
-          <img src="./openlights-logo.png" alt="OpenLights" className="h-8 w-8 rounded-lg object-cover" />
           <ProjectBar />
           <ProjectSearch onReveal={(result) => {
             const state = useShowStore.getState()

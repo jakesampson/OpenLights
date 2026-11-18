@@ -346,3 +346,6 @@ At Jake's request, the existing Patch header icon now opens a full-window, singl
 
 ### Codex branch — macOS-safe Patch header (19 Nov 2026)
 The full-window Patch header now detects macOS and reserves 120px at its leading edge for the native traffic-light controls, placing Done and the project name in the same safe title-bar area shown in Jake's Lightkey reference. The header is a draggable Electron title-bar region while Done is explicitly non-draggable and remains clickable; Windows and Linux keep the original compact leading padding. Escape remains an alternate way to close the workspace through the existing global command handling. No patching behaviour or other application panel changed.
+
+### Main — remove duplicate header marks (19 Nov 2026)
+At Jake's request, the OpenLights image and the connected-node graphic were removed from the main header. The project name and output-status block retain their prior horizontal position through reserved leading space, and the header item-order selectors were updated for the two removed elements so search, Edit, Patch and Settings keep their existing positions and behaviour. Packaged application and Dock icons are unchanged.
