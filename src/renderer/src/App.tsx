@@ -3,7 +3,6 @@ import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { PatchPanel } from './components/PatchPanel'
-import { FixtureGroups } from './components/FixtureGroups'
 import { ProjectBar } from './components/ProjectBar'
 import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
 import { WorkspaceToolbar } from './components/WorkspaceToolbar'
@@ -316,7 +315,7 @@ export default function App() {
             title="Patch fixtures"
             onClick={() => setToolPanel('Patch')}
           >
-            +
+            <svg viewBox="0 0 28 18" aria-hidden="true"><circle cx="4" cy="5" r="2" /><circle cx="14" cy="9" r="2" /><circle cx="24" cy="14" r="2" /><path d="M6 5.8 12 8m4 2 6 3" /></svg>
           </button>
           <div ref={settingsMenuRef} className="relative">
             <button
@@ -504,7 +503,7 @@ export default function App() {
       </div>
       {toolPanel && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 ${toolPanel === 'Patch' ? 'p-0' : 'p-4'}`}
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeToolPanel()
@@ -514,23 +513,15 @@ export default function App() {
             role="dialog"
             aria-modal="true"
             aria-label={toolPanel}
-            className="panel flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden shadow-2xl"
+            className={`panel flex w-full flex-col overflow-hidden shadow-2xl ${toolPanel === 'Patch' ? 'h-full max-w-none rounded-none' : 'max-h-[92vh] max-w-6xl'}`}
           >
-            <header className="flex items-center justify-between border-b border-line px-4 py-3">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-dim">
-                {toolPanel === 'Patch' ? 'Fixture Patch' : toolPanel}
-              </h2>
-              <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>
-                Close
-              </button>
+            <header className="flex items-center gap-3 border-b border-line px-4 py-3">
+              {toolPanel === 'Patch' && <button type="button" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={closeToolPanel}>Done</button>}
+              <h2 className="flex-1 text-xs font-semibold uppercase tracking-wider text-dim">{toolPanel === 'Patch' ? show?.name ?? 'Fixture Patch' : toolPanel}</h2>
+              {toolPanel !== 'Patch' && <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>Close</button>}
             </header>
-            <div className="min-h-0 overflow-auto p-4">
-              {toolPanel === 'Patch' && <><PatchPanel />
-                {/* Fixture groups moved here from the Preset Palette (LightKey,
-                    18 Nov 2026): groups of fixtures belong to patching, not
-                    to the preset/sequence browser. */}
-                <div className="mt-4"><FixtureGroups /></div>
-              </>}
+            <div className={`min-h-0 flex-1 ${toolPanel === 'Patch' ? 'overflow-hidden p-4' : 'overflow-auto p-4'}`}>
+              {toolPanel === 'Patch' && <PatchPanel />}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>

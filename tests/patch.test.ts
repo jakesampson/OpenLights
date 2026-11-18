@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { allocateFixtures, findConflicts } from '../src/renderer/src/lib/patch'
+import { readFileSync } from 'node:fs'
+import { allocateFixtures, findConflicts, fixtureWidth, placementError } from '../src/renderer/src/lib/patch'
 import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
 describe('batch fixture patching', () => {
   it('allocates a quantity with consecutive names and non-overlapping addresses', () => {
@@ -10,6 +11,28 @@ describe('batch fixture patching', () => {
     expect(() => allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 4, start: 510 })).toThrow('Not enough')
     expect(() => allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 1, start: 1, universe: 2 })).toThrow('universe 1')
   })
+})
+
+it('validates exact drag placement and channel spans across visual rows', () => {
+  const eightChannel = BUILTIN_PROFILES.find((profile) => profile.id === 'head-8ch')!
+  expect(fixtureWidth(eightChannel, 'default')).toBe(8)
+  expect(placementError([], 10, 8)).toBeNull()
+  // A fixture beginning at 22 occupies 22–29, crossing the 24-channel row.
+  expect(placementError([], 22, 8)).toBeNull()
+  expect(placementError([], 506, 8)).toContain('1–512')
+  const occupied = allocateFixtures([], eightChannel, { quantity: 1, start: 10 })
+  expect(placementError(occupied, 17, 8)).toContain('occupied')
+  expect(placementError(occupied, 18, 8)).toBeNull()
+})
+
+it('renders the full 512-address drag matrix with separate brand and model panels', () => {
+  const source = readFileSync('src/renderer/src/components/PatchPanel.tsx', 'utf8')
+  expect(source).toContain('aria-label="Fixture brands"')
+  expect(source).toContain('aria-label="Fixture models"')
+  expect(source).toContain('Array.from({ length: 512 }')
+  expect(source).toContain("gridTemplateColumns: 'repeat(24, minmax(0, 1fr))'")
+  expect(source).toContain('onDragStart')
+  expect(source).toContain('onDrop')
 })
 
 it('reports overlaps and address overflow without flagging adjacent spans', () => {
