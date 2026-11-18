@@ -453,28 +453,61 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   overflow: hidden;
 }
 
-.live-master-rail input[type='range'] {
-  appearance: slider-vertical;
-  writing-mode: vertical-lr;
-  direction: rtl;
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 56px;
-  margin: 0;
-  accent-color: var(--text);
-  cursor: ns-resize;
+.live-master-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 96px;
+  flex: 0 0 96px;
+  align-self: flex-start;
 }
 
-.live-master-rail > span,
-.live-master-rail > button {
+.live-master-rail > span {
   flex: none;
 }
 
+/* LightKey-style Master track: a wide solid bar that fills from the
+   bottom, not a thin line with a knob. The fill is a child div whose
+   height is the master percentage; the track itself is the flexible
+   part of the fixed-height rail, so it can never run over the tap
+   tempo button below the rail. */
+.live-master-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 64px;
+  margin: 0 auto;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: ns-resize;
+  overflow: hidden;
+  outline-offset: 2px;
+}
+
+.live-master-track:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.live-master-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #d9d4f5;
+}
+
+/* Tap-tempo box: a separate element under the rail, the same 96px
+   width, never inside the rail. Its four quadrants sit behind the
+   text; the lit one (one per quarter beat, clockwise) is a lighter
+   lavender, as in LightKey. */
 .live-master-bpm {
-  width: 100%;
+  position: relative;
+  width: 96px;
+  flex: none;
+  overflow: hidden;
   border-radius: 4px;
   background: var(--panel);
-  padding: 4px 2px;
+  padding: 6px 2px;
   text-align: center;
   color: var(--text);
   font-size: 13px;
@@ -482,6 +515,23 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 
 .live-master-bpm small { color: var(--dim); }
+
+.live-master-bpm-quadrants {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+}
+
+.bpm-quadrant[data-quadrant='top-left'] { grid-area: 1 / 1; }
+.bpm-quadrant[data-quadrant='top-right'] { grid-area: 1 / 2; }
+.bpm-quadrant[data-quadrant='bottom-right'] { grid-area: 2 / 2; }
+.bpm-quadrant[data-quadrant='bottom-left'] { grid-area: 2 / 1; }
+
+.bpm-quadrant-lit { background: rgba(217, 212, 245, 0.55); }
+
+.live-master-bpm-text { position: relative; z-index: 1; }
 
 .preview-stack { position: relative; min-height: 0; overflow: hidden; }
 .preview-stack > .stage { height: 100%; }

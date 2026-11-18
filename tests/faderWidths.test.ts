@@ -9,25 +9,39 @@ import { resolve } from 'node:path'
 
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
+const masterFader = readFileSync(resolve(root, 'src/renderer/src/components/MasterFader.tsx'), 'utf8')
 const design = readFileSync(resolve(root, 'src/renderer/src/components/DesignTab.tsx'), 'utf8')
 const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 
 describe('Master fader — fixed left rail (LightKey screenshots 8.54.48 / 8.57.25)', () => {
-  it('is a fixed 96px wide, 172px tall rail', () => {
+  it('is a fixed 96px wide, 172px tall rail with a solid filled track, not a thin line + knob', () => {
+    // Jake, 18 Nov 2026 (screenshots 9.56.45 / 10.00.16): LightKey's
+    // Master is a tall, wide, solid lavender bar that fills from the
+    // bottom — the thin white line + round knob is replaced by a
+    // role="slider" track with a fill div whose height is the value.
     expect(css).toContain('.live-master-rail {')
     expect(css).toContain('width: 96px')
     expect(css).toContain('flex: 0 0 96px')
     expect(css).toContain('height: 172px')
     expect(css).toContain('align-self: flex-start')
-    expect(css).toContain(".live-master-rail input[type='range'] {")
-    expect(css).toContain('flex: 1')
-    expect(css).toContain('width: 56px')
-    expect(workspace).toContain('live-master-rail')
-    expect(workspace).toContain('aria-label="Master fader"')
-    expect(workspace).toContain('aria-label="Live master"')
-    expect(workspace).toContain('setMaster(Number(e.target.value))')
+    expect(css).toContain('.live-master-track {')
+    expect(css).toContain('width: 64px')
+    expect(css).toContain('.live-master-fill {')
+    expect(css).toContain('background: #d9d4f5')
+    expect(css).not.toContain(".live-master-rail input[type='range']")
+    expect(masterFader).toContain('live-master-rail')
+    expect(masterFader).toContain('aria-label="Master fader"')
+    expect(masterFader).toContain('role="slider"')
+    expect(masterFader).toContain('aria-label="Live master"')
+    expect(masterFader).toContain('aria-valuenow={value}')
+    expect(masterFader).toContain('live-master-fill')
+    expect(masterFader).toContain("height: `${(value / 255) * 100}%`")
+    // Dragging still sets the same store master (0–255) through setMaster.
+    expect(masterFader).toContain('setPointerCapture')
+    expect(masterFader).toContain('onChange(clampMaster(')
     // The value reads "Full" at 100%, as in LightKey — not a separate label.
-    expect(workspace).toContain("master >= 255 ? 'Full'")
+    expect(masterFader).toContain("master >= 255 ? 'Full'")
+    expect(workspace).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
     expect(workspace).not.toContain('flex w-14 shrink-0 flex-col items-center gap-1 rounded border border-line bg-panel2 py-2')
   })
 
@@ -49,13 +63,13 @@ describe('Master fader — fixed left rail (LightKey screenshots 8.54.48 / 8.57.
     expect(railBlock).not.toContain('height: 100%')
     // The rail is rendered once, outside any editing-gated block: the
     // same rail shows in Live and in Live Edit.
-    expect(workspace.match(/live-master-rail/g)?.length).toBe(1)
-    expect(workspace.indexOf('live-master-rail')).toBeLessThan(workspace.indexOf('This Live page is blank'))
+    expect(masterFader.match(/live-master-rail/g)?.length).toBe(1)
+    expect(workspace.indexOf('<MasterFader')).toBeLessThan(workspace.indexOf('This Live page is blank'))
   })
 
   it('sits outside the canvas scroll container, so canvas pan/zoom/edit cannot move it', () => {
-    const railAt = workspace.indexOf('live-master-rail')
-    const canvasAt = workspace.indexOf("min-w-0 flex-1 overflow-auto rounded border border-line")
+    const railAt = workspace.indexOf('<MasterFader')
+    const canvasAt = workspace.indexOf('min-w-0 flex-1 overflow-auto')
     expect(railAt).toBeGreaterThan(-1)
     expect(canvasAt).toBeGreaterThan(-1)
     expect(railAt).toBeLessThan(canvasAt)
@@ -64,15 +78,22 @@ describe('Master fader — fixed left rail (LightKey screenshots 8.54.48 / 8.57.
     expect(railAt).toBeLessThan(blankAt)
   })
 
-  it('has the tap-tempo BPM box directly underneath, same width', () => {
-    expect(workspace).toContain('live-master-bpm')
-    expect(workspace).toContain('aria-label="Tap tempo"')
+  it('has the tap-tempo BPM box as a separate element underneath the rail, same width', () => {
+    // Jake, 18 Nov 2026 (screenshot 10.00.16, yellow square): the BPM
+    // box is its own element directly under the rail — not inside the
+    // rail, not overlapping the fader track. It is a separate BpmButton
+    // rendered after the rail inside the same 96px column.
+    expect(masterFader).toContain('live-master-column')
+    expect(masterFader).toContain('live-master-bpm')
+    expect(masterFader).toContain('aria-label="Tap tempo"')
+    expect(masterFader).toContain('<BpmButton bpm={bpm} onTap={onTap} />')
+    expect(masterFader.indexOf('<BpmButton bpm={bpm}')).toBeGreaterThan(masterFader.indexOf('aria-label="Master fader"'))
     expect(workspace).toContain('calculateTapTempo(masterTaps.current')
     expect(workspace).toContain('setBpm(result.bpm)')
     expect(css).toContain('.live-master-bpm {')
-    expect(css).toContain('width: 100%')
-    // The BPM box comes after the fader in the rail.
-    expect(workspace.indexOf('aria-label="Live master"')).toBeLessThan(workspace.indexOf('aria-label="Tap tempo"'))
+    expect(css).toContain('width: 96px')
+    // The BPM box comes after the fader.
+    expect(masterFader.indexOf('aria-label="Live master"')).toBeLessThan(masterFader.indexOf('aria-label="Tap tempo"'))
   })
 })
 

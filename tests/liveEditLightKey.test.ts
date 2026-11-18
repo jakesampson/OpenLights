@@ -16,6 +16,7 @@ import { resolve } from 'node:path'
 
 const root = resolve(__dirname, '..')
 const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
+const masterFader = readFileSync(resolve(root, 'src/renderer/src/components/MasterFader.tsx'), 'utf8')
 const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 const groupsPresets = readFileSync(resolve(root, 'src/renderer/src/components/GroupsPresetsPanel.tsx'), 'utf8')
 const sequenceEditor = readFileSync(resolve(root, 'src/renderer/src/components/SequenceEditor.tsx'), 'utf8')
@@ -55,19 +56,22 @@ describe('Live Edit — LightKey layout', () => {
     // 18 Nov 2026 (Jake): the Master fader is a fixed 96px × 172px rail,
     // the same height in Live and in Live Edit, outside the canvas scroll
     // container — never on the manipulatable canvas — with the BPM /
-    // tap-tempo box under it. (It stretched in Edit mode until the rail
-    // got its own fixed height; see tests/faderWidths.test.ts.)
-    expect(workspace).toContain('live-master-rail')
-    expect(workspace).toContain('aria-label="Master fader"')
-    expect(workspace).toContain('aria-label="Live master"')
-    expect(workspace).toContain('setMaster(Number(e.target.value))')
-    expect(workspace).toContain('aria-label="Tap tempo"')
-    expect(workspace).toContain('live-master-bpm')
-    expect(workspace).toContain("master >= 255 ? 'Full'")
+    // tap-tempo box as a separate element under it. (It stretched in Edit
+    // mode until the rail got its own fixed height; see
+    // tests/faderWidths.test.ts. The thin line + knob is now a solid
+    // filled bar; see tests/masterFader.test.ts.)
+    expect(workspace).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
+    expect(masterFader).toContain('live-master-rail')
+    expect(masterFader).toContain('aria-label="Master fader"')
+    expect(masterFader).toContain('aria-label="Live master"')
+    expect(masterFader).toContain('aria-label="Tap tempo"')
+    expect(masterFader).toContain('live-master-bpm')
+    expect(masterFader).toContain("master >= 255 ? 'Full'")
     expect(css).toContain('.live-master-rail {')
     expect(css).toContain('width: 96px')
     expect(css).toContain('height: 172px')
-    expect(css).toContain('writing-mode: vertical-lr')
+    expect(css).toContain('.live-master-track {')
+    expect(css).toContain('.live-master-fill {')
   })
 
   it('has a LightKey right-click context menu on the canvas', () => {

@@ -12,6 +12,7 @@ import {
 } from '../lib/livePageObjects'
 import { useShowStore } from '../stores/showStore'
 import { calculateTapTempo } from '../lib/tapTempo'
+import { MasterFader } from './MasterFader'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 import { CueListEditor } from './CueListEditor'
 
@@ -394,7 +395,13 @@ export function LiveWorkspace() {
   const inspectorTarget: InspectorTarget = selectedControl ? 'cue' : selectedList ? 'cuelist' : selectedAnnotation?.type === 'frame' ? 'frame' : selectedAnnotation ? 'label' : 'page'
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
-  return <section data-context-menu="page" aria-label="Live page canvas" className="relative flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3" onContextMenu={openContextMenu}>
+  // LightKey's Live view has no bordered boxes around the page: the
+  // panel and canvas borders only render in Live Edit mode, so the
+  // editable area is still clearly delineated while editing, and the
+  // page sits directly on the background otherwise. border-transparent
+  // (not no border at all) keeps the layout from shifting between modes.
+  const panelBorder = editing ? 'border border-line' : 'border border-transparent'
+  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex min-h-full flex-col gap-2 rounded ${panelBorder} bg-bg/30 p-3`} onContextMenu={openContextMenu}>
     {/* LightKey-style edit toolbar: the Design / Live switch sits in the
         bottom panel above this workspace (ViewSwitch, rendered by App);
         the toolbar below it holds New Button (+), New Frame, Insert Text
@@ -413,20 +420,16 @@ export function LiveWorkspace() {
     </div>
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
-      {/* Fixed Master fader rail (LightKey): fixed 96px wide and fixed
-          192px tall — the same height in Live and in Live Edit — OUTSIDE
-          the canvas scroll container below, so it is never on the
-          manipulatable canvas and panning, zooming or editing the canvas
-          cannot move or stretch it. The value reads "Full" at 100%, as in
-          LightKey, and the tap-tempo box sits directly underneath. */}
-      <div className="live-master-rail" aria-label="Master fader">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-dim">Master</span>
-        <input aria-label="Live master" type="range" min="0" max="255" value={master} onChange={(e) => setMaster(Number(e.target.value))} />
-        <span className="text-xs text-text">{master >= 255 ? 'Full' : `${Math.round(master / 255 * 100)}%`}</span>
-        <button type="button" className="live-master-bpm" aria-label="Tap tempo" title="Tap tempo — click to set the tempo" onClick={tapTempo}><strong>{bpm > 0 ? Math.round(bpm) : '—'}</strong> <small>bpm</small></button>
-      </div>
-      {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      <div className="min-w-0 flex-1 overflow-auto rounded border border-line"><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+      {/* Fixed Master fader column (LightKey): a fixed 96px-wide, 172px
+          tall solid filled bar with the tap-tempo BPM box separate
+          underneath it (MasterFader) — the same size in Live and in Live
+          Edit — OUTSIDE the canvas scroll container below, so it is never
+          on the manipulatable canvas and panning, zooming or editing the
+          canvas cannot move or stretch it. The value reads "Full" at 100%,
+          as in LightKey. */}
+      <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />
+      {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
+      <div className={`min-w-0 flex-1 overflow-auto rounded ${panelBorder}`}><div ref={pageCanvas} className="relative bg-panel" style={{ width: 900, height: 520, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
