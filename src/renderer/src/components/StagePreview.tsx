@@ -357,7 +357,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
 
   return (
     <div
-      className="panel stage min-h-0 overflow-hidden relative bg-bg p-2"
+      className="panel stage min-h-0 overflow-hidden relative bg-bg"
       onPointerEnter={() => { pointerOverRef.current = true }}
       onPointerLeave={() => { pointerOverRef.current = false }}
     >
@@ -401,7 +401,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
             #496077, minor lines #64788b every 60 units, major lines
             #8090a0 every 240. The default stage background (glow, deck,
             silhouettes, demo arc) is gone — preview mode is just a blank
-            window. */}
+            window. The rects cover twice the viewBox, not just the
+            viewBox: with preserveAspectRatio="meet" the viewBox maps to
+            a centred band inside the element when the window aspect
+            differs, and the extra margin paints the grid into those
+            letterbox bands too, so the grid reaches the panel edges at
+            any window size (Jake, 19 Nov 2026 — edge to edge). The
+            rects are pointer-events none; the transparent hit rect
+            below stays exactly the viewBox, so pan/marquee behaviour
+            is unchanged. */}
         <defs>
           <pattern id="blueprintGrid" width="60" height="60" patternUnits="userSpaceOnUse">
             <rect width="60" height="60" fill="#496077" />
@@ -411,8 +419,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
             <path d="M 240 0 H 0 V 240" fill="none" stroke="#8090a0" strokeWidth="1" />
           </pattern>
         </defs>
-        {editing && <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="url(#blueprintGrid)" pointerEvents="none" />}
-        {editing && <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="url(#blueprintGridMajor)" pointerEvents="none" />}
+        {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGrid)" pointerEvents="none" />}
+        {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGridMajor)" pointerEvents="none" />}
         <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="transparent" onPointerDown={(event) => {
           // Blank drag: in edit mode without Space this is marquee
           // selection (LightKey Guide p.53); with Space held it pans,

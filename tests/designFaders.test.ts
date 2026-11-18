@@ -78,11 +78,31 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
     expect(design).toContain('disabled={!canEdit}')
   })
 
-  it('keeps the value readouts and the colour wheel untouched', () => {
+  it('keeps the value readouts and the colour wheel, with no RGB text readout', () => {
     expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
-    expect(design).toContain('RGB ${colorValues.red}')
     expect(design).toContain('className="wheel-input"')
     expect(design).toContain('colorWheelPosition')
+  })
+
+  it('has no RGB readout under the colour wheel (Jake, 19 Nov 2026)', () => {
+    // The green channel printed a raw float (9.450000000000001, from
+    // amber × 0.45 in colorValues) and the long value broke the panel
+    // layout — Jake's call was to remove the readout entirely, not
+    // round it. The wheel + marker show the colour.
+    // (The word RGB still appears in a code comment explaining this;
+    // what must be gone is the rendered readout itself.)
+    expect(design).not.toContain('RGB ${')
+    expect(design).not.toContain('RGB —')
+  })
+
+  it('every other readout in the panel is already an integer', () => {
+    // Audit, same batch: Dimmer % is Math.round'd; Pan/Tilt and the
+    // channel values all go through valueFor, which rounds — so no
+    // other raw float can be rendered into the panel.
+    expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
+    expect(design).toContain("Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}")
+    expect(design).toContain('const value = activeCue ? valueFor(attribute) : 0')
+    expect(design).toContain('Math.round(')
   })
 
   it('the Master uses the same shared component', () => {

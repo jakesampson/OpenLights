@@ -184,11 +184,13 @@ export function DesignTab() {
               />
             )}
           </div>
-          <span className="font-mono text-[10px] text-dim">
-            {colorSupported && selectedFixtures.length > 0
-              ? `RGB ${colorValues.red}·${colorValues.green}·${colorValues.blue}`
-              : 'RGB —'}
-          </span>
+          {/* No numeric RGB readout under the wheel (Jake, 19 Nov 2026):
+              the green channel printed a raw float (9.450000000000001,
+              from amber × 0.45 in colorValues) and the long value broke
+              the panel layout. The wheel + marker show the colour; the
+              only other readouts in this panel are already integers —
+              Dimmer % (Math.round), Pan/Tilt and channel values
+              (valueFor, which rounds). */}
         </div>
 
         {hasPanTilt && (

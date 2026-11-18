@@ -149,7 +149,9 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
      measures RGB (68, 67, 69) across its full width. Header bar only —
      the rest of the app keeps its own theme. */
   background: #444345;
-  border-bottom: 1px solid var(--line);
+  /* Neutral grey divider, not the theme's purple line — the header is
+     grey and white only (Jake, 19 Nov 2026). */
+  border-bottom: 1px solid #5a5a5c;
   flex: 0 0 auto;
   -webkit-app-region: drag;
 }
@@ -161,12 +163,14 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar > .flex:first-child > :nth-child(4) { order: 7; }
 .top-bar > .flex:first-child > :nth-child(5) { order: 9; }
 .top-bar > .flex:first-child > details summary,
-.top-bar > .flex:first-child > button:not(.lightkey-action),
+.top-bar > .flex:first-child > button:not(.lightkey-action):not(.lightkey-project),
 .top-bar > .flex:first-child > div:last-child > button:not(.lightkey-action) {
   min-height: 32px;
-  border-color: color-mix(in srgb, var(--line) 60%, transparent);
-  background: color-mix(in srgb, var(--panel2) 55%, transparent);
+  border-color: #767678;
+  background: #5b5b5d;
+  color: #fff;
 }
+.top-bar > .flex:first-child > button:not(.lightkey-action):not(.lightkey-project):hover { background: #6d6d6f; }
 .top-bar details > summary { list-style: none; }
 .top-bar details > summary::-webkit-details-marker { display: none; }
 
@@ -298,6 +302,51 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .project-search > input { width: 0; min-width: 0; height: 32px; margin-right: 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); opacity: 0; pointer-events: none; transition: width 160ms ease, opacity 120ms ease, padding 160ms ease, margin 160ms ease; }
 .project-search.open > input { width: 240px; flex: 0 1 240px; min-width: 120px; margin-right: 8px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel2); opacity: 1; pointer-events: auto; }
 
+/* Header: grey and white only (Jake, 19 Nov 2026, screenshot 9.26.05)
+   — no purple anywhere in the top bar. The background stays the
+   sampled LightKey grey; every icon and button in it is grey (#5b5b5d surfaces,
+   #767678 borders, #d2d2d2 icons, #555658 pills/fields) or white text.
+   The rest of the app keeps its theme — every rule here is scoped to
+   .top-bar. The red Blackout button and the yellow preset-editing badge
+   are not purple, so they stay as they are. */
+.top-bar { color: #fff; }
+.top-bar .lightkey-project small { color: #c8c8c8; }
+/* Done — macOS default blue (systemBlue, dark appearance #0A84FF,
+   Apple HIG; LightKey's own Done measures ~#2060D0 in Jake's LightKey
+   screenshot, the same blue family a shade deeper). White text. The
+   Edit state stays grey like the other header buttons. This rule comes
+   after the grey header-button rule above and ties it on specificity,
+   so it wins by order. */
+.top-bar > .flex:first-child > button.btn-theme.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+.top-bar > .flex:first-child > button.btn-theme.on:hover { background: #2b93ff; border-color: #2b93ff; }
+.top-bar .header-icon, .top-bar .lightkey-action, .top-bar .project-search-button { color: #d2d2d2; }
+.top-bar .header-icon:hover, .top-bar .header-icon.on,
+.top-bar .lightkey-action:hover, .top-bar .lightkey-action.on,
+.top-bar .project-search-button:hover, .top-bar .project-search.open .project-search-button { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.top-bar .header-look-field { background: #555658; }
+.top-bar .header-look-field > span, .top-bar .header-look-field select { color: #fff; }
+.top-bar .project-search.open > input { background: #555658; border-color: #767678; color: #fff; }
+.top-bar .window-control { color: #d2d2d2; }
+.top-bar .window-control:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+/* Header dropdown menus (property ···, effects wand, layout/settings):
+   grey surfaces, white text; the selected item is macOS blue. */
+.top-bar .header-more-menu, .top-bar .header-submenu { background: #4a4a4d; border-color: #6a6a6d; }
+.top-bar .header-more-menu > strong, .top-bar .header-submenu > span { color: #c8c8c8; }
+.top-bar .header-more-menu button, .top-bar .header-submenu button,
+.top-bar .header-more-menu input { background: #555658; border-color: #6a6a6d; color: #fff; }
+.top-bar .header-more-menu button:hover, .top-bar .header-submenu button:hover { background: #666668; }
+.top-bar .header-more-menu button.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+.top-bar [data-header-settings-menu] { background: #4a4a4d; border-color: #6a6a6d; }
+.top-bar [data-header-settings-menu] .text-dim { color: #c8c8c8; }
+.top-bar [data-header-settings-menu] input, .top-bar [data-header-settings-menu] select { background: #555658; border-color: #767678; color: #fff; }
+.top-bar [data-header-settings-menu] .btn-theme { background: #5b5b5d; border-color: #767678; color: #fff; }
+.top-bar [data-header-settings-menu] .btn-theme:hover { background: #6d6d6f; }
+.top-bar [data-header-settings-menu] label:hover, .top-bar [data-header-settings-menu] button:not(.btn-panic):hover { background: rgba(255, 255, 255, 0.10); }
+/* The DMX status dot inside the settings menu is an inline style
+   (accent purple when connected) — white here, so no purple shows in
+   the header; the button label already states the connection. */
+.top-bar [data-header-settings-menu] .btn-theme .rounded-full { background: #fff !important; }
+
 .top-bar > .flex:last-child { order: 10; }
 
 /* A 1920×1080 macOS display commonly gives Electron about 1600 CSS pixels
@@ -390,11 +439,19 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   color: white;
 }
 
+/* Flush, square-cornered main-window panels (Jake, 19 Nov 2026,
+   screenshot 9.26.05): the Preview, side panel, bottom panel and
+   Shortcuts panel sit against each other and the window edges with no
+   gutters and no border-radius — LightKey's own layout is the same
+   flush, square-cornered split (its Design/Live screenshots show the
+   Preview, palette and bottom panel meeting edge to edge with only a
+   1px divider between them). Only these four panels: dialogs and inner
+   panels keep their radius. Internal content padding stays. */
 .main-grid {
   display: grid;
   grid-template-columns: 1fr 260px;
-  gap: 12px;
-  padding: 12px;
+  gap: 0;
+  padding: 0;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -402,8 +459,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .bottom-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 12px;
-  padding: 0 12px 12px;
+  gap: 0;
+  padding: 0;
   flex: 0 0 auto;
   /* 294px, not 260px: the pinned Design/Live switch row at the top of the
      bottom panel is 34px tall, and the grid grows by exactly that much so
@@ -412,6 +469,21 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   min-height: 0;
 }
 
+/* Square corners on the four main-window panels, and one 1px divider
+   per seam: the touching side's border is dropped so two 1px borders
+   never stack into a 2px line, and the outer edges run borderless to
+   the window edge (the header's own bottom border is the divider above
+   the main row). */
+.main-grid > .panel,
+.main-grid > .preview-stack > .panel,
+.bottom-grid > .panel { border-radius: 0; }
+.main-grid > .preview-stack > .panel { border-top: 0; border-left: 0; }
+.main-grid > .panel.side-panel { border-top: 0; border-right: 0; border-left: 0; }
+.bottom-grid > .panel { border-top: 0; }
+.bottom-grid > .panel + .panel { border-left: 0; }
+.bottom-grid > .panel:first-child { border-left: 0; border-bottom: 0; }
+.bottom-grid > .panel:last-child { border-right: 0; border-bottom: 0; }
+
 /* Stage preview keeps a 16:9 media frame and scales with the window */
 .stage {
   display: flex;
@@ -419,7 +491,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   justify-content: center;
   overflow: hidden;
   background: var(--bg);
-  padding: 8px;
+  /* No inset: the canvas runs edge to edge of the preview panel
+     (Jake, 19 Nov 2026) — the grid fills the whole window in edit mode
+     and the blank window fills it in preview mode. The Preview label
+     and zoom cluster are absolutely positioned overlays, not a frame. */
 }
 
 .stage-frame {

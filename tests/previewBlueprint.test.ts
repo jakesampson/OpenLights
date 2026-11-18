@@ -25,7 +25,14 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
     expect(previewSource).toContain('fill="url(#blueprintGridMajor)"')
     // The grid rects only render while editing; the canvas rect itself
     // is transparent, so preview mode is a blank window.
-    expect(previewSource).toContain("{editing && <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill=\"url(#blueprintGrid)\"")
+    // The rects cover twice the viewBox, not just the viewBox: with
+    // preserveAspectRatio="meet" the viewBox maps to a centred band
+    // inside the element when the window aspect differs, and the extra
+    // margin paints the grid into those letterbox bands too, so the
+    // grid reaches the panel edges at any window size (Jake, 19 Nov
+    // 2026 — edge to edge).
+    expect(previewSource).toContain("{editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill=\"url(#blueprintGrid)\"")
+    expect(previewSource).toContain("{editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill=\"url(#blueprintGridMajor)\"")
     expect(previewSource).toContain('fill="transparent"')
     // The default stage background is gone: no glow, deck, performer
     // silhouettes, demo arc or DEMO RIG label.
@@ -34,6 +41,22 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
     expect(previewSource).not.toContain('Performer silhouettes')
     expect(previewSource).not.toContain('DEMO RIG')
     expect(previewSource).not.toContain('original illustration')
+  })
+
+  it('runs the canvas edge to edge of the preview panel (Jake, 19 Nov 2026)', () => {
+    // No inset frame: the stage has no padding (neither the .stage CSS
+    // rule nor the component's p-2), so the grid fills the whole panel
+    // in edit mode and the blank window fills it in preview mode. The
+    // Preview label and zoom cluster are absolute overlays, not a frame.
+    const css = readFileSync('src/renderer/src/index.css', 'utf8')
+    expect(previewSource).toContain('className="panel stage min-h-0 overflow-hidden relative bg-bg"')
+    expect(previewSource).not.toContain('bg-bg p-2')
+    expect(css).not.toMatch(/\.stage \{[^}]*padding/)
+    expect(previewSource).toContain('>Preview</span>')
+    expect(previewSource).toContain('Zoom out preview')
+    // The blank-drag hit rect stays exactly the viewBox — only the
+    // grid paint extends — so pan/marquee behaviour is unchanged.
+    expect(previewSource).toContain('<rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="transparent"')
   })
 
   it('pans on two-finger scroll and zooms on pinch / Ctrl+scroll', () => {
