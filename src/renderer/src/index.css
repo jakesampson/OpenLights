@@ -125,7 +125,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 
 .top-bar > .flex:first-child { display: contents; }
-.top-bar > .flex:first-child > :first-child { display: none; }
+.top-bar > .flex:first-child > :first-child { display: block; order: 0; }
 .top-bar > .flex:first-child > :nth-child(2) { order: 1; }
 .top-bar > .flex:first-child > :nth-child(3) { order: 8; }
 .top-bar > .flex:first-child > :nth-child(4) { order: 6; }

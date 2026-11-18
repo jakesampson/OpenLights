@@ -2,6 +2,9 @@
 
 ## Decisions
 
+- The title-bar close control is an explicit Quit OpenLights action. It now uses a dedicated IPC shutdown path that releases DMX, tells the renderer to stand down its beforeunload guard, and then quits Electron; project/window-close behavior remains separate.
+- The original OpenLights logo uses an open aperture, three cue nodes, and projected light beams in the app's purple/cyan palette. Packaging uses the source PNG so electron-builder can create platform-specific icon formats, and the same mark replaces the temporary “OL” header tile.
+
 - The Live edit object tools and Done/Edit action are portalled into the bottom panel's Design/Live switch row, aligned right, so the canvas begins immediately below that shared toolbar.
 
 - The Live Edit page inspector was removed because page name/fade management belongs in Page Manager. The canvas now fills the freed width and only gains horizontal scrolling when positioned content extends beyond the visible panel; add-object tools and Done share the right side of its header, matching the supplied Lightkey layout.

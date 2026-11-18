@@ -17,6 +17,7 @@ dist:win/
 *.app
 *.icns
 *.ico
+!assets/branding/*.ico
 build/make_icons.js
 build/icon.py
 

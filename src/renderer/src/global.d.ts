@@ -51,6 +51,7 @@ declare global {
       minimizeWindow: () => void
       toggleWindowMaximize: () => void
       closeWindow: () => void
+      quitApp: () => void
       getWindowMaximized: () => Promise<boolean>
       onWindowMaximized: (callback: (maximized: boolean) => void) => () => void
       onMenuCommand: (callback: (command: string) => void) => () => void

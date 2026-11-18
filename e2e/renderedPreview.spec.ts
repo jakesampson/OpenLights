@@ -24,6 +24,7 @@ test.beforeEach(async ({ page }) => {
 
 test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.getByText('Demo Show', { exact: false }).first()).toBeVisible()
+  await expect(page.getByRole('img', { name: 'OpenLights' })).toBeVisible()
   await expect(page.locator('.top-bar')).toHaveCount(1)
   await expect(page.locator('.top-bar').getByLabel('Active cue')).toBeVisible()
   await expect(page.locator('.top-bar').getByLabel('Master intensity')).toHaveCount(0)

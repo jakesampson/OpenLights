@@ -287,9 +287,7 @@ export default function App() {
       {/* Top bar */}
       <header className="top-bar">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded bg-accent text-[10px] font-bold text-[#111]">
-            OL
-          </div>
+          <img src="./openlights-logo.png" alt="OpenLights" className="h-8 w-8 rounded-lg object-cover" />
           <ProjectBar />
           <ProjectSearch onReveal={(result) => {
             const state = useShowStore.getState()
@@ -425,9 +423,9 @@ export default function App() {
             <button
               type="button"
               className="window-control window-control-close"
-              aria-label="Close window"
-              title="Close"
-              onClick={() => window.electronAPI.closeWindow()}
+              aria-label="Quit OpenLights"
+              title="Quit OpenLights"
+              onClick={() => window.electronAPI.quitApp()}
             >
               <svg viewBox="0 0 16 16" aria-hidden="true">
                 <path d="m4 4 8 8m0-8-8 8" />

@@ -110,6 +110,16 @@ ipcMain.on('window:toggle-maximize', () => {
   else mainWindow.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+ipcMain.on('app:quit', (event) => {
+  if (quitting) return
+  quitting = true
+  // This is an explicit application quit, not a project/window close.
+  // Notify the renderer first so its beforeunload guard stands down, then
+  // allow that IPC message to be delivered before asking Electron to quit.
+  event.sender.send('app:quitting')
+  shutdownDmx()
+  setTimeout(() => app.quit(), 50)
+})
 
 app.whenReady().then(async () => {
   // Grant MIDI permission so Web MIDI API works in the renderer
