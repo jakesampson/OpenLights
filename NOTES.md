@@ -2,6 +2,8 @@
 
 ## Decisions
 
+- Electron's runtime name is set to OpenLights and macOS receives the generated icon through `app.dock.setIcon`, so development/preview builds no longer appear as “Electron” in the menu bar or Dock. The pre-existing user-data directory is captured before renaming the runtime to avoid moving or hiding existing show files.
+
 - The title-bar close control is an explicit Quit OpenLights action. It now uses a dedicated IPC shutdown path that releases DMX, tells the renderer to stand down its beforeunload guard, and then quits Electron; project/window-close behavior remains separate.
 - The original OpenLights logo uses an open aperture, three cue nodes, and projected light beams in the app's purple/cyan palette. Packaging uses the source PNG so electron-builder can create platform-specific icon formats, and the same mark replaces the temporary “OL” header tile.
 

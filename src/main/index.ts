@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, Menu, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, Menu, nativeImage, type MenuItemConstructorOptions } from 'electron'
 import { migrateShow } from '../shared/migrations'
 import { usbOnlyStatus } from '../shared/outputSettings'
 import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
@@ -12,7 +12,13 @@ import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 import { WINDOWS_MENU } from '../shared/menuModel'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const SHOWS_DIR = path.join(app.getPath('userData'), 'shows')
+// Capture the established data directory before changing the development
+// runtime name from Electron to OpenLights. This keeps every existing show
+// in place while fixing the macOS menu-bar and Dock identity.
+const USER_DATA_DIR = app.getPath('userData')
+app.setName('OpenLights')
+const APP_ICON = path.join(app.getAppPath(), 'assets/branding/openlights-icon.png')
+const SHOWS_DIR = path.join(USER_DATA_DIR, 'shows')
 
 if (!fs.existsSync(SHOWS_DIR)) {
   fs.mkdirSync(SHOWS_DIR, { recursive: true })
@@ -21,7 +27,7 @@ if (!fs.existsSync(SHOWS_DIR)) {
 let mainWindow: BrowserWindow | null = null
 let dmxEngine: DMXEngine
 const liveWindows = new Map<number, { window: BrowserWindow; spec: LiveWindowSpec }>()
-const liveWindowsFile = path.join(app.getPath('userData'), 'live-windows.json')
+const liveWindowsFile = path.join(USER_DATA_DIR, 'live-windows.json')
 let liveState: Record<string, unknown> = {}
 let quitting = false
 let dmxShutdownDone = false
@@ -43,7 +49,7 @@ app.on('before-quit', () => {
 })
 function saveLiveWindows() { fs.writeFileSync(liveWindowsFile, JSON.stringify([...liveWindows.values()].map(({ window, spec }) => ({ ...spec, width: window.getBounds().width, height: window.getBounds().height })))) }
 function openLiveWindow(spec: LiveWindowSpec) {
-  const window = new BrowserWindow({ width: spec.width, height: spec.height, minWidth: 640, minHeight: 480, title: 'OpenLights Live', webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
+  const window = new BrowserWindow({ width: spec.width, height: spec.height, minWidth: 640, minHeight: 480, title: 'OpenLights Live', icon: APP_ICON, webPreferences: { preload: path.join(__dirname, '../preload/index.js'), contextIsolation: true, nodeIntegration: false, sandbox: true } })
   window.setMenuBarVisibility(false)
   const contentsId = window.webContents.id
   liveWindows.set(contentsId, { window, spec }); saveLiveWindows()
@@ -64,6 +70,8 @@ function createWindow() {
     height: 900,
     minWidth: 1200,
     minHeight: 800,
+    title: 'OpenLights',
+    icon: APP_ICON,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -122,6 +130,7 @@ ipcMain.on('app:quit', (event) => {
 })
 
 app.whenReady().then(async () => {
+  if (process.platform === 'darwin' && app.dock) app.dock.setIcon(nativeImage.createFromPath(APP_ICON))
   // Grant MIDI permission so Web MIDI API works in the renderer
   const midiAllowed = (permission: string) => permission === 'midi' || permission === 'midiSysex'
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
