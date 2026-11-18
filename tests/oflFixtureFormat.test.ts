@@ -36,6 +36,26 @@ describe('Open Fixture Library format', () => {
     expect(importOflFixture(oflFixture, { preserveSource: false }).ofl?.source).toBeUndefined()
   })
 
+  it('expands OFL matrix template channels in declared channel order', () => {
+    const matrix = {
+      ...oflFixture,
+      name: 'Pixel Bar',
+      categories: ['Pixel Bar'],
+      availableChannels: {},
+      matrix: { pixelCount: [2, 1, 1] },
+      templateChannels: {
+        'Red $pixelKey': { capability: { type: 'ColorIntensity', color: 'Red' } },
+        'Green $pixelKey': { capability: { type: 'ColorIntensity', color: 'Green' } }
+      },
+      modes: [{ name: 'Pixels', channels: [{ insert: 'matrixChannels', repeatFor: 'eachPixelXYZ', channelOrder: 'perPixel', templateChannels: ['Red $pixelKey', 'Green $pixelKey'] }] }]
+    }
+    const profile = importOflFixture(matrix)
+    expect(profile.modes[0].channels.map((channel) => channel.attribute)).toEqual([
+      'Red (1, 1, 1)', 'Green (1, 1, 1)', 'Red (2, 1, 1)', 'Green (2, 1, 1)'
+    ])
+    expect(profile.legacyType).toBe('pixel-bar-17ch')
+  })
+
   it('exports native OpenLights profiles as OFL JSON without mutating them', () => {
     const profile = structuredClone(BUILTIN_PROFILES[0])
     const before = structuredClone(profile)

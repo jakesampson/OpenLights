@@ -3,6 +3,7 @@ import type { FixtureChannel, FixtureProfile, FixtureType } from './types'
 const OFL_SCHEMA = 'https://raw.githubusercontent.com/OpenLightingProject/open-fixture-library/master/schemas/fixture.json'
 
 type JsonRecord = Record<string, unknown>
+type OflDescriptor = { key: string; definition: JsonRecord; byte: number }
 
 export interface OflImportOptions {
   manufacturer?: string
@@ -102,6 +103,71 @@ function uniqueAttribute(label: string, used: Set<string>): string {
   return result
 }
 
+function matrixPixels(matrixValue: unknown): { key: string; x: number; y: number; z: number }[] {
+  const matrix = record(matrixValue)
+  if (Array.isArray(matrix.pixelKeys)) {
+    const pixels: { key: string; x: number; y: number; z: number }[] = []
+    matrix.pixelKeys.forEach((plane, z) => Array.isArray(plane) && plane.forEach((row, y) => Array.isArray(row) && row.forEach((key, x) => {
+      if (typeof key === 'string') pixels.push({ key, x: x + 1, y: y + 1, z: z + 1 })
+    })))
+    return pixels
+  }
+  if (Array.isArray(matrix.pixelCount) && matrix.pixelCount.length === 3) {
+    const [width, height, depth] = matrix.pixelCount.map(Number)
+    const pixels: { key: string; x: number; y: number; z: number }[] = []
+    for (let z = 1; z <= depth; z++) for (let y = 1; y <= height; y++) for (let x = 1; x <= width; x++) pixels.push({ key: `(${x}, ${y}, ${z})`, x, y, z })
+    return pixels
+  }
+  return []
+}
+
+function repeatKeys(fixture: JsonRecord, repeatFor: unknown): string[] {
+  if (Array.isArray(repeatFor)) return repeatFor.filter((key): key is string => typeof key === 'string')
+  const matrix = record(fixture.matrix)
+  if (repeatFor === 'eachPixelGroup') return Object.keys(record(matrix.pixelGroups))
+  const pixels = matrixPixels(matrix)
+  if (repeatFor === 'eachPixelABC') return pixels.map((pixel) => pixel.key).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  if (typeof repeatFor === 'string' && /^eachPixel[XYZ]{3}$/.test(repeatFor)) {
+    const axes = repeatFor.slice(-3).toLowerCase().split('') as ('x' | 'y' | 'z')[]
+    return [...pixels].sort((a, b) => [...axes].reverse().reduce((difference, axis) => difference || a[axis] - b[axis], 0)).map((pixel) => pixel.key)
+  }
+  return []
+}
+
+function expandModeChannels(fixture: JsonRecord, channels: unknown[], descriptors: Map<string, OflDescriptor>): (string | null)[] {
+  const templates = record(fixture.templateChannels)
+  const templateDescriptors = new Map<string, OflDescriptor>()
+  for (const [key, value] of Object.entries(templates)) {
+    const definition = record(value)
+    templateDescriptors.set(key, { key, definition, byte: 0 })
+    if (Array.isArray(definition.fineChannelAliases)) definition.fineChannelAliases.forEach((alias, index) => {
+      if (typeof alias === 'string') templateDescriptors.set(alias, { key, definition, byte: index + 1 })
+    })
+  }
+  const result: (string | null)[] = []
+  for (const channel of channels) {
+    if (channel === null || typeof channel === 'string') { result.push(channel); continue }
+    const insert = record(channel)
+    if (insert.insert !== 'matrixChannels' || !Array.isArray(insert.templateChannels)) throw new Error('Unsupported OFL mode channel block')
+    const pixels = repeatKeys(fixture, insert.repeatFor)
+    if (!pixels.length) throw new Error('OFL matrix channel insert has no resolvable pixels')
+    const instantiated = (template: unknown, pixel: string): string | null => {
+      if (template === null) return null
+      if (typeof template !== 'string') throw new Error('Unsupported OFL template channel')
+      const descriptor = templateDescriptors.get(template)
+      const key = template.replaceAll('$pixelKey', pixel)
+      if (descriptor) descriptors.set(key, { ...descriptor, key: descriptor.key.replaceAll('$pixelKey', pixel) })
+      return key
+    }
+    if (insert.channelOrder === 'perChannel') {
+      for (const template of insert.templateChannels) for (const pixel of pixels) result.push(instantiated(template, pixel))
+    } else {
+      for (const pixel of pixels) for (const template of insert.templateChannels) result.push(instantiated(template, pixel))
+    }
+  }
+  return result
+}
+
 export function isOflFixture(value: unknown): boolean {
   const raw = record(value)
   return typeof raw.$schema === 'string' && raw.$schema.includes('open-fixture-library') && Array.isArray(raw.modes)
@@ -112,9 +178,10 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
   if (!isOflFixture(raw)) throw new Error('This is not an Open Fixture Library fixture JSON file')
   const fixture = record(raw)
   const available = record(fixture.availableChannels)
-  if (!Object.keys(available).length) throw new Error('OFL matrix/template-only fixtures are not supported yet')
+  const templates = record(fixture.templateChannels)
+  if (!Object.keys(available).length && !Object.keys(templates).length) throw new Error('The OFL fixture has no available or template channels')
 
-  const descriptors = new Map<string, { key: string; definition: JsonRecord; byte: number }>()
+  const descriptors = new Map<string, OflDescriptor>()
   for (const [key, definitionValue] of Object.entries(available)) {
     const definition = record(definitionValue)
     descriptors.set(key, { key, definition, byte: 0 })
@@ -126,9 +193,9 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
   const modes = (fixture.modes as unknown[]).map((modeValue, modeIndex) => {
     const mode = record(modeValue)
     if (!Array.isArray(mode.channels) || !mode.channels.length) throw new Error('Every OFL mode must contain channels')
-    if (mode.channels.some((channel) => channel !== null && typeof channel !== 'string')) throw new Error('OFL matrix channel inserts are not supported yet')
+    const expandedChannels = expandModeChannels(fixture, mode.channels, descriptors)
     const used = new Set<string>()
-    const channels: FixtureChannel[] = mode.channels.map((channelKey, number) => {
+    const channels: FixtureChannel[] = expandedChannels.map((channelKey, number) => {
       if (channelKey === null) return { number, attribute: uniqueAttribute(`Unused ${number + 1}`, used), propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }
       const descriptor = descriptors.get(String(channelKey))
       const definition = descriptor?.definition ?? {}

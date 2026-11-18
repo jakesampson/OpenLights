@@ -5,10 +5,10 @@ export function fixtureWidth(profile: FixtureProfile, modeId?: string): number {
   const mode = profile.modes.find((item) => item.id === modeId) ?? profile.modes[0]
   return mode?.channels.length ? Math.max(...mode.channels.map((channel) => channel.number)) + 1 : 0
 }
-export function placementError(fixtures: FixtureDef[], start: number, width: number): string | null {
+export function placementError(fixtures: FixtureDef[], start: number, width: number, ignoreFixtureId?: string): string | null {
   if (!Number.isInteger(start) || !Number.isInteger(width) || start < 1 || width < 1 || start + width - 1 > 512) return 'The fixture does not fit within channels 1–512'
   const end = start + width - 1
-  const overlap = fixtures.find((fixture) => (fixture.universe ?? 1) === 1 && start <= fixture.channelStart + fixture.channels - 1 && end >= fixture.channelStart)
+  const overlap = fixtures.find((fixture) => fixture.id !== ignoreFixtureId && (fixture.universe ?? 1) === 1 && start <= fixture.channelStart + fixture.channels - 1 && end >= fixture.channelStart)
   return overlap ? `Channels ${Math.max(start, overlap.channelStart)}–${Math.min(end, overlap.channelStart + overlap.channels - 1)} are occupied by ${overlap.name}` : null
 }
 export function findConflicts(fixtures: FixtureDef[]): PatchConflict[] {

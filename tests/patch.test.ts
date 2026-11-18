@@ -23,6 +23,7 @@ it('validates exact drag placement and channel spans across visual rows', () => 
   const occupied = allocateFixtures([], eightChannel, { quantity: 1, start: 10 })
   expect(placementError(occupied, 17, 8)).toContain('occupied')
   expect(placementError(occupied, 18, 8)).toBeNull()
+  expect(placementError(occupied, 22, 8, occupied[0].id)).toBeNull()
 })
 
 it('renders the full 512-address drag matrix with separate brand and model panels', () => {
@@ -33,6 +34,10 @@ it('renders the full 512-address drag matrix with separate brand and model panel
   expect(source).toContain("gridTemplateColumns: 'repeat(24, minmax(0, 1fr))'")
   expect(source).toContain('onDragStart')
   expect(source).toContain('onDrop')
+  expect(source).toContain("kind: 'fixture'")
+  expect(source).toContain('updateFixture(dragged.payload.fixtureId, { channelStart: start })')
+  expect(source).toContain("'!bg-blue-600/85 !text-white'")
+  expect(source).toContain("setDragImage(document.createElement('canvas')")
 })
 
 it('keeps the full-window Done button clear of macOS window controls', () => {

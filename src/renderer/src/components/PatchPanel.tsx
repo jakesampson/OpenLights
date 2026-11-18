@@ -7,7 +7,9 @@ import { useShowStore } from '../stores/showStore'
 import { FixtureGroups } from './FixtureGroups'
 
 const PATCH_MIME = 'application/x-openlights-fixture-profile'
-interface DragProfile { profileId: string; modeId: string }
+interface DragProfile { kind: 'profile'; profileId: string; modeId: string }
+interface DragFixture { kind: 'fixture'; fixtureId: string }
+type DragPayload = DragProfile | DragFixture
 interface OccupiedChannel { fixture: FixtureDef; offset: number; label: string }
 
 function modeFor(profile: FixtureProfile, modeId?: string): FixtureProfile['modes'][number] {
@@ -31,7 +33,7 @@ export function PatchPanel() {
   const [modeId, setModeId] = useState(selectedProfile?.modes[0]?.id ?? '')
   const selectedMode = selectedProfile ? modeFor(selectedProfile, modeId) : undefined
   const [dragRange, setDragRange] = useState<{ start: number; end: number; valid: boolean } | null>(null)
-  const [dragging, setDragging] = useState<DragProfile | null>(null)
+  const [dragging, setDragging] = useState<DragPayload | null>(null)
   const [patchError, setPatchError] = useState('')
   const [patchNotice, setPatchNotice] = useState('')
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
@@ -69,43 +71,66 @@ export function PatchPanel() {
   }
 
   const dragProfile = (event: React.DragEvent, profile: FixtureProfile) => {
-    const payload: DragProfile = { profileId: profile.id, modeId: profile.id === selectedProfileId ? modeId : profile.modes[0]?.id ?? '' }
+    const payload: DragProfile = { kind: 'profile', profileId: profile.id, modeId: profile.id === selectedProfileId ? modeId : profile.modes[0]?.id ?? '' }
     event.dataTransfer.setData(PATCH_MIME, JSON.stringify(payload))
     event.dataTransfer.effectAllowed = 'copy'
+    event.dataTransfer.setDragImage(document.createElement('canvas'), 0, 0)
     setDragging(payload)
     chooseProfile(profile)
   }
 
-  const readDrag = (event: React.DragEvent): { profile: FixtureProfile; modeId: string } | null => {
+  const dragFixture = (event: React.DragEvent, fixture: FixtureDef) => {
+    const payload: DragFixture = { kind: 'fixture', fixtureId: fixture.id }
+    event.dataTransfer.setData(PATCH_MIME, JSON.stringify(payload))
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setDragImage(document.createElement('canvas'), 0, 0)
+    setSelectedFixtureId(fixture.id)
+    setDragging(payload)
+    setPatchError('')
+  }
+
+  const readDrag = (event: React.DragEvent): DragPayload | null => {
     try {
-      const payload = JSON.parse(event.dataTransfer.getData(PATCH_MIME)) as DragProfile
-      const profile = library.find((item) => item.id === payload.profileId)
-      return profile ? { profile, modeId: payload.modeId } : null
+      const payload = JSON.parse(event.dataTransfer.getData(PATCH_MIME)) as DragPayload
+      if (payload.kind === 'fixture') return fixtures.some((fixture) => fixture.id === payload.fixtureId) ? payload : null
+      return library.some((profile) => profile.id === payload.profileId) ? payload : null
     } catch { return null }
   }
 
+  const resolvedDrag = (event: React.DragEvent) => {
+    const payload = dragging ?? readDrag(event)
+    if (!payload) return null
+    if (payload.kind === 'fixture') {
+      const fixture = fixtures.find((item) => item.id === payload.fixtureId)
+      return fixture ? { payload, width: fixture.channels, fixture } : null
+    }
+    const profile = library.find((item) => item.id === payload.profileId)
+    return profile ? { payload, width: fixtureWidth(profile, payload.modeId), profile } : null
+  }
+
   const previewDrop = (event: React.DragEvent, start: number) => {
-    const profile = dragging && library.find((item) => item.id === dragging.profileId)
-    const dragged = profile && dragging ? { profile, modeId: dragging.modeId } : readDrag(event)
+    const dragged = resolvedDrag(event)
     if (!dragged) return
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    const width = fixtureWidth(dragged.profile, dragged.modeId)
-    setDragRange({ start, end: start + width - 1, valid: placementError(fixtures, start, width) === null })
+    event.dataTransfer.dropEffect = dragged.payload.kind === 'fixture' ? 'move' : 'copy'
+    const ignoreId = dragged.payload.kind === 'fixture' ? dragged.payload.fixtureId : undefined
+    setDragRange({ start, end: start + dragged.width - 1, valid: placementError(fixtures, start, dragged.width, ignoreId) === null })
   }
 
   const dropProfile = (event: React.DragEvent, start: number) => {
-    const profile = dragging && library.find((item) => item.id === dragging.profileId)
-    const dragged = profile && dragging ? { profile, modeId: dragging.modeId } : readDrag(event)
+    const dragged = resolvedDrag(event)
     if (!dragged) return
     event.preventDefault()
-    const width = fixtureWidth(dragged.profile, dragged.modeId)
-    const error = placementError(fixtures, start, width)
+    const ignoreId = dragged.payload.kind === 'fixture' ? dragged.payload.fixtureId : undefined
+    const error = placementError(fixtures, start, dragged.width, ignoreId)
     setDragRange(null)
     setDragging(null)
     if (error) { setPatchError(error); return }
     try {
-      useShowStore.getState().addProfileFixtures(dragged.profile, { quantity: 1, start, modeId: dragged.modeId, universe: 1 })
+      if (dragged.payload.kind === 'fixture') {
+        useShowStore.getState().updateFixture(dragged.payload.fixtureId, { channelStart: start })
+        setSelectedFixtureId(dragged.payload.fixtureId)
+      } else if (dragged.profile) useShowStore.getState().addProfileFixtures(dragged.profile, { quantity: 1, start, modeId: dragged.payload.modeId, universe: 1 })
       setPatchError('')
     } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
   }
@@ -172,10 +197,10 @@ export function PatchPanel() {
           const item = occupied.get(channel)
           const highlighted = dragRange && channel >= dragRange.start && channel <= dragRange.end
           const isSelected = item?.fixture.id === selectedFixtureId
-          return <button key={channel} type="button" data-channel={channel} aria-label={item ? `Channel ${channel}: ${item.fixture.name}, ${item.label}` : `Channel ${channel}: free`} title={item ? `${channel} · ${item.fixture.name} · ${item.label}` : `${channel} · Free`} className={`min-h-0 min-w-0 overflow-hidden px-1 text-left text-[9px] leading-tight ${item ? 'bg-panel2 text-text' : 'bg-bg text-dim'} ${item?.offset === 0 ? 'font-semibold text-accent' : ''} ${isSelected ? 'ring-1 ring-inset ring-accent' : ''} ${highlighted ? (dragRange.valid ? '!bg-emerald-700/70 !text-white' : '!bg-red-700/70 !text-white') : ''}`} onClick={() => item && setSelectedFixtureId(item.fixture.id)} onDragOver={(event) => previewDrop(event, channel)} onDrop={(event) => dropProfile(event, channel)}><span className="block font-mono opacity-70">{String(channel).padStart(3, '0')}</span>{item && <span className="block truncate">{item.offset === 0 ? item.fixture.name : item.label}</span>}</button>
+          return <button key={channel} type="button" draggable={Boolean(item)} data-channel={channel} aria-label={item ? `Channel ${channel}: ${item.fixture.name}, ${item.label}` : `Channel ${channel}: free`} title={item ? `${channel} · ${item.fixture.name} · ${item.label}` : `${channel} · Free`} className={`min-h-0 min-w-0 overflow-hidden px-1 text-left text-[9px] leading-tight ${item ? 'bg-panel2 text-text' : 'bg-bg text-dim'} ${item?.offset === 0 ? 'font-semibold text-accent' : ''} ${isSelected && !dragging ? 'ring-1 ring-inset ring-accent' : ''} ${highlighted ? (dragRange.valid ? '!bg-blue-600/85 !text-white' : '!bg-red-700/70 !text-white') : ''}`} onClick={() => item && setSelectedFixtureId(item.fixture.id)} onDragStart={(event) => item && dragFixture(event, item.fixture)} onDragEnd={() => { setDragging(null); setDragRange(null) }} onDragOver={(event) => previewDrop(event, channel)} onDrop={(event) => dropProfile(event, channel)}><span className="block font-mono opacity-70">{String(channel).padStart(3, '0')}</span>{item && <span className="block truncate">{item.offset === 0 ? item.fixture.name : item.label}</span>}</button>
         })}
       </div>
-      <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a fixture model onto its starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
+      <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a model to add it, or drag a patched fixture to a new starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
     </div>
     {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
   </section>
