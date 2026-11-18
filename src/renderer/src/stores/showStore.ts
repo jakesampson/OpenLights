@@ -15,7 +15,7 @@ import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
 import { sequenceOrder } from '../lib/sequenceClock'
 import type { PresetGroup } from '@shared/types'
-import type { SequenceDef } from '@shared/types'
+import type { SequenceDef, SequenceStep } from '@shared/types'
 import { syncPresetGroups, activateGroupedPreset } from '../lib/presetGroups'
 import { create } from 'zustand'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '@shared/migrations'
@@ -183,6 +183,8 @@ interface ShowState {
   createSequence: (name: string) => void
   updateSequence: (id: string, patch: Partial<SequenceDef>) => void
   deleteSequence: (id: string) => void
+  duplicateSequence: (id: string) => void
+  updateSequenceStep: (id: string, stepId: string, patch: Partial<SequenceStep>) => void
   addSequenceStep: (id: string) => void
   removeSequenceStep: (id: string, stepId: string) => void
   duplicateSequenceStep: (id: string, stepId: string) => void
@@ -1089,6 +1091,13 @@ const actions: ShowState = {
   },
   reorderSequenceSteps: (id, order, seed = Date.now()) => { const sequence = get().show?.sequences?.find((s) => s.id === id); if (sequence) get().updateSequence(id, { steps: sequenceOrder(sequence.steps.length, order, seed).map((index) => sequence.steps[index]) }) },
   deleteSequence: (id) => set((state) => persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })) })),
+  duplicateSequence: (id) => set((state) => {
+    const source = state.show?.sequences?.find((s) => s.id === id)
+    if (!source) return state
+    const copy: SequenceDef = { ...structuredClone(source), id: crypto.randomUUID(), name: `${source.name} copy`, steps: source.steps.map((step) => ({ ...structuredClone(step), id: crypto.randomUUID() })) }
+    return persistState(state, { sequences: [...(state.show?.sequences ?? []), copy] })
+  }),
+  updateSequenceStep: (id, stepId, patch) => set((state) => persistState(state, { sequences: (state.show?.sequences ?? []).map((s) => s.id === id ? { ...s, steps: s.steps.map((step) => step.id === stepId ? { ...step, ...structuredClone(patch), id: stepId } : step) } : s) })),
   createPresetGroup: (name, parentId = null) => set((state) => {
     const groups = state.show?.presetGroups ?? []
     if (!name.trim() || (parentId && !groups.some((g) => g.id === parentId))) return state
@@ -1665,7 +1674,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'deletePresetGroup', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertScenesToPresets', 'renamePreset', 'deletePreset', 'addScene', 'duplicateScene', 'updateScene', 'deleteScene', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

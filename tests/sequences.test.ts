@@ -12,6 +12,31 @@ it('migrates empty sequences and supports sequence creation, editing, deletion, 
   s().undo(); expect(s().show!.sequences![0].steps[0].holdMs).toBe(500)
   s().undo(); expect(s().show!.sequences![0].name).toBe('Movement')
 })
+it('duplicates a whole sequence with independent ids and undo', () => {
+  const s = () => useShowStore.getState(); s().setShow(migrateShow({})); s().createSequence('S')
+  const id = s().show!.sequences![0].id
+  s().addSequenceStep(id); s().duplicateSequence(id)
+  const sequences = s().show!.sequences!
+  expect(sequences).toHaveLength(2)
+  const [original, copy] = sequences
+  expect(copy.name).toBe('S copy'); expect(copy.id).not.toBe(original.id)
+  expect(copy.steps).toHaveLength(original.steps.length)
+  expect(copy.steps.map((step) => step.id)).not.toEqual(original.steps.map((step) => step.id))
+  expect(copy.steps.map((step) => step.name)).toEqual(original.steps.map((step) => step.name))
+  expect(copy.steps.map((step) => step.fadeMs)).toEqual(original.steps.map((step) => step.fadeMs))
+  s().undo(); expect(s().show!.sequences).toHaveLength(1)
+  s().duplicateSequence('missing'); expect(s().show!.sequences).toHaveLength(1)
+})
+it('patches a single step in place with undo', () => {
+  const s = () => useShowStore.getState(); s().setShow(migrateShow({})); s().createSequence('S')
+  const sequence = s().show!.sequences![0], stepId = sequence.steps[0].id
+  s().updateSequenceStep(sequence.id, stepId, { fadeMs: 2500, holdMs: 750, presetIds: ['p1'], name: 'Intro' })
+  const step = s().show!.sequences![0].steps[0]
+  expect(step.id).toBe(stepId); expect(step.fadeMs).toBe(2500); expect(step.holdMs).toBe(750)
+  expect(step.presetIds).toEqual(['p1']); expect(step.name).toBe('Intro')
+  s().undo(); expect(s().show!.sequences![0].steps[0].fadeMs).toBe(1000)
+  s().updateSequenceStep(sequence.id, 'missing', { fadeMs: 1 }); expect(s().show!.sequences![0].steps[0].fadeMs).toBe(1000)
+})
 it('adds, duplicates, reorders and removes independent steps with undo', () => {
   const s = () => useShowStore.getState(); s().setShow(migrateShow({})); s().createSequence('S')
   const id = s().show!.sequences![0].id, steps = () => s().show!.sequences![0].steps

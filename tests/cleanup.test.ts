@@ -4,7 +4,11 @@ import { join } from 'node:path'
 
 describe('retired surfaces and USB-only output', () => {
   it('removes dead editors after their replacement workflows ship', () => {
-    for (const name of ['EditTab.tsx', 'SceneGrid.tsx', 'CueListPanel.tsx', 'EffectsPanel.tsx', 'PresetEditor.tsx', 'SequenceEditor.tsx']) {
+    // SequenceEditor.tsx is deliberately NOT in this list: it was removed in
+    // roadmap 10.4 as an unwired legacy panel and restored on the MUSE branch
+    // as the sequence authoring surface, wired into GroupsPresetsPanel. See
+    // tests/sequenceEditor.test.ts and NOTES.md (MUSE sequence editor).
+    for (const name of ['EditTab.tsx', 'SceneGrid.tsx', 'CueListPanel.tsx', 'EffectsPanel.tsx', 'PresetEditor.tsx']) {
       expect(existsSync(join(process.cwd(), 'src/renderer/src/components', name))).toBe(false)
     }
   })
