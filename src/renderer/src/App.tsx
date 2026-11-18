@@ -377,7 +377,7 @@ export default function App() {
       {/* Bottom row */}
       <div className="bottom-grid">
         <div className={`panel ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback view="Design" />}
+          {tab === 'Live' ? <LiveWorkspace /> : <BottomPlayback />}
         </div>
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">

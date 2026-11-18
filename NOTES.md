@@ -261,3 +261,6 @@ The Design bottom panel is now a fixed, non-scrollable selected-fixture inspecto
 
 ### Inline blank Live pages
 The Live bottom panel now renders the selected Live page canvas directly instead of a separate playback surface and modal editor. A project with no Live pages shows a blank canvas; selecting Edit creates an empty `Page 1` and enters edit mode in place. Scene buttons are only added explicitly by the user, and the bottom Master fader is not injected into Live pages. Existing saved Live pages and controls are preserved unchanged. Tests: `tests/bottomPanel.test.ts` and `e2e/renderedPreview.spec.ts`.
+
+### Bottom-panel navigation cleanup
+Live page selection and management now live exclusively in the centred Live-pill dropdown; the canvas only shows the active page name and its Edit action. The Design fixture inspector no longer duplicates the global Master control or offers scene/manual-mode and scene-selection controls. Scenes are selected and edited from the right sidebar, while the bottom panel remains focused on the selected fixtures' properties. Tests: `tests/bottomPanel.test.ts` and `e2e/renderedPreview.spec.ts`.

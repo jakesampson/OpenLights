@@ -1,6 +1,5 @@
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { availableProperties } from '../lib/availableProperties'
-import { useState } from 'react'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { colorWheelPosition } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
@@ -18,7 +17,6 @@ function colorHex(values: Record<string, number>) {
 }
 
 export function DesignTab() {
-  const [manualMode, setManualMode] = useState(false)
   const {
     show,
     scenes,
@@ -28,10 +26,6 @@ export function DesignTab() {
     updateSelectedBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
-    setManualOverrides,
-    manualOverrides,
-    goToScene,
-    clearManualOverrides
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
@@ -44,17 +38,17 @@ export function DesignTab() {
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
   const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
-  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? (manualMode ? manualOverrides[b.fixtureId]?.[key] : undefined) ?? activeScene?.fixtureValues[b.fixtureId]?.[key] ?? 0 : 0) }, 0) / selectedBeams.length) :
+  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? activeScene?.fixtureValues[b.fixtureId]?.[key] ?? 0 : 0) }, 0) / selectedBeams.length) :
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
-            (total, fixture) => total + ((manualMode ? manualOverrides[fixture.id]?.[attribute] : undefined) ?? activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
+            (total, fixture) => total + (activeScene?.fixtureValues[fixture.id]?.[attribute] ?? (fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)),
             0
           ) / selectedFixtures.length
         )
       : 0
-  const dimmer = activeScene || manualMode ? valueFor('intensity') : 0
-  const updateValues = selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, manualMode) : manualMode ? setManualOverrides : updateSelectedFixtures
+  const dimmer = activeScene ? valueFor('intensity') : 0
+  const updateValues = selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
   const colorValues = {
     red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : Math.min(255, valueFor('red') + valueFor('white') + valueFor('amber')),
     green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : Math.min(255, valueFor('green') + valueFor('white') + valueFor('amber') * 0.45),
@@ -67,8 +61,8 @@ export function DesignTab() {
 
   const setColor = (hex: string) => {
     const rgb = { red: parseInt(hex.slice(1, 3), 16), green: parseInt(hex.slice(3, 5), 16), blue: parseInt(hex.slice(5, 7), 16) }
-    if (selectedBeams.length) updateSelectedBeamValues(rgb, manualMode)
-    else setSelectedColor(rgb, manualMode)
+    if (selectedBeams.length) updateSelectedBeamValues(rgb, false)
+    else setSelectedColor(rgb, false)
   }
 
   return (
@@ -85,16 +79,7 @@ export function DesignTab() {
             ? `${selectedFixtures.length} fixture${selectedFixtures.length === 1 ? '' : 's'} selected`
             : 'Select fixture(s) on stage'}
         </span>
-        <div className="flex items-center gap-2">
-          <button type="button" className={`rounded px-2 py-1 text-[10px] ${manualMode ? 'bg-accent text-bg' : 'bg-panel2 text-text'}`} aria-pressed={manualMode} onClick={() => setManualMode(!manualMode)}>{manualMode ? 'Manual override' : 'Edit scene'}</button>
-          {Object.keys(manualOverrides).length > 0 && <button type="button" className="text-[10px] text-amber-300 underline" onClick={clearManualOverrides}>Release overrides</button>}
-          <label htmlFor="design-scene" className="text-[10px] text-dim">Scene</label>
-          <select id="design-scene" value={activeSceneId ?? ''} onChange={(e) => { if (e.target.value) goToScene(e.target.value) }} className="max-w-40 rounded border border-line bg-panel2 px-2 py-1 text-xs text-text">
-            <option value="">No scene selected</option>
-            {scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
-          </select>
-          {!manualMode && !activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Changing a control creates a scene</span>}
-        </div>
+        {!activeScene && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">Select a scene in the right sidebar to edit its fixture values</span>}
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         <div className="flex w-14 shrink-0 flex-col items-center gap-0.5">
@@ -154,7 +139,7 @@ export function DesignTab() {
             </div>
           ) : (
             channelAttributes.map((attribute) => {
-              const value = activeScene || manualMode ? valueFor(attribute) : 0
+              const value = activeScene ? valueFor(attribute) : 0
               return (
                 <div key={attribute} className="chan h-full min-w-7 flex-1">
                   <span className="text-center text-[10px] leading-none text-dim">

@@ -23,15 +23,12 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
     locked, show, scenes, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, clearLiveValues, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, updateProject, convertScenesToPresets,
-    setPageSwitchMode, selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
+    selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject,
     attachPageObject, setPageObjectStyle, configureFrame, dropOnLivePage
   } = useShowStore()
   const [editing, setEditing] = useState(initialEditing)
-  const [managing, setManaging] = useState(false)
-  const [name, setName] = useState('')
-  const [deleteId, setDeleteId] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ id: string; x: number; y: number } | null>(null)
   const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null)
@@ -161,11 +158,6 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const savePage = (next: LivePage) => setLivePages(pages.map((item) => item.id === next.id ? next : item))
   const patchControl = (id: string, patch: Partial<LiveControl>) => {
     if (page) savePage({ ...page, controls: page.controls.map((item) => item.id === id ? { ...item, ...patch } : item) })
-  }
-  const addPage = () => {
-    if (!name.trim()) return
-    const next: LivePage = { id: crypto.randomUUID(), name: name.trim(), controls: [] }
-    setLivePages([...pages, next]); selectLivePage(next.id); setName(''); setEditing(initialEditing)
   }
   const toggleEditing = () => {
     if (editing) {
@@ -343,21 +335,10 @@ export function LiveWorkspace({ initialEditing = false }: { initialEditing?: boo
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   return <section data-context-menu="page" aria-label="Live page canvas" className="flex min-h-full flex-col gap-2 rounded border border-line bg-bg/30 p-3">
     <div className="flex flex-wrap items-center gap-2">
-      <label className="text-xs text-dim">Live page <select aria-label="Live page" className="rounded border border-line bg-panel2 px-2 py-1 text-text" value={page?.id ?? ''} onChange={(event) => { selectLivePage(event.target.value); setEditing(false); clearPageObjectSelection() }}><option value="" disabled>{pages.length ? 'Select page' : 'No pages yet'}</option>{pages.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      {!locked && !isLiveWindow() && <button type="button" className="btn-theme text-xs" onClick={() => { setManaging(!managing); setDeleteId(null) }}>Manage pages</button>}
+      {page && <span className="text-xs font-semibold text-text">{page.name}</span>}
       {Object.keys(activeLiveValues).length > 0 && <button type="button" className="btn-theme text-xs" onClick={clearLiveValues}>Release page cues</button>}
       {!locked && !isLiveWindow() && <button type="button" className="live-page-edit btn-theme ml-auto text-xs" onClick={toggleEditing}>{editing ? 'Done' : 'Edit'}</button>}
     </div>
-    {managing && <div role="dialog" aria-label="Manage Live pages" className="rounded border border-line bg-panel2 p-3 text-xs">
-      <div className="mb-2 flex justify-between"><strong>Manage Live pages</strong><button type="button" onClick={() => setManaging(false)}>Done</button></div>
-      <label className="mb-2 flex items-center gap-2"><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => setPageSwitchMode(event.target.checked)} /> Deactivate cues when switching pages (otherwise each page restores its active cues)</label>
-      <form className="mb-2 flex gap-2" onSubmit={(event) => { event.preventDefault(); addPage() }}><input aria-label="New Live page name" value={name} onChange={(event) => setName(event.target.value)} placeholder="New page name" className="rounded border border-line bg-bg px-2 py-1" /><button className="btn-theme" disabled={!name.trim()}>+ Add page</button></form>
-      {pages.map((item, index) => <div key={item.id} className="flex flex-wrap items-center gap-2 border-t border-line py-2"><input aria-label={`Name ${item.name}`} className="min-w-0 flex-1 rounded bg-bg px-2 py-1" value={item.name} onChange={(event) => setLivePages(pages.map((p) => p.id === item.id ? { ...p, name: event.target.value } : p))} onBlur={() => { if (!item.name.trim()) setLivePages(pages.map((p) => p.id === item.id ? { ...p, name: 'Untitled page' } : p)) }} />
-        <label>Fade (s) <input type="number" aria-label={`Fade time for ${item.name}`} min="0" max="60" step="0.1" value={(item.fadeMs ?? 0) / 1000} onChange={(event) => setLivePages(pages.map((p) => p.id === item.id ? { ...p, fadeMs: Math.max(0, Math.min(60000, Number(event.target.value) * 1000)) } : p))} className="w-16 rounded bg-bg p-1" /></label><button type="button" disabled={index === 0} onClick={() => { const next = [...pages]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; setLivePages(next) }}>Up</button><button type="button" disabled={index === pages.length - 1} onClick={() => { const next = [...pages]; [next[index + 1], next[index]] = [next[index], next[index + 1]]; setLivePages(next) }}>Down</button>
-        <button type="button" onClick={() => { const copy: LivePage = { ...item, id: crypto.randomUUID(), name: `${item.name} copy`, controls: item.controls.map((c) => ({ ...c, id: crypto.randomUUID(), presetIds: [...c.presetIds] })), cueListWidgets: item.cueListWidgets?.map((w) => ({ ...w, id: crypto.randomUUID() })), annotations: item.annotations?.map((a) => ({ ...a, id: crypto.randomUUID() })) }; setLivePages([...pages, copy]); selectLivePage(copy.id); clearPageObjectSelection() }}>Duplicate</button>
-        {deleteId === item.id ? <><span>Delete?</span><button type="button" className="text-red-300" onClick={() => { const remaining = pages.filter((p) => p.id !== item.id); if (page?.id === item.id) { clearLiveValues(); selectLivePage(remaining[0]?.id ?? null) } setLivePages(remaining); setDeleteId(null); clearPageObjectSelection() }}>Confirm</button><button type="button" onClick={() => setDeleteId(null)}>Cancel</button></> : <button type="button" className="text-red-300" onClick={() => setDeleteId(item.id)}>Delete</button>}
-      </div>)}
-    </div>}
     {overrideCount > 0 && <div className="flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100"><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     {!page ? <div className="flex min-h-32 flex-1 items-center justify-center rounded border border-line bg-panel text-xs text-dim">This Live page is blank. Select Edit to start arranging controls.</div> : <>
       {editing && !locked && <div className="flex flex-wrap items-center gap-2"><label className="btn-theme text-xs">+ Scene button <select aria-label="Add scene button" defaultValue="" onChange={(event) => { if (event.target.value) addSceneControl(event.target.value); event.target.value = '' }} className="ml-1 bg-transparent"><option value="" disabled>Choose scene…</option>{scenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}</select></label><button type="button" className="btn-theme text-xs" onClick={addControl}>+ Custom cue</button><button type="button" className="btn-theme text-xs" onClick={addList} disabled={!cueLists.length}>+ Cue list</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('label')}>+ Label</button><button type="button" className="btn-theme text-xs" onClick={() => addAnnotation('frame')}>+ Frame</button>
