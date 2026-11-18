@@ -54,7 +54,8 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true
     },
-    frame: false
+    titleBarStyle: 'hidden',
+    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#3a1b47', symbolColor: '#b79bc4', height: 72 }
   })
   const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
     label: group.label,

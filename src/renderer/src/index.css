@@ -116,7 +116,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   align-items: center;
   gap: 14px;
   min-height: 72px;
-  padding: 8px 18px 8px 28px;
+  padding: 8px 150px 8px 28px;
   background: color-mix(in srgb, var(--panel) 82%, #33413d);
   border-bottom: 1px solid var(--line);
   flex: 0 0 auto;
@@ -129,7 +129,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar > .flex:first-child > :nth-child(3) { order: 8; }
 .top-bar > .flex:first-child > :nth-child(4) { order: 6; }
 .top-bar > .flex:first-child > :nth-child(5) { order: 7; }
-.top-bar > .flex:first-child > :nth-child(6) { order: 5; }
+.top-bar > .flex:first-child > :nth-child(6) { order: 9; }
 .top-bar > .flex:first-child > details summary,
 .top-bar > .flex:first-child > button:not(.lightkey-action),
 .top-bar > .flex:first-child > div:last-child > button:not(.lightkey-action) {
@@ -193,11 +193,22 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .header-icon svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .header-more { position: relative; }
 .header-more > summary { list-style: none; font-size: 16px; letter-spacing: 2px; }
+.header-more > summary > span { margin-left: 2px; font-size: 11px; letter-spacing: 0; }
 .header-more > summary::-webkit-details-marker { display: none; }
 .header-more-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 80; display: flex; width: 230px; flex-direction: column; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel); box-shadow: 0 14px 38px #0008; }
 .header-more-menu label { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
 .header-more-menu input { min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--panel2); padding: 6px 8px; color: var(--text); }
 .header-more-menu button { min-height: 32px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 5px 8px; color: var(--text); text-align: left; }
+.header-more-menu button:disabled { opacity: .38; cursor: default; }
+.header-more-menu button.on { background: var(--accent); color: #111; }
+.header-more-menu > strong { color: var(--dim); font-size: 11px; font-weight: 500; }
+.property-menu { width: 220px; }
+.property-menu details { position: relative; }
+.property-menu details > summary { display: flex; min-height: 32px; align-items: center; justify-content: space-between; border-radius: 5px; padding: 6px 8px; cursor: pointer; list-style: none; }
+.property-menu details > summary:hover { background: var(--panel2); }
+.header-submenu { position: absolute; left: calc(100% + 8px); top: -8px; z-index: 90; display: flex; width: 210px; flex-direction: column; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); box-shadow: 0 14px 38px #0008; }
+.header-submenu > span { padding: 6px 8px; color: var(--dim); font-size: 11px; }
+.effects-menu .header-more-menu { width: 190px; }
 .header-more-menu .header-blackout { border-color: var(--panic-line); background: var(--panic); color: white; }
 .beat-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 
@@ -226,7 +237,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 
 .window-controls {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 4px;
   -webkit-app-region: no-drag;

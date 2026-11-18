@@ -33,6 +33,13 @@ test('clicks through core Design and Live operation', async ({ page }) => {
 
   await page.locator('.stage').getByRole('button', { name: 'Warm Wash Front' }).click()
   await expect(page.getByText('1 fixture selected')).toBeVisible()
+  await page.locator('summary[aria-label="Fixture property menu"]').click()
+  await expect(page.getByRole('button', { name: 'Copy Properties' })).toBeVisible()
+  await expect(page.locator('.property-menu summary').filter({ hasText: 'Copy Property' })).toBeVisible()
+  await page.locator('summary[aria-label="Fixture property menu"]').click()
+  await page.locator('summary[aria-label="Add effect"]').click()
+  await expect(page.getByText('Add Effect for:', { exact: true })).toBeVisible()
+  await page.locator('summary[aria-label="Add effect"]').click()
   expect(await page.locator('.design-fixture-inspector').evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
   await expect(page.locator('.bottom-grid').getByLabel('Master output')).toHaveCount(0)
   await expect(page.locator('.bottom-grid').getByText('Edit scene', { exact: true })).toHaveCount(0)

@@ -24,6 +24,7 @@ import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { activeOwnedEffects } from './lib/effectOwnership'
 import { ContextMenu } from './components/ContextMenu'
+import { calculateTapTempo } from './lib/tapTempo'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -56,6 +57,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
+  const headerTaps = useRef<number[]>([])
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
@@ -243,12 +245,12 @@ export default function App() {
             <button
               type="button"
               className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
-              aria-label="Settings and tools"
-              title="Settings and tools"
+              aria-label="Layout and settings"
+              title="Layout and settings"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen((open) => !open)}
             >
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 10-10m-7-2 2-2m3 5 2-2m2-5 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Zm1 10 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" /></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M15 9v11"/></svg>
             </button>
             {settingsOpen && (
               <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
@@ -262,7 +264,10 @@ export default function App() {
                 <label className="px-3 py-2 text-xs">Appearance<select aria-label="Application appearance" value={show?.preferences?.theme ?? 'dark'} onChange={(event) => useShowStore.getState().updatePreferences({ theme: event.target.value as 'dark' | 'system' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="dark">Dark</option><option value="system">System</option></select></label>
                 <label className="px-3 py-2 text-xs">Default USB DMX interface<select aria-label="Default USB DMX interface" value={show?.preferences?.dmxProtocol ?? 'open-dmx-usb'} onChange={(event) => useShowStore.getState().updatePreferences({ dmxProtocol: event.target.value as 'open-dmx-usb' | 'enttec-usb-pro' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="open-dmx-usb">Open DMX USB</option><option value="enttec-usb-pro">DMX USB Pro</option></select></label>
                 <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
+                <label className="px-3 py-2 text-xs">Tempo (BPM)<span className="mt-1 flex gap-1"><input aria-label="Tempo in BPM" type="number" min="30" max="240" value={bpm} onChange={(event) => useShowStore.getState().setBpm(Number(event.target.value))} className="min-w-0 flex-1 rounded bg-panel2 p-1" /><button type="button" className="btn-theme text-xs" onClick={() => { const result = calculateTapTempo(headerTaps.current, performance.now()); headerTaps.current = result.taps; if (result.bpm !== null) useShowStore.getState().setBpm(result.bpm) }}>Tap</button></span></label>
                 <div className="my-1 border-t border-line" />
+                <DmxConnection />
+                <button className="btn-panic rounded px-3 py-2 text-xs" onClick={handleBlackout}>{blackout ? 'Restore output' : 'Blackout'}</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
                 {(['preview', 'palette', 'inspector'] as const).map((panel) => <label key={panel} className="flex items-center justify-between px-3 py-1 text-xs capitalize">{panel}<input type="checkbox" aria-label={`Show ${panel}`} checked={show?.layout?.[panel] ?? true} onChange={(event) => useShowStore.getState().updateProject({ layout: { preview: true, palette: true, inspector: true, ...show?.layout, [panel]: event.target.checked } })} /></label>)}
