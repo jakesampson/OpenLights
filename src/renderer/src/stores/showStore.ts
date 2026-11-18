@@ -161,8 +161,8 @@ interface ShowState {
   removeFixtureGroup: (id: string) => void
   updateSelectedFixtures: (values: Record<string, number>) => void
   setSelectedColor: (color: RgbColor, manual?: boolean) => void
-  propertyClipboard: { fixture: FixtureDef; values: Record<string, number> } | null
-  copyFixtureProperties: () => void
+  propertyClipboard: { fixture: FixtureDef; values: Record<string, number>; property?: string } | null
+  copyFixtureProperties: (property?: string) => void
   pasteFixtureProperties: (manual?: boolean) => void
   saveFan: (fan: FanDef) => void
   deleteFan: (id: string, keepValues: boolean) => void
@@ -859,18 +859,18 @@ const actions: ShowState = {
   }),
   clearManualOverrides: () => set({ manualOverrides: {} }),
   releaseManualOverrides: (fixtureIds, property) => set((state) => ({ manualOverrides: releaseOverrides(state.manualOverrides, fixtureIds, property) })),
-  copyFixtureProperties: () => {
+  copyFixtureProperties: (property) => {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
     const values = { ...state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues[fixture.id] }
     for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
     Object.assign(values, state.manualOverrides[fixture.id])
-    set({ propertyClipboard: { fixture: structuredClone(fixture), values } })
+    set({ propertyClipboard: { fixture: structuredClone(fixture), values: property && property in values ? { [property]: values[property] } : values, property } })
   },
   pasteFixtureProperties: (manual = false) => {
     const state = get(), clipboard = state.propertyClipboard
     if (!clipboard) return
-    const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
+    const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, clipboard.property && fixtureAttributes(f).includes(clipboard.property) ? { [clipboard.property]: clipboard.values[clipboard.property] } : mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
     if (!state.activeCueId) get().addCue()
     const cue = get().cues.find((s) => s.id === get().activeCueId)

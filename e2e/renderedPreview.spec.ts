@@ -19,17 +19,27 @@ test.beforeEach(async ({ page }) => {
     }
     ;(window as any).electronAPI = new Proxy(api, { get: (target, property: string) => property in target ? target[property] : asyncValue })
   })
-  await page.goto('http://127.0.0.1:4174')
+  await page.goto('http://127.0.0.1:4180')
 })
 
 test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.getByText('Demo Show', { exact: false }).first()).toBeVisible()
+  await expect(page.locator('.top-bar')).toHaveCount(1)
+  await expect(page.locator('.top-bar').getByLabel('Active cue')).toBeVisible()
+  await expect(page.locator('.top-bar').getByLabel('Master intensity')).toHaveCount(0)
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByLabel('Default fade milliseconds')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()
 
   await page.locator('.stage').getByRole('button', { name: 'Warm Wash Front' }).click()
   await expect(page.getByText('1 fixture selected')).toBeVisible()
+  await page.locator('summary[aria-label="Fixture property menu"]').click()
+  await expect(page.getByRole('button', { name: 'Copy Properties' })).toBeVisible()
+  await expect(page.locator('.property-menu summary').filter({ hasText: 'Copy Property' })).toBeVisible()
+  await page.locator('summary[aria-label="Fixture property menu"]').click()
+  await page.locator('summary[aria-label="Add effect"]').click()
+  await expect(page.getByText('Add Effect for:', { exact: true })).toBeVisible()
+  await page.locator('summary[aria-label="Add effect"]').click()
   expect(await page.locator('.design-fixture-inspector').evaluate((element) => element.scrollHeight <= element.clientHeight)).toBe(true)
   await expect(page.locator('.bottom-grid').getByLabel('Master output')).toHaveCount(0)
   await expect(page.locator('.bottom-grid').getByText('Edit cue', { exact: true })).toHaveCount(0)

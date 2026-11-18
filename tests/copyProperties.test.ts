@@ -9,4 +9,10 @@ describe('fixture property copy and paste', () => {
     expect(state().cues[0].fixtureValues.b).toEqual({ red: 0, green: 0, blue: 0, white: 200 })
     state().undo(); expect(state().cues[0].fixtureValues.b).toBeUndefined()
   })
+  it('copies one selected property for the header property menu', () => {
+    const state = () => useShowStore.getState()
+    state().setShow(migrateShow({ fixtures: [{ id: 'a', name: 'Source', type: 'par', channelStart: 1, channels: 4 }, { id: 'b', name: 'Target', type: 'par', channelStart: 5, channels: 4 }], cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { a: { intensity: 255, red: 200, green: 100 }, b: { blue: 50 } } }] }))
+    state().activateCue('s'); state().selectFixtures(['a']); state().copyFixtureProperties('red'); state().selectFixtures(['b']); state().pasteFixtureProperties()
+    expect(state().cues[0].fixtureValues.b).toEqual({ blue: 50, red: 200 })
+  })
 })

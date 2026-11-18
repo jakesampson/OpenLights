@@ -215,10 +215,11 @@ export function ProjectBar() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`btn-theme text-xs font-medium ${open ? 'on' : ''}`}
+        className={`lightkey-project ${open ? 'on' : ''}`}
         title={dirty ? 'Unsaved changes — autosave runs 1.5s after your last edit' : status ?? 'Project menu'}
       >
-        Project{dirty ? <span className="ml-1 text-amber-300" role="status">● Unsaved</span> : status ? <span className="ml-1 text-dim">· {status}</span> : null}
+        <svg viewBox="0 0 28 18" aria-hidden="true"><circle cx="4" cy="5" r="2" /><circle cx="14" cy="9" r="2" /><circle cx="24" cy="14" r="2" /><path d="M6 5.8 12 8m4 2 6 3" /></svg>
+        <span><strong>{show?.name ?? 'OpenLights'}</strong><small role={dirty ? 'status' : undefined}>{dirty ? 'Unsaved' : (status ?? (currentPath ? 'Output ready' : 'No output'))}</small></span>
       </button>
 
       {open && (

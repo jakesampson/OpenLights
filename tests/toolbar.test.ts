@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { runToolbarCommand, type ToolbarCommand } from '../src/renderer/src/lib/toolbarCommands'
+import { readFileSync } from 'node:fs'
 describe('toolbar dispatch', () => {
   it('dispatches each command only to its intended action', () => {
     const names: ToolbarCommand[] = ['design', 'live', 'blackout', 'tap']
@@ -8,5 +9,19 @@ describe('toolbar dispatch', () => {
       runToolbarCommand(name, actions)
       for (const other of names) expect(actions[other]).toHaveBeenCalledTimes(other === name ? 1 : 0)
     }
+  })
+  it('uses one Lightkey-style header without a master slider', () => {
+    const toolbar = readFileSync('src/renderer/src/components/WorkspaceToolbar.tsx', 'utf8')
+    const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
+    const main = readFileSync('src/main/index.ts', 'utf8')
+    expect(toolbar).not.toContain('Master intensity')
+    expect(toolbar).toContain('Fixture property menu')
+    expect(toolbar).toContain('Copy Property')
+    expect(toolbar).toContain('Add Effect for:')
+    expect(app.match(/<WorkspaceToolbar/g)).toHaveLength(1)
+    expect(app).toContain('aria-label="Active cue"')
+    expect(main).toContain("titleBarStyle: 'hidden'")
+    expect(main).toContain('titleBarOverlay:')
+    expect(main).not.toContain('frame: false')
   })
 })

@@ -25,6 +25,7 @@ import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { activeOwnedEffects } from './lib/effectOwnership'
 import { ContextMenu } from './components/ContextMenu'
+import { calculateTapTempo } from './lib/tapTempo'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -68,8 +69,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
-  const titleClickTimeout = useRef<number | null>(null)
-  const activeCue = cues.find((cue) => cue.id === activeCueId)
+  const headerTaps = useRef<number[]>([])
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
   }, [show?.preferences?.theme])
@@ -281,19 +281,23 @@ export default function App() {
           <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
-            className="btn-theme text-xs"
+            className="lightkey-action"
+            aria-label="Patch fixtures"
+            title="Patch fixtures"
             onClick={() => setToolPanel('Patch')}
           >
-            Patch
+            +
           </button>
           <div className="relative">
             <button
               type="button"
-              className={`btn-theme text-xs ${settingsOpen ? 'on' : ''}`}
+              className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
+              aria-label="Layout and settings"
+              title="Layout and settings"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen((open) => !open)}
             >
-              Settings
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M15 9v11"/></svg>
             </button>
             {settingsOpen && (
               <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
@@ -307,7 +311,10 @@ export default function App() {
                 <label className="px-3 py-2 text-xs">Appearance<select aria-label="Application appearance" value={show?.preferences?.theme ?? 'dark'} onChange={(event) => useShowStore.getState().updatePreferences({ theme: event.target.value as 'dark' | 'system' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="dark">Dark</option><option value="system">System</option></select></label>
                 <label className="px-3 py-2 text-xs">Default USB DMX interface<select aria-label="Default USB DMX interface" value={show?.preferences?.dmxProtocol ?? 'open-dmx-usb'} onChange={(event) => useShowStore.getState().updatePreferences({ dmxProtocol: event.target.value as 'open-dmx-usb' | 'enttec-usb-pro' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="open-dmx-usb">Open DMX USB</option><option value="enttec-usb-pro">DMX USB Pro</option></select></label>
                 <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
+                <label className="px-3 py-2 text-xs">Tempo (BPM)<span className="mt-1 flex gap-1"><input aria-label="Tempo in BPM" type="number" min="30" max="240" value={bpm} onChange={(event) => useShowStore.getState().setBpm(Number(event.target.value))} className="min-w-0 flex-1 rounded bg-panel2 p-1" /><button type="button" className="btn-theme text-xs" onClick={() => { const result = calculateTapTempo(headerTaps.current, performance.now()); headerTaps.current = result.taps; if (result.bpm !== null) useShowStore.getState().setBpm(result.bpm) }}>Tap</button></span></label>
                 <div className="my-1 border-t border-line" />
+                <DmxConnection />
+                <button className="btn-panic rounded px-3 py-2 text-xs" onClick={handleBlackout}>{blackout ? 'Restore output' : 'Blackout'}</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
                 {(['preview', 'palette', 'inspector'] as const).map((panel) => <label key={panel} className="flex items-center justify-between px-3 py-1 text-xs capitalize">{panel}<input type="checkbox" aria-label={`Show ${panel}`} checked={show?.layout?.[panel] ?? true} onChange={(event) => useShowStore.getState().updateProject({ layout: { preview: true, palette: true, inspector: true, ...show?.layout, [panel]: event.target.checked } })} /></label>)}
@@ -336,7 +343,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
+        <div className="header-look-field">
           {editingPreset && (
             <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
               <span aria-hidden="true">✎</span>
@@ -345,27 +352,14 @@ export default function App() {
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
             </span>
           )}
-          <span
-            className="window-title"
-            onClick={() => {
-              if (titleClickTimeout.current !== null) {
-                window.clearTimeout(titleClickTimeout.current)
-                titleClickTimeout.current = null
-                window.electronAPI.toggleWindowMaximize()
-              } else {
-                titleClickTimeout.current = window.setTimeout(() => {
-                  titleClickTimeout.current = null
-                }, 500)
-              }
-            }}
-          >
-            {show?.name ?? 'OpenLights'}
-            <span className="ml-2 text-[10px] font-normal text-dim">
-              {blackout ? '· Blackout' : activeCue ? `· ${activeCue.name}` : '· No cue'}
-            </span>
-          </span>
+          <span aria-hidden="true">▱</span>
+          <select aria-label="Active cue" value={activeCueId ?? ''} onChange={(event) => event.target.value ? activateCue(event.target.value) : undefined}>
+            <option value="">{blackout ? 'Blackout' : 'Overrides'}</option>
+            {cues.filter((cue) => !cue.blackout).map((cue) => <option key={cue.id} value={cue.id}>{cue.name}</option>)}
+          </select>
         </div>
 
+        <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
         <div className="flex items-center gap-2">
           <div className="window-controls">
             <button
@@ -411,7 +405,6 @@ export default function App() {
         </div>
       </header>
 
-      <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
