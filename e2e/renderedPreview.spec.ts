@@ -29,6 +29,26 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.locator('.top-bar')).toHaveCount(1)
   await expect(page.locator('.top-bar').getByLabel('Active cue')).toBeVisible()
   await expect(page.locator('.top-bar').getByLabel('Master intensity')).toHaveCount(0)
+  const headerBox = await page.locator('.top-bar').boundingBox()
+  expect(headerBox?.height).toBe(50)
+  await page.screenshot({ path: '/tmp/openlights-header-preview.png' })
+  for (const control of ['Lock project', 'Blind mode', 'Freeze output', 'Patch fixtures', 'Layout and settings']) {
+    const box = await page.getByRole('button', { name: control }).boundingBox()
+    expect(box && headerBox ? Math.abs((box.y + box.height / 2) - (headerBox.y + headerBox.height / 2)) : Infinity, control).toBeLessThanOrEqual(1.5)
+  }
+  const horizontalLandmarks = await page.evaluate(() => {
+    const center = (selector: string) => { const rect = document.querySelector(selector)!.getBoundingClientRect(); return rect.x + rect.width / 2 }
+    return {
+      projectX: document.querySelector('.lightkey-project')!.getBoundingClientRect().x,
+      lock: center('[aria-label="Lock project"]'),
+      lookX: document.querySelector('.header-look-field')!.getBoundingClientRect().x,
+      blind: center('[aria-label="Blind mode"]'),
+      freeze: center('[aria-label="Freeze output"]'),
+      property: center('[aria-label="Fixture property menu"]'),
+      effects: center('[aria-label="Add effect"]')
+    }
+  })
+  expect(horizontalLandmarks).toEqual({ projectX: 201, lock: 552, lookX: 594, blind: 1075, freeze: 1135, property: 1398, effects: 1486 })
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByLabel('Default fade milliseconds')).toBeVisible()
   await page.locator('.stage').click({ position: { x: 20, y: 20 } })

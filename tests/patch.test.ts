@@ -49,7 +49,7 @@ it('keeps the full-window Done button clear of macOS window controls', () => {
   expect(styles).toContain('padding-left: 184px')
   expect(styles).toContain('left: 108px')
   expect(styles).toContain('width: 64px')
-  expect(styles).toContain('min-height: 72px')
+  expect(styles).toContain('min-height: 50px')
   expect(styles).toContain('-webkit-app-region: no-drag')
 })
 
