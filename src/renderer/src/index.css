@@ -111,6 +111,21 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   color: var(--text);
 }
 
+/* The Patch workspace replaces the entire client area. On macOS its custom
+   header must reserve the native traffic-light area, just like the main
+   title bar, while leaving the rest of the header available for dragging. */
+.patch-dialog-header {
+  -webkit-app-region: drag;
+}
+
+.patch-dialog-header > button {
+  -webkit-app-region: no-drag;
+}
+
+.patch-dialog-header-mac {
+  padding-left: 120px;
+}
+
 .top-bar {
   position: relative;
   display: flex;

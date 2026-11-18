@@ -1,222 +1,145 @@
-import { useState } from 'react'
-import { nextFreeChannel, useShowStore } from '../stores/showStore'
-import { FixtureProfileEditor } from './FixtureProfileEditor'
-import { FixtureExchange } from './FixtureExchange'
-import { DmxMonitor } from './DmxMonitor'
-import { FIXTURE_PRESETS } from '@shared/types'
+import { useMemo, useState } from 'react'
+import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
-import { filterProfiles } from '../lib/filterProfiles'
-import { findConflicts } from '../lib/patch'
-import type { FixtureType } from '@shared/types'
+import { fixtureWidth, placementError } from '../lib/patch'
+import { useShowStore } from '../stores/showStore'
+import { FixtureGroups } from './FixtureGroups'
 
-const TYPE_LABELS: Record<FixtureType, string> = {
-  par: 'PAR',
-  'led-wash': 'LED wash',
-  'moving-head': 'Moving head',
-  dimmer: 'Dimmer',
-  'generic-led': 'Generic LED',
-  'pixel-bar-17ch': 'PAN 4x1x30 (17ch)',
-  'rgba-4ch': 'RGBA PAR (4ch)',
-  'rgbw-4ch': 'RGBW PAR (4ch)'
+const PATCH_MIME = 'application/x-openlights-fixture-profile'
+interface DragProfile { profileId: string; modeId: string }
+interface OccupiedChannel { fixture: FixtureDef; offset: number; label: string }
+
+function modeFor(profile: FixtureProfile, modeId?: string): FixtureProfile['modes'][number] {
+  return profile.modes.find((mode) => mode.id === modeId) ?? profile.modes[0]
+}
+
+function fixtureProfile(fixture: FixtureDef, library: FixtureProfile[]): FixtureProfile | undefined {
+  return fixture.profile ?? library.find((profile) => profile.id === fixture.profileId) ?? library.find((profile) => profile.legacyType === fixture.type)
 }
 
 export function PatchPanel() {
-  const { show, addFixture, updateFixture, removeFixture } = useShowStore()
-  const library = [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? [])]
+  const { show, removeFixture } = useShowStore()
+  const library = useMemo(() => [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? [])], [show?.fixtureProfiles])
   const fixtures = show?.fixtures ?? []
-  const conflicts = findConflicts(fixtures)
-  const conflictingIds = new Set(conflicts.flatMap((c) => c.fixtureIds))
-  const [presetId, setPresetId] = useState(FIXTURE_PRESETS[0].id)
-  const [name, setName] = useState('')
-  const [group, setGroup] = useState('')
-  const [quantity, setQuantity] = useState(1)
-  const [startAddress, setStartAddress] = useState(1)
-  const [modeId, setModeId] = useState('default')
-  const [patchError, setPatchError] = useState('')
+  const manufacturers = useMemo(() => [...new Set(library.map((profile) => profile.manufacturer || 'Generic'))].sort((a, b) => a.localeCompare(b)), [library])
   const [query, setQuery] = useState('')
-  const [manufacturer, setManufacturer] = useState('')
-  const [channelCount, setChannelCount] = useState(0)
-  const [favoritesOnly, setFavoritesOnly] = useState(false)
-  const profiles = filterProfiles(library, { query, manufacturer, channels: channelCount, favoritesOnly }, show?.favoriteProfileIds)
-  const filteredPresets = profiles.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))
-  const selectedPreset = filteredPresets.find((p) => p.id === presetId) ?? filteredPresets[0]
+  const [manufacturer, setManufacturer] = useState(manufacturers[0] ?? 'Generic')
+  const [selectedProfileId, setSelectedProfileId] = useState(library[0]?.id ?? '')
+  const selectedProfile = library.find((profile) => profile.id === selectedProfileId) ?? library.find((profile) => profile.manufacturer === manufacturer) ?? library[0]
+  const [modeId, setModeId] = useState(selectedProfile?.modes[0]?.id ?? '')
+  const selectedMode = selectedProfile ? modeFor(selectedProfile, modeId) : undefined
+  const [dragRange, setDragRange] = useState<{ start: number; end: number; valid: boolean } | null>(null)
+  const [dragging, setDragging] = useState<DragProfile | null>(null)
+  const [patchError, setPatchError] = useState('')
+  const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
+  const [groupsOpen, setGroupsOpen] = useState(false)
 
-  const handleAdd = () => {
-    const preset = selectedPreset
-    if (!preset) return
-    const profile = library.find((p) => p.id === preset.id)
-    if (!profile) return
-    try { useShowStore.getState().addProfileFixtures(profile, { quantity, start: startAddress, name, group, modeId, universe: 1 }); setName(''); setPatchError('') } catch (error) { setPatchError(error instanceof Error ? error.message : String(error)) }
+  const matchingProfiles = library.filter((profile) => {
+    const matchesBrand = (profile.manufacturer || 'Generic') === manufacturer
+    const needle = query.trim().toLowerCase()
+    return matchesBrand && (!needle || `${profile.name} ${profile.manufacturer}`.toLowerCase().includes(needle))
+  })
+
+  const occupied = useMemo(() => {
+    const result = new Map<number, OccupiedChannel>()
+    for (const fixture of fixtures.filter((item) => (item.universe ?? 1) === 1)) {
+      const profile = fixtureProfile(fixture, library)
+      const mode = profile ? modeFor(profile, fixture.modeId) : undefined
+      for (let offset = 0; offset < fixture.channels; offset++) {
+        const channel = mode?.channels.find((item) => item.number === offset)
+        result.set(fixture.channelStart + offset, { fixture, offset, label: channel?.attribute ?? `Channel ${offset + 1}` })
+      }
+    }
+    return result
+  }, [fixtures, library])
+
+  const chooseProfile = (profile: FixtureProfile) => {
+    setSelectedProfileId(profile.id)
+    setModeId(profile.modes[0]?.id ?? '')
+    setPatchError('')
   }
 
-  const usedChannels = fixtures.reduce((count, f) => count + f.channels, 0)
-  const lastChannel = fixtures.reduce(
-    (max, f) => Math.max(max, f.channelStart - 1 + f.channels),
-    0
-  )
+  const dragProfile = (event: React.DragEvent, profile: FixtureProfile) => {
+    const payload: DragProfile = { profileId: profile.id, modeId: profile.id === selectedProfileId ? modeId : profile.modes[0]?.id ?? '' }
+    event.dataTransfer.setData(PATCH_MIME, JSON.stringify(payload))
+    event.dataTransfer.effectAllowed = 'copy'
+    setDragging(payload)
+    chooseProfile(profile)
+  }
 
-  return (
-    <section className="flex flex-col gap-4">
-      <FixtureProfileEditor />
-      <FixtureExchange />
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-widest text-dim">
-          Fixture Patch
-        </h2>
-        <span className="text-[10px] text-dim">
-          {fixtures.length} fixtures · {usedChannels} channels · universe ends at {lastChannel}
-        </span>
-      </div>
+  const readDrag = (event: React.DragEvent): { profile: FixtureProfile; modeId: string } | null => {
+    try {
+      const payload = JSON.parse(event.dataTransfer.getData(PATCH_MIME)) as DragProfile
+      const profile = library.find((item) => item.id === payload.profileId)
+      return profile ? { profile, modeId: payload.modeId } : null
+    } catch { return null }
+  }
 
-      <div className="rounded-xl border border-line bg-panel p-4">
-        <h3 className="mb-3 text-[10px] font-semibold uppercase tracking-wider text-dim">
-          Add Fixture
-        </h3>
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs"><input aria-label="Search fixture library" placeholder="Search fixture library" value={query} onChange={(e) => setQuery(e.target.value)} className="rounded bg-panel2 p-2" /><select aria-label="Fixture manufacturer" value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} className="rounded bg-panel2 p-2"><option value="">All manufacturers</option>{[...new Set(library.map((p) => p.manufacturer))].map((name) => <option key={name}>{name}</option>)}</select><input aria-label="Fixture channel count filter" type="number" min="0" max="512" value={channelCount || ''} placeholder="Channels" onChange={(e) => setChannelCount(Number(e.target.value))} className="w-24 rounded bg-panel2 p-2" /><label><input type="checkbox" checked={favoritesOnly} onChange={(e) => setFavoritesOnly(e.target.checked)} /> Favourites</label><button type="button" className="btn-theme" disabled={!selectedPreset} onClick={() => { if (!selectedPreset) return; const ids = show?.favoriteProfileIds ?? []; useShowStore.getState().updateProject({ favoriteProfileIds: ids.includes(selectedPreset.id) ? ids.filter((id) => id !== selectedPreset.id) : [...ids, selectedPreset.id] }) }}>{show?.favoriteProfileIds?.includes(selectedPreset?.id ?? '') ? 'Unfavourite selected' : 'Favourite selected'}</button></div>
-        {patchError && <p role="alert" className="mb-2 text-xs text-red-300">{patchError}</p>}
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="text-xs">Mode<select aria-label="Fixture mode" value={modeId} onChange={(e) => setModeId(e.target.value)} className="block rounded bg-panel2 p-2">{library.find((p) => p.id === selectedPreset?.id)?.modes.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label><label className="text-xs">Quantity<input aria-label="Fixture quantity" type="number" min="1" max="512" value={quantity} onChange={(e) => setQuantity(Number(e.target.value))} className="block w-20 rounded bg-panel2 p-2" /></label><label className="text-xs">Start address<input aria-label="Fixture start address" type="number" min="1" max="512" value={startAddress} onChange={(e) => setStartAddress(Number(e.target.value))} className="block w-20 rounded bg-panel2 p-2" /></label><label className="text-xs">Universe<select aria-label="Fixture universe" className="block rounded bg-panel2 p-2" value="1" disabled><option value="1">1 · USB DMX</option></select></label>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-dim">Preset</label>
-            <select
-              value={selectedPreset?.id ?? ''}
-              onChange={(e) => setPresetId(e.target.value)}
-              className="rounded bg-panel2 px-3 py-1.5 text-xs text-white"
-            >
-              {filteredPresets.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} · {p.channels}ch
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-dim">Name</label>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Optional"
-              className="w-44 rounded bg-panel2 px-3 py-1.5 text-xs text-white placeholder:text-dim"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-[10px] text-dim">Group</label>
-            <input
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-              placeholder="Ungrouped"
-              className="w-32 rounded bg-panel2 px-3 py-1.5 text-xs text-white placeholder:text-dim"
-            />
-          </div>
-          <button
-            onClick={handleAdd}
-            className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-[#111] hover:opacity-90"
-          >
-            Add Fixture
-          </button>
-          <span className="text-[10px] text-dim">
-            next free address: {nextFreeChannel(fixtures)}
-          </span>
+  const previewDrop = (event: React.DragEvent, start: number) => {
+    const profile = dragging && library.find((item) => item.id === dragging.profileId)
+    const dragged = profile && dragging ? { profile, modeId: dragging.modeId } : readDrag(event)
+    if (!dragged) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    const width = fixtureWidth(dragged.profile, dragged.modeId)
+    setDragRange({ start, end: start + width - 1, valid: placementError(fixtures, start, width) === null })
+  }
+
+  const dropProfile = (event: React.DragEvent, start: number) => {
+    const profile = dragging && library.find((item) => item.id === dragging.profileId)
+    const dragged = profile && dragging ? { profile, modeId: dragging.modeId } : readDrag(event)
+    if (!dragged) return
+    event.preventDefault()
+    const width = fixtureWidth(dragged.profile, dragged.modeId)
+    const error = placementError(fixtures, start, width)
+    setDragRange(null)
+    setDragging(null)
+    if (error) { setPatchError(error); return }
+    try {
+      useShowStore.getState().addProfileFixtures(dragged.profile, { quantity: 1, start, modeId: dragged.modeId, universe: 1 })
+      setPatchError('')
+    } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+  }
+
+  const occupiedCount = occupied.size
+  const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId)
+
+  return <section className="relative flex h-full min-h-0 gap-3" aria-label="Fixture patch workspace">
+    <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Fixture library">
+      <div className="border-b border-line p-3"><input aria-label="Search fixture library" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search fixtures" className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" /></div>
+      <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line">
+        <div className="min-h-0 overflow-y-auto p-2" aria-label="Fixture brands">
+          {manufacturers.map((brand) => <button key={brand} type="button" aria-pressed={manufacturer === brand} className={`mb-1 block w-full truncate rounded px-2 py-1.5 text-left text-xs ${manufacturer === brand ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => { setManufacturer(brand); const first = library.find((profile) => (profile.manufacturer || 'Generic') === brand); if (first) chooseProfile(first) }}>{brand}</button>)}
+        </div>
+        <div className="min-h-0 overflow-y-auto p-2" aria-label="Fixture models">
+          {matchingProfiles.map((profile) => {
+            const mode = profile.modes[0]
+            const channels = mode ? fixtureWidth(profile, mode.id) : 0
+            return <button key={profile.id} type="button" draggable aria-pressed={selectedProfile?.id === profile.id} className={`mb-1 block w-full rounded px-2 py-1.5 text-left ${selectedProfile?.id === profile.id ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => chooseProfile(profile)} onDragStart={(event) => dragProfile(event, profile)} onDragEnd={() => { setDragging(null); setDragRange(null) }}><span className="block truncate text-xs font-medium">{profile.name}</span><span className="block text-[9px] opacity-70">{channels} channels</span></button>
+          })}
+          {!matchingProfiles.length && <p className="p-2 text-xs text-dim">No matching models</p>}
         </div>
       </div>
+      <footer className="flex items-center justify-between border-t border-line px-3 py-2 text-[10px] text-dim"><span>{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+    </aside>
 
-      <div className="overflow-x-auto rounded-xl border border-line bg-panel">
-        {fixtures.length === 0 ? (
-          <div className="p-6 text-center text-xs text-dim">
-            No fixtures patched yet. Add one above to start building cues.
-          </div>
-        ) : (
-          <table className="w-full text-left text-xs">
-            <thead className="bg-bg text-[10px] uppercase tracking-wider text-dim">
-              <tr>
-                <th className="px-4 py-2 font-medium">Name</th>
-                <th className="px-2 py-2 font-medium">Type</th>
-                <th className="px-2 py-2 font-medium">Group</th>
-                <th className="px-2 py-2 font-medium">Start ch</th>
-                <th className="px-2 py-2 font-medium">Channels</th>
-                <th className="px-2 py-2 font-medium">Range</th>
-                <th className="px-2 py-2 font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {fixtures.map((fixture) => (
-                <tr key={fixture.id} className={conflictingIds.has(fixture.id) ? 'bg-red-900/30' : 'hover:bg-panel2'} title={conflicts.filter((c) => c.fixtureIds.includes(fixture.id)).map((c) => c.type === 'overlap' ? `Overlapping channels: ${c.channels.join(', ')}` : 'Address exceeds the supported DMX range').join('; ')}>
-                  <td className="px-4 py-2"><label className="mr-1 text-[10px]"><input type="checkbox" aria-label={`Enable ${fixture.name}`} checked={!fixture.disabled} onChange={(e) => updateFixture(fixture.id, { disabled: !e.target.checked })} /> On</label>
-                    {conflictingIds.has(fixture.id) && <span className="mr-1 text-[10px] text-red-300">Address warning</span>}
-                    <input
-                      value={fixture.name}
-                      onChange={(e) => updateFixture(fixture.id, { name: e.target.value })}
-                      className="w-40 rounded bg-panel2 px-2 py-1 text-xs text-white"
-                    />
-                  </td>
-                  <td className="px-2 py-2">
-                    <select
-                      value={fixture.profileId ?? library.find((p) => p.legacyType === fixture.type)?.id ?? ''}
-                      onChange={(e) => { const profile = library.find((p) => p.id === e.target.value); if (profile) { try { useShowStore.getState().reassignFixtureProfile(fixture.id, profile) } catch (error) { setPatchError(error instanceof Error ? error.message : String(error)) } } }}
-                      className="rounded bg-panel2 px-2 py-1 text-xs text-white"
-                    >
-                      {library.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-2 py-2"><input aria-label={`Notes for ${fixture.name}`} value={fixture.notes ?? ''} onChange={(e) => updateFixture(fixture.id, { notes: e.target.value })} placeholder="Notes" className="mb-1 w-28 rounded bg-panel2 p-1" />
-                    <input
-                      value={fixture.group ?? ''}
-                      onChange={(e) => updateFixture(fixture.id, { group: e.target.value })}
-                      className="w-28 rounded bg-panel2 px-2 py-1 text-xs text-white"
-                    />
-                  </td>
-                  <td className="px-2 py-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={512}
-                      value={fixture.channelStart}
-                      onChange={(e) =>
-                        updateFixture(fixture.id, { channelStart: Number(e.target.value) })
-                      }
-                      className="w-16 rounded bg-panel2 px-2 py-1 text-xs text-white"
-                    />
-                  </td>
-                  <td className="px-2 py-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={32}
-                      value={fixture.channels}
-                      onChange={(e) => updateFixture(fixture.id, { channels: Number(e.target.value) })}
-                      className="w-14 rounded bg-panel2 px-2 py-1 text-xs text-white"
-                    />
-                  </td>
-                  <td className="px-2 py-2 font-mono text-[10px] text-dim">
-                    {fixture.channelStart}–{fixture.channelStart - 1 + fixture.channels}
-                  </td>
-                  <td className="px-2 py-2 text-right">
-                    <button className="mr-2 text-[10px] text-dim" onClick={() => { try { useShowStore.getState().duplicateFixture(fixture.id) } catch (error) { setPatchError(error instanceof Error ? error.message : String(error)) } }}>Duplicate</button><span className="mr-2 text-[10px] text-dim">U{fixture.universe ?? 1}</span>
-                    <button
-                      onClick={() => {
-                        if (confirm(`Remove ${fixture.name}? Cue values for it are removed too.`)) {
-                          removeFixture(fixture.id)
-                        }
-                      }}
-                      className="text-[10px] text-dim hover:text-red-400"
-                    >
-                      Remove
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+    <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">
+      <header className="flex min-h-16 items-center gap-3 border-b border-line px-4 py-2">
+        <div className="rounded-md bg-accent px-8 py-2 text-center text-xs font-semibold text-black"><strong className="block">Universe 1</strong><span>USB DMX</span></div>
+        {selectedProfile && selectedMode && <div className="min-w-0 flex-1 text-xs"><strong className="block truncate">{selectedProfile.manufacturer} · {selectedProfile.name}</strong><label className="mt-1 inline-flex items-center gap-2 text-dim">Mode<select aria-label="Fixture mode" value={selectedMode.id} onChange={(event) => setModeId(event.target.value)} className="rounded bg-panel2 px-2 py-1 text-text">{selectedProfile.modes.map((mode) => <option key={mode.id} value={mode.id}>{mode.name} · {fixtureWidth(selectedProfile, mode.id)}ch</option>)}</select></label></div>}
+        {selectedFixture && <div className="flex items-center gap-2 text-xs"><span>{selectedFixture.name} · {selectedFixture.channelStart}–{selectedFixture.channelStart + selectedFixture.channels - 1}</span><button type="button" className="text-red-300" onClick={() => { removeFixture(selectedFixture.id); setSelectedFixtureId(null) }}>Remove</button></div>}
+      </header>
+      {patchError && <div role="alert" className="border-b border-red-500/40 bg-red-950/40 px-4 py-2 text-xs text-red-200">{patchError}</div>}
+      <div className="grid min-h-0 flex-1 gap-px overflow-hidden bg-line p-px" style={{ gridTemplateColumns: 'repeat(24, minmax(0, 1fr))', gridTemplateRows: 'repeat(22, minmax(0, 1fr))' }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragRange(null) }}>
+        {Array.from({ length: 512 }, (_, index) => index + 1).map((channel) => {
+          const item = occupied.get(channel)
+          const highlighted = dragRange && channel >= dragRange.start && channel <= dragRange.end
+          const isSelected = item?.fixture.id === selectedFixtureId
+          return <button key={channel} type="button" data-channel={channel} aria-label={item ? `Channel ${channel}: ${item.fixture.name}, ${item.label}` : `Channel ${channel}: free`} title={item ? `${channel} · ${item.fixture.name} · ${item.label}` : `${channel} · Free`} className={`min-h-0 min-w-0 overflow-hidden px-1 text-left text-[9px] leading-tight ${item ? 'bg-panel2 text-text' : 'bg-bg text-dim'} ${item?.offset === 0 ? 'font-semibold text-accent' : ''} ${isSelected ? 'ring-1 ring-inset ring-accent' : ''} ${highlighted ? (dragRange.valid ? '!bg-emerald-700/70 !text-white' : '!bg-red-700/70 !text-white') : ''}`} onClick={() => item && setSelectedFixtureId(item.fixture.id)} onDragOver={(event) => previewDrop(event, channel)} onDrop={(event) => dropProfile(event, channel)}><span className="block font-mono opacity-70">{String(channel).padStart(3, '0')}</span>{item && <span className="block truncate">{item.offset === 0 ? item.fixture.name : item.label}</span>}</button>
+        })}
       </div>
-
-      {fixtures.some((f) => f.channelStart + f.channels - 1 > 512) && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-300">
-          One or more fixtures extend past DMX channel 512.
-        </div>
-      )}
-
-      <DmxMonitor />
-    </section>
-  )
+      <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a fixture model onto its starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
+    </div>
+    {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
+  </section>
 }

@@ -19,6 +19,7 @@ describe('Preset Palette — LightKey combined tree', () => {
   const groupsLib = readFileSync(resolve(root, 'src/renderer/src/lib/presetGroups.ts'), 'utf8')
   const migrations = readFileSync(resolve(root, 'src/shared/migrations.ts'), 'utf8')
   const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
+  const patch = readFileSync(resolve(root, 'src/renderer/src/components/PatchPanel.tsx'), 'utf8')
 
   it('has one combined tree: presets and sequences as draggable rows under user groups', () => {
     for (const text of [
@@ -108,7 +109,7 @@ describe('Preset Palette — LightKey combined tree', () => {
     expect(app).toContain('Preset Palette')
     expect(app).not.toContain('Groups & Presets')
     expect(app).not.toContain('fixture tree')
-    expect(app).toContain('<FixtureGroups />')
+    expect(patch).toContain('<FixtureGroups />')
     expect(panel).not.toContain("from './FixtureGroups'")
     expect(panel).not.toContain('<FixtureGroups')
   })

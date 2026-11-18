@@ -1,6 +1,16 @@
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 export interface PatchOptions { modeId?: string; quantity: number; start: number; name?: string; group?: string; universe?: number }
 export interface PatchConflict { fixtureIds: string[]; type: 'overlap' | 'out-of-range'; channels: number[] }
+export function fixtureWidth(profile: FixtureProfile, modeId?: string): number {
+  const mode = profile.modes.find((item) => item.id === modeId) ?? profile.modes[0]
+  return mode?.channels.length ? Math.max(...mode.channels.map((channel) => channel.number)) + 1 : 0
+}
+export function placementError(fixtures: FixtureDef[], start: number, width: number): string | null {
+  if (!Number.isInteger(start) || !Number.isInteger(width) || start < 1 || width < 1 || start + width - 1 > 512) return 'The fixture does not fit within channels 1–512'
+  const end = start + width - 1
+  const overlap = fixtures.find((fixture) => (fixture.universe ?? 1) === 1 && start <= fixture.channelStart + fixture.channels - 1 && end >= fixture.channelStart)
+  return overlap ? `Channels ${Math.max(start, overlap.channelStart)}–${Math.min(end, overlap.channelStart + overlap.channels - 1)} are occupied by ${overlap.name}` : null
+}
 export function findConflicts(fixtures: FixtureDef[]): PatchConflict[] {
   const conflicts: PatchConflict[] = []
   for (const fixture of fixtures) if (!Number.isInteger(fixture.channelStart) || !Number.isInteger(fixture.channels) || fixture.channelStart < 1 || fixture.channels < 1 || fixture.channelStart + fixture.channels - 1 > 512) conflicts.push({ fixtureIds: [fixture.id], type: 'out-of-range', channels: [] })
@@ -16,7 +26,7 @@ export function allocateFixtures(existing: FixtureDef[], profile: FixtureProfile
   const mode = profile.modes.find((m) => m.id === options.modeId) ?? profile.modes[0]
   if (!mode || !mode.channels.length) throw new Error('Choose a fixture mode')
   if (options.universe && options.universe !== 1) throw new Error('USB output supports universe 1')
-  const quantity = options.quantity, width = Math.max(...mode.channels.map((c) => c.number)) + 1
+  const quantity = options.quantity, width = fixtureWidth(profile, mode.id)
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 512 || !Number.isInteger(options.start) || options.start < 1 || options.start > 512) throw new Error('Choose a valid quantity and DMX start address')
   const used = new Set(existing.flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)))
   const fixtures: FixtureDef[] = []
