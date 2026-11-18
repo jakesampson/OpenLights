@@ -211,10 +211,11 @@ export function ProjectBar() {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`btn-theme text-xs font-medium ${open ? 'on' : ''}`}
+        className={`lightkey-project ${open ? 'on' : ''}`}
         title="Project menu"
       >
-        Project
+        <svg viewBox="0 0 28 18" aria-hidden="true"><circle cx="4" cy="5" r="2" /><circle cx="14" cy="9" r="2" /><circle cx="24" cy="14" r="2" /><path d="M6 5.8 12 8m4 2 6 3" /></svg>
+        <span><strong>{show?.name ?? 'OpenLights'}</strong><small>{status ?? (currentPath ? 'Output ready' : 'No output')}</small></span>
       </button>
 
       {open && (

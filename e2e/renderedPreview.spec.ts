@@ -19,11 +19,14 @@ test.beforeEach(async ({ page }) => {
     }
     ;(window as any).electronAPI = new Proxy(api, { get: (target, property: string) => property in target ? target[property] : asyncValue })
   })
-  await page.goto('http://127.0.0.1:4174')
+  await page.goto('http://127.0.0.1:4180')
 })
 
 test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(page.getByText('Demo Show', { exact: false }).first()).toBeVisible()
+  await expect(page.locator('.top-bar')).toHaveCount(1)
+  await expect(page.locator('.top-bar').getByLabel('Active scene')).toBeVisible()
+  await expect(page.locator('.top-bar').getByLabel('Master intensity')).toHaveCount(0)
   await page.getByRole('button', { name: 'Settings' }).click()
   await expect(page.getByLabel('Default fade milliseconds')).toBeVisible()
   await page.getByRole('button', { name: 'Settings' }).click()

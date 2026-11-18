@@ -264,3 +264,6 @@ The Live bottom panel now renders the selected Live page canvas directly instead
 
 ### Bottom-panel navigation cleanup
 Live page selection and management now live exclusively in the centred Live-pill dropdown; the canvas only shows the active page name and its Edit action. The Design fixture inspector no longer duplicates the global Master control or offers scene/manual-mode and scene-selection controls. Scenes are selected and edited from the right sidebar, while the bottom panel remains focused on the selected fixtures' properties. Tests: `tests/bottomPanel.test.ts` and `e2e/renderedPreview.spec.ts`.
+
+### Lightkey-style application header
+The former title row and lighting-control row are consolidated into one 72px header. It follows the reference hierarchy—project/output identity, lock, active scene field, Blind, Freeze, overflow, tools, Edit, Patch/add, search and Windows controls—using original OpenLights SVG paths. Master is no longer exposed in the header. BPM/Tap, passcode, USB DMX and Blackout remain available through the overflow so functionality is retained without changing the reference silhouette. Tests: `tests/toolbar.test.ts` and `e2e/renderedPreview.spec.ts`.

@@ -56,7 +56,6 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
-  const titleClickTimeout = useRef<number | null>(null)
   const activeScene = scenes.find((scene) => scene.id === activeSceneId)
   useEffect(() => {
     document.documentElement.dataset.theme = show?.preferences?.theme ?? 'dark'
@@ -233,19 +232,23 @@ export default function App() {
           <details className="relative text-xs"><summary className="btn-theme cursor-pointer">Edit</summary><div className="absolute left-0 top-full z-50 flex w-44 flex-col rounded border border-line bg-panel p-1 shadow-xl"><button type="button" disabled={!useShowStore.getState().undoStack.length} onClick={() => useShowStore.getState().undo()} className="px-3 py-2 text-left disabled:opacity-40">Undo · Ctrl+Z</button><button type="button" disabled={!useShowStore.getState().redoStack.length} onClick={() => useShowStore.getState().redo()} className="px-3 py-2 text-left disabled:opacity-40">Redo · Ctrl+Y</button></div></details>
           <button
             type="button"
-            className="btn-theme text-xs"
+            className="lightkey-action"
+            aria-label="Patch fixtures"
+            title="Patch fixtures"
             onClick={() => setToolPanel('Patch')}
           >
-            Patch
+            +
           </button>
           <div className="relative">
             <button
               type="button"
-              className={`btn-theme text-xs ${settingsOpen ? 'on' : ''}`}
+              className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
+              aria-label="Settings and tools"
+              title="Settings and tools"
               aria-expanded={settingsOpen}
               onClick={() => setSettingsOpen((open) => !open)}
             >
-              Settings
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 10-10m-7-2 2-2m3 5 2-2m2-5 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Zm1 10 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" /></svg>
             </button>
             {settingsOpen && (
               <div className="absolute left-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
@@ -288,28 +291,15 @@ export default function App() {
           </div>
         </div>
 
-        <div className="flex-1 text-center font-semibold tracking-tight text-base truncate">
-          <span
-            className="window-title"
-            onClick={() => {
-              if (titleClickTimeout.current !== null) {
-                window.clearTimeout(titleClickTimeout.current)
-                titleClickTimeout.current = null
-                window.electronAPI.toggleWindowMaximize()
-              } else {
-                titleClickTimeout.current = window.setTimeout(() => {
-                  titleClickTimeout.current = null
-                }, 500)
-              }
-            }}
-          >
-            {show?.name ?? 'OpenLights'}
-            <span className="ml-2 text-[10px] font-normal text-dim">
-              {blackout ? '· Blackout' : activeScene ? `· ${activeScene.name}` : '· No scene'}
-            </span>
-          </span>
+        <div className="header-look-field">
+          <span aria-hidden="true">▱</span>
+          <select aria-label="Active scene" value={activeSceneId ?? ''} onChange={(event) => event.target.value ? goToScene(event.target.value) : undefined}>
+            <option value="">{blackout ? 'Blackout' : 'Overrides'}</option>
+            {scenes.filter((scene) => !scene.blackout).map((scene) => <option key={scene.id} value={scene.id}>{scene.name}</option>)}
+          </select>
         </div>
 
+        <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
         <div className="flex items-center gap-2">
           <div className="window-controls">
             <button
@@ -355,7 +345,6 @@ export default function App() {
         </div>
       </header>
 
-      <WorkspaceToolbar view={tab} onView={setTab} onBlackout={handleBlackout} />
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}</div>}
