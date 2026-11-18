@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { availableProperties } from '../lib/availableProperties'
 import { useShowStore } from '../stores/showStore'
 
@@ -10,6 +10,7 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
   const [lockDialog, setLockDialog] = useState<'lock' | 'unlock' | null>(null)
   const [pin, setPin] = useState('')
   const [pinError, setPinError] = useState(false)
+  const toolbarRef = useRef<HTMLDivElement>(null)
   const fixtures = useMemo(() => (state.show?.fixtures ?? []).filter((fixture) => state.selectedFixtureIds.includes(fixture.id)), [state.show?.fixtures, state.selectedFixtureIds])
   const properties = useMemo(() => availableProperties(fixtures), [fixtures])
   const selectedProperty = property && properties.some((item) => item.attribute === property) ? property : properties[0]?.attribute ?? null
@@ -40,7 +41,22 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
     for (const fixtureId of state.selectedFixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][selectedProperty]
     state.updateCue(cue.id, { fixtureValues })
   }
-  return <div role="toolbar" aria-label="Lighting controls" className="lighting-toolbar">
+  useEffect(() => {
+    const closeOutside = (event: PointerEvent) => {
+      const target = event.target as Node | null
+      for (const details of toolbarRef.current?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? []) {
+        if (!target || !details.contains(target)) details.open = false
+      }
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      for (const details of toolbarRef.current?.querySelectorAll<HTMLDetailsElement>('details[open]') ?? []) details.open = false
+    }
+    window.addEventListener('pointerdown', closeOutside)
+    window.addEventListener('keydown', closeOnEscape)
+    return () => { window.removeEventListener('pointerdown', closeOutside); window.removeEventListener('keydown', closeOnEscape) }
+  }, [])
+  return <div ref={toolbarRef} role="toolbar" aria-label="Lighting controls" className="lighting-toolbar">
     <button className={`header-icon ${state.locked ? 'on' : ''}`} aria-label={state.locked ? 'Unlock project' : 'Lock project'} aria-pressed={state.locked} onClick={openLockDialog} title={state.locked ? 'Unlock project' : 'Lock project'}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="13" height="10" rx="2"/><path d={state.locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M16 10V7a4 4 0 0 0-8 0'} /></svg></button>
     <button className={`header-icon ${state.blind ? 'on' : ''}`} aria-label="Blind mode" aria-pressed={state.blind} onClick={state.toggleBlind} title="Blind mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z"/><path d="m4 4 16 16"/></svg></button>
     <button className={`header-icon ${state.freeze ? 'on' : ''}`} aria-label="Freeze output" aria-pressed={state.freeze} onClick={state.toggleFreeze} title="Freeze output"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V5a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v9c0 5-3 8-8 8S5 18 4 14l-1-3a2 2 0 0 1 4-1l1 1Z"/></svg></button>

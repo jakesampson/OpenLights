@@ -294,3 +294,6 @@ The ellipsis menu now follows the supplied Lightkey reference: select a common f
 
 ### Header lock interaction correction
 The lock icon now opens an in-app header dialog before locking, with an optional PIN and an explicit blank-PIN explanation. Unlocking uses the same dialog, keeps the application locked after an incorrect PIN, and shows inline feedback. Header dropdown summaries are explicitly excluded from Electron's draggable title-bar region so the property and effect buttons continue receiving desktop clicks. The rendered Playwright flow exercises lock, failed unlock, successful unlock and the other header menus.
+
+### Menu dismissal and palette context targeting
+Open header details menus, including nested property submenus, now close on pointer-down anywhere outside their own branch and on Escape. The Preset Palette's blank-area context target covers the entire sidebar—including its heading, search area and empty tree space—while palette rows continue to open item-specific actions. The rendered flow verifies both click-away dismissal and blank-sidebar right-click creation access.

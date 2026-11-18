@@ -81,6 +81,9 @@ describe('Preset Palette — LightKey combined tree', () => {
       'New Sequence From Selection',
       'PaletteContextMenu'
     ]) expect(panel).toContain(text)
+    expect(panel).toContain('aria-label="Preset palette panel"')
+    expect(app).toContain('aria-label="Preset palette sidebar"')
+    expect(app).toContain('openlights-preset-palette-context')
     // "External Control" does not exist in OpenLights — it must not be
     // faked as a menu item (the source comment records the omission).
     expect(panel).not.toContain("label: 'External Control'")

@@ -121,6 +121,18 @@ export function GroupsPresetsPanel() {
     return () => window.removeEventListener('pointerdown', close)
   }, [contextMenu, headerMenu])
 
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ x: number; y: number }>).detail
+      if (!detail) return
+      setSelected([])
+      setHeaderMenu(false)
+      setContextMenu({ x: detail.x, y: detail.y, target: null })
+    }
+    window.addEventListener('openlights-preset-palette-context', open)
+    return () => window.removeEventListener('openlights-preset-palette-context', open)
+  }, [])
+
   // --- membership helpers -------------------------------------------------
   const groupOfPreset = (presetId: string) => groups.find((g) => g.presetIds.includes(presetId))
   const groupOfSequence = (sequenceId: string) => groups.find((g) => (g.sequenceIds ?? []).includes(sequenceId))
@@ -558,7 +570,10 @@ export function GroupsPresetsPanel() {
   const runningCount = activeSequenceIds.length
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1" onClick={() => setHeaderMenu(false)}>
+    <div aria-label="Preset palette panel" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1" onClick={() => setHeaderMenu(false)} onContextMenu={(event) => {
+      if ((event.target as Element).closest('[data-palette-row]')) return
+      event.preventDefault(); event.stopPropagation(); setSelected([]); setHeaderMenu(false); setContextMenu({ x: event.clientX, y: event.clientY, target: null })
+    }}>
       <div className="flex gap-1 px-1 pb-2">
         <input type="search" aria-label="Search palette" placeholder="Search palette" value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-bg/50 px-2 py-1 text-xs text-text placeholder:text-dim" />
         <div className="relative" ref={menuRef}>
@@ -599,7 +614,7 @@ export function GroupsPresetsPanel() {
         </div>
       )}
       {empty ? (
-        <div className="px-2 py-3 text-[11px] text-dim" onContextMenu={(event) => { event.preventDefault(); setContextMenu({ x: event.clientX, y: event.clientY, target: null }) }}>
+        <div className="px-2 py-3 text-[11px] text-dim">
           No presets yet. Right-click here to create a group, preset or sequence — folders are yours to make, none are built in.
         </div>
       ) : (
@@ -609,7 +624,6 @@ export function GroupsPresetsPanel() {
           aria-label="Preset palette"
           tabIndex={0}
           onKeyDown={onTreeKeyDown}
-          onContextMenu={(event) => { event.preventDefault(); setSelected([]); setContextMenu({ x: event.clientX, y: event.clientY, target: null }) }}
           onDragOver={(event) => { allowPaletteDrop(event) }}
           onDrop={(event) => dropOntoGroup(event, null)}
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 py-1 outline-none"

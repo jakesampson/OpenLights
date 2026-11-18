@@ -409,7 +409,11 @@ export default function App() {
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label="Preset palette sidebar" onContextMenu={(event) => {
+          if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
+          event.preventDefault()
+          window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
+        }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
           <div className="flex items-center justify-between px-2 py-1">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
               Preset Palette
