@@ -48,8 +48,19 @@ export function WelcomeScreen() {
     state.setNewProjectDialogOpen(true)
   }
 
+  // The overlay must be a solid full-screen scrim (19 Nov 2026, Jake's
+  // screenshot: the startup menu floated over the live Preview/dock with
+  // no background). An opacity-modified theme background does NOT paint:
+  // the theme colours are defined in tailwind.config.js as plain
+  // `var(--bg)` with no `<alpha-value>` placeholder, so Tailwind drops
+  // every opacity-modified `bg-bg` utility — the built CSS has no such
+  // rule at all. Plain `bg-bg` compiles to `var(--bg)` and is solid. The
+  // content is also taller than short viewports, so the overlay scrolls
+  // (`overflow-y-auto` + `min-h-full` flex centring: centred when short,
+  // scrolls from the top when tall instead of clipping).
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-bg/95 p-6" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div className="fixed inset-0 z-[70] overflow-y-auto bg-bg" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+      <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-[720px]">
         <header className="flex items-start justify-between">
           <div>
@@ -97,6 +108,7 @@ export function WelcomeScreen() {
             ))}
           </ul>
         </section>
+      </div>
       </div>
     </div>
   )
