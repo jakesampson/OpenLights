@@ -49,6 +49,19 @@ export interface CueDef {
   fans?: FanDef[]
   id: string
   name: string
+  /** Presets this cue is built from, in the order they apply — where two
+   *  presets define the same fixture property, the later one wins
+   *  (LightKey Guide ch.11, "Edit cue contents", p.199). Editing a preset
+   *  updates every cue that references it: values are resolved by
+   *  reference at read time (see shared/cueResolution.ts), never copied. */
+  presetIds?: string[]
+  /** Sequences that run while this cue is active. */
+  sequenceIds?: string[]
+  /** Ad-hoc properties — the cue's own values (LightKey's "Ad hoc
+   *  properties" item, Guide ch.11 p.201): fixture properties with no
+   *  preset, or properties the operator set on the cue itself. Applied
+   *  last when the cue resolves, so they win over any preset. The Design
+   *  panel, fanning and colour writes all target this layer. */
   fixtureValues: Record<string, Record<string, number>> // fixtureId -> attribute -> value (0-255)
   fadeMs: number
   blackout?: boolean

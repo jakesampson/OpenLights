@@ -20,6 +20,7 @@ import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
+import { resolveCue } from '@shared/cueResolution'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -150,7 +151,7 @@ export default function App() {
         if (!alive) return
         const state = useShowStore.getState()
         const cue = state.cues.find((item) => item.id === state.activeCueId)
-        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue)
+        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue ? resolveCue(cue, state.presets) : undefined)
         root.style.setProperty('--adaptive-hue', String(hue ?? 283))
       } catch { /* Keep the previous appearance if output is unavailable. */ }
       finally { pending = false }
@@ -172,10 +173,13 @@ export default function App() {
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active
-    // cue's sequences run for as long as that cue is lit.
-    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues)])
+    // cue's sequences run for as long as that cue is lit. A stored cue's
+    // sequences (Piece 8) run the same way while it is the active cue —
+    // in Design, or as the current step of a cuelist.
+    const activeCue = cues.find((cue) => cue.id === activeCueId)
+    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues), ...(activeCue?.sequenceIds ?? [])])
     configureSequences([...ids].flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets)
-  }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets])
+  }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets, cues, activeCueId])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
@@ -195,7 +199,7 @@ export default function App() {
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
-      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], cue, scaledMaster))
+      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], resolveCue(cue, presets), scaledMaster))
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
         if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))

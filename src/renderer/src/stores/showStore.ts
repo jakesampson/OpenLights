@@ -1,5 +1,6 @@
 import type { FanDef, FrameConfig, LiveControl, LiveObjectStyle } from '@shared/types'
 import { cuesToPresets } from '@shared/cueConversion'
+import { resolveCue, resolveCueValues } from '@shared/cueResolution'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
@@ -360,7 +361,10 @@ function cuePatch(
   state: Pick<ShowState, 'show' | 'master'>,
   cue: CueDef
 ): Record<number, number> {
-  return computeCueChannels(state.show?.fixtures ?? [], cue, state.master, true)
+  // The cue resolves through its preset references first (Piece 8): a
+  // preset edit updates every cue that references it, because the values
+  // are resolved here at output time, never copied into the cue.
+  return computeCueChannels(state.show?.fixtures ?? [], resolveCue(cue, state.show?.presets ?? []), state.master, true)
 }
 
 /**
@@ -374,6 +378,22 @@ function cueOutput(
 ): Record<number, number> {
   suppressPresetsForCue(Boolean(cue.blackout))
   return cue.blackout ? allZeroPatch() : cuePatch(state, cue)
+}
+
+/**
+ * Re-send the active cue after a preset it references changed (Piece 8):
+ * a preset edit must reach the output immediately, not only when the cue
+ * is next activated. `presets` is the post-edit list, because cuePatch
+ * resolves the cue through state.show.presets.
+ */
+function resendActiveCueForPreset(
+  state: ShowState,
+  presetId: string,
+  presets: PresetDef[]
+) {
+  const cue = state.cues.find((s) => s.id === state.activeCueId)
+  if (!cue || !(cue.presetIds ?? []).includes(presetId) || state.blackout) return
+  sendImmediate(cueOutput({ ...state, show: state.show ? { ...state.show, presets } : null }, cue))
 }
 
 /** Merge a patch into the persisted show, and optionally into top-level state. */
@@ -422,6 +442,7 @@ const productionDefaultShow: ShowDef = {
     {
       id: 's1',
       name: 'Warm Welcome',
+      presetIds: [], sequenceIds: [],
       fixtureValues: {
         f1: { intensity: 220, red: 255, green: 160, blue: 80 },
         f2: { intensity: 80, red: 30, green: 80, blue: 255, white: 0, amber: 0, uv: 0 },
@@ -432,6 +453,7 @@ const productionDefaultShow: ShowDef = {
     {
       id: 's2',
       name: 'Sermon Focus',
+      presetIds: [], sequenceIds: [],
       fixtureValues: {
         f1: { intensity: 180, red: 255, green: 220, blue: 180 },
         f2: { intensity: 120, red: 80, green: 160, blue: 255, white: 0, amber: 0, uv: 0 },
@@ -451,6 +473,7 @@ const productionDefaultShow: ShowDef = {
     {
       id: 's3',
       name: 'Communion Glow',
+      presetIds: [], sequenceIds: [],
       fixtureValues: {
         f1: { intensity: 140, red: 200, green: 80, blue: 40 },
         f2: { intensity: 160, red: 120, green: 40, blue: 90, white: 0, amber: 0, uv: 0 },
@@ -570,6 +593,7 @@ const developmentDefaultShow: ShowDef = {
     {
       id: 's1',
       name: 'Warm Welcome',
+      presetIds: [], sequenceIds: [],
       fixtureValues: showBuddyCueValues({
         red: 220,
         green: 110,
@@ -583,6 +607,7 @@ const developmentDefaultShow: ShowDef = {
     {
       id: 's2',
       name: 'Sermon Focus',
+      presetIds: [], sequenceIds: [],
       fixtureValues: showBuddyCueValues({
         red: 50,
         green: 110,
@@ -596,6 +621,7 @@ const developmentDefaultShow: ShowDef = {
     {
       id: 's3',
       name: 'Communion Glow',
+      presetIds: [], sequenceIds: [],
       fixtureValues: showBuddyCueValues({
         red: 180,
         green: 50,
@@ -964,7 +990,8 @@ const actions: ShowState = {
   copyFixtureProperties: (property) => {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
-    const values = { ...state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues[fixture.id] }
+    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets) : {})[fixture.id] }
     for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
     Object.assign(values, state.manualOverrides[fixture.id])
     set({ propertyClipboard: { fixture: structuredClone(fixture), values: property && property in values ? { [property]: values[property] } : values, property } })
@@ -1017,7 +1044,8 @@ const actions: ShowState = {
     const state = get()
     const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
     if (!fixtures.length) return
-    const cueValues = state.cues.find((c) => c.id === state.activeCueId)?.fixtureValues ?? {}
+    const activeCue = state.cues.find((c) => c.id === state.activeCueId)
+    const cueValues = activeCue ? resolveCueValues(activeCue, state.presets) : {}
     get().beginHistoryGroup()
     for (const fixture of fixtures) {
       const channels = colorChannels(fixtureAttributes(fixture))
@@ -1229,7 +1257,7 @@ const actions: ShowState = {
     for (const fixture of state.show.fixtures) {
       if (!state.selectedFixtureIds.includes(fixture.id)) continue
       const supported = new Set(fixtureAttributes(fixture))
-      const source = cue.fixtureValues[fixture.id] ?? {}
+      const source = resolveCueValues(cue, state.presets)[fixture.id] ?? {}
       const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) &&
         (category === 'color' ? color.test(attribute) : category === 'position' ? position.has(attribute) : category === 'intensity' ? attribute === 'intensity' : !color.test(attribute) && !position.has(attribute) && attribute !== 'intensity'))
       if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
@@ -1260,7 +1288,8 @@ const actions: ShowState = {
   clearPresets: () => set({ activePresetIds: [] }),
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
-    const values = structuredClone(state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues ?? {})
+    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const values = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets) : {})
     for (const [id, patch] of Object.entries(state.manualOverrides)) values[id] = { ...values[id], ...patch }
     const sequence: SequenceDef = { id: crypto.randomUUID(), name: name.trim(), order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: crypto.randomUUID(), name: 'Step 1', fixtureValues: values, presetIds: [], fadeMs: 1000, holdMs: 0 }] }
     return persistState(state, { sequences: [...(state.show?.sequences ?? []), sequence] })
@@ -1269,7 +1298,8 @@ const actions: ShowState = {
   addSequenceStep: (id) => {
     const state = get(), sequence = state.show?.sequences?.find((s) => s.id === id)
     if (!sequence) return
-    const fixtureValues = structuredClone(state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues ?? {})
+    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const fixtureValues = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets) : {})
     for (const [fixtureId, patch] of Object.entries(state.manualOverrides)) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
     get().updateSequence(id, { steps: [...sequence.steps, { id: crypto.randomUUID(), name: `Step ${sequence.steps.length + 1}`, fixtureValues, presetIds: [], fadeMs: 0, holdMs: 1000 }] })
   },
@@ -1353,6 +1383,7 @@ const actions: ShowState = {
   }),
   updatePresetContents: (id, values) => set((state) => {
     const presets = state.presets.map((preset) => preset.id === id ? { ...preset, fixtureValues: structuredClone(values) } : preset)
+    resendActiveCueForPreset(state, id, presets)
     return persistState(state, { presets }, { presets })
   }),
   // In-place preset editing, LightKey style (Guide ch.9, and Jake's
@@ -1409,6 +1440,7 @@ const actions: ShowState = {
       for (const id of state.selectedFixtureIds) write(id, patch)
     }
     const presets = state.presets.map((p) => p.id === preset.id ? { ...p, fixtureValues } : p)
+    resendActiveCueForPreset(state, preset.id, presets)
     return persistState(state, { presets }, { presets })
   }),
   applyPaletteDrop: (drag, targetGroupId, before = null) => set((state) => {
@@ -1421,7 +1453,8 @@ const actions: ShowState = {
     if (!preset || !state.show) return
     const fixtureValues = structuredClone(preset.fixtureValues)
     for (const fixture of state.show.fixtures.filter((f) => state.selectedFixtureIds.includes(f.id))) {
-      const values = { ...state.cues.find((s) => s.id === state.activeCueId)?.fixtureValues[fixture.id] }
+      const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+      const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets) : {})[fixture.id] }
       for (const activeId of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
       Object.assign(values, state.manualOverrides[fixture.id])
       const allowed = fixtureAttributes(fixture)
@@ -1445,6 +1478,7 @@ const actions: ShowState = {
   }),
   deletePreset: (id) => set((state) => {
     const presets = state.presets.filter((preset) => preset.id !== id)
+    resendActiveCueForPreset(state, id, presets)
     return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId })
   }),
 
@@ -1456,6 +1490,8 @@ const actions: ShowState = {
       const newCue: CueDef = {
         id: crypto.randomUUID(),
         name: `Cue ${state.cues.length + 1}`,
+        presetIds: [],
+        sequenceIds: [],
         fixtureValues,
         fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
       }
@@ -1472,6 +1508,8 @@ const actions: ShowState = {
         ...source,
         id: crypto.randomUUID(),
         name: `${source.name} Copy`,
+        presetIds: [...(source.presetIds ?? [])],
+        sequenceIds: [...(source.sequenceIds ?? [])],
         fixtureValues: structuredClone(source.fixtureValues),
         fadeMs: source.fadeMs
       }
@@ -1506,6 +1544,7 @@ const actions: ShowState = {
 
       const activeCue: CueDef = existingCue ?? {
         id: crypto.randomUUID(), name: `Cue ${state.cues.length + 1}`, fadeMs: 1000,
+        presetIds: [], sequenceIds: [],
         fixtureValues: Object.fromEntries(state.show.fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)]))
       }
       const selected = new Set(selectedFixtureIds)
