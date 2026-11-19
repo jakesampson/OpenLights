@@ -11,7 +11,11 @@ const clampFader = (value: number) => Math.max(0, Math.min(255, Math.round(value
 // range input) so the fill can be drawn as a solid bar. Dragging sets the
 // value by pointer Y (top = 255); keyboard: arrows ±1 (Shift ±10),
 // PageUp/PageDown ±25, Home = 255, End = 0.
-export function FillFader({ value, onChange, label, fillColor, disabled = false, trackClassName = 'live-master-track', valueText }: {
+//
+// `selected` (Design tab only, Jake 19 Nov 2026): the blue #0A84FF border
+// marking the control the shortcuts act on. It is a prop, not focus, so
+// the Live master fader — which never passes it — keeps its own look.
+export function FillFader({ value, onChange, label, fillColor, disabled = false, trackClassName = 'live-master-track', valueText, selected = false }: {
   value: number
   onChange: (value: number) => void
   label: string
@@ -19,6 +23,7 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
   disabled?: boolean
   trackClassName?: string
   valueText?: string
+  selected?: boolean
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
   // A drag tracked only by a ref stays live when pointerup is missed
@@ -57,7 +62,7 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
       aria-valuenow={value}
       aria-valuetext={valueText ?? `${Math.round((value / 255) * 100)}%`}
       aria-disabled={disabled || undefined}
-      className={trackClassName}
+      className={`${trackClassName}${selected ? ' design-fader-selected' : ''}`}
       onPointerDown={(event) => { if (disabled) return; drag.begin(); event.currentTarget.setPointerCapture(event.pointerId); valueFromPointer(event.clientY) }}
       onPointerMove={(event) => { if (event.buttons === 0) { drag.end(); return } if (drag.isActive()) valueFromPointer(event.clientY) }}
       onPointerUp={() => drag.end()}

@@ -578,6 +578,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const appearance = previewBeamAppearance(f, f.pos, f.color)
           const top = y + 4
           const bottom = y + 150
+          // The beam's length follows its brightness (Jake, 19 Nov
+          // 2026): the drawn beam reaches as far as the effective
+          // intensity carries it — fading in grows it, fading out
+          // shrinks it. 0 is no beam at all (gated by `on` above);
+          // 100% is the full 146. The far end narrows with the length
+          // so the cone angle stays the same; direction, colour and
+          // opacity are untouched.
+          const beamBottom = top + (bottom - top) * op
+          const beamFarHalf = 7 + (34 - 7) * op
           const selectable = fixtures.length > 0
           const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
@@ -615,8 +624,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
             >
               {on && !f.hideBeam && (
                 <polygon
-                  pointerEvents="none"
-                  points={`${x - 7},${top} ${x + 7},${top} ${x + 34},${bottom} ${x - 34},${bottom}`}
+                  points={`${x - 7},${top} ${x + 7},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
                   transform={`rotate(${appearance.direction} ${x} ${y})`}
                   fill={appearance.color}
                   fillOpacity={op * 0.28}
@@ -625,7 +633,17 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   strokeWidth="1"
                 />
               )}
-              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.shortName ?? f.name}</text>}
+              {/* The label selects the fixture exactly like the icon
+                  (Jake, 19 Nov 2026): its own click handler, so a label
+                  click is a real selection — not just the focus outline
+                  the group used to draw. The beam polygon above is
+                  hit-testable for the same reason (it used to be
+                  pointer-events none, so a beam click fell through to
+                  the blank canvas and deselected). Both route through
+                  the same selectFixture the icon click uses, Shift
+                  included; in edit mode the group's pointerdown still
+                  owns selection + dragging. */}
+              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) selectFixture(f.id, event.shiftKey) }}>{f.shortName ?? f.name}</text>}
               {isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? (setupWizardStep === 'directions' ? y + 48 : y + 32) : (setupWizardStep === 'directions' ? y + 36 : y + 20)} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {/* Wizard Light Beam Directions step (Piece 5, video 07:05):
                   every fixture gets a yellow Set… button below its icon;

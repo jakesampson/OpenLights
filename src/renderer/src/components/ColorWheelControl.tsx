@@ -217,7 +217,18 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
       onPointerLeave={() => { if (!drag.isActive()) setTooltip(null) }}
       onKeyDown={onKeyDownHue}
     >
-      <svg viewBox="0 0 220 220" width="100%" height="100%">
+      {/* The svg carries its viewBox size as width/height attributes
+          (220) while CSS sizes it to 100% of its box: the attributes
+          are the svg's intrinsic size, and the colour card sizes to
+          its contents — so the card's width follows the wheel's
+          natural 220 instead of the replaced-element default (300),
+          which used to leave a wide empty strip on the card's right
+          whenever no additional-colour sliders were present (Jake,
+          19 Nov 2026). The rendered wheel is the stretched card-body
+          height (~212px at the fixed 294px panel), within a few px of
+          220, so the card hugs the wheel and only grows when sliders
+          are added. */}
+      <svg viewBox="0 0 220 220" width={220} height={220} style={{ width: '100%', height: '100%' }}>
         <defs>
           {arcs.map((arc, i) => {
             const start = polar(54, arcStart(i)), end = polar(54, arcStart(i) + span)

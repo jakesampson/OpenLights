@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { resolveCueValues } from '@shared/cueResolution'
@@ -30,6 +30,13 @@ function attributeLabel(attribute: string) {
   if (attribute === 'uv') return 'UV'
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
 }
+
+// The selected Design control (Jake, 19 Nov 2026): the blue #0A84FF
+// border marks the one control the shortcuts act on, so you can see
+// which value the arrow keys will adjust. Clicking a control selects
+// it; clicking spare space in the panel clears it. The wheel is one
+// control ('colour' — the whole card); each fader is its own.
+type SelectedDesignControl = 'colour' | 'dimmer' | `slider:${string}` | `channel:${string}`
 
 // The colour card's active property — the last colour property the
 // user adjusted (LightKey's card header, Jake's LightKey screenshots
@@ -240,6 +247,25 @@ export function DesignTab() {
   // adjusted, and resets when the selection or cue changes, so it can
   // never show a stale value for a different fixture or cue.
   const [activeColorProperty, setActiveColorProperty] = useState<ActiveColorProperty | null>(null)
+  // The selected control (see SelectedDesignControl above): which
+  // control carries the blue border. It is set by clicking a control
+  // or tabbing into one (onFocus), and cleared by clicking spare
+  // space — so the bordered control is always the one the arrow keys
+  // act on. The arrow keys themselves stay focus-driven (FillFader's
+  // and the wheel's own key handlers); selection and focus are kept
+  // in step instead of a second key path: a spare-space click blurs
+  // the focused control as it clears the selection, so with nothing
+  // bordered the keys adjust nothing.
+  const [selectedControl, setSelectedControl] = useState<SelectedDesignControl | null>(null)
+  const inspectorRef = useRef<HTMLDivElement>(null)
+  const clearSelection = () => {
+    setSelectedControl(null)
+    // Move focus out of the control too, so its arrow keys stop
+    // adjusting it — but only if focus is inside this panel; a click
+    // here must never blur a control the user is using elsewhere.
+    const active = document.activeElement as HTMLElement | null
+    if (active && inspectorRef.current?.contains(active)) active.blur()
+  }
   const selectionKey = `${selectedFixtureIds.join(',')}|${activeCueId ?? ''}|${editingPresetId ?? ''}`
   useEffect(() => {
     const raw = rgbToHsv(baseColorValues)
@@ -250,6 +276,11 @@ export function DesignTab() {
     // kept from whatever the wheel last chose.
     else setPreservedHsv((prev) => ({ ...prev, s: 100, v: 100 }))
     setActiveColorProperty(null)
+    // With no fixtures selected the controls are gone, so a selection
+    // pointing at one of them is dropped too. Switching fixtures or
+    // cues keeps the selection: the control (Dimmer, Colour, a fader)
+    // is the same control, only its fixture changed.
+    if (selectedFixtureIds.length === 0) setSelectedControl(null)
     // Sync only when the selection or cue changes — the wheel's own
     // drags update the preserved HSV through onHsvChange below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -324,7 +355,17 @@ export function DesignTab() {
   const positionFan = panFan ?? tiltFan
 
   return (
-    <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+    <div
+      ref={inspectorRef}
+      className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden"
+      // Spare-space click (Jake, 19 Nov 2026): a pointerdown landing on
+      // empty space in the panel clears the control selection. Control
+      // clicks never reach here — each control's wrapper stops
+      // propagation on pointerdown — so this only fires for spare
+      // space. The Position pad is not a selectable control: clicking
+      // it clears the selection like spare space.
+      onPointerDown={clearSelection}
+    >
       {/* Selection header and cue-contents strip removed 19 Nov 2026
           (Jake): the "N fixtures selected" title, the "Contents: Ad hoc"
           line with its preset/sequence chips and the "+ Preset…" /
@@ -336,8 +377,15 @@ export function DesignTab() {
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         {/* Dimmer: the shared FillFader — the same LightKey-style solid
             fill bar as the Master fader (lavender fill), not a thin line
-            with a round knob. */}
-        <div className="flex w-16 shrink-0 flex-col items-center gap-0.5">
+            with a round knob. Clicking (or tabbing into) the column
+            selects the Dimmer — the blue border — and the pointerdown
+            stops here so the panel's spare-space clear never fires for
+            a control click. */}
+        <div
+          className="flex w-16 shrink-0 flex-col items-center gap-0.5"
+          onPointerDown={(event) => { event.stopPropagation(); setSelectedControl('dimmer') }}
+          onFocus={() => setSelectedControl('dimmer')}
+        >
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
             {dimmerFan && <FanDeleteDot label="Dimmer" onDelete={() => deleteFanKeep(dimmerFan)} />}
             Dimmer
@@ -358,6 +406,7 @@ export function DesignTab() {
                 fillColor="#d9d4f5"
                 disabled={!canEdit || !dimmerAvailable}
                 trackClassName="design-fill-track"
+                selected={selectedControl === 'dimmer'}
               />
               <span className="font-mono text-[12px] text-white">
                 {dimmerAvailable ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
@@ -379,7 +428,18 @@ export function DesignTab() {
             window. The per-channel colour faders are gone: the wheel +
             its sliders are the colour control. */}
         <div className="flex min-h-0 shrink-0 flex-col items-stretch gap-0.5">
-          <div data-testid="colour-card" className="flex min-h-0 flex-1 flex-col rounded-lg border-2 border-[#0A84FF] bg-panel2 p-2">
+          <div
+            data-testid="colour-card"
+            className={`flex min-h-0 flex-1 flex-col rounded-lg border-2 bg-panel2 p-2 ${selectedControl === 'colour' ? 'border-[#0A84FF]' : 'border-line'}`}
+            // Clicking (or tabbing into) the card selects the wheel —
+            // the blue border — and stops here, so the panel's
+            // spare-space clear never fires for it. The additional
+            // sliders inside the card have their own handlers and stop
+            // propagation first, so clicking one selects that slider,
+            // not the wheel.
+            onPointerDown={(event) => { event.stopPropagation(); setSelectedControl('colour') }}
+            onFocus={(event) => { event.stopPropagation(); setSelectedControl('colour') }}
+          >
             <div data-testid="colour-card-header" className="flex flex-none items-center justify-between gap-2 pb-1">
               <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-white">
                 <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: '#0A84FF' }} />
@@ -441,7 +501,16 @@ export function DesignTab() {
                 const value = activeCue ? valueFor(attribute) : 0
                 const fan = fanFor(attribute)
                 return (
-                  <div key={attribute} className="chan">
+                  <div
+                    key={attribute}
+                    className="chan"
+                    // Its own control: clicking (or tabbing into) a
+                    // slider selects that slider, not the wheel — and
+                    // stops here, so the card's own select never fires
+                    // for it.
+                    onPointerDown={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
+                    onFocus={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
+                  >
                     <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
                       {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
                       {attributeLabel(attribute)}
@@ -465,6 +534,7 @@ export function DesignTab() {
                           fillColor={channelFillColor(attribute)}
                           disabled={!canEdit}
                           trackClassName="design-fill-track"
+                          selected={selectedControl === `slider:${attribute}`}
                         />
                         <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
                           {value}
@@ -536,7 +606,16 @@ export function DesignTab() {
               const channel = channelByAttribute.get(attribute)
               const isSlider = !channel?.control || channel.control === 'slider'
               return (
-                <div key={attribute} className="chan h-full min-w-7">
+                <div
+                  key={attribute}
+                  className="chan h-full min-w-7"
+                  // Its own control: clicking (or tabbing into) a fader
+                  // selects that fader — the blue border — and stops
+                  // here, so the panel's spare-space clear never fires
+                  // for a control click.
+                  onPointerDown={(event) => { event.stopPropagation(); setSelectedControl(`channel:${attribute}`) }}
+                  onFocus={(event) => { event.stopPropagation(); setSelectedControl(`channel:${attribute}`) }}
+                >
                   <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
                     {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
                     {attributeLabel(attribute)}
@@ -555,6 +634,7 @@ export function DesignTab() {
                         fillColor={channelFillColor(attribute)}
                         disabled={!canEdit}
                         trackClassName="design-fill-track"
+                        selected={selectedControl === `channel:${attribute}`}
                       />
                       <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
                         {value}

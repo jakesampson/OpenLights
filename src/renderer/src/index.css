@@ -774,6 +774,16 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   outline: 2px solid var(--accent);
 }
 
+/* Selected Design control (Jake, 19 Nov 2026): the blue #0A84FF border
+   marking the control the shortcuts act on — the same blue as the
+   colour card's selected border. An outline, not a border, so it never
+   shifts the track's layout. It sits after the :focus-visible rule so
+   selection wins over the focus ring when a selected fader is focused. */
+.design-fill-track.design-fader-selected {
+  outline: 2px solid #0A84FF;
+  outline-offset: 0;
+}
+
 .design-fill-track[aria-disabled="true"] {
   cursor: not-allowed;
 }
