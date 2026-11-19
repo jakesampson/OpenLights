@@ -76,7 +76,12 @@ describe('DesignTab — the wheel is the colour control', () => {
   it('drives the wheel from HSV and feeds changes back through setColor', () => {
     expect(design).toContain('<ColorWheelControl')
     expect(design).toContain('hsv={hsv}')
-    expect(design).toContain('rgbToHsv(colorValues)')
+    // The wheel HSV comes from the base colour only — White / Amber must
+    // not move the arcs (Jake, 19 Nov 2026); the centre disc still shows
+    // the mixed colour.
+    expect(design).toContain('rgbToHsv(baseColorValues)')
+    expect(design).not.toContain('rgbToHsv(colorValues)')
+    expect(design).toContain('centreHex={colorHex(colorValues)}')
     // The wheel's own hue/sat/brightness are preserved independently
     // (displayHsv) — the handler records them before writing the colour.
     expect(design).toContain('setPreservedHsv({ h: next.h, s: next.s, v: next.v })')

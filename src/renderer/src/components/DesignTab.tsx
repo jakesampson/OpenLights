@@ -111,6 +111,20 @@ export function DesignTab() {
   const dimmer = editingPreset || activeCue ? valueFor('intensity') : 0
   const updateValues = editingPreset ? updateEditingPresetValues
     : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
+  // The wheel's hue / saturation / brightness describe the base colour
+  // (the RGB or CMY mix) only. White / Amber / UV are separate LEDs
+  // (Guide p.85) with their own sliders beside the wheel — they change
+  // the light the fixture actually makes, which the centre disc shows
+  // (colorValues, the mixed colour), but they must not move the wheel's
+  // own arcs: the fixture's RGB channels do not change when White or
+  // Amber moves. (Jake, 19 Nov 2026: raising White was desaturating the
+  // wheel and Amber was shifting its hue, because the wheel HSV was
+  // derived from the mix.)
+  const baseColorValues = {
+    red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : valueFor('red'),
+    green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : valueFor('green'),
+    blue: commonAttributes.includes('yellow') ? 255 - valueFor('yellow') : valueFor('blue')
+  }
   const colorValues = {
     red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : Math.min(255, valueFor('red') + valueFor('white') + valueFor('amber')),
     green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : Math.min(255, valueFor('green') + valueFor('white') + valueFor('amber') * 0.45),
@@ -120,7 +134,7 @@ export function DesignTab() {
     commonAttributes.includes(attribute)
   )
   const colorFavorites = show?.colorFavorites ?? []
-  const rawHsv = rgbToHsv(colorValues)
+  const rawHsv = rgbToHsv(baseColorValues)
   // Hue, saturation and brightness are independent of each other
   // (Jake, 19 Nov 2026): the fixture's RGB cannot hold a hue at
   // brightness 0 (black) or saturation 0 (grey), so the wheel's own
@@ -133,7 +147,7 @@ export function DesignTab() {
   const [preservedHsv, setPreservedHsv] = useState(() => ({ h: rawHsv.h, s: rawHsv.s > 0 ? rawHsv.s : 100, v: rawHsv.v > 0 ? rawHsv.v : 100 }))
   const selectionKey = `${selectedFixtureIds.join(',')}|${activeCueId ?? ''}|${editingPresetId ?? ''}`
   useEffect(() => {
-    const raw = rgbToHsv(colorValues)
+    const raw = rgbToHsv(baseColorValues)
     if (raw.s > 0 && raw.v > 0) setPreservedHsv({ h: raw.h, s: raw.s, v: raw.v })
     else if (raw.v > 0) setPreservedHsv((prev) => ({ ...prev, s: raw.s, v: raw.v }))
     // Black: there is no real saturation or brightness to show, so the

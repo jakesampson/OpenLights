@@ -142,4 +142,25 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     expect(white.parentElement?.parentElement).toBe(wheel.parentElement)
     expect(white.closest('.chan')).not.toBeNull()
   })
+
+  it('White / Amber do not move the wheel — the arcs show the base colour only', () => {
+    // Jake, 19 Nov 2026: White and Amber are separate LEDs (Guide p.85),
+    // so raising them must not move the wheel's hue / saturation /
+    // brightness arcs. The centre disc is the light the fixture actually
+    // makes, so it does change with them.
+    const arcValue = (label: string) => container?.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-valuenow')
+    const centreValue = () => (container?.querySelector('[aria-label="Colour — open system colour picker"]') as HTMLInputElement | null)?.value
+    setShow(LED_WASH, { red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0 })
+    renderInRoot(<DesignTab />)
+    expect(arcValue('Colour hue')).toBe('0')
+    expect(arcValue('Saturation')).toBe('100')
+    expect(arcValue('Brightness')).toBe('100')
+    expect(centreValue()).toBe('#ff0000')
+    // Raise White and Amber to full: the base colour is still pure red.
+    setShow(LED_WASH, { red: 255, green: 0, blue: 0, white: 255, amber: 255, uv: 0 })
+    expect(arcValue('Colour hue')).toBe('0')
+    expect(arcValue('Saturation')).toBe('100')
+    expect(arcValue('Brightness')).toBe('100')
+    expect(centreValue()).toBe('#ffffff')
+  })
 })

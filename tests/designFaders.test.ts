@@ -87,7 +87,7 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
     // The wheel is LightKey's round control now (outer hue ring, inner
     // arcs) — the native colour input + marker are gone.
     expect(design).toContain('<ColorWheelControl')
-    expect(design).toContain('rgbToHsv(colorValues)')
+    expect(design).toContain('rgbToHsv(baseColorValues)')
     expect(design).not.toContain('className="wheel-input"')
     expect(design).not.toContain('colorWheelPosition')
   })
