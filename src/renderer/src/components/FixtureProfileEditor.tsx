@@ -4,12 +4,12 @@ import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { exportProfile, importProfile } from '@shared/profileValidation'
 import type { FixtureChannel, FixtureProfile } from '@shared/types'
 import { useShowStore } from '../stores/showStore'
-export function FixtureProfileEditor({ profiles }: { profiles?: FixtureProfile[] }) {
+export function FixtureProfileEditor({ profiles, initialProfileId }: { profiles?: FixtureProfile[]; initialProfileId?: string }) {
   const { show, saveFixtureProfile, deleteFixtureProfile } = useShowStore()
   // First entry wins per id, so a project copy saved from a bundled (OFL)
   // profile shadows the bundled original instead of listing it twice.
   const library = [...new Map((profiles ?? [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? [])]).map((p) => [p.id, p])).values()]
-  const [draft, setDraft] = useState<FixtureProfile>(() => structuredClone(BUILTIN_PROFILES[0]))
+  const [draft, setDraft] = useState<FixtureProfile>(() => structuredClone(library.find((p) => p.id === initialProfileId) ?? BUILTIN_PROFILES[0]))
   const [modeIndex, setModeIndex] = useState(0)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)

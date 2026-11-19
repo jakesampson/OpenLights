@@ -24,6 +24,8 @@ export interface FixtureDef {
   name: string
   /** Short name (≤4 chars) shown in the Preview; the full name stays for lists and panels (Guide p.30). */
   shortName?: string
+  /** External reference, LightKey's "Ext. reference" field on the Patching tab of the patch dialog. */
+  extReference?: string
   /** Count > 1: that many Preview icons of this fixture, sharing one DMX address and properties (Guide p.30) — but each icon is its own placeable instance with its own position (see previewPositions). */
   count?: number
   /** Chosen LED count for a flexible strip/matrix mode (Guide p.29, FLEX); undefined means the mode default. */

@@ -8,6 +8,8 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { PatchPanel } from '../src/renderer/src/components/PatchPanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
+import type { FixtureDef } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -63,5 +65,23 @@ describe('PatchPanel fixture library', () => {
     act(() => { editorButton?.click() })
     expect(container?.querySelector('[aria-label="Fixture profile editor"]')).not.toBeNull()
     expect(container?.textContent).toContain('Fixture profile editor')
+  })
+
+  it('double-clicking a patched fixture reopens the patch dialog in edit mode', async () => {
+    const base = useShowStore.getState().show
+    if (!base) throw new Error('store has no default show')
+    const profile = BUILTIN_PROFILES[0]
+    const fixture: FixtureDef = {
+      id: 'f1', name: profile.name, type: profile.legacyType, channelStart: 1, channels: 4,
+      shortName: 'P1', profileId: profile.id, modeId: 'default', profile: structuredClone(profile)
+    }
+    act(() => { useShowStore.setState({ show: { ...base, fixtures: [fixture], fixtureProfiles: [] } }) })
+    renderInRoot(<PatchPanel />)
+    await act(async () => {})
+    const cell = container?.querySelector('[data-channel="1"]') as HTMLElement | null
+    if (!cell) throw new Error('no channel 1 cell')
+    act(() => { cell.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
+    expect(container?.textContent).toContain('Edit fixture')
+    expect(container?.querySelector(`[aria-label="Edit ${profile.name}"]`)).not.toBeNull()
   })
 })

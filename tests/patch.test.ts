@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
-import { allocateFixtures, findConflicts, fixtureWidth, placementError } from '../src/renderer/src/lib/patch'
+import { allocateFixtures, dipSwitchesForAddress, findConflicts, fixtureWidth, placementError } from '../src/renderer/src/lib/patch'
 import { BUILTIN_PROFILES, fixtureBeams, fixtureChannelMap, modeChannelOffset } from '../src/shared/fixtureProfiles'
 describe('batch fixture patching', () => {
   it('allocates a quantity with consecutive names and non-overlapping addresses', () => {
@@ -10,6 +10,26 @@ describe('batch fixture patching', () => {
     expect(allocateFixtures(fixtures, BUILTIN_PROFILES[0], { quantity: 1, start: 2 })[0].channelStart).toBe(17)
     expect(() => allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 4, start: 510 })).toThrow('Not enough')
     expect(() => allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 1, start: 1, universe: 2 })).toThrow('universe 1')
+  })
+})
+
+describe('DIP switch guide (Patching tab)', () => {
+  it('maps a DMX address to the nine DIP switches (address = sum of ON switch values)', () => {
+    // Address 1 is switch 1 (value 1) ON; address 5 is switches 1 + 3 (1 + 4).
+    expect(dipSwitchesForAddress(1)).toEqual([true, false, false, false, false, false, false, false, false])
+    expect(dipSwitchesForAddress(5)).toEqual([true, false, true, false, false, false, false, false, false])
+    expect(dipSwitchesForAddress(511)).toEqual(Array(9).fill(true))
+    // 512 is outside the 9-switch range — the guide shows all OFF and the
+    // dialog notes it instead of pretending the switches cover it.
+    expect(dipSwitchesForAddress(512)).toEqual(Array(9).fill(false))
+    expect(dipSwitchesForAddress(0)).toEqual(Array(9).fill(false))
+  })
+
+  it('stores notes and Ext. reference from the patch dialog on the fixture', () => {
+    const fixtures = allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 1, start: 1, notes: 'Front wash', extReference: 'RIG-A' })
+    expect(fixtures[0].notes).toBe('Front wash')
+    expect(fixtures[0].extReference).toBe('RIG-A')
+    expect(allocateFixtures([], BUILTIN_PROFILES[0], { quantity: 1, start: 1 })[0].notes).toBeUndefined()
   })
 })
 

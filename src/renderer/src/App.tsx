@@ -540,7 +540,7 @@ export default function App() {
               {toolPanel !== 'Patch' && <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>Close</button>}
             </header>
             <div className={`min-h-0 flex-1 ${toolPanel === 'Patch' ? 'overflow-hidden p-4' : 'overflow-auto p-4'}`}>
-              {toolPanel === 'Patch' && <PatchPanel />}
+              {toolPanel === 'Patch' && <PatchPanel onShowInPreview={(fixtureId) => { useShowStore.getState().selectFixtures([fixtureId]); goTab('Design'); closeToolPanel() }} />}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>

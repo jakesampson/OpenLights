@@ -24,7 +24,7 @@ function fixtureProfile(fixture: FixtureDef, library: FixtureProfile[]): Fixture
   return fixture.profile ?? library.find((profile) => profile.id === fixture.profileId) ?? library.find((profile) => profile.legacyType === fixture.type)
 }
 
-export function PatchPanel() {
+export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: string) => void }) {
   const { show, removeFixture } = useShowStore()
   const [oflProfiles, setOflProfiles] = useState<FixtureProfile[]>([])
   const library = useMemo(() => [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? []), ...oflProfiles], [show?.fixtureProfiles, oflProfiles])
@@ -43,7 +43,9 @@ export function PatchPanel() {
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [editorProfileId, setEditorProfileId] = useState<string | null>(null)
   const [patchDialog, setPatchDialog] = useState<{ profile: FixtureProfile; modeId: string; start: number } | null>(null)
+  const [editDialog, setEditDialog] = useState<{ fixture: FixtureDef; profile: FixtureProfile } | null>(null)
 
   useEffect(() => {
     let active = true
@@ -70,6 +72,15 @@ export function PatchPanel() {
     }
     return result
   }, [fixtures, library])
+
+  const openEditFixture = (fixture: FixtureDef) => {
+    // LightKey: double-clicking a patched fixture reopens the patch
+    // dialog for that fixture, in edit mode.
+    const profile = fixtureProfile(fixture, library)
+    if (!profile) return
+    setEditDialog({ fixture, profile })
+    setPatchError('')
+  }
 
   const chooseProfile = (profile: FixtureProfile) => {
     setSelectedProfileId(profile.id)
@@ -148,6 +159,10 @@ export function PatchPanel() {
 
   const occupiedCount = occupied.size
   const selectedFixture = fixtures.find((fixture) => fixture.id === selectedFixtureId)
+  // The edit dialog works on the live fixture object from the store, not
+  // the snapshot taken at double-click time — otherwise the footer and
+  // the validation in the dialog would go stale after the first edit.
+  const editFixture = editDialog ? fixtures.find((fixture) => fixture.id === editDialog.fixture.id) : undefined
 
   const importOflLibrary = async () => {
     try {
@@ -208,13 +223,14 @@ export function PatchPanel() {
           const item = occupied.get(channel)
           const highlighted = dragRange && channel >= dragRange.start && channel <= dragRange.end
           const isSelected = item?.fixture.id === selectedFixtureId
-          return <button key={channel} type="button" draggable={Boolean(item)} data-channel={channel} aria-label={item ? `Channel ${channel}: ${item.fixture.name}, ${item.label}` : `Channel ${channel}: free`} title={item ? `${channel} · ${item.fixture.name} · ${item.label}` : `${channel} · Free`} className={`min-h-0 min-w-0 overflow-hidden px-1 text-left text-[9px] leading-tight ${item ? 'bg-panel2 text-text' : 'bg-bg text-dim'} ${item?.offset === 0 ? 'font-semibold text-accent' : ''} ${isSelected && !dragging ? 'ring-1 ring-inset ring-accent' : ''} ${highlighted ? (dragRange.valid ? '!bg-blue-600/85 !text-white' : '!bg-red-700/70 !text-white') : ''}`} onClick={() => item && setSelectedFixtureId(item.fixture.id)} onDragStart={(event) => item && dragFixture(event, item.fixture)} onDragEnd={() => { setDragging(null); setDragRange(null) }} onDragOver={(event) => previewDrop(event, channel)} onDrop={(event) => dropProfile(event, channel)}><span className="block font-mono opacity-70">{String(channel).padStart(3, '0')}</span>{item && <span className="block truncate">{item.offset === 0 ? item.fixture.name : item.label}</span>}</button>
+          return <button key={channel} type="button" draggable={Boolean(item)} data-channel={channel} aria-label={item ? `Channel ${channel}: ${item.fixture.name}, ${item.label}` : `Channel ${channel}: free`} title={item ? `${channel} · ${item.fixture.name} · ${item.label}` : `${channel} · Free`} className={`min-h-0 min-w-0 overflow-hidden px-1 text-left text-[9px] leading-tight ${item ? 'bg-panel2 text-text' : 'bg-bg text-dim'} ${item?.offset === 0 ? 'font-semibold text-accent' : ''} ${isSelected && !dragging ? 'ring-1 ring-inset ring-accent' : ''} ${highlighted ? (dragRange.valid ? '!bg-blue-600/85 !text-white' : '!bg-red-700/70 !text-white') : ''}`} onClick={() => item && setSelectedFixtureId(item.fixture.id)} onDoubleClick={() => item && openEditFixture(item.fixture)} onDragStart={(event) => item && dragFixture(event, item.fixture)} onDragEnd={() => { setDragging(null); setDragRange(null) }} onDragOver={(event) => previewDrop(event, channel)} onDrop={(event) => dropProfile(event, channel)}><span className="block font-mono opacity-70">{String(channel).padStart(3, '0')}</span>{item && <span className="block truncate">{item.offset === 0 ? item.fixture.name : item.label}</span>}</button>
         })}
       </div>
       <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a model to add it, or drag a patched fixture to a new starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
     </div>
     {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
-    {editorOpen && <div role="dialog" aria-modal="true" aria-label="Fixture profile editor" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel max-h-full w-full max-w-4xl overflow-auto p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture profile editor</strong><button type="button" className="btn-theme text-xs" onClick={() => setEditorOpen(false)}>Done</button></div><FixtureProfileEditor profiles={library} /></div></div>}
-    {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} />}
+    {editorOpen && <div role="dialog" aria-modal="true" aria-label="Fixture profile editor" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel max-h-full w-full max-w-4xl overflow-auto p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture profile editor</strong><button type="button" className="btn-theme text-xs" onClick={() => { setEditorOpen(false); setEditorProfileId(null) }}>Done</button></div><FixtureProfileEditor profiles={library} initialProfileId={editorProfileId ?? undefined} /></div></div>}
+    {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setPatchDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorOpen(true); setPatchDialog(null) }} />}
+    {editDialog && editFixture && <PatchDialog profile={editDialog.profile} initialModeId={editFixture.modeId ?? editDialog.profile.modes[0]?.id ?? ''} start={editFixture.channelStart} fixture={editFixture} onPatched={() => {}} onClose={() => setEditDialog(null)} onNotice={(message) => { setPatchNotice(message); setPatchError(''); setEditDialog(null) }} onShowInPreview={onShowInPreview} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setEditDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorOpen(true); setEditDialog(null) }} />}
   </section>
 }

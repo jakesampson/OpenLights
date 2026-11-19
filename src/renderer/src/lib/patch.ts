@@ -1,7 +1,21 @@
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { modeFootprint } from '@shared/fixtureProfiles'
 import { incrementShortName, normalizeShortName, proposeShortName, shortNameAt } from '@shared/shortNames'
-export interface PatchOptions { modeId?: string; quantity: number; start: number; name?: string; group?: string; universe?: number; shortName?: string; count?: number; ledCount?: number }
+export interface PatchOptions { modeId?: string; quantity: number; start: number; name?: string; group?: string; universe?: number; shortName?: string; count?: number; ledCount?: number; notes?: string; extReference?: string }
+
+/** DMX DIP switch values, switches 1–9 (LightKey's DIP switch guide on
+ * the Patching tab): the address is the sum of the values of the switches
+ * set to ON — switch 1 is 1, switch 2 is 2, switch 3 is 4, and so on.
+ * Address 1 is switch 1 ON; address 512 is outside the 9-switch range. */
+export const DIP_SWITCH_VALUES = [1, 2, 4, 8, 16, 32, 64, 128, 256]
+
+/** Which of the nine DIP switches are ON for a DMX address, in switch
+ * order (index 0 = switch 1). Addresses above 511 return all OFF — the
+ * caller shows the out-of-range note instead. */
+export function dipSwitchesForAddress(address: number): boolean[] {
+  if (!Number.isInteger(address) || address < 1 || address > 511) return DIP_SWITCH_VALUES.map(() => false)
+  return DIP_SWITCH_VALUES.map((value) => (address & value) !== 0)
+}
 export interface PatchConflict { fixtureIds: string[]; type: 'overlap' | 'out-of-range'; channels: number[] }
 export function fixtureWidth(profile: FixtureProfile, modeId?: string, ledCount?: number): number {
   const mode = profile.modes.find((item) => item.id === modeId) ?? profile.modes[0]
@@ -57,7 +71,7 @@ export function allocateFixtures(existing: FixtureDef[], profile: FixtureProfile
   for (let index = 0; index < quantity; index++) {
     while (start + width - 1 <= 512 && Array.from({ length: width }, (_, i) => start + i).some((c) => used.has(c))) start++
     if (start + width - 1 > 512) throw new Error('Not enough free DMX channels for this batch')
-    fixtures.push({ id: crypto.randomUUID(), name: `${options.name?.trim() || profile.name}${quantity > 1 ? ` ${index + 1}` : ''}`, shortName: shortFor(index), ...(count > 1 ? { count } : {}), ...(mode.flexibleLeds && options.ledCount !== undefined && options.ledCount !== mode.flexibleLeds.defaultLeds ? { ledCount: options.ledCount } : {}), group: options.group?.trim() || 'Ungrouped', type: profile.legacyType, channelStart: start, channels: width, universe: 1, inStorage: true, profileId: profile.id, modeId: mode.id, profile: structuredClone(profile) })
+    fixtures.push({ id: crypto.randomUUID(), name: `${options.name?.trim() || profile.name}${quantity > 1 ? ` ${index + 1}` : ''}`, shortName: shortFor(index), ...(count > 1 ? { count } : {}), ...(mode.flexibleLeds && options.ledCount !== undefined && options.ledCount !== mode.flexibleLeds.defaultLeds ? { ledCount: options.ledCount } : {}), ...(options.notes?.trim() ? { notes: options.notes.trim() } : {}), ...(options.extReference?.trim() ? { extReference: options.extReference.trim() } : {}), group: options.group?.trim() || 'Ungrouped', type: profile.legacyType, channelStart: start, channels: width, universe: 1, inStorage: true, profileId: profile.id, modeId: mode.id, profile: structuredClone(profile) })
     for (let i = 0; i < width; i++) used.add(start + i)
     start += width
   }
