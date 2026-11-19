@@ -233,7 +233,7 @@ interface ShowState {
       the selected fixtures, without touching White / Amber / UV / Lime:
       those are separate LEDs with their own sliders, and deriving them
       from the RGB makes the wheel's arcs move each other (Jake,
-      19 Nov 2026). Colour favourites and the centre picker still use
+      19 Nov 2026). The centre picker still uses
       setSelectedColor, which applies a whole colour via mixColor. */
   setSelectedBaseColor: (color: RgbColor, manual?: boolean) => void
   /** Store each selected fixture's current colour as its default colour

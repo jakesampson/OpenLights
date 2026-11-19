@@ -50,12 +50,22 @@ interface InnerArc {
 // arc or the hue ring sets its value by pointer angle, clamped to the
 // nearer end past either end of the arc (arcRelAngle); the white
 // marker on each arc shows the current value.
-export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChange, onCentrePick }: {
+//
+// The control fills its parent (width/height 100%) — DesignTab wraps it
+// in a square, height-stretched box inside the colour card, so the wheel
+// grows with the panel instead of sitting at a fixed 150px (Jake,
+// 19 Nov 2026). The pointer math scales from the rendered box
+// (viewBox 220 over rect.width), so it works at any size.
+export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChange, onCentrePick, onActiveZoneChange }: {
   hsv: { h: number; s: number; v: number }
   centreHex: string
   disabled?: boolean
   onHsvChange: (next: { h: number; s: number; v: number }) => void
   onCentrePick: (hex: string) => void
+  /** Called when the user grabs (or keys) a wheel zone — hue ring or
+      one of the arcs — so the parent colour-card header can show the
+      active property (LightKey's card header, Jake 19 Nov 2026). */
+  onActiveZoneChange?: (zone: 'hue' | 'saturation' | 'brightness') => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const drag = useDragEnd()
@@ -115,7 +125,9 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
     const point = pointAt(event)
     const zone = activeZone.current
     if (!rect || !point || !zone) return null
-    const x = Math.max(28, Math.min(122, event.clientX - rect.left))
+    // The clamp scales with the rendered box (was 28–122 at 150px) —
+    // the wheel grows with the panel now, so it cannot be fixed.
+    const x = Math.max(28, Math.min(rect.width - 28, event.clientX - rect.left))
     const y = event.clientY - rect.top
     if (zone.type === 'hue') return { x, y, text: `Hue: ${Math.round(point.angle)}` }
     const arc = arcs[zone.index]
@@ -140,6 +152,8 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
       : { type: 'arc', index: Math.min(arcs.length - 1, Math.floor(((point.angle - 180 + 360) % 360) / span)) }
     activeZone.current = zone
     setDragZone(zone)
+    const zoneKind = zone.type === 'hue' ? 'hue' : arcs[zone.index]?.kind
+    if (zoneKind) onActiveZoneChange?.(zoneKind)
     setTooltip(tooltipFor(event))
     applyAt(event)
   }
@@ -156,10 +170,10 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
   const onKeyDownHue = (event: React.KeyboardEvent) => {
     if (disabled) return
     const step = event.shiftKey ? 10 : 1
-    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') { event.preventDefault(); onHsvChange({ h: (hsv.h + step) % 360, s: hsv.s, v: hsv.v }) }
-    else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') { event.preventDefault(); onHsvChange({ h: (hsv.h - step + 360) % 360, s: hsv.s, v: hsv.v }) }
-    else if (event.key === 'PageUp') { event.preventDefault(); onHsvChange({ h: (hsv.h + 30) % 360, s: hsv.s, v: hsv.v }) }
-    else if (event.key === 'PageDown') { event.preventDefault(); onHsvChange({ h: (hsv.h - 30 + 360) % 360, s: hsv.s, v: hsv.v }) }
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') { event.preventDefault(); onActiveZoneChange?.('hue'); onHsvChange({ h: (hsv.h + step) % 360, s: hsv.s, v: hsv.v }) }
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') { event.preventDefault(); onActiveZoneChange?.('hue'); onHsvChange({ h: (hsv.h - step + 360) % 360, s: hsv.s, v: hsv.v }) }
+    else if (event.key === 'PageUp') { event.preventDefault(); onActiveZoneChange?.('hue'); onHsvChange({ h: (hsv.h + 30) % 360, s: hsv.s, v: hsv.v }) }
+    else if (event.key === 'PageDown') { event.preventDefault(); onActiveZoneChange?.('hue'); onHsvChange({ h: (hsv.h - 30 + 360) % 360, s: hsv.s, v: hsv.v }) }
   }
 
   const onKeyDownArc = (event: React.KeyboardEvent, index: number) => {
@@ -170,6 +184,11 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
     const delta = event.key === 'ArrowUp' || event.key === 'ArrowRight' ? step : event.key === 'ArrowDown' || event.key === 'ArrowLeft' ? -step : event.key === 'PageUp' ? 25 : event.key === 'PageDown' ? -25 : 0
     if (!delta) return
     event.preventDefault()
+    // Stop here: the arc sits inside the wheel wrapper, whose own
+    // keydown drives the hue ring — without this, an arc key also
+    // stepped the hue (and the card header ended up on Hue).
+    event.stopPropagation()
+    onActiveZoneChange?.(arc.kind)
     if (arc.kind === 'saturation') onHsvChange({ h: hsv.h, s: Math.max(0, Math.min(100, hsv.s + delta)), v: hsv.v })
     else if (arc.kind === 'brightness') onHsvChange({ h: hsv.h, s: hsv.s, v: Math.max(0, Math.min(100, hsv.v + delta)) })
   }
@@ -182,7 +201,7 @@ export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChang
     <div
       ref={wrapRef}
       className="color-wheel"
-      style={{ position: 'relative', width: 150, height: 150, touchAction: 'none', opacity: disabled ? 0.4 : 1 }}
+      style={{ position: 'relative', width: '100%', height: '100%', touchAction: 'none', opacity: disabled ? 0.4 : 1 }}
       role="slider"
       tabIndex={disabled ? -1 : 0}
       aria-label="Colour hue"

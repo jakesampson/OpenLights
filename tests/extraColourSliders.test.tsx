@@ -139,7 +139,7 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     if (!white || !wheel) throw new Error('missing slider or wheel')
     // The slider and the wheel share a parent row inside the colour
     // block — the slider is not a channel fader in the strip.
-    expect(white.parentElement?.parentElement).toBe(wheel.parentElement)
+    expect(white.parentElement?.parentElement).toBe(wheel.parentElement?.parentElement)
     expect(white.closest('.chan')).not.toBeNull()
   })
 

@@ -48,7 +48,9 @@ describe('colour favourites', () => {
     // Move the selection to a different colour first.
     state().setSelectedColor({ red: 0, green: 0, blue: 255 })
     expect(state().cues[0].fixtureValues.a).toEqual({ intensity: 255, red: 0, green: 0, blue: 255 })
-    // Recall the favourite the way the Design swatch does: parse it and apply it.
+    // Recall the favourite the way the Design swatch did (swatch UI
+    // removed 19 Nov 2026, Jake — the store path is unchanged): parse
+    // it and apply it.
     const favourite = state().show!.colorFavorites![0]
     const rgb = hexToRgb(favourite)
     expect(rgb).not.toBeNull()

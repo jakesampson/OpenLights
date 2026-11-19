@@ -55,7 +55,7 @@ describe('DesignTab — every control carries its own fan affordance', () => {
     // Piece 11 (Guide p.114): the same Colour menu offers the
     // default-value actions — Set / Load / Reset Default.
     expect(design).toContain("label: 'Set as Default', onSelect: () => setColorDefault()")
-    expect(design).toContain("label: 'Load Default', onSelect: () => loadColorDefault()")
+    expect(design).toContain("label: 'Load Default', onSelect: () => { setActiveColorProperty(null); loadColorDefault() }")
     expect(design).toContain("label: 'Reset Default', onSelect: () => resetColorDefault()")
     expect(design).toContain('<FanMenuButton')
     expect(design).toContain("label: 'Add Pan Fanning…'")

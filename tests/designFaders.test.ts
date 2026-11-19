@@ -42,10 +42,14 @@ describe('Fanning removed from the Design panel', () => {
   })
 })
 
-describe('fixture header has no separator', () => {
-  it('renders "1 fixture selected" with no rule underneath it', () => {
-    expect(design).toContain('fixture')
-    expect(design).toContain('selected')
+describe('fixture header strip is gone', () => {
+  it('no longer renders the selection title or the cue-contents strip', () => {
+    expect(design).not.toContain('aria-label="Cue contents"')
+    expect(design).not.toContain('aria-label="Add preset to cue"')
+    expect(design).not.toContain('aria-label="Add sequence to cue"')
+    expect(design).not.toContain('Select fixture(s) on stage')
+    expect(design).not.toContain('fixture${selectedFixtures.length')
+    expect(design).not.toContain('Editing preset “')
     expect(design).not.toContain('border-b border-line')
     expect(design).not.toContain('border-b')
   })

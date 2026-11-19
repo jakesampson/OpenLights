@@ -162,7 +162,10 @@ describe('OpenLights fix batch — cues, palette drag, in-place preset edit', ()
     expect(panel).toContain('bg-yellow-400')
     // Design routes its controls into the preset while editing.
     expect(design).toContain('updateEditingPresetValues')
-    expect(design).toContain('Editing preset')
+    // The Design panel's own "Editing preset" banner is gone (19 Nov
+    // 2026, Jake — header strip removed); the App top-bar pill
+    // ("Cancel preset edit") is now the only indicator.
+    expect(design).not.toContain('Editing preset “')
     // App shows the LightKey-style pill in the top bar.
     expect(app).toContain('editingPresetId')
     expect(app).toContain('bg-yellow-400')

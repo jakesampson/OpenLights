@@ -39,9 +39,10 @@ describe('Lightkey-style bottom panel', () => {
     // the <FanningEditor> wiring from batch 1 is reversed — the panel no
     // longer renders it, and the component file is deleted. The fanning
     // model/store (saveFan/deleteFan, lib/fanning.ts, fan data on cues)
-    // stays; only the Design panel UI goes. The header also has no
-    // separator rule under it anymore ("1 fixture selected" sits directly
-    // above the controls). Grouping, selection tools and layout sections
+    // stays; only the Design panel UI goes. The selection / cue-contents
+    // header strip is gone too (19 Nov 2026, Jake): no "N fixtures
+    // selected" title and no cue-contents row — the controls start at
+    // the top of the panel. Grouping, selection tools and layout sections
     // stay out of this panel.
     expect(design).not.toContain('FanningEditor')
     expect(design).not.toContain('border-b border-line')
