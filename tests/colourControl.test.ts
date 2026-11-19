@@ -11,6 +11,7 @@ import { resolve } from 'node:path'
 const root = resolve(__dirname, '..')
 const wheel = readFileSync(resolve(root, 'src/renderer/src/components/ColorWheelControl.tsx'), 'utf8')
 const design = readFileSync(resolve(root, 'src/renderer/src/components/DesignTab.tsx'), 'utf8')
+const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 
 describe('ColorWheelControl — LightKey’s round control', () => {
   it('has an outer hue ring with ticks and six triangle markers', () => {
@@ -72,11 +73,30 @@ describe('DesignTab — the wheel is the colour control', () => {
     expect(design).toContain('<ColorWheelControl')
     expect(design).toContain('hsv={hsv}')
     expect(design).toContain('rgbToHsv(colorValues)')
-    // The wheel's own hue/sat are preserved independently of brightness
+    // The wheel's own hue/sat/brightness are preserved independently
     // (displayHsv) — the handler records them before writing the colour.
-    expect(design).toContain('setPreservedHsv({ h: next.h, s: next.s })')
+    expect(design).toContain('setPreservedHsv({ h: next.h, s: next.s, v: next.v })')
     expect(design).toContain('setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
     expect(design).toContain('onCentrePick={(hex) => {')
+  })
+
+  it('defaults saturation and brightness to 100% for a black fixture', () => {
+    // Jake, 19 Nov 2026: the wheel must work immediately on a black
+    // fixture instead of starting dead at 0/0 — the preserved state is
+    // initialised (and re-synced on selection change) to 100/100.
+    expect(design).toContain('s: rawHsv.s > 0 ? rawHsv.s : 100, v: rawHsv.v > 0 ? rawHsv.v : 100')
+    expect(design).toContain('setPreservedHsv((prev) => ({ ...prev, s: 100, v: 100 }))')
+  })
+
+  it('draws no outline box around the active arc', () => {
+    // Jake, 19 Nov 2026 (image-9.png): the focused arc's bounding-box
+    // outline drew a white box around the active zone while dragging.
+    // No focus-visible outline on the arc sliders, and an explicit
+    // outline: none so no UA default can draw one either. The wheel
+    // wrapper keeps its circular focus ring (see index.css).
+    expect(css).not.toContain('.color-wheel [role="slider"]:focus-visible')
+    expect(css).toContain('.color-wheel [role="slider"]')
+    expect(css).toContain('outline: none')
   })
 
   it('shows inner arcs only for additional colour channels the fixtures have', () => {

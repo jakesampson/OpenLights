@@ -119,20 +119,27 @@ export function DesignTab() {
   )
   const colorFavorites = show?.colorFavorites ?? []
   const rawHsv = rgbToHsv(colorValues)
-  // Hue and saturation are independent of brightness (Jake, 19 Nov 2026):
-  // the fixture's RGB cannot hold a hue at brightness 0 (black) or
-  // saturation 0 (grey), so the wheel's own last-chosen hue/sat are kept
-  // in state and shown while the colour is degenerate — dragging the hue
-  // ring at brightness 0 moves the marker and sticks, and bringing the
-  // brightness back up shows the chosen hue. See displayHsv.
-  const [preservedHsv, setPreservedHsv] = useState(() => ({ h: rawHsv.h, s: rawHsv.s }))
+  // Hue, saturation and brightness are independent of each other
+  // (Jake, 19 Nov 2026): the fixture's RGB cannot hold a hue at
+  // brightness 0 (black) or saturation 0 (grey), so the wheel's own
+  // last-chosen HSV is kept in state and shown while the colour is
+  // degenerate — dragging the hue ring at brightness 0 moves the marker
+  // and sticks, and bringing the brightness back up shows the chosen
+  // hue. Saturation and brightness default to 100% for a degenerate
+  // colour, so the wheel works immediately with a vivid colour instead
+  // of starting dead at 0. See displayHsv.
+  const [preservedHsv, setPreservedHsv] = useState(() => ({ h: rawHsv.h, s: rawHsv.s > 0 ? rawHsv.s : 100, v: rawHsv.v > 0 ? rawHsv.v : 100 }))
   const selectionKey = `${selectedFixtureIds.join(',')}|${activeCueId ?? ''}|${editingPresetId ?? ''}`
   useEffect(() => {
     const raw = rgbToHsv(colorValues)
-    if (raw.s > 0 && raw.v > 0) setPreservedHsv({ h: raw.h, s: raw.s })
-    else if (raw.v > 0) setPreservedHsv((prev) => ({ ...prev, s: raw.s }))
+    if (raw.s > 0 && raw.v > 0) setPreservedHsv({ h: raw.h, s: raw.s, v: raw.v })
+    else if (raw.v > 0) setPreservedHsv((prev) => ({ ...prev, s: raw.s, v: raw.v }))
+    // Black: there is no real saturation or brightness to show, so the
+    // wheel starts at 100/100 (see above) instead of 0/0. The hue is
+    // kept from whatever the wheel last chose.
+    else setPreservedHsv((prev) => ({ ...prev, s: 100, v: 100 }))
     // Sync only when the selection or cue changes — the wheel's own
-    // drags update the preserved hue/sat through onHsvChange below.
+    // drags update the preserved HSV through onHsvChange below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectionKey])
   const hsv = displayHsv(rawHsv, preservedHsv)
@@ -249,11 +256,11 @@ export function DesignTab() {
               }))}
               centreHex={colorHex(colorValues)}
               disabled={!canEdit || !colorSupported}
-              onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s }); setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
+              onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s, v: next.v }); setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
               onExtraChange={(attribute, next) => updateValues({ [attribute]: next })}
               onCentrePick={(hex) => {
                 const picked = hexToRgb(hex)
-                if (picked) { const p = rgbToHsv({ red: picked.red, green: picked.green, blue: picked.blue }); if (p.s > 0 && p.v > 0) setPreservedHsv({ h: p.h, s: p.s }) }
+                if (picked) { const p = rgbToHsv({ red: picked.red, green: picked.green, blue: picked.blue }); if (p.s > 0 && p.v > 0) setPreservedHsv({ h: p.h, s: p.s, v: p.v }) }
                 setColor(hex)
               }}
             />

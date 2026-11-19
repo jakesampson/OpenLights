@@ -803,15 +803,20 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   border-radius: 50%;
 }
 
-.color-wheel [role="slider"]:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+/* No outline on the wheel's arc sliders in any state (Jake, 19 Nov
+   2026): the focused arc's bounding-box outline drew a white box
+   around the active zone while dragging. The wheel wrapper keeps its
+   circular :focus-visible ring above, so keyboard focus is still
+   visible at the wheel level; the arcs themselves show their value
+   through the marker, which moves with the arrow keys. */
+.color-wheel [role="slider"] {
+  outline: none;
 }
 
 /* Colour wheel value popup: the small `Label: value` pill above the
-   pointer while dragging (or hovering a draggable zone). pointer-events:
-   none, so it can never intercept input or cover the wheel's hit area.
-   Positioned by the component (left/top inline, above the cursor). */
+   pointer while dragging only. pointer-events: none, so it can never
+   intercept input or cover the wheel's hit area. Positioned by the
+   component (left/top inline, above the cursor). */
 .color-wheel-tooltip {
   position: absolute;
   z-index: 2;

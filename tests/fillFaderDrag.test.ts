@@ -62,9 +62,11 @@ describe('colour wheel drags end the same way', () => {
   it('uses pointer capture plus the button-less-move guard on every zone', () => {
     expect(wheel).toContain('useDragEnd')
     expect(wheel).toContain('setPointerCapture')
-    // A button-less move ends the drag — and then shows the hovered
-    // zone's value popup instead of the drag popup.
-    expect(wheel).toContain('if (event.buttons === 0) { endDrag(); setTooltip(tooltipFor(event)); return }')
+    // A button-less move ends the drag — and shows no popup: the value
+    // popup appears only while a drag is in progress (Jake, 19 Nov
+    // 2026), never on hover.
+    expect(wheel).toContain('if (event.buttons === 0) { endDrag(); return }')
+    expect(wheel).not.toContain('setTooltip(tooltipFor(event)); return }')
     expect(wheel).toContain('onLostPointerCapture={endDrag}')
     expect(wheel).toContain('onPointerUp={endDrag}')
     expect(wheel).toContain('onPointerCancel={endDrag}')

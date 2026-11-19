@@ -59,6 +59,27 @@ export function hsvToRgb(h: number, s: number, v: number): { red: number; green:
 }
 
 /**
+ * Map a pointer angle onto an inner arc's value range, clamping to the
+ * nearer end when the pointer is past an end of the arc. The naive
+ * `(angle - start + 360) % 360` wraps: an angle just past the arc's
+ * start end (e.g. 170° for an arc starting at 180°) wraps to ~350,
+ * which clamps to the span and reads as the arc's far end — so dragging
+ * the saturation arc past its 100% end (the bottom, 180°) jumped the
+ * value to 0 instead of staying at 100% (Jake, 19 Nov 2026). Past the
+ * start end the value stays at the start end's value (fraction 1);
+ * past the finish end it stays at the finish end's value (fraction 0).
+ * Returns the angle relative to the arc start, 0–span.
+ */
+export function arcRelAngle(angle: number, start: number, span: number): number {
+  const rel = (angle - start + 360) % 360
+  if (rel <= span) return rel
+  // Outside the arc: the complementary arc runs from start + span back
+  // to start, its midpoint at rel = (360 + span) / 2. Nearer the finish
+  // end, clamp to it; nearer the start end, clamp to that.
+  return rel < (360 + span) / 2 ? span : 0
+}
+
+/**
  * The HSV the round Color control displays for a fixture colour. RGB is a
  * lossy store for HSV: at value 0 (black) the hue and saturation are
  * undefined, and at saturation 0 (grey/white) the hue is undefined — so
@@ -68,13 +89,21 @@ export function hsvToRgb(h: number, s: number, v: number): { red: number; green:
  * brightness to 0 locked colour selection). Hue and saturation are
  * therefore independent controls: they come from the last hue/saturation
  * the wheel itself chose (`preserved`) while the colour is degenerate,
- * and from the fixture's colour otherwise. Brightness always comes from
- * the fixture — it is the one component RGB does represent.
+ * and from the fixture's colour otherwise. Brightness is the one
+ * component RGB does represent, so it comes from the fixture whenever
+ * it is non-zero — and from `preserved` while the colour is black.
+ *
+ * Saturation and brightness default to 100% while the colour is
+ * degenerate (Jake, 19 Nov 2026): the preserved state is initialised
+ * (and re-synced on selection change) to 100/100 for a black fixture,
+ * so the wheel works immediately with a vivid colour instead of
+ * starting dead at 0. The centre disc still shows the fixture's actual
+ * output colour; only the wheel's pending values default.
  */
-export function displayHsv(raw: { h: number; s: number; v: number }, preserved: { h: number; s: number }): { h: number; s: number; v: number } {
+export function displayHsv(raw: { h: number; s: number; v: number }, preserved: { h: number; s: number; v: number }): { h: number; s: number; v: number } {
   return {
     h: raw.s > 0 ? raw.h : preserved.h,
     s: raw.v > 0 ? raw.s : preserved.s,
-    v: raw.v
+    v: raw.v > 0 ? raw.v : preserved.v
   }
 }
