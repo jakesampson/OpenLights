@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react'
-import type { FanDef } from '@shared/types'
+import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
-import { hexToRgb, rgbToHex } from '../lib/colorMix'
+import { hexToRgb, rgbToHex, colorChannels } from '../lib/colorMix'
 import { displayHsv, hsvToRgb, rgbToHsv } from '../lib/colorWheel'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, defaultFixtureValues } from '../stores/showStore'
 import { ColorWheelControl } from './ColorWheelControl'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
@@ -70,6 +70,9 @@ export function DesignTab() {
     updateSelectedFixtures,
     setSelectedColor,
     setSelectedBaseColor,
+    setColorDefault,
+    loadColorDefault,
+    resetColorDefault,
     addColorFavorite,
     removeColorFavorite,
     editingPresetId,
@@ -83,11 +86,24 @@ export function DesignTab() {
   // not define an attribute for a fixture, the cue value shows as the
   // starting point; moving a control writes it into the preset.
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
-  const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) =>
-    editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? activeCue?.fixtureValues[fixtureId]?.[attribute] ?? fallback
+  // A property the preset and the cue both leave undefined shows the
+  // fixture's default value (LightKey Guide p.114) — for Colour that is
+  // blue (Guide p.85), so the wheel reads blue instead of black for an
+  // undefined colour. The passed fallback still covers fixtures with no
+  // such channel at all (e.g. a dimmer fixture's RGB, which shows 255).
+  const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) => {
+    const fixture = fixtures.find((f) => f.id === fixtureId)
+    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? activeCue?.fixtureValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
+  }
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
   const commonAttributes = beamProperties.length ? Object.keys(beamProperties[0]).filter((key) => beamProperties.every((b) => key in b)) : availableProperties(selectedFixtures).map((property) => property.attribute)
+  // A fixture with colour channels but no dimmer channel still gets a
+  // working Dimmer in LightKey — the virtual dimmer (Piece 12): the
+  // fader writes an intensity value into the cue and the output scales
+  // the fixture's LED channels by it.
+  const isVirtualDimmer = (fixture: FixtureDef) =>
+    !fixtureAttributes(fixture).includes('intensity') && colorChannels(fixtureAttributes(fixture)).length > 0
   // Pan/tilt as one XY pad (LightKey-style position control) instead of two
   // raw 0–255 sliders — only when every selected fixture has pan+tilt and no
   // individual beam is selected (beam values are keyed by beam property, not
@@ -104,12 +120,20 @@ export function DesignTab() {
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
-            (total, fixture) => total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0),
+            // The undefined fallback for a property: 255 for a dimmer
+            // fixture's RGB (it shows white) and for a virtual dimmer
+            // (a fixture with colour channels but no dimmer channel is
+            // full open until its dimmer is set — LightKey shows
+            // "Full" for a fresh RGBAW fixture); 0 otherwise (a
+            // fixture with a dimmer channel starts dark).
+            (total, fixture) => total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : attribute === 'intensity' && isVirtualDimmer(fixture) ? 255 : 0),
             0
           ) / selectedFixtures.length
         )
       : 0
-  const dimmer = editingPreset || activeCue ? valueFor('intensity') : 0
+  // With no cue or preset the dimmer reads the virtual fallback (full
+  // open) for a virtual-dimmer fixture, dark for one with a channel.
+  const dimmer = editingPreset || activeCue ? valueFor('intensity') : selectedFixtures.some(isVirtualDimmer) ? 255 : 0
   const updateValues = editingPreset ? updateEditingPresetValues
     : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
   // The wheel's hue / saturation / brightness describe the base colour
@@ -138,6 +162,10 @@ export function DesignTab() {
   const colorSupported = previewOnlyColor || ['cyan', 'magenta', 'yellow'].every((a) => commonAttributes.includes(a)) || ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
   )
+  // The virtual dimmer (Piece 12): colour fixtures without a dimmer
+  // channel still get a working Dimmer fader.
+  const virtualDimmerSupported = !dimmerSupported && colorSupported
+  const dimmerAvailable = dimmerSupported || virtualDimmerSupported
   const colorFavorites = show?.colorFavorites ?? []
   const rawHsv = rgbToHsv(baseColorValues)
   // Hue, saturation and brightness are independent of each other
@@ -165,6 +193,12 @@ export function DesignTab() {
   }, [selectionKey])
   const hsv = displayHsv(rawHsv, preservedHsv)
   const additionalColourAttributes = commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))
+  // "Reset Default" only belongs on the Colour menu once a fixture has a
+  // custom default colour stored; "Load Default" is always offered (with
+  // no custom default it loads the built-in blue).
+  const hasCustomColorDefault = selectedFixtures.some((fixture) =>
+    colorChannels(fixtureAttributes(fixture)).some((attribute) => fixture.defaultValues?.[attribute] !== undefined)
+  )
   // The colour channels the wheel owns are not also channel faders — but
   // only when the wheel is shown; a fixture it does not support keeps
   // its faders as the fallback.
@@ -236,7 +270,7 @@ export function DesignTab() {
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
             {dimmerFan && <FanDeleteDot label="Dimmer" onDelete={() => deleteFanKeep(dimmerFan)} />}
             Dimmer
-            {showFanButtons && !dimmerFan && dimmerSupported && (
+            {showFanButtons && !dimmerFan && dimmerAvailable && (
               <FanMenuButton label="Dimmer" items={[{ label: 'Add Dimmer Fanning…', onSelect: () => dispatchFanHud({ attribute: 'intensity' }) }]} disabled={!canEdit} />
             )}
           </span>
@@ -251,11 +285,11 @@ export function DesignTab() {
                 onChange={(next) => updateValues({ intensity: next })}
                 label="Dimmer for selected fixtures"
                 fillColor="#d9d4f5"
-                disabled={!canEdit || !dimmerSupported}
+                disabled={!canEdit || !dimmerAvailable}
                 trackClassName="design-fill-track"
               />
               <span className="font-mono text-[12px] text-white">
-                {dimmerSupported ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
+                {dimmerAvailable ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
               </span>
             </>
           )}
@@ -274,7 +308,12 @@ export function DesignTab() {
             {colorFan && <FanDeleteDot label="Colour" onDelete={() => deleteFanKeep(colorFan)} />}
             {previewOnlyColor ? 'Preview colour' : 'Colour'}
             {showFanButtons && !colorFan && colorSupported && (
-              <FanMenuButton label="Colour" items={[{ label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' }) }]} disabled={!canEdit} />
+              <FanMenuButton label="Colour" title="Colour options" items={[
+                { label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' }) },
+                { label: 'Set as Default', onSelect: () => setColorDefault() },
+                { label: 'Load Default', onSelect: () => loadColorDefault() },
+                ...(hasCustomColorDefault ? [{ label: 'Reset Default', onSelect: () => resetColorDefault() }] : []),
+              ]} disabled={!canEdit} />
             )}
           </span>
           {colorFan ? (

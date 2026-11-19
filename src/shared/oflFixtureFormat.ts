@@ -208,7 +208,7 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
         slots: channelSlots(definition),
         min: 0,
         max: 255,
-        defaultValue: dmxByte(definition.defaultValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 0),
+        defaultValue: defaultChannelValue(definition, descriptor),
         highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 255)
       }
     })
@@ -250,6 +250,21 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
 
 function colorName(attribute: string): string | undefined {
   return ['Red', 'Green', 'Blue', 'White', 'Amber', 'UV', 'Cyan', 'Magenta', 'Yellow'].find((name) => attribute.toLowerCase().includes(name.toLowerCase()))
+}
+
+/**
+ * A channel's default value: the OFL definition's own default wins when
+ * it sets one. When it sets none, LightKey's default colour is blue
+ * (Guide p.85) — a blue-component colour channel (Blue, Cyan, Magenta)
+ * defaults to full (255) on its coarse byte, the other colour components
+ * to 0. Fine bytes default to 0.
+ */
+function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined): number {
+  const byte = descriptor?.byte ?? 0
+  const value = dmxByte(definition.defaultValue, definition.dmxValueResolution, byte, 0)
+  if (definition.defaultValue != null || byte !== 0) return value
+  const color = colorName(descriptor?.key ?? '')
+  return color === 'Blue' || color === 'Cyan' || color === 'Magenta' ? 255 : value
 }
 
 function oflCapability(channel: FixtureChannel): JsonRecord {

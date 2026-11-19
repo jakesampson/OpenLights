@@ -46,6 +46,16 @@ export function baseColorChannels(rgb: RgbColor, emitters: string[]): Record<str
   for (const [attribute, value] of Object.entries(rgb)) if (emitters.includes(attribute)) output[attribute] = clamp(value)
   return output
 }
+
+/**
+ * The colour channel names a fixture's base colour is stored in: CMY
+ * when the fixture has all three, otherwise the RGB channels it has.
+ * The same choice baseColorChannels makes when writing a colour.
+ */
+export function colorChannels(emitters: string[]): string[] {
+  if (['cyan', 'magenta', 'yellow'].every((a) => emitters.includes(a))) return ['cyan', 'magenta', 'yellow']
+  return ['red', 'green', 'blue'].filter((a) => emitters.includes(a))
+}
 /** RGB (0–255 per channel) to lowercase `#rrggbb`. */
 export function rgbToHex(rgb: RgbColor): string {
   const part = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')

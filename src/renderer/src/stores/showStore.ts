@@ -48,7 +48,7 @@ import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { canParentGroup, syncFixtureGroups } from '../lib/fixtureGroups'
-import { mixColor, baseColorChannels, normalizeColorFavorite, type RgbColor } from '../lib/colorMix'
+import { mixColor, baseColorChannels, colorChannels, normalizeColorFavorite, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
@@ -193,6 +193,16 @@ interface ShowState {
       19 Nov 2026). Colour favourites and the centre picker still use
       setSelectedColor, which applies a whole colour via mixColor. */
   setSelectedBaseColor: (color: RgbColor, manual?: boolean) => void
+  /** Store each selected fixture's current colour as its default colour
+      (LightKey Guide p.114, "Set as Default"): the colour the fixture
+      falls back to when no preset, cue or sequence defines one. */
+  setColorDefault: () => void
+  /** Write each selected fixture's default colour into the active cue
+      (Guide p.114, "Load Default"). */
+  loadColorDefault: () => void
+  /** Clear each selected fixture's custom default colour, restoring the
+      built-in default (blue — Guide p.85). */
+  resetColorDefault: () => void
   /** Save a colour to the project's colour favourites (Guide p.86); duplicates and non-colours are ignored. */
   addColorFavorite: (hex: string) => void
   /** Remove a colour from the project's colour favourites. */
@@ -618,6 +628,19 @@ const developmentDefaultShow: ShowDef = {
 const defaultShow = import.meta.env.DEV ? developmentDefaultShow : productionDefaultShow
 
 let sessionPasscode = ''
+
+/** Write a per-fixture colour patch into the active cue (creating one if
+    needed). Shared by setSelectedColor, setSelectedBaseColor and
+    loadColorDefault. */
+function writeColourToActiveCue(get: () => ShowState, patch: Record<string, Record<string, number>>) {
+  if (!get().activeCueId) get().addCue()
+  const cue = get().cues.find((s) => s.id === get().activeCueId)
+  if (!cue) return
+  const fixtureValues = { ...cue.fixtureValues }
+  for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
+  get().updateCue(cue.id, { fixtureValues })
+}
+
 export const useShowStore = create<ShowState>((set, get) => {
 const actions: ShowState = {
   locked: false,
@@ -982,23 +1005,58 @@ const actions: ShowState = {
     const state = get(), patch: Record<string, Record<string, number>> = {}
     for (const id of state.selectedFixtureIds) { const f = state.show?.fixtures.find((f) => f.id === id); if (f) patch[id] = f.type === 'dimmer' ? { ...color } : mixColor(color, fixtureAttributes(f)) }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().addCue()
-    const cue = get().cues.find((s) => s.id === get().activeCueId)
-    if (!cue) return
-    const fixtureValues = { ...cue.fixtureValues }
-    for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateCue(cue.id, { fixtureValues })
+    writeColourToActiveCue(get, patch)
   },
   setSelectedBaseColor: (color, manual = false) => {
     const state = get(), patch: Record<string, Record<string, number>> = {}
     for (const id of state.selectedFixtureIds) { const f = state.show?.fixtures.find((f) => f.id === id); if (f) patch[id] = f.type === 'dimmer' ? { ...color } : baseColorChannels(color, fixtureAttributes(f)) }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().addCue()
-    const cue = get().cues.find((s) => s.id === get().activeCueId)
-    if (!cue) return
-    const fixtureValues = { ...cue.fixtureValues }
-    for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateCue(cue.id, { fixtureValues })
+    writeColourToActiveCue(get, patch)
+  },
+  setColorDefault: () => {
+    const state = get()
+    const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
+    if (!fixtures.length) return
+    const cueValues = state.cues.find((c) => c.id === state.activeCueId)?.fixtureValues ?? {}
+    get().beginHistoryGroup()
+    for (const fixture of fixtures) {
+      const channels = colorChannels(fixtureAttributes(fixture))
+      if (!channels.length) continue
+      const defaults = defaultFixtureValues(fixture)
+      const colour: Record<string, number> = {}
+      for (const attr of channels) colour[attr] = cueValues[fixture.id]?.[attr] ?? defaults[attr] ?? 0
+      get().updateFixture(fixture.id, { defaultValues: { ...fixture.defaultValues, ...colour } })
+    }
+    get().endHistoryGroup()
+  },
+  loadColorDefault: () => {
+    const state = get()
+    const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
+    const patch: Record<string, Record<string, number>> = {}
+    for (const fixture of fixtures) {
+      const channels = colorChannels(fixtureAttributes(fixture))
+      if (!channels.length) continue
+      const defaults = defaultFixtureValues(fixture)
+      const colour: Record<string, number> = {}
+      for (const attr of channels) colour[attr] = defaults[attr] ?? 0
+      patch[fixture.id] = colour
+    }
+    if (!Object.keys(patch).length) return
+    writeColourToActiveCue(get, patch)
+  },
+  resetColorDefault: () => {
+    const state = get()
+    const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
+    if (!fixtures.length) return
+    get().beginHistoryGroup()
+    for (const fixture of fixtures) {
+      const channels = colorChannels(fixtureAttributes(fixture))
+      if (!channels.length || !channels.some((a) => fixture.defaultValues?.[a] !== undefined)) continue
+      const next = { ...fixture.defaultValues }
+      for (const attr of channels) delete next[attr]
+      get().updateFixture(fixture.id, { defaultValues: next })
+    }
+    get().endHistoryGroup()
   },
   addColorFavorite: (hex) => {
     const favorite = normalizeColorFavorite(hex)
@@ -1967,7 +2025,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

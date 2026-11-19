@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mixColor, baseColorChannels } from '../src/renderer/src/lib/colorMix'
+import { mixColor, baseColorChannels, colorChannels } from '../src/renderer/src/lib/colorMix'
 import { migrateShow } from '../src/shared/migrations'
 describe('emitter colour mixing', () => {
   const white = { red: 255, green: 255, blue: 255 }
@@ -19,6 +19,13 @@ describe('emitter colour mixing', () => {
     expect(baseColorChannels({ red: 255, green: 128, blue: 128 }, rgbawUv)).toEqual({ red: 255, green: 128, blue: 128 })
     expect(baseColorChannels({ red: 255, green: 0, blue: 0 }, ['cyan', 'magenta', 'yellow'])).toEqual({ cyan: 0, magenta: 255, yellow: 255 })
     expect(baseColorChannels({ red: 255, green: 0, blue: 0 }, ['red', 'green'])).toEqual({ red: 255, green: 0 })
+  })
+
+  it('colorChannels picks the CMY set when present, else the RGB set', () => {
+    expect(colorChannels(['intensity', 'red', 'green', 'blue', 'white'])).toEqual(['red', 'green', 'blue'])
+    expect(colorChannels(['intensity', 'cyan', 'magenta', 'yellow'])).toEqual(['cyan', 'magenta', 'yellow'])
+    expect(colorChannels(['intensity', 'red', 'green'])).toEqual(['red', 'green'])
+    expect(colorChannels(['intensity'])).toEqual([])
   })
   it('preserves colour favourites through migration and serialization', () => {
     const show = migrateShow({ colorFavorites: ['#ff8000'] })

@@ -31,6 +31,29 @@ describe('Open Fixture Library format', () => {
     expect(profile.ofl?.source).toEqual(oflFixture)
   })
 
+  it('defaults an undefined colour to blue unless the definition sets one (Guide p.85)', () => {
+    const colourFixture = {
+      ...oflFixture,
+      fixtureKey: 'colour-test',
+      name: 'Colour Test',
+      categories: ['Color Changer'],
+      availableChannels: {
+        Red: { capability: { type: 'ColorIntensity', color: 'Red' } },
+        Green: { capability: { type: 'ColorIntensity', color: 'Green' } },
+        Blue: { capability: { type: 'ColorIntensity', color: 'Blue' } },
+        Cyan: { capability: { type: 'ColorIntensity', color: 'Cyan' } },
+        Magenta: { capability: { type: 'ColorIntensity', color: 'Magenta' } },
+        Yellow: { capability: { type: 'ColorIntensity', color: 'Yellow' } },
+        'Blue (forced off)': { defaultValue: 0, capability: { type: 'ColorIntensity', color: 'Blue' } }
+      },
+      modes: [{ name: 'Colour', shortName: '7ch', channels: ['Red', 'Green', 'Blue', 'Cyan', 'Magenta', 'Yellow', 'Blue (forced off)'] }]
+    }
+    const profile = importOflFixture(colourFixture, { manufacturer: 'Sample Brand' })
+    expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
+      ['Red', 0], ['Green', 0], ['Blue', 255], ['Cyan', 255], ['Magenta', 255], ['Yellow', 0], ['Blue (forced off)', 0]
+    ])
+  })
+
   it('auto-detects OFL JSON and supports compact bulk-library conversion', () => {
     expect(importProfile(JSON.stringify(oflFixture), { manufacturer: 'Sample Brand' }).name).toBe('Sample Move')
     expect(importOflFixture(oflFixture, { preserveSource: false }).ofl?.source).toBeUndefined()

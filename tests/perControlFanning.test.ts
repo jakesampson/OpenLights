@@ -51,7 +51,12 @@ describe('DesignTab — every control carries its own fan affordance', () => {
     expect(design).toContain('<FanMenuButton label="Dimmer"')
     expect(design).toContain("items={[{ label: 'Add Dimmer Fanning…', onSelect: () => dispatchFanHud({ attribute: 'intensity' }) }]}")
     expect(design).toContain('<FanMenuButton label="Colour"')
-    expect(design).toContain("items={[{ label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' }) }]}")
+    expect(design).toContain("label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' })")
+    // Piece 11 (Guide p.114): the same Colour menu offers the
+    // default-value actions — Set / Load / Reset Default.
+    expect(design).toContain("label: 'Set as Default', onSelect: () => setColorDefault()")
+    expect(design).toContain("label: 'Load Default', onSelect: () => loadColorDefault()")
+    expect(design).toContain("label: 'Reset Default', onSelect: () => resetColorDefault()")
     expect(design).toContain('<FanMenuButton')
     expect(design).toContain("label: 'Add Pan Fanning…'")
     expect(design).toContain("label: 'Add Tilt Fanning…'")
