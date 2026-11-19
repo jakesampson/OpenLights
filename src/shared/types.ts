@@ -60,8 +60,15 @@ export interface FanDef {
   order: 'selection' | 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top' | 'name' | 'address'
   start: number
   end: number
+  // Colour fans (attribute 'color', LightKey Guide §8 + "How to Use
+  // Fanning" video): the fanned value is a colour, not a number — the
+  // endpoints and any intermediate anchors carry hex colours, and the
+  // numeric start/end are unused. Anchor entries carry `color` instead
+  // of a numeric value for colour fans.
+  startColor?: string
+  endColor?: string
   considerSpacing?: boolean
-  anchors?: { index: number; value: number }[]
+  anchors?: { index: number; value: number; color?: string }[]
 }
 
 export interface SequenceStep {

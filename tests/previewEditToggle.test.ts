@@ -77,12 +77,13 @@ describe('preview toolbar after the toggle move', () => {
     expect(previewSource).toContain('>Preview</span>')
   })
 
-  it('keeps fanning reachable from the Design panel (Guide §8, p.119)', () => {
-    // The Design panel dispatches the event with the picked property;
-    // the Preview listens and opens the HUD around the fixtures' icons.
-    expect(designSource).toContain("openlights-open-fan-hud")
-    expect(designSource).toContain('>Fan…')
-    expect(designSource).toContain('LightKey Guide §8, p.118–122')
+  it('keeps fanning reachable from each Design panel control (Guide §8, p.119)', () => {
+    // Each property's control dispatches the event with its own
+    // property; the Preview listens and opens the HUD around the
+    // fixtures' icons. No single Fan… button any more.
+    expect(designSource).toContain("dispatchFanHud({ attribute: 'intensity' })")
+    expect(designSource).toContain("dispatchFanHud({ attribute: 'color' })")
+    expect(designSource).not.toContain('>Fan…')
     expect(previewSource).toContain("window.addEventListener('openlights-open-fan-hud', handler)")
     expect(previewSource).toContain('FanningHud')
     // The HUD component and its store logic are untouched.

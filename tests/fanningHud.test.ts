@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { evaluateFan, fanValues, orderedFanFixtures } from '../src/renderer/src/lib/fanning'
-import { clearFanRowValue, defaultFan, definedFanIndexes, fanRows, setFanRowValue } from '../src/renderer/src/lib/fanningHud'
+import { clearFanRowValue, defaultFan, defaultColorFan, definedFanIndexes, fanRows, fannableProperties, setFanRowColor, setFanRowValue } from '../src/renderer/src/lib/fanningHud'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -87,4 +87,40 @@ it('starts a cue when the HUD commits with no active cue, then the fan lands', (
   s().activateCue(created.id)
   s().saveFan({ ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-2' })
   expect(s().cues[0].fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
+})
+
+it('offers a synthetic Color property for colour fixtures, and none for dimmers', () => {
+  const wash = migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id.toUpperCase(), type: 'led-wash', channelStart: i * 7 + 1, channels: 7 })) })
+  const props = fannableProperties(wash.fixtures)
+  expect(props.map((c) => c.attribute)).toContain('color')
+  expect(props.find((c) => c.attribute === 'color')?.propertyType).toBe('color')
+  const dimmerShow = migrateShow({ fixtures: dimmers })
+  expect(fannableProperties(dimmerShow.fixtures).map((c) => c.attribute)).not.toContain('color')
+})
+
+it('defaults a colour fan to the fixtures’ current colours', () => {
+  expect(defaultColorFan(['a', 'b'], '#ff0000', '#0000ff')).toEqual({
+    id: '', attribute: 'color', fixtureIds: ['a', 'b'], mode: 'linear', order: 'selection',
+    start: 0, end: 255, startColor: '#ff0000', endColor: '#0000ff'
+  })
+})
+
+it('lists colour fan rows with computed colours and blue-dot defined flags', () => {
+  const wash = migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id.toUpperCase(), type: 'led-wash', channelStart: i * 7 + 1, channels: 7 })) })
+  const fan = { id: 'f', attribute: 'color', fixtureIds: ['a', 'b', 'c'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 255, startColor: '#ff0000', endColor: '#0000ff' }
+  const rows = fanRows(wash.fixtures, fan)
+  expect(rows.map((r) => r.colorValue)).toEqual(['#ff0000', '#800080', '#0000ff'])
+  expect(rows.map((r) => r.value)).toEqual([null, null, null])
+  expect(rows.map((r) => r.defined)).toEqual([true, false, true])
+  expect(fanRows(wash.fixtures, { ...fan, anchors: [{ index: 1, value: 0, color: '#00ff00' }] }).map((r) => r.colorValue)).toEqual(['#ff0000', '#00ff00', '#0000ff'])
+})
+
+it('edits colour endpoints through their rows and intermediates through anchors', () => {
+  const fan = { id: 'f', attribute: 'color', fixtureIds: ['a', 'b', 'c'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 255, startColor: '#ff0000', endColor: '#0000ff' }
+  expect(setFanRowColor(fan, 0, '#00ff00')).toMatchObject({ startColor: '#00ff00', endColor: '#0000ff' })
+  expect(setFanRowColor(fan, 2, '#00ff00')).toMatchObject({ startColor: '#ff0000', endColor: '#00ff00' })
+  expect(setFanRowColor(fan, 1, '#00ff00')).toEqual({ ...fan, anchors: [{ index: 1, value: 0, color: '#00ff00' }] })
+  expect(setFanRowColor({ ...fan, anchors: [{ index: 1, value: 0, color: '#00ff00' }] }, 1, '#ffff00')).toEqual({ ...fan, anchors: [{ index: 1, value: 0, color: '#ffff00' }] })
+  // A colour anchor clears like a numeric one — only the index matters.
+  expect(clearFanRowValue({ ...fan, anchors: [{ index: 1, value: 0, color: '#00ff00' }] }, 1)).toEqual({ ...fan, anchors: undefined })
 })

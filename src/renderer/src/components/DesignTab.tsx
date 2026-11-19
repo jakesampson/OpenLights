@@ -1,13 +1,27 @@
+import type { FanDef } from '@shared/types'
 import { fixtureMode } from '@shared/fixtureProfiles'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
-import { colorWheelPosition } from '../lib/colorWheel'
-import { hexToRgb } from '../lib/colorMix'
+import { hexToRgb, rgbToHex } from '../lib/colorMix'
+import { hsvToRgb, rgbToHsv } from '../lib/colorWheel'
 import { useShowStore } from '../stores/showStore'
+import { ColorWheelControl } from './ColorWheelControl'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
+import { dispatchFanHud, FanDeleteDot, FanMenuButton, FannedIcon } from './PropertyFan'
 
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
+
+// Colour attributes the round Color control owns (LightKey Guide p.82–
+// 85): Red/Green/Blue (or Cyan/Magenta/Yellow) are driven by the hue
+// wheel, and the additional colour channels by the wheel's inner arcs —
+// so they are not rendered as channel faders when the wheel is shown.
+// A fixture the wheel does not support keeps its faders as the fallback.
+const COLOUR_FADER_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']
+// Additional colour channels (Guide p.85: cool/warm white, amber, lime,
+// ultraviolet) that appear as inner arcs in the wheel's centre — only
+// when the selected fixtures actually have them.
+const ADDITIONAL_COLOUR_ATTRIBUTES = ['white', 'amber', 'uv', 'lime']
 
 function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
@@ -27,6 +41,8 @@ function channelFillColor(attribute: string) {
     case 'yellow': return '#eab308'
     case 'white': return '#e5e7eb'
     case 'amber': return '#f59e0b'
+    case 'uv': return '#a855f7'
+    case 'lime': return '#84cc16'
     default: return 'var(--accent)'
   }
 }
@@ -54,6 +70,7 @@ export function DesignTab() {
     removeColorFavorite,
     editingPresetId,
     updateEditingPresetValues,
+    deleteFan,
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeCue = cues.find((cue) => cue.id === activeCueId)
@@ -100,7 +117,15 @@ export function DesignTab() {
     commonAttributes.includes(attribute)
   )
   const colorFavorites = show?.colorFavorites ?? []
-  const wheelPosition = colorWheelPosition(colorValues)
+  const hsv = rgbToHsv(colorValues)
+  const additionalColourAttributes = commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))
+  // The colour channels the wheel owns are not also channel faders — but
+  // only when the wheel is shown; a fixture it does not support keeps
+  // its faders as the fallback.
+  const faderAttributes = colorSupported
+    ? channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute))
+    : channelAttributes
+  const channelByAttribute = new Map(availableProperties(selectedFixtures).map((c) => [c.attribute, c]))
 
   const setColor = (hex: string) => {
     const rgb = hexToRgb(hex)
@@ -109,6 +134,22 @@ export function DesignTab() {
     else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
     else setSelectedColor(rgb, false)
   }
+
+  // Per-property fanning (LightKey Guide §8, p.118–123): each property's
+  // own control carries the entry point — the property name's menu,
+  // "Add (property name) Fanning…" — and when a property is fanned its
+  // area shows an icon instead of the normal controls. Fans live on the
+  // active cue; beams are not fanned (existing gap, see NOTES.md), and
+  // fanning is hidden while editing a preset (fans are cue-level).
+  const fans = activeCue?.fans ?? []
+  const fanFor = (attribute: string) => fans.find((f) => f.attribute === attribute && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+  const deleteFanKeep = (fan: FanDef | undefined) => { if (fan) deleteFan(fan.id, true) }
+  const showFanButtons = !editingPreset && selectedBeams.length === 0
+  const dimmerFan = fanFor('intensity')
+  const colorFan = fanFor('color')
+  const panFan = fanFor('pan')
+  const tiltFan = fanFor('tilt')
+  const positionFan = panFan ?? tiltFan
 
   return (
     <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
@@ -127,63 +168,74 @@ export function DesignTab() {
         {editingPreset
           ? <span className="rounded bg-yellow-400 px-2 py-0.5 text-[10px] font-semibold text-black">Editing preset “{editingPreset.name}” — changes save to the preset</span>
           : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
-        {/* Fanning entry point (LightKey Guide §8, p.119: click a fixture
-            property's name in the Design view, then choose Add Fanning…).
-            This button is that entry point — it opens the Fanning HUD in
-            the Preview, around the fixtures' icons, for the selection's
-            default property; the HUD itself lets the property be changed.
-            It is a single entry point, not a fanning section in the panel
-            (the section was removed at Jake's request — see NOTES.md). */}
-        <button
-          type="button"
-          className="rounded bg-panel2 px-2 py-1 text-xs disabled:opacity-40"
-          disabled={selectedFixtures.length === 0}
-          onClick={() => window.dispatchEvent(new CustomEvent('openlights-open-fan-hud', { detail: {} }))}
-          title="Fan a property across the selected fixtures (LightKey Guide §8, p.118–122)"
-        >Fan…{activeCue?.fans?.length ? ` (${activeCue.fans.length})` : ''}</button>
       </div>
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         {/* Dimmer: the shared FillFader — the same LightKey-style solid
             fill bar as the Master fader (lavender fill), not a thin line
             with a round knob. */}
         <div className="flex w-16 shrink-0 flex-col items-center gap-0.5">
-          <span className="text-[11px] font-medium uppercase text-dim">Dimmer</span>
-          <FillFader
-            value={dimmer}
-            onChange={(next) => updateValues({ intensity: next })}
-            label="Dimmer for selected fixtures"
-            fillColor="#d9d4f5"
-            disabled={!canEdit || !dimmerSupported}
-            trackClassName="design-fill-track"
-          />
-          <span className="font-mono text-[12px] text-white">
-            {dimmerSupported ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
+          <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
+            {dimmerFan && <FanDeleteDot label="Dimmer" onDelete={() => deleteFanKeep(dimmerFan)} />}
+            Dimmer
+            {showFanButtons && !dimmerFan && dimmerSupported && (
+              <FanMenuButton label="Dimmer" items={[{ label: 'Add Dimmer Fanning…', onSelect: () => dispatchFanHud({ attribute: 'intensity' }) }]} disabled={!canEdit} />
+            )}
           </span>
+          {dimmerFan ? (
+            <div className="flex w-full flex-1 items-stretch">
+              <FannedIcon label="Dimmer" onEdit={() => dispatchFanHud({ attribute: 'intensity' })} />
+            </div>
+          ) : (
+            <>
+              <FillFader
+                value={dimmer}
+                onChange={(next) => updateValues({ intensity: next })}
+                label="Dimmer for selected fixtures"
+                fillColor="#d9d4f5"
+                disabled={!canEdit || !dimmerSupported}
+                trackClassName="design-fill-track"
+              />
+              <span className="font-mono text-[12px] text-white">
+                {dimmerSupported ? `${Math.round((dimmer / 255) * 100)}%` : '—'}
+              </span>
+            </>
+          )}
         </div>
 
+        {/* Colour: LightKey's round control (Guide p.82–85) — the outer
+            hue ring, saturation and brightness as inner arcs, and one
+            inner arc per additional colour channel the fixtures have
+            (White / Amber / UV …). The centre disc opens the system
+            colour window. The per-channel colour faders are gone: the
+            wheel is the colour control. */}
         <div className="flex shrink-0 flex-col items-center gap-0.5">
-          <span className="text-[11px] font-medium uppercase text-dim">{previewOnlyColor ? 'Preview colour' : 'Colour'}</span>
-          <div className="wheel relative" style={{ width: 84, height: 84 }}>
-            <input
-              type="color"
-              value={colorHex(colorValues)}
-              disabled={!canEdit || !colorSupported}
-              aria-label="Colour for selected fixtures"
-              onChange={(event) => setColor(event.target.value)}
-              className="wheel-input"
-            />
-            {colorSupported && selectedFixtures.length > 0 && (
-              <span
-                className="wheel-marker"
-                style={{
-                  left: `${wheelPosition.x}%`,
-                  top: `${wheelPosition.y}%`,
-                  backgroundColor: colorHex(colorValues)
-                }}
-                aria-hidden="true"
-              />
+          <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
+            {colorFan && <FanDeleteDot label="Colour" onDelete={() => deleteFanKeep(colorFan)} />}
+            {previewOnlyColor ? 'Preview colour' : 'Colour'}
+            {showFanButtons && !colorFan && colorSupported && (
+              <FanMenuButton label="Colour" items={[{ label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' }) }]} disabled={!canEdit} />
             )}
-          </div>
+          </span>
+          {colorFan ? (
+            <div className="flex h-[150px] w-[150px] items-stretch">
+              <FannedIcon label="Colour" onEdit={() => dispatchFanHud({ attribute: 'color' })} />
+            </div>
+          ) : (
+            <ColorWheelControl
+              hsv={hsv}
+              extraChannels={additionalColourAttributes.map((attribute) => ({
+                attribute,
+                label: attributeLabel(attribute),
+                value: valueFor(attribute),
+                color: channelFillColor(attribute)
+              }))}
+              centreHex={colorHex(colorValues)}
+              disabled={!canEdit || !colorSupported}
+              onHsvChange={(next) => setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))}
+              onExtraChange={(attribute, next) => updateValues({ [attribute]: next })}
+              onCentrePick={(hex) => setColor(hex)}
+            />
+          )}
           {/* No numeric RGB readout under the wheel (Jake, 19 Nov 2026):
               the green channel printed a raw float (9.450000000000001,
               from amber × 0.45 in colorValues) and the long value broke
@@ -195,11 +247,33 @@ export function DesignTab() {
 
         {hasPanTilt && (
           <div className="flex shrink-0 flex-col items-center gap-0.5">
-            <span className="text-[11px] font-medium uppercase text-dim">Position</span>
-            <PositionControl fixtures={selectedFixtures} update={updateValues} />
-            <span className="font-mono text-[10px] text-dim">
-              Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}
+            <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
+              {positionFan && <FanDeleteDot label="Position" onDelete={() => { deleteFanKeep(panFan); deleteFanKeep(tiltFan) }} />}
+              Position
+              {showFanButtons && !positionFan && (
+                <FanMenuButton
+                  label="Position"
+                  items={[
+                    { label: 'Add Pan Fanning…', onSelect: () => dispatchFanHud({ attribute: 'pan' }) },
+                    { label: 'Add Tilt Fanning…', onSelect: () => dispatchFanHud({ attribute: 'tilt' }) },
+                    { label: 'Add Pan + Tilt Fanning…', onSelect: () => dispatchFanHud({ attribute: 'pan', alsoAttribute: 'tilt' }) }
+                  ]}
+                  disabled={!canEdit}
+                />
+              )}
             </span>
+            {positionFan ? (
+              <div className="flex h-20 w-28 items-stretch">
+                <FannedIcon label="Position" onEdit={() => dispatchFanHud({ attribute: panFan ? 'pan' : 'tilt' })} />
+              </div>
+            ) : (
+              <>
+                <PositionControl fixtures={selectedFixtures} update={updateValues} />
+                <span className="font-mono text-[10px] text-dim">
+                  Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}
+                </span>
+              </>
+            )}
           </div>
         )}
 
@@ -207,29 +281,45 @@ export function DesignTab() {
             faders), scrolling horizontally when there are many — they no
             longer stretch into the wide Red / Green / Blue panels. */}
         <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
-          {channelAttributes.length === 0 ? (
+          {faderAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
               {selectedFixtures.length > 0 ? 'No additional common channels' : 'Select fixtures in the preview to access controls'}
             </div>
           ) : (
-            channelAttributes.map((attribute) => {
+            faderAttributes.map((attribute) => {
               const value = activeCue ? valueFor(attribute) : 0
+              const fan = fanFor(attribute)
+              // Only slider properties are fannable (Guide §8, p.118:
+              // "any custom property represented by a slider") — wheel
+              // slots and option lists get no fan button.
+              const channel = channelByAttribute.get(attribute)
+              const isSlider = !channel?.control || channel.control === 'slider'
               return (
                 <div key={attribute} className="chan h-full min-w-7">
-                  <span className="text-center text-[10px] leading-none text-dim">
+                  <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
+                    {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
                     {attributeLabel(attribute)}
+                    {showFanButtons && !fan && isSlider && (
+                      <FanMenuButton label={attributeLabel(attribute)} items={[{ label: `Add ${attributeLabel(attribute)} Fanning…`, onSelect: () => dispatchFanHud({ attribute }) }]} disabled={!canEdit} />
+                    )}
                   </span>
-                  <FillFader
-                    value={value}
-                    onChange={(next) => updateValues({ [attribute]: next })}
-                    label={`${attributeLabel(attribute)} for selected fixtures`}
-                    fillColor={channelFillColor(attribute)}
-                    disabled={!canEdit}
-                    trackClassName="design-fill-track"
-                  />
-                  <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
-                    {value}
-                  </span>
+                  {fan ? (
+                    <FannedIcon label={attributeLabel(attribute)} onEdit={() => dispatchFanHud({ attribute })} />
+                  ) : (
+                    <>
+                      <FillFader
+                        value={value}
+                        onChange={(next) => updateValues({ [attribute]: next })}
+                        label={`${attributeLabel(attribute)} for selected fixtures`}
+                        fillColor={channelFillColor(attribute)}
+                        disabled={!canEdit}
+                        trackClassName="design-fill-track"
+                      />
+                      <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
+                        {value}
+                      </span>
+                    </>
+                  )}
                 </div>
               )
             })

@@ -6,9 +6,9 @@ import { marqueeSelection } from '../lib/previewSelection'
 import { fitPreview, type Bounds } from '../lib/previewViewport'
 import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
 import { fixtureMode } from '@shared/fixtureProfiles'
-import { availableProperties } from '../lib/availableProperties'
 import { orderedFanFixtures } from '../lib/fanning'
-import { defaultFan, definedFanIndexes } from '../lib/fanningHud'
+import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
+import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
 import { FanningHud } from './FanningHud'
 import { useShowStore } from '../stores/showStore'
@@ -85,23 +85,49 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // so its toolbar button only shows in Design mode, and the HUD closes
   // when leaving Design or when the project locks.
   const [fanDraft, setFanDraft] = useState<FanDef | null>(null)
-  useEffect(() => { if (!designMode || locked) setFanDraft(null) }, [designMode, locked])
-  const openFanHud = (attribute?: string) => {
-    const channels = availableProperties((show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id)))
+  // LightKey's Position fanning lets you fan pan, tilt, or both (video:
+  // "we can choose whether the pan angles tilt angles or both should be
+  // fanned"). OpenLights fans one attribute per fan, so "both" is two
+  // fans: the second is created when the first is first committed, with
+  // the first fan's mode, order and fixture set. Pending until then.
+  const pendingAlsoFan = useRef<{ attribute: string; fixtureIds: string[] } | null>(null)
+  useEffect(() => { if (!designMode || locked) { setFanDraft(null); pendingAlsoFan.current = null } }, [designMode, locked])
+  const openFanHud = (attribute?: string, alsoAttribute?: string) => {
+    const selected = (show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id))
+    const channels = fannableProperties(selected)
     const wanted = attribute && channels.some((c) => c.attribute === attribute) ? attribute : undefined
     const chosen = wanted ?? (channels.some((c) => c.attribute === 'intensity') ? 'intensity' : channels[0]?.attribute ?? 'intensity')
-    setFanDraft(defaultFan(chosen, [...selectedFixtureIds], channels.find((c) => c.attribute === chosen)))
+    // A property that is already fanned on the active cue reopens its fan
+    // for editing (Guide p.122: "Click the icon in the Design view") —
+    // the Design panel's fanned-property icon dispatches this same event.
+    const state = useShowStore.getState()
+    const activeCue = state.cues.find((c) => c.id === state.activeCueId)
+    const existing = activeCue?.fans?.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+    if (existing) { setFanDraft(structuredClone(existing)); return }
+    if (chosen === 'color') {
+      // Start/end colours default to the first/last selected fixtures'
+      // current colours (video: "click the first and last fixture to
+      // change the start and end color"); red → blue when undefined.
+      const values = activeCue?.fixtureValues ?? {}
+      const firstColor = fixtureValuesToHex(values[selected[0]?.id ?? ''] ?? {}) ?? '#ff0000'
+      const lastColor = fixtureValuesToHex(values[selected[selected.length - 1]?.id ?? ''] ?? {}) ?? '#0000ff'
+      setFanDraft(defaultColorFan([...selectedFixtureIds], firstColor, lastColor))
+    } else {
+      setFanDraft(defaultFan(chosen, [...selectedFixtureIds], channels.find((c) => c.attribute === chosen)))
+    }
+    if (alsoAttribute) pendingAlsoFan.current = { attribute: alsoAttribute, fixtureIds: [...selectedFixtureIds] }
   }
   // The Fanning HUD's entry point (LightKey Guide §8, p.119: click the
   // fixture property's name in the Design view, then choose Add Fanning…)
-  // lives in the Design panel, not on the Preview toolbar — the panel
-  // dispatches this event with the property that was picked, and the HUD
-  // opens here, in the Preview around the fixtures' icons.
+  // lives on each property in the Design panel, not on the Preview
+  // toolbar — the panel dispatches this event with the property that was
+  // picked (and, for Pan + Tilt, the second property), and the HUD opens
+  // here, in the Preview around the fixtures' icons.
   useEffect(() => {
     const handler = (event: Event) => {
       if (!designMode || locked) return
-      const attribute = (event as CustomEvent<{ attribute?: string }>).detail?.attribute
-      openFanHud(attribute)
+      const detail = (event as CustomEvent<{ attribute?: string; alsoAttribute?: string }>).detail
+      openFanHud(detail?.attribute, detail?.alsoAttribute)
     }
     window.addEventListener('openlights-open-fan-hud', handler)
     return () => window.removeEventListener('openlights-open-fan-hud', handler)
@@ -118,7 +144,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       const created = useShowStore.getState().cues[useShowStore.getState().cues.length - 1]
       if (created) useShowStore.getState().activateCue(created.id)
     }
+    const isNew = !useShowStore.getState().cues.find((c) => c.id === useShowStore.getState().activeCueId)?.fans?.some((f) => f.id === committed.id)
     useShowStore.getState().saveFan(committed)
+    const pending = pendingAlsoFan.current
+    if (isNew && pending) {
+      pendingAlsoFan.current = null
+      const selected = (useShowStore.getState().show?.fixtures ?? []).filter((f) => pending.fixtureIds.includes(f.id))
+      const channel = fannableProperties(selected).find((c) => c.attribute === pending.attribute)
+      if (channel) useShowStore.getState().saveFan({ ...defaultFan(pending.attribute, pending.fixtureIds, channel), id: crypto.randomUUID(), mode: committed.mode, order: committed.order, considerSpacing: committed.considerSpacing })
+    }
   }
   const deleteFanFromHud = (id: string, keepValues: boolean) => {
     useShowStore.getState().deleteFan(id, keepValues)
@@ -372,7 +406,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
         <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span>
       </div>
-      {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={activeCue?.fans ?? []} selectedCount={selectedFixtureIds.length} hasActiveCue={Boolean(activeCue)} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => setFanDraft(null)} />}
+      {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={activeCue?.fans ?? []} selectedCount={selectedFixtureIds.length} hasActiveCue={Boolean(activeCue)} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => { setFanDraft(null); pendingAlsoFan.current = null }} />}
       <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded bg-bg/80 p-1">
         <button type="button" aria-label="Zoom out preview" onClick={() => setZoom((z) => Math.max(1, z - 0.25))} className="px-2 text-sm text-text">−</button>
         <button type="button" onClick={() => { setZoom(1); setViewCentre({ x: 400, y: 170 }) }} className="px-1 text-[10px] text-dim" title="Reset preview zoom">{Math.round(zoom * 100)}%</button>

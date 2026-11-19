@@ -835,51 +835,18 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   padding: 6px;
 }
 
-.wheel-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.wheel-input:disabled {
-  cursor: not-allowed;
-}
-
-/* Colour wheel */
-.wheel {
-  width: 108px;
-  height: 108px;
+/* Colour wheel (LightKey's round Color control): the hue ring and inner
+   arcs are focusable sliders — the focus ring is drawn on the wrapper
+   and on each arc. */
+.color-wheel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-radius: 50%;
-  border: 1px solid var(--line);
-  background: conic-gradient(
-    #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000
-  );
-  position: relative;
-  flex: none;
 }
 
-.wheel::after {
-  content: '';
-  position: absolute;
-  inset: 26%;
-  border-radius: 50%;
-  background: var(--panel);
-  pointer-events: none;
-}
-
-.wheel-marker {
-  position: absolute;
-  z-index: 1;
-  width: 10px;
-  height: 10px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
+.color-wheel [role="slider"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 /* Live Edit button properties popup: slides in from the right over the

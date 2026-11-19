@@ -935,7 +935,13 @@ const actions: ShowState = {
     const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
     if (!cue || !fan) return
     const fixtureValues = structuredClone(cue.fixtureValues)
-    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][fan.attribute]
+    // A colour fan stores no 'color' key in the fixture values — its
+    // values land as red/green/blue (or cyan/magenta/yellow) — so
+    // clearing it removes those channels instead.
+    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) {
+      if (fan.attribute === 'color') for (const attr of ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow']) delete fixtureValues[fixtureId][attr]
+      else delete fixtureValues[fixtureId][fan.attribute]
+    }
     get().updateCue(cue.id, { fans: cue.fans?.filter((f) => f.id !== id), fixtureValues })
   },
   setSelectedColor: (color, manual = false) => {

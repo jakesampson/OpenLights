@@ -17,14 +17,18 @@ const css = readFileSync(resolve(root, 'src/renderer/src/index.css'), 'utf8')
 const store = readFileSync(resolve(root, 'src/renderer/src/stores/showStore.ts'), 'utf8')
 
 describe('Fanning removed from the Design panel', () => {
-  it('does not render a fanning editor in DesignTab — only the single entry point', () => {
+  it('has no Fan… button — fanning lives on each property control', () => {
     expect(design).not.toContain('FanningEditor')
     expect(design).not.toContain('<details')
     expect(design).not.toContain('FanningHud')
-    // One entry point (LightKey Guide §8, p.119): a Fan… button that
-    // opens the HUD in the Preview — not a fanning section in the panel.
-    expect(design.match(/openlights-open-fan-hud/g)).toHaveLength(1)
-    expect(design).toContain('>Fan…')
+    expect(design).not.toContain('>Fan…')
+    // Per-property entry points (LightKey Guide §8, p.119): each
+    // property's control dispatches the HUD event for its own property.
+    expect(design).toContain("dispatchFanHud({ attribute: 'intensity' })")
+    expect(design).toContain("dispatchFanHud({ attribute: 'color' })")
+    expect(design).toContain("dispatchFanHud({ attribute: 'pan' })")
+    expect(design).toContain("dispatchFanHud({ attribute: 'tilt' })")
+    expect(design).toContain('dispatchFanHud({ attribute })')
   })
 
   it('deletes the FanningEditor component file', () => {
@@ -80,8 +84,12 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
 
   it('keeps the value readouts and the colour wheel, with no RGB text readout', () => {
     expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
-    expect(design).toContain('className="wheel-input"')
-    expect(design).toContain('colorWheelPosition')
+    // The wheel is LightKey's round control now (outer hue ring, inner
+    // arcs) — the native colour input + marker are gone.
+    expect(design).toContain('<ColorWheelControl')
+    expect(design).toContain('rgbToHsv(colorValues)')
+    expect(design).not.toContain('className="wheel-input"')
+    expect(design).not.toContain('colorWheelPosition')
   })
 
   it('has no RGB readout under the colour wheel (Jake, 19 Nov 2026)', () => {
