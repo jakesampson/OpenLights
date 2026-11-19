@@ -78,7 +78,9 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
   it('still wires Dimmer and channels to the same store updates', () => {
     expect(design).toContain("onChange={(next) => updateValues({ intensity: next })}")
     expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
-    expect(design).toContain('disabled={!canEdit || !dimmerSupported}')
+    // The Dimmer fader is available for a fixture with a dimmer channel
+    // and for a virtual-dimmer fixture (colour, no dimmer channel).
+    expect(design).toContain('disabled={!canEdit || !dimmerAvailable}')
     expect(design).toContain('disabled={!canEdit}')
   })
 

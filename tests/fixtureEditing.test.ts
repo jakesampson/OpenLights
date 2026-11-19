@@ -23,6 +23,10 @@ it('reassigns RGB to RGBW without losing programmed colour values', () => {
  const original = structuredClone(state().presets[0].fixtureValues)
  state().reassignFixtureProfile('f', rgbw)
  expect(state().presets[0].fixtureValues).toEqual(original)
- expect(computeCueChannels(state().show!.fixtures, { id: 's', name: 'S', fadeMs: 0, fixtureValues: original })).toEqual({ 1: 255, 2: 90, 3: 10 })
+ // The stored intensity (150) becomes the virtual dimmer once the
+ // fixture has no dimmer channel, so it scales the colour — the light
+ // level the preset programmed is preserved, not lost (before the
+ // virtual dimmer the intensity was dropped and the light went full).
+ expect(computeCueChannels(state().show!.fixtures, { id: 's', name: 'S', fadeMs: 0, fixtureValues: original })).toEqual({ 1: 150, 2: 53, 3: 6 })
  state().undo(); expect(state().show!.fixtures[0].profile!.id).toBe(rgb.id)
 })
