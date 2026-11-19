@@ -24,7 +24,7 @@ export interface FixtureDef {
   name: string
   /** Short name (≤4 chars) shown in the Preview; the full name stays for lists and panels (Guide p.30). */
   shortName?: string
-  /** Count > 1: that many Preview instances of this fixture, sharing one DMX address and properties (Guide p.30). */
+  /** Count > 1: that many Preview icons of this fixture, sharing one DMX address and properties (Guide p.30) — but each icon is its own placeable instance with its own position (see previewPositions). */
   count?: number
   /** Chosen LED count for a flexible strip/matrix mode (Guide p.29, FLEX); undefined means the mode default. */
   ledCount?: number
@@ -33,6 +33,11 @@ export interface FixtureDef {
   channels: number
   group?: string
   previewPosition?: { x: number; y: number }
+  /** Per-instance Preview positions, index i = instance i of a Count
+   * fixture; instance 0 falls back to previewPosition when absent. A
+   * fixture patched before per-instance positions existed has neither
+   * and falls back to the legacy fan-out (see previewLayout). */
+  previewPositions?: { x: number; y: number }[]
   inStorage?: boolean
   iconSize?: number
   namePosition?: 'above' | 'below' | 'hidden'

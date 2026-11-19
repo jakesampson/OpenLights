@@ -842,6 +842,20 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   animation: live-properties-slide-in 160ms ease-out;
 }
 
+/* Newly patched fixtures fade/scale in when they land on the Preview
+   (Jake, 19 Nov 2026). LightKey itself shows them with no animation, so
+   this stays quick and subtle — 300ms, once, on first appearance.
+   transform-box keeps the scale centred on the icon. */
+@keyframes fixture-appear {
+  from { opacity: 0; transform: scale(0.75); }
+  to { opacity: 1; transform: scale(1); }
+}
+.fixture-appear {
+  animation: fixture-appear 300ms ease-out;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
 /* Scene pad button */
 .pad {
   min-height: 44px;

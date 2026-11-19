@@ -42,6 +42,7 @@ import type { LivePage } from '@shared/types'
 import type { StageObject } from '@shared/types'
 import type { FixtureProfile } from '@shared/types'
 import { allocateFixtures, type PatchOptions } from '../lib/patch'
+import { instancePositions, landingPositions } from '../lib/previewLayout'
 import { proposeShortName } from '@shared/shortNames'
 import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
@@ -241,6 +242,13 @@ interface ShowState {
   updateFixture: (id: string, patch: Partial<FixtureDef>) => void
   setFixturePosition: (id: string, position: { x: number; y: number }) => void
   setFixturePositions: (positions: Record<string, { x: number; y: number }>) => void
+  /** Move individual Count instances, keyed `${fixtureId}:${instance}` (see previewLayout.instanceKey). */
+  setFixtureInstancePositions: (positions: Record<string, { x: number; y: number }>) => void
+  /** Fixtures patched since the Preview last saw them — the appear
+   * animation marker. Session-only: set by addProfileFixtures, cleared
+   * by the Preview after the animation plays; never persisted. */
+  newFixtureIds: string[]
+  clearNewFixtureIds: () => void
   setPreviewTrusses: (trusses: PreviewTruss[]) => void
   setStageObjects: (objects: StageObject[]) => void
   addStageObject: (object: StageObject) => void
@@ -305,6 +313,22 @@ let editingPresetSnapshot: { preset: PresetDef; activePresetIds: string[]; selec
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
   return fixtures.reduce((max, f) => Math.max(max, f.channelStart - 1 + f.channels), 0) + 1
+}
+
+/**
+ * Place a fixture so its instance 0 lands at `position`, carrying any
+ * stored per-instance positions along by the same delta — a Count
+ * fixture keeps its instances' relative layout when it is placed (e.g.
+ * dragged out of Fixture Storage onto the canvas).
+ */
+function placeFixture(fixture: FixtureDef, position: { x: number; y: number }): FixtureDef {
+  const next = { x: Math.max(0, Math.min(800, position.x)), y: Math.max(0, Math.min(340, position.y)) }
+  const current = instancePositions(fixture)
+  const base = current[0]
+  const previewPositions = base
+    ? current.map((p) => p ? { x: Math.max(0, Math.min(800, p.x + next.x - base.x)), y: Math.max(0, Math.min(340, p.y + next.y - base.y)) } : null).filter((p): p is { x: number; y: number } => p !== null)
+    : undefined
+  return { ...fixture, inStorage: false, previewPosition: next, ...(previewPositions?.length ? { previewPositions } : {}) }
 }
 
 export function defaultFixtureValues(fixture: FixtureDef): Record<string, number> {
@@ -646,6 +670,7 @@ const actions: ShowState = {
   isPlaying: false,
   activeCueId: null,
   selectedFixtureIds: [],
+  newFixtureIds: [],
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
   activeCueIndex: -1,
   cuePlaying: false,
@@ -701,6 +726,7 @@ const actions: ShowState = {
       activeCueId: show?.startup?.mode === 'restore' && show.cues.some((s) => s.id === show.startup?.cueId) ? show.startup.cueId ?? null : null,
       selectedFixtureIds: [],
       selectedBeams: [],
+      newFixtureIds: [],
       activeCueListId: show?.cueLists?.[0]?.id ?? null,
       activeCueIndex: -1,
       cuePlaying: false,
@@ -1462,10 +1488,22 @@ const actions: ShowState = {
     }),
 
   addProfileFixtures: (profile, options) => set((state) => {
-    const fixtures = allocateFixtures(state.show?.fixtures ?? [], profile, options)
-    const cues = state.cues.map((cue) => ({ ...cue, fixtureValues: { ...cue.fixtureValues, ...Object.fromEntries(fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
-    return persistState(state, { fixtures: [...(state.show?.fixtures ?? []), ...fixtures], cues }, { cues })
+    const existing = state.show?.fixtures ?? []
+    const allocated = allocateFixtures(existing, profile, options)
+    // LightKey (video 3:15–3:25, Guide p.31): patched fixtures appear on
+    // the Preview in rows, not only in Fixture Storage — so they land on
+    // the canvas here, at the landing positions, and the Preview animates
+    // them in (see newFixtureIds). Fixture Storage stays for fixtures
+    // removed from the canvas.
+    const landing = landingPositions(existing, allocated)
+    const placed = allocated.map((fixture) => {
+      const positions = landing[fixture.id] ?? []
+      return { ...fixture, inStorage: false, ...(positions[0] ? { previewPosition: positions[0] } : {}), ...(positions.length ? { previewPositions: positions } : {}) }
+    })
+    const cues = state.cues.map((cue) => ({ ...cue, fixtureValues: { ...cue.fixtureValues, ...Object.fromEntries(placed.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
+    return persistState(state, { fixtures: [...existing, ...placed], cues }, { cues, newFixtureIds: placed.map((fixture) => fixture.id) })
   }),
+  clearNewFixtureIds: () => set({ newFixtureIds: [] }),
   saveFixtureProfile: (profile) => set((state) => {
     const errors = validateProfile(profile)
     if (errors.length) throw new Error(errors.join('; '))
@@ -1478,6 +1516,11 @@ const actions: ShowState = {
     const original = state.show?.fixtures.find((f) => f.id === id)
     if (!original) return state
     const copy: FixtureDef = { ...structuredClone(original), id: crypto.randomUUID(), name: `${original.name} copy`, shortName: proposeShortName(state.show!.fixtures.map((f) => f.shortName).filter((s): s is string => Boolean(s)), original.type), channelStart: nextFreeChannel(state.show!.fixtures), inStorage: true }
+    // The copy sits in Fixture Storage until placed: drop the original's
+    // canvas positions, or its instances would land on top of the
+    // original's when it is dragged out of storage.
+    delete copy.previewPosition
+    delete copy.previewPositions
     if (copy.channelStart + copy.channels - 1 > 512) throw new Error('No free channels for the duplicate')
     const cues = state.cues.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
     const presets = state.presets.map((p) => ({ ...p, fixtureValues: { ...p.fixtureValues, ...(p.fixtureValues[id] ? { [copy.id]: { ...p.fixtureValues[id] } } : {}) } }))
@@ -1515,9 +1558,7 @@ const actions: ShowState = {
   setFixturePosition: (id, position) =>
     set((state) => {
       if (!state.show || !Number.isFinite(position.x) || !Number.isFinite(position.y)) return state
-      const fixtures = state.show.fixtures.map((fixture) => fixture.id === id
-        ? { ...fixture, inStorage: false, previewPosition: { x: Math.max(0, Math.min(800, position.x)), y: Math.max(0, Math.min(340, position.y)) } }
-        : fixture)
+      const fixtures = state.show.fixtures.map((fixture) => fixture.id === id ? placeFixture(fixture, position) : fixture)
       return persistState(state, { fixtures })
     }),
 
@@ -1525,7 +1566,29 @@ const actions: ShowState = {
     if (!state.show) return state
     const fixtures = state.show.fixtures.map((fixture) => {
       const p = positions[fixture.id]
-      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? { ...fixture, inStorage: false, previewPosition: { x: Math.max(0, Math.min(800, p.x)), y: Math.max(0, Math.min(340, p.y)) } } : fixture
+      return p && Number.isFinite(p.x) && Number.isFinite(p.y) ? placeFixture(fixture, p) : fixture
+    })
+    return persistState(state, { fixtures })
+  }),
+  setFixtureInstancePositions: (positions) => set((state) => {
+    if (!state.show) return state
+    const fixtures = state.show.fixtures.map((fixture) => {
+      const count = fixture.count ?? 1
+      const current = instancePositions(fixture)
+      let changed = false
+      const next = current.map((pos, i) => {
+        const p = positions[`${fixture.id}:${i}`]
+        if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return pos
+        changed = true
+        return { x: Math.max(0, Math.min(800, p.x)), y: Math.max(0, Math.min(340, p.y)) }
+      })
+      if (!changed) return fixture
+      // previewPositions stays a dense array: gaps (only possible on a
+      // partial programmatic write — the Preview always commits complete
+      // instance sets) fall back to the first placed instance.
+      const first = next.find((p) => p !== null) ?? { x: 400, y: 170 }
+      const previewPositions = next.map((p) => p ?? first)
+      return { ...fixture, ...(previewPositions[0] ? { previewPosition: previewPositions[0] } : {}), previewPositions }
     })
     return persistState(state, { fixtures })
   }),
@@ -1886,7 +1949,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
