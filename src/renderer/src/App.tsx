@@ -101,7 +101,6 @@ export default function App() {
   // Switching to Live while a preset is open ends the session, keeping
   // the edits (they were written live, undoable); Cancel is explicit.
   const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); setTab(view) }
-  const [windowMaximized, setWindowMaximized] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
@@ -160,21 +159,6 @@ export default function App() {
     const timer = window.setInterval(refresh, 200)
     return () => { alive = false; window.clearInterval(timer); root.style.removeProperty('--adaptive-hue'); root.removeAttribute('data-adaptive') }
   }, [adaptiveBackground])
-
-  useEffect(() => {
-    let active = true
-    window.electronAPI
-      .getWindowMaximized()
-      .then((maximized) => {
-        if (active) setWindowMaximized(maximized)
-      })
-      .catch((error) => console.error('Failed to get window state', error))
-    const unsubscribe = window.electronAPI.onWindowMaximized(setWindowMaximized)
-    return () => {
-      active = false
-      unsubscribe()
-    }
-  }, [])
 
   useEffect(() => {
     configureEffects({
@@ -454,49 +438,6 @@ export default function App() {
         </div>
 
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
-        <div className="flex items-center gap-2">
-          <div className="window-controls">
-            <button
-              type="button"
-              className="window-control"
-              aria-label="Minimize window"
-              title="Minimize"
-              onClick={() => window.electronAPI.minimizeWindow()}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="M3 8h10" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="window-control"
-              aria-label={windowMaximized ? 'Restore window' : 'Maximize window'}
-              title={windowMaximized ? 'Restore' : 'Maximize'}
-              onClick={() => window.electronAPI.toggleWindowMaximize()}
-            >
-              {windowMaximized ? (
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M5 5h8v8H5zM3 11H2V2h9v1" />
-                </svg>
-              ) : (
-                <svg viewBox="0 0 16 16" aria-hidden="true">
-                  <path d="M3 3h10v10H3z" />
-                </svg>
-              )}
-            </button>
-            <button
-              type="button"
-              className="window-control window-control-close"
-              aria-label="Quit OpenLights"
-              title="Quit OpenLights"
-              onClick={() => window.electronAPI.quitApp()}
-            >
-              <svg viewBox="0 0 16 16" aria-hidden="true">
-                <path d="m4 4 8 8m0-8-8 8" />
-              </svg>
-            </button>
-          </div>
-        </div>
       </header>
 
       {/* Main row */}

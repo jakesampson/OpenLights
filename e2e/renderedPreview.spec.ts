@@ -4,8 +4,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const asyncValue = async () => null
     const api: Record<string, unknown> = {
-      getWindowMaximized: async () => false,
-      onWindowMaximized: () => () => {},
       onMenuCommand: () => () => {},
       getChannels: async () => Array(512).fill(0),
       listShows: async () => [],

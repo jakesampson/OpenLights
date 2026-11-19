@@ -326,8 +326,6 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar .header-look-field { background: #555658; }
 .top-bar .header-look-field > span, .top-bar .header-look-field select { color: #fff; }
 .top-bar .project-search.open > input { background: #555658; border-color: #767678; color: #fff; }
-.top-bar .window-control { color: #d2d2d2; }
-.top-bar .window-control:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
 /* Header dropdown menus (property ···, effects wand, layout/settings):
    grey surfaces, white text; the selected item is macOS blue. */
 .top-bar .header-more-menu, .top-bar .header-submenu { background: #4a4a4d; border-color: #6a6a6d; }
@@ -398,45 +396,6 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .window-title {
   -webkit-app-region: no-drag;
-}
-
-.window-controls {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  -webkit-app-region: no-drag;
-}
-
-.window-control {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 28px;
-  padding: 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-}
-
-.window-control:hover {
-  background: var(--panel2);
-  color: var(--text);
-}
-
-.window-control svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-}
-
-.window-control-close:hover {
-  background: #c42b1c;
-  color: white;
 }
 
 /* Flush, square-cornered main-window panels (Jake, 19 Nov 2026,
