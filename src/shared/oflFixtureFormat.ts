@@ -200,15 +200,16 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       const descriptor = descriptors.get(String(channelKey))
       const definition = descriptor?.definition ?? {}
       const label = descriptor?.byte ? `${definition.name ?? descriptor.key} fine ${descriptor.byte}` : String(definition.name ?? descriptor?.key ?? channelKey)
+      const type = propertyType(definition, descriptor?.key ?? String(channelKey))
       return {
         number,
         attribute: uniqueAttribute(label, used),
-        propertyType: propertyType(definition, descriptor?.key ?? String(channelKey)),
+        propertyType: type,
         control: channelControl(definition),
         slots: channelSlots(definition),
         min: 0,
         max: 255,
-        defaultValue: defaultChannelValue(definition, descriptor),
+        defaultValue: defaultChannelValue(definition, descriptor, type),
         highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 255)
       }
     })
@@ -257,12 +258,15 @@ function colorName(attribute: string): string | undefined {
  * it sets one. When it sets none, LightKey's default colour is blue
  * (Guide p.85) — a blue-component colour channel (Blue, Cyan, Magenta)
  * defaults to full (255) on its coarse byte, the other colour components
- * to 0. Fine bytes default to 0.
+ * to 0 — and the dimmer defaults to full (255) too, so a fixture added
+ * for the first time starts at 100% (Jake, 19 Nov 2026 — Piece 13, the
+ * same as the virtual dimmer). Fine bytes default to 0.
  */
-function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined): number {
+function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined, type: FixtureChannel['propertyType']): number {
   const byte = descriptor?.byte ?? 0
   const value = dmxByte(definition.defaultValue, definition.dmxValueResolution, byte, 0)
   if (definition.defaultValue != null || byte !== 0) return value
+  if (type === 'intensity') return 255
   const color = colorName(descriptor?.key ?? '')
   return color === 'Blue' || color === 'Cyan' || color === 'Magenta' ? 255 : value
 }

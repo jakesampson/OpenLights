@@ -131,9 +131,12 @@ export function DesignTab() {
           ) / selectedFixtures.length
         )
       : 0
-  // With no cue or preset the dimmer reads the virtual fallback (full
-  // open) for a virtual-dimmer fixture, dark for one with a channel.
-  const dimmer = editingPreset || activeCue ? valueFor('intensity') : selectedFixtures.some(isVirtualDimmer) ? 255 : 0
+  // The dimmer reads the effective intensity — the cue or preset value,
+  // else the fixture's default (100% for a dimmer channel since Piece
+  // 13, full open for a virtual dimmer, dark for a fixture with
+  // neither). With no cue at all the defaults still apply, so a fresh
+  // fixture reads 100% here and is lit in the output.
+  const dimmer = valueFor('intensity')
   const updateValues = editingPreset ? updateEditingPresetValues
     : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
   // The wheel's hue / saturation / brightness describe the base colour

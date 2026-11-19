@@ -54,6 +54,24 @@ describe('Open Fixture Library format', () => {
     ])
   })
 
+  it('defaults an undefined dimmer to full unless the definition sets one (Piece 13)', () => {
+    const dimmerFixture = {
+      ...oflFixture,
+      fixtureKey: 'dimmer-test',
+      name: 'Dimmer Test',
+      categories: ['Dimmer'],
+      availableChannels: {
+        Dimmer: { capability: { type: 'Intensity' } },
+        'Dimmer (forced off)': { defaultValue: 0, capability: { type: 'Intensity' } }
+      },
+      modes: [{ name: 'Dimmer', shortName: '2ch', channels: ['Dimmer', 'Dimmer (forced off)'] }]
+    }
+    const profile = importOflFixture(dimmerFixture, { manufacturer: 'Sample Brand' })
+    expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
+      ['Dimmer', 255], ['Dimmer (forced off)', 0]
+    ])
+  })
+
   it('auto-detects OFL JSON and supports compact bulk-library conversion', () => {
     expect(importProfile(JSON.stringify(oflFixture), { manufacturer: 'Sample Brand' }).name).toBe('Sample Move')
     expect(importOflFixture(oflFixture, { preserveSource: false }).ofl?.source).toBeUndefined()

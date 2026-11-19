@@ -30,11 +30,14 @@ const LEGACY_CHANNELS: Record<string, Record<string, number>> = {
 }
 
 export const BUILTIN_PROFILES: FixtureProfile[] = [
-  // Channel defaults (LightKey Guide pp.85, 114 — Piece 11): pan/tilt sit
+  // Channel defaults (LightKey Guide pp.85, 114 — Pieces 11, 13): pan/tilt sit
   // centred (128); the colour default is blue — the blue component full
   // (blue, cyan, magenta at 255; red, green, yellow, white, amber, UV at
   // 0) — so a fixture with no colour defined lights blue when its dimmer
-  // is open. Everything else defaults to 0 (off).
+  // is open; and the dimmer itself defaults to full (255), so a fixture
+  // added for the first time starts at 100% (Jake, 19 Nov 2026 — the
+  // same as the virtual dimmer, which reads Full until set). Everything
+  // else defaults to 0 (off).
   { id: 'par-rgb', name: 'Generic PAR (RGB)', type: 'par' as FixtureType },
   { id: 'wash-rgbaw', name: 'LED Wash (RGBAW+UV)', type: 'led-wash' as FixtureType },
   { id: 'head-8ch', name: 'Moving Head (8ch)', type: 'moving-head' as FixtureType },
@@ -43,7 +46,7 @@ export const BUILTIN_PROFILES: FixtureProfile[] = [
   { id: 'pan-4x1x30-17ch', name: 'PAN 4x1x30 (17ch)', type: 'pixel-bar-17ch' as FixtureType },
   { id: 'simger-q12bt-rgba-4ch', name: 'Simger Q12BT (RGBA 4ch)', type: 'rgba-4ch' as FixtureType },
   { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch' as FixtureType },
-].map((preset) => ({ id: preset.id, name: preset.name, manufacturer: 'Generic', legacyType: preset.type, modes: [{ id: 'default', name: 'Default mode', channels: Object.entries(LEGACY_CHANNELS[preset.type]).map(([attribute, number]) => ({ number, attribute, propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue|white|amber|uv)/.test(attribute) ? 'color' as const : attribute === 'pan' || attribute === 'tilt' ? 'position' as const : 'other' as const, min: 0, max: 255, defaultValue: attribute === 'pan' || attribute === 'tilt' ? 128 : /^(blue|cyan|magenta)\d*$/.test(attribute) ? 255 : 0, highlightValue: /^(intensity|red|green|blue|white|amber|uv)/.test(attribute) ? 255 : attribute === 'pan' || attribute === 'tilt' ? 128 : 0 })) }] }))
+].map((preset) => ({ id: preset.id, name: preset.name, manufacturer: 'Generic', legacyType: preset.type, modes: [{ id: 'default', name: 'Default mode', channels: Object.entries(LEGACY_CHANNELS[preset.type]).map(([attribute, number]) => ({ number, attribute, propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue|white|amber|uv)/.test(attribute) ? 'color' as const : attribute === 'pan' || attribute === 'tilt' ? 'position' as const : 'other' as const, min: 0, max: 255, defaultValue: attribute === 'pan' || attribute === 'tilt' ? 128 : attribute === 'intensity' || /^(blue|cyan|magenta)\d*$/.test(attribute) ? 255 : 0, highlightValue: /^(intensity|red|green|blue|white|amber|uv)/.test(attribute) ? 255 : attribute === 'pan' || attribute === 'tilt' ? 128 : 0 })) }] }))
 
 const pixel = BUILTIN_PROFILES.find((p) => p.legacyType === 'pixel-bar-17ch')!
 pixel.modes[0].beams = Array.from({ length: 4 }, (_, index) => ({ id: `cell-${index + 1}`, name: `Cell ${index + 1}`, properties: Object.fromEntries(['red', 'green', 'blue'].map((attribute) => [attribute, `${attribute}${index === 0 ? '' : index + 1}`])) }))

@@ -119,4 +119,11 @@ describe('Virtual dimmer in the Design panel', () => {
     expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('128')
     expect(container?.textContent).toContain('50%')
   })
+
+  it('reads full open for a dimmer-channel fixture with no intensity set (Piece 13)', () => {
+    setShow(LED_WASH, { red: 255, green: 0, blue: 0 })
+    renderInRoot(<DesignTab />)
+    expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('255')
+    expect(container?.textContent).toContain('100%')
+  })
 })
