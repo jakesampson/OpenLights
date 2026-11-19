@@ -163,4 +163,51 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     expect(arcValue('Brightness')).toBe('100')
     expect(centreValue()).toBe('#ffffff')
   })
+
+  it('dragging the saturation arc does not move brightness or White', () => {
+    // Jake, 19 Nov 2026 (Windows): turning saturation down also brought
+    // brightness down. The wheel's arcs must be independent of each
+    // other, and of the White / Amber / UV sliders: each control writes
+    // only its own property. Driven by a real pointer drag on the wheel
+    // (the path Jake actually uses), as in colorWheelInteraction.test.
+    const arcValue = (label: string) => container?.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-valuenow')
+    const wheel = () => container?.querySelector('.color-wheel') as HTMLElement | null
+    const pointer = (type: string, x: number, y: number, buttons = 1) =>
+      new window.PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons, pointerId: 1 })
+    setShow(LED_WASH, { red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0 })
+    renderInRoot(<DesignTab />)
+    expect(arcValue('Saturation')).toBe('100')
+    expect(arcValue('Brightness')).toBe('100')
+    // Pointer down on the saturation arc's midpoint (38, 75) drags it
+    // to 50%.
+    const wheelEl = wheel()
+    if (!wheelEl) throw new Error('no colour wheel')
+    act(() => { wheelEl.dispatchEvent(pointer('pointerdown', 38, 75)) })
+    act(() => { wheelEl.dispatchEvent(pointer('pointerup', 38, 75, 0)) })
+    expect(arcValue('Saturation')).toBe('50')
+    // Brightness is untouched, and no White was conjured up: the wheel
+    // writes the base colour only (255, 128, 128).
+    expect(arcValue('Brightness')).toBe('100')
+    expect(slider('White')?.getAttribute('aria-valuenow')).toBe('0')
+    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 128, blue: 128, white: 0, amber: 0, uv: 0 })
+  })
+
+  it('dragging the hue ring to yellow does not move Amber', () => {
+    // Jake, 19 Nov 2026 (Windows): changing the colour to yellow moved
+    // the Amber slider up and down. Hue is the base colour only — the
+    // Amber slider stays where it was.
+    const arcValue = (label: string) => container?.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-valuenow')
+    const hue = () => container?.querySelector('[aria-label="Colour hue"]') as HTMLElement | null
+    setShow(LED_WASH, { red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0 })
+    renderInRoot(<DesignTab />)
+    expect(arcValue('Colour hue')).toBe('0')
+    // PageUp steps the hue ring 30° at a time: 0 → 60 (yellow).
+    const hueEl = hue()
+    if (!hueEl) throw new Error('no hue ring')
+    keydown(hueEl, 'PageUp')
+    keydown(hue() ?? hueEl, 'PageUp')
+    expect(arcValue('Colour hue')).toBe('60')
+    expect(slider('Amber')?.getAttribute('aria-valuenow')).toBe('0')
+    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 255, blue: 0, white: 0, amber: 0, uv: 0 })
+  })
 })

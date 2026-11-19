@@ -69,6 +69,7 @@ export function DesignTab() {
     updateSelectedBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
+    setSelectedBaseColor,
     addColorFavorite,
     removeColorFavorite,
     editingPresetId,
@@ -119,7 +120,11 @@ export function DesignTab() {
   // own arcs: the fixture's RGB channels do not change when White or
   // Amber moves. (Jake, 19 Nov 2026: raising White was desaturating the
   // wheel and Amber was shifting its hue, because the wheel HSV was
-  // derived from the mix.)
+  // derived from the mix.) The reverse is true on the write side too:
+  // a wheel drag must not write White / Amber — deriving them from the
+  // RGB made the arcs move each other (saturation down stole brightness
+  // into White, hue to yellow drove Amber), so the wheel writes through
+  // setWheelColor, which touches the base colour only.
   const baseColorValues = {
     red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : valueFor('red'),
     green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : valueFor('green'),
@@ -174,6 +179,19 @@ export function DesignTab() {
     if (editingPreset) updateEditingPresetValues({ ...rgb })
     else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
     else setSelectedColor(rgb, false)
+  }
+
+  // The wheel's own write path: hue / saturation / brightness set the
+  // base colour only (see setSelectedBaseColor) — White / Amber / UV
+  // stay exactly where their sliders left them. The centre picker and
+  // colour favourites still use setColor above: applying a whole colour
+  // may use the extra emitters to reproduce it.
+  const setWheelColor = (hex: string) => {
+    const rgb = hexToRgb(hex)
+    if (!rgb) return
+    if (editingPreset) updateEditingPresetValues({ ...rgb })
+    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
+    else setSelectedBaseColor(rgb, false)
   }
 
   // Per-property fanning (LightKey Guide §8, p.118–123): each property's
@@ -269,7 +287,7 @@ export function DesignTab() {
                 hsv={hsv}
                 centreHex={colorHex(colorValues)}
                 disabled={!canEdit || !colorSupported}
-                onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s, v: next.v }); setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
+                onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s, v: next.v }); setWheelColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
                 onCentrePick={(hex) => {
                   const picked = hexToRgb(hex)
                   if (picked) { const p = rgbToHsv({ red: picked.red, green: picked.green, blue: picked.blue }); if (p.s > 0 && p.v > 0) setPreservedHsv({ h: p.h, s: p.s, v: p.v }) }

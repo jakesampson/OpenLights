@@ -73,7 +73,7 @@ describe('ColorWheelControl — LightKey’s round control', () => {
 })
 
 describe('DesignTab — the wheel is the colour control', () => {
-  it('drives the wheel from HSV and feeds changes back through setColor', () => {
+  it('drives the wheel from HSV and feeds changes back through setWheelColor', () => {
     expect(design).toContain('<ColorWheelControl')
     expect(design).toContain('hsv={hsv}')
     // The wheel HSV comes from the base colour only — White / Amber must
@@ -85,8 +85,14 @@ describe('DesignTab — the wheel is the colour control', () => {
     // The wheel's own hue/sat/brightness are preserved independently
     // (displayHsv) — the handler records them before writing the colour.
     expect(design).toContain('setPreservedHsv({ h: next.h, s: next.s, v: next.v })')
-    expect(design).toContain('setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
+    // The wheel writes the base colour only — it must not write White /
+    // Amber, or the arcs move each other (Jake, 19 Nov 2026: saturation
+    // down pulled brightness down, hue to yellow drove Amber).
+    expect(design).toContain('setWheelColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
+    expect(design).toContain('setSelectedBaseColor(rgb, false)')
+    // The centre picker still applies a whole colour via setColor.
     expect(design).toContain('onCentrePick={(hex) => {')
+    expect(design).toContain('setSelectedColor(rgb, false)')
   })
 
   it('defaults saturation and brightness to 100% for a black fixture', () => {

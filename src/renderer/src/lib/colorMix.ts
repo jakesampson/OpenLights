@@ -26,6 +26,26 @@ export function mixColor(rgb: RgbColor, emitters: string[]): Record<string, numb
   for (const [attribute, value] of Object.entries({ red, green, blue })) if (emitters.includes(attribute)) output[attribute] = clamp(value)
   return output
 }
+
+/**
+ * The base colour channels for a fixture colour — the channels the round
+ * Color control owns. White / Amber / UV are separate LEDs (Guide p.85)
+ * with their own sliders beside the wheel, so a wheel drag must not
+ * write them: deriving them from the RGB, as mixColor does, makes the
+ * wheel's own arcs move each other — saturation down stole brightness
+ * into White (the residual RGB went monochromatic, so the saturation
+ * arc snapped back to 100 and the brightness arc fell), and hue to
+ * yellow drove Amber to full (Jake, 19 Nov 2026). CMY fixtures take
+ * the complement; RGB fixtures take the RGB channels they have and
+ * nothing else, so the other sliders stay where they were.
+ */
+export function baseColorChannels(rgb: RgbColor, emitters: string[]): Record<string, number> {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
+  if (['cyan', 'magenta', 'yellow'].every((a) => emitters.includes(a))) return { cyan: clamp(255 - rgb.red), magenta: clamp(255 - rgb.green), yellow: clamp(255 - rgb.blue) }
+  const output: Record<string, number> = {}
+  for (const [attribute, value] of Object.entries(rgb)) if (emitters.includes(attribute)) output[attribute] = clamp(value)
+  return output
+}
 /** RGB (0–255 per channel) to lowercase `#rrggbb`. */
 export function rgbToHex(rgb: RgbColor): string {
   const part = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
