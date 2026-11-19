@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
-import { fixtureMode } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { resolveCueValues } from '@shared/cueResolution'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
@@ -146,6 +146,23 @@ export function DesignTab() {
   // neither). With no cue at all the defaults still apply, so a fresh
   // fixture reads 100% here and is lit in the output.
   const dimmer = valueFor('intensity')
+  // The wheel drives every beam of a multipart fixture, so it reads the
+  // linked colour: the average of an attribute across the fixture's
+  // beams (each beam's channels via its beam properties), then averaged
+  // across the selected fixtures. A beam separated by its own sliders
+  // shows as the average until the wheel moves and re-links them. With
+  // individual beams selected the wheel already reads those beams
+  // (valueFor), and a single-cell fixture reads as before — including
+  // valueFor's undefined fallbacks (255 for a dimmer fixture's RGB,
+  // 255 for a virtual dimmer's intensity, 0 otherwise).
+  const linkedValueFor = (attribute: string) => {
+    if (selectedBeams.length || !selectedFixtures.length) return valueFor(attribute)
+    return Math.round(selectedFixtures.reduce((total, fixture) => {
+      const keys = fixtureBeams(fixture).map((beam) => beam.properties[attribute]).filter((key): key is string => Boolean(key))
+      if (!keys.length) return total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : attribute === 'intensity' && isVirtualDimmer(fixture) ? 255 : 0)
+      return total + keys.reduce((sum, key) => sum + fixtureAttr(fixture.id, key, 0), 0) / keys.length
+    }, 0) / selectedFixtures.length)
+  }
   const updateValues = editingPreset ? updateEditingPresetValues
     : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
   // The wheel's hue / saturation / brightness describe the base colour
@@ -162,14 +179,14 @@ export function DesignTab() {
   // into White, hue to yellow drove Amber), so the wheel writes through
   // setWheelColor, which touches the base colour only.
   const baseColorValues = {
-    red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : valueFor('red'),
-    green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : valueFor('green'),
-    blue: commonAttributes.includes('yellow') ? 255 - valueFor('yellow') : valueFor('blue')
+    red: commonAttributes.includes('cyan') ? 255 - linkedValueFor('cyan') : linkedValueFor('red'),
+    green: commonAttributes.includes('magenta') ? 255 - linkedValueFor('magenta') : linkedValueFor('green'),
+    blue: commonAttributes.includes('yellow') ? 255 - linkedValueFor('yellow') : linkedValueFor('blue')
   }
   const colorValues = {
-    red: commonAttributes.includes('cyan') ? 255 - valueFor('cyan') : Math.min(255, valueFor('red') + valueFor('white') + valueFor('amber')),
-    green: commonAttributes.includes('magenta') ? 255 - valueFor('magenta') : Math.min(255, valueFor('green') + valueFor('white') + valueFor('amber') * 0.45),
-    blue: commonAttributes.includes('yellow') ? 255 - valueFor('yellow') : Math.min(255, valueFor('blue') + valueFor('white'))
+    red: commonAttributes.includes('cyan') ? 255 - linkedValueFor('cyan') : Math.min(255, linkedValueFor('red') + linkedValueFor('white') + linkedValueFor('amber')),
+    green: commonAttributes.includes('magenta') ? 255 - linkedValueFor('magenta') : Math.min(255, linkedValueFor('green') + linkedValueFor('white') + linkedValueFor('amber') * 0.45),
+    blue: commonAttributes.includes('yellow') ? 255 - linkedValueFor('yellow') : Math.min(255, linkedValueFor('blue') + linkedValueFor('white'))
   }
   const colorSupported = previewOnlyColor || ['cyan', 'magenta', 'yellow'].every((a) => commonAttributes.includes(a)) || ['red', 'green', 'blue'].every((attribute) =>
     commonAttributes.includes(attribute)
