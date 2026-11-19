@@ -195,6 +195,10 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
     if (!Array.isArray(mode.channels) || !mode.channels.length) throw new Error('Every OFL mode must contain channels')
     const expandedChannels = expandModeChannels(fixture, mode.channels, descriptors)
     const used = new Set<string>()
+    // Pan/tilt ranges from the profile (Guide p.60), captured while the
+    // channels are built — a Pan/Tilt capability's angleStart/angleEnd.
+    let panRange: number | undefined
+    let tiltRange: number | undefined
     const channels: FixtureChannel[] = expandedChannels.map((channelKey, number) => {
       if (channelKey === null) return { number, attribute: uniqueAttribute(`Unused ${number + 1}`, used), propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }
       const descriptor = descriptors.get(String(channelKey))
@@ -210,6 +214,8 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       // one. Fine channels keep their "X fine N" names — they are
       // distinct channels.
       const attribute = descriptor?.byte ? label : canonicalAttribute(label, type)
+      if (!descriptor?.byte && attribute === 'pan' && panRange === undefined) panRange = capabilityAngleRange(definition)
+      if (!descriptor?.byte && attribute === 'tilt' && tiltRange === undefined) tiltRange = capabilityAngleRange(definition)
       return {
         number,
         attribute: uniqueAttribute(attribute, used),
@@ -219,7 +225,13 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
         min: 0,
         max: 255,
         defaultValue: defaultChannelValue(definition, descriptor, type),
-        highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 255)
+        // A channel with no highlight value in its definition falls
+        // back to the built-in rule (fixtureProfiles.ts): intensity
+        // and colour channels light at full, pan/tilt sit centred,
+        // everything else off. The old fallback lit every channel at
+        // 255, so a moving head highlighted with its pan hard over
+        // instead of centred.
+        highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, type === 'position' ? 128 : type === 'intensity' || type === 'color' ? 255 : 0)
       }
     })
     const name = typeof mode.name === 'string' ? mode.name : `Mode ${modeIndex + 1}`
@@ -241,7 +253,18 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       if (expandedChannels.length - pixels.length * templateCount < 0) return undefined
       return { channelsPerLed: templateCount, maxLeds: pixels.length, defaultLeds: pixels.length, minLeds: 1 }
     })()
-    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}) }
+    // Beams (cells, Piece 7): a mode whose colour channels repeat across
+    // pods — "Red 1…Red 4", "Quad LED 1 Red…Quad LED 5 Red" — is a
+    // multi-cell fixture. The normalised attributes carry the pod in
+    // their suffix ("red" = pod 1, "red 2" = pod 2), so grouping the
+    // colour channels by that suffix gives one beam per pod, with the
+    // beam's properties mapping the panel's colour names to the pod's
+    // channel attributes. A single pod is just the fixture itself and
+    // gets no beams. (Limitation: a mode with a global colour channel
+    // AND per-pod colours cannot be told apart — the global channel
+    // takes the pod-1 slot.)
+    const beams = deriveBeams(channels)
+    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}), ...(beams ? { beams } : {}), ...(panRange !== undefined ? { panRange } : {}), ...(tiltRange !== undefined ? { tiltRange } : {}) }
   })
 
   const name = typeof fixture.name === 'string' && fixture.name.trim() ? fixture.name : 'OFL fixture'
@@ -269,6 +292,59 @@ function colorName(attribute: string): string | undefined {
  * in particular a "Pan/Tilt Speed" channel is not the pan position, and
  * a colour-wheel preset is not a colour mixer.
  */
+const BEAM_COLOURS = ['red', 'green', 'blue', 'white', 'amber', 'uv', 'cyan', 'magenta', 'yellow'] as const
+
+/**
+ * Derive a mode's beams (cells) from its normalised colour channels.
+ * The first pod's colours are bare ("red") and later pods carry their
+ * pod number ("red 2", or the built-in "red2" form) — grouping by that
+ * number gives one beam per pod. Returns undefined for a single pod:
+ * one addressable colour group is the fixture itself, not a cell.
+ */
+function deriveBeams(channels: FixtureChannel[]): FixtureProfile['modes'][number]['beams'] | undefined {
+  const pods = new Map<number, Record<string, string>>()
+  for (const channel of channels) {
+    if (channel.propertyType !== 'color') continue
+    const match = new RegExp(`^(${BEAM_COLOURS.join('|')})(?: ?(\\d+))?$`, 'i').exec(channel.attribute)
+    if (!match) continue
+    const pod = match[2] ? Number(match[2]) : 1
+    const entry = pods.get(pod) ?? {}
+    entry[match[1].toLowerCase()] = channel.attribute
+    pods.set(pod, entry)
+  }
+  if (pods.size < 2) return undefined
+  return [...pods.entries()].sort((a, b) => a[0] - b[0]).map(([pod, properties]) => ({ id: `cell-${pod}`, name: `Cell ${pod}`, properties }))
+}
+
+/** Angle in degrees from an OFL angle value ("540deg" or a number). */
+function parseAngle(value: unknown): number | undefined {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined }
+  return undefined
+}
+
+/**
+ * Total sweep of a Pan/Tilt capability ("angleStart": "0deg",
+ * "angleEnd": "540deg") — the fixture profile's pan/tilt range (Guide
+ * p.60: "Lightkey needs to know a moving light's pan and tilt ranges
+ * to match its beam direction. This information is part of the fixture
+ * profile"). A channel's capability may be a single object or an entry
+ * in a capabilities array.
+ */
+function capabilityAngleRange(definition: JsonRecord): number | undefined {
+  const capabilities: unknown[] = []
+  if (Object.keys(record(definition.capability)).length) capabilities.push(definition.capability)
+  if (Array.isArray(definition.capabilities)) capabilities.push(...definition.capabilities)
+  for (const capability of capabilities) {
+    const cap = record(capability)
+    if (cap.type !== 'Pan' && cap.type !== 'Tilt') continue
+    const start = parseAngle(cap.angleStart)
+    const end = parseAngle(cap.angleEnd)
+    if (start !== undefined && end !== undefined && end > start) return end - start
+  }
+  return undefined
+}
+
 function canonicalAttribute(label: string, type: FixtureChannel['propertyType']): string {
   if (type === 'intensity') return 'intensity'
   if (type === 'color') {

@@ -22,6 +22,10 @@ import { syncPresetGroups, activateGroupedPreset } from '../lib/presetGroups'
 import { resolvePaletteDrop, type PaletteDragItem } from '../lib/paletteDrop'
 import { create } from 'zustand'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '@shared/migrations'
+import { homeFixtureValues } from '../lib/calibration'
+import type { WizardStep } from '../lib/setupWizard'
+import type { ShowTemplate } from '../lib/templates'
+import { nextGroupName } from '../lib/fixtureGroups'
 import { sanitizeStageObjectPatch } from '../lib/stageObjectGeometry'
 import { locateFixturePatch } from '../lib/locateFixtures'
 import { configureLocateOutput } from '../lib/output'
@@ -48,12 +52,12 @@ import { proposeShortName } from '@shared/shortNames'
 import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { fixtureMode } from '@shared/fixtureProfiles'
-import { canParentGroup, syncFixtureGroups } from '../lib/fixtureGroups'
+import { canParentGroup, moveFixturesToGroup, syncFixtureGroups } from '../lib/fixtureGroups'
 import { mixColor, baseColorChannels, colorChannels, normalizeColorFavorite, type RgbColor } from '../lib/colorMix'
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
 
 interface ShowState {
   locked: boolean
@@ -106,6 +110,42 @@ interface ShowState {
   blackout: boolean
   blind: boolean
   freeze: boolean
+  /** Highlight Mode (Guide pp.32, 64): only the selected fixtures light
+   *  up. Operator state, like blind/freeze: not persisted in the show,
+   *  not undo history. */
+  highlightMode: boolean
+  /** Setup wizard (Piece 5, Guide ch.4 pp.26–37): the new-project flow —
+   *  DMX Output, Fixture Patching, Build Your Preview, Fixture Groups,
+   *  Light Beam Directions, That's It. Null when no wizard is running.
+   *  UI-only state: not persisted in the show, not undo history. */
+  setupWizardStep: WizardStep | null
+  setSetupWizardStep: (step: WizardStep | null) => void
+  startSetupWizard: () => void
+  exitSetupWizard: () => void
+  /** Group the current selection (Guide p.35: Layout > Group, or
+   *  Control-click → Group). The name is the next free "Group N" —
+   *  editable afterwards in the Fixture Groups panel. */
+  groupSelection: () => void
+  /** "Create Groups for Me" (video 06:30): the video's auto-grouping puts
+   *  everything into one group — replicated, not improved. */
+  createGroupsForMe: () => void
+  /** Wizard Go! (video 09:30): applies the default home position with the
+   *  lights on — a "Home" cue, created only when the show has no cues yet —
+   *  activates it and exits the wizard to the Design view. */
+  finishSetupWizard: () => void
+  /** Project Browser (the welcome screen, Guide p.26): shown on launch,
+   *  with Recent Projects and templates. UI-only. */
+  welcomeOpen: boolean
+  setWelcomeOpen: (open: boolean) => void
+  /** New Project name dialog (Guide p.26: "Enter a name … then click
+   *  Save"). UI-only. */
+  newProjectDialogOpen: boolean
+  setNewProjectDialogOpen: (open: boolean) => void
+  /** The template a new project starts from, when the New Project dialog
+   *  was opened from a template row. Null = a blank project (which runs
+   *  the setup wizard); a template starts in the Design view directly. */
+  newProjectTemplate: ShowTemplate | null
+  setNewProjectTemplate: (template: ShowTemplate | null) => void
   bpm: number
   isPlaying: boolean
   activeCueId: string | null
@@ -176,6 +216,8 @@ interface ShowState {
   toggleBlind: () => void
   setFreeze: (active: boolean) => void
   toggleFreeze: () => void
+  setHighlightMode: (active: boolean) => void
+  toggleHighlightMode: () => void
 
   selectFixture: (id: string, additive?: boolean) => void
   selectFixtures: (ids: string[]) => void
@@ -652,6 +694,7 @@ const developmentDefaultShow: ShowDef = {
 }
 
 const defaultShow = import.meta.env.DEV ? developmentDefaultShow : productionDefaultShow
+export { defaultShow }
 
 let sessionPasscode = ''
 
@@ -722,6 +765,11 @@ const actions: ShowState = {
   blackout: false,
   blind: false,
   freeze: false,
+  highlightMode: false,
+  setupWizardStep: null,
+  welcomeOpen: true,
+  newProjectDialogOpen: false,
+  newProjectTemplate: null,
   bpm: 120,
   isPlaying: false,
   activeCueId: null,
@@ -748,6 +796,7 @@ const actions: ShowState = {
     setEffectBlackout(false)
     setBlindOutput(false)
     setFreezeOutput(false, 0)
+    setHighlightOutput(false, [])
     sendImmediate(allZeroPatch())
     set({
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
@@ -778,6 +827,8 @@ const actions: ShowState = {
       blackout: false,
       blind: false,
       freeze: false,
+      highlightMode: false,
+      setupWizardStep: null,
       bpm: show?.bpm ?? 120,
       activeCueId: show?.startup?.mode === 'restore' && show.cues.some((s) => s.id === show.startup?.cueId) ? show.startup.cueId ?? null : null,
       selectedFixtureIds: [],
@@ -1146,8 +1197,51 @@ const actions: ShowState = {
   toggleBlind: () => get().setBlind(!get().blind),
   setFreeze: (active) => { setFreezeOutput(active); set({ freeze: active }) },
   toggleFreeze: () => get().setFreeze(!get().freeze),
+  // Turning Highlight Mode off re-sends the unmodified look through the
+  // output module, so the rig returns to exactly what it was doing —
+  // nothing in the show was ever changed.
+  setHighlightMode: (active) => { setHighlightOutput(active, active ? get().selectedFixtureIds : []); set({ highlightMode: active }) },
+  toggleHighlightMode: () => get().setHighlightMode(!get().highlightMode),
+  setSetupWizardStep: (step) => set({ setupWizardStep: step }),
+  startSetupWizard: () => set({ setupWizardStep: 'dmx', welcomeOpen: false }),
+  exitSetupWizard: () => set({ setupWizardStep: null }),
+  setWelcomeOpen: (open) => set({ welcomeOpen: open }),
+  setNewProjectDialogOpen: (open) => set({ newProjectDialogOpen: open }),
+  setNewProjectTemplate: (template) => set({ newProjectTemplate: template }),
+  groupSelection: () => {
+    const state = get()
+    if (state.selectedFixtureIds.length === 0) return
+    const names = [...(state.show?.fixtureGroups ?? []).map((g) => g.name), ...(state.show?.fixtures ?? []).map((f) => f.group ?? '')]
+    get().groupSelectedFixtures(nextGroupName(names))
+  },
+  createGroupsForMe: () => {
+    const state = get()
+    if (!state.show || state.show.fixtures.length === 0) return
+    // The video's auto-grouping (06:30) "just put everything together" —
+    // one group holding every fixture. Replicated, not improved.
+    state.selectFixtures(state.show.fixtures.map((f) => f.id))
+    get().groupSelectedFixtures('All Fixtures')
+  },
+  finishSetupWizard: () => {
+    const state = get()
+    if (state.setupWizardStep === null) return
+    if (state.show && state.cues.length === 0) {
+      // Go! assigns a default home position with the lights on (video
+      // 09:30): a "Home" cue — dimmer full, pan/tilt at home — activated
+      // so the rig is lit in the Design view.
+      const fixtureValues: CueDef['fixtureValues'] = {}
+      for (const fixture of state.show.fixtures) fixtureValues[fixture.id] = homeFixtureValues(fixture)
+      const homeCue: CueDef = { id: crypto.randomUUID(), name: 'Home', presetIds: [], sequenceIds: [], fixtureValues, fadeMs: state.show.preferences?.defaultFadeMs ?? 1000 }
+      set((s) => {
+        const cues = [...s.cues, homeCue]
+        return persistState(s, { cues }, { cues })
+      })
+      get().activateCue(homeCue.id)
+    }
+    set({ setupWizardStep: null })
+  },
 
-  selectFixture: (id, additive = false) =>
+  selectFixture: (id, additive = false) => {
     set((state) => {
       if (!state.show?.fixtures.some((fixture) => fixture.id === id)) return state
       const selectedFixtureIds = additive
@@ -1156,12 +1250,21 @@ const actions: ShowState = {
           : [...state.selectedFixtureIds, id]
         : [id]
       return { selectedFixtureIds, selectedBeams: [] }
-    }),
+    })
+    // While Highlight Mode is on, the highlight follows the selection:
+    // selecting another fixture lights that one instead.
+    const state = get()
+    if (state.highlightMode) setHighlightOutput(true, state.selectedFixtureIds)
+  },
 
-  selectFixtures: (ids) => set((state) => {
-    const validIds = new Set(state.show?.fixtures.map((fixture) => fixture.id) ?? [])
-    return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)), selectedBeams: [] }
-  }),
+  selectFixtures: (ids) => {
+    set((state) => {
+      const validIds = new Set(state.show?.fixtures.map((fixture) => fixture.id) ?? [])
+      return { selectedFixtureIds: [...new Set(ids)].filter((id) => validIds.has(id)), selectedBeams: [] }
+    })
+    const state = get()
+    if (state.highlightMode) setHighlightOutput(true, state.selectedFixtureIds)
+  },
   selectFixtureBeam: (fixtureId, beamId, additive = false) => set((state) => {
     const fixture = state.show?.fixtures.find((f) => f.id === fixtureId)
     if (!fixture || !fixtureMode(fixture)?.beams?.some((b) => b.id === beamId)) return state
@@ -1188,7 +1291,12 @@ const actions: ShowState = {
     if (!state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
     const selected = new Set(state.selectedFixtureIds)
     const fixtures = state.show.fixtures.map((fixture) => selected.has(fixture.id) ? { ...fixture, group: name.trim() } : fixture)
-    return persistState(state, { fixtures })
+    // Repair the group records to match the fields (moveFixturesToGroup):
+    // the migration's 'Ungrouped' record would otherwise keep claiming
+    // these fixtures and the new group would never appear. Passing
+    // fixtureGroups explicitly also skips persistState's sync, which
+    // would re-derive from the stale records.
+    return persistState(state, { fixtures, fixtureGroups: moveFixturesToGroup(state.show.fixtureGroups ?? [], [...selected], name.trim()) })
   }),
   createFixtureGroup: (name, parentId = null) => {
     if (!name.trim()) return ''
@@ -2064,7 +2172,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

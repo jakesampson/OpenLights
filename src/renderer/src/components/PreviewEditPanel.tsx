@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { StageObjectTools } from './StageObjects'
+import { BeamColorDialog } from './BeamColorDialog'
 import type { FixtureDef, PreviewTruss } from '@shared/types'
 import type { AlignMode } from '../lib/align'
 
@@ -27,11 +29,13 @@ export function PreviewEditPanel() {
   const setSelectedStageObjectId = useShowStore((s) => s.setSelectedStageObjectId)
   const setPreviewTrusses = useShowStore((s) => s.setPreviewTrusses)
   const selectedTruss = trusses.find((item) => item.id === selectedPreviewTrussId)
+  const [newTrussShape, setNewTrussShape] = useState<PreviewTruss['shape']>('straight')
+  const [beamColorOpen, setBeamColorOpen] = useState(false)
 
   if (!editing) return null
 
   const addTruss = () => {
-    const item: PreviewTruss = { id: crypto.randomUUID(), name: 'Truss', shape: 'straight', x: 400, y: 170, width: 200, height: 100, rotation: 0 }
+    const item: PreviewTruss = { id: crypto.randomUUID(), name: 'Truss', shape: newTrussShape, x: 400, y: 170, width: 200, height: newTrussShape === 'straight' ? 100 : 200, rotation: 0, ...(newTrussShape === 'curved' ? { startAngle: -90, endAngle: 0 } : {}) }
     setPreviewTrusses([...trusses, item])
     setSelectedPreviewTrussId(item.id)
   }
@@ -56,6 +60,7 @@ export function PreviewEditPanel() {
       <section className="rounded border border-line bg-panel p-2 text-xs">
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-dim">Layout</h3>
         <div className="mt-1 flex flex-wrap gap-1">
+          <select aria-label="New truss shape" value={newTrussShape} onChange={(event) => setNewTrussShape(event.target.value as PreviewTruss['shape'])} className="rounded bg-panel2 px-2 py-1"><option value="straight">Straight</option><option value="u">U</option><option value="curved">Curved</option><option value="circular">Circular</option></select>
           <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={addTruss}>+ Add truss</button>
           <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={() => { selectFixtures(fixtures.map((f) => f.id)); setSelectedLayoutTrussIds(trusses.map((t) => t.id)); setSelectedPreviewTrussId(trusses[0]?.id ?? null) }}>Select all</button>
           <select aria-label="Align selected preview objects" defaultValue="" className="rounded bg-panel2 px-2 py-1" onChange={(e) => { if (e.target.value) window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: e.target.value as AlignMode })); e.target.value = '' }}><option value="">Align / distribute…</option>{(['left', 'right', 'top', 'bottom', 'center-x', 'center-y', 'space-x', 'space-y'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select>
@@ -65,7 +70,7 @@ export function PreviewEditPanel() {
       {selectedTruss && <section className="rounded border border-line bg-panel p-2 text-xs">
         <div className="flex items-center justify-between gap-2"><strong>Truss properties</strong><button type="button" onClick={() => setSelectedPreviewTrussId(null)} className="text-dim">Close</button></div>
         <label className="mt-2 block text-[10px] text-dim">Name<input value={selectedTruss.name} onChange={(event) => changeTruss({ name: event.target.value })} className="mt-1 w-full rounded border border-line bg-panel2 px-2 py-1 text-xs text-text" /></label>
-        <div className="mt-2 grid grid-cols-2 gap-2">{(selectedTruss.shape === 'u' ? ['x', 'y', 'width', 'height', 'rotation'] as const : ['x', 'y', 'width', 'rotation'] as const).map((key) => <label key={key} className="text-[10px] capitalize text-dim">{key === 'width' ? 'Length' : key}<input type="number" aria-label={`Truss ${key}`} value={selectedTruss[key]} onChange={(event) => { const value = Number(event.target.value); if (Number.isFinite(value)) changeTruss({ [key]: key === 'width' || key === 'height' ? Math.max(10, value) : value }) }} className="mt-1 w-full rounded border border-line bg-panel2 px-2 py-1 text-xs text-text" /></label>)}</div>
+        <div className="mt-2 grid grid-cols-2 gap-2">{(selectedTruss.shape === 'curved' ? ['x', 'y', 'width', 'height', 'rotation', 'startAngle', 'endAngle'] as const : selectedTruss.shape === 'u' ? ['x', 'y', 'width', 'height', 'rotation'] as const : ['x', 'y', 'width', 'rotation'] as const).map((key) => <label key={key} className="text-[10px] capitalize text-dim">{key === 'width' ? (selectedTruss.shape === 'circular' ? 'Diameter' : selectedTruss.shape === 'curved' ? 'Width' : 'Length') : key === 'startAngle' ? 'Start angle' : key === 'endAngle' ? 'End angle' : key}<input type="number" aria-label={`Truss ${key}`} value={key === 'startAngle' ? selectedTruss.startAngle ?? -90 : key === 'endAngle' ? selectedTruss.endAngle ?? 0 : selectedTruss[key]} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; if (key === 'startAngle') { const end = selectedTruss.endAngle ?? 0; changeTruss({ startAngle: Math.max(end - 355, Math.min(end - 5, value)) }); return } if (key === 'endAngle') { const start = selectedTruss.startAngle ?? -90; changeTruss({ endAngle: Math.max(start + 5, Math.min(start + 355, value)) }); return } if (key === 'width' && selectedTruss.shape === 'circular') { const size = Math.max(10, value); changeTruss({ width: size, height: size }); return } changeTruss({ [key]: key === 'width' || key === 'height' ? Math.max(10, value) : value }) }} className="mt-1 w-full rounded border border-line bg-panel2 px-2 py-1 text-xs text-text" /></label>)}</div>
         <div className="mt-2 flex items-center gap-4"><button type="button" className="text-text" onClick={() => duplicateTruss(selectedTruss)}>Duplicate</button><button type="button" className="text-red-300" onClick={() => { setPreviewTrusses(trusses.filter((item) => item.id !== selectedTruss.id)); setSelectedPreviewTrussId(null) }}>Remove truss</button></div>
       </section>}
 
@@ -75,9 +80,23 @@ export function PreviewEditPanel() {
           <label>Beam angle<input aria-label="Preview beam angle" type="number" className="ml-1 w-16 rounded bg-panel2 p-1" value={(() => { const f = fixtures.find((f) => f.id === selectedFixtureIds[0]); return f && typeof f.previewBeam?.direction === 'number' ? f.previewBeam.direction : 0 })()} onChange={(event) => { const direction = Number(event.target.value); if (!Number.isFinite(direction)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) { const f = fixtures.find((f) => f.id === id); state.updateFixture(id, { previewBeam: { ...f?.previewBeam, direction } }) } state.endHistoryGroup() }} /></label>
           <label>Beam colour<input aria-label="Preview beam colour" type="color" className="ml-1 h-6 w-8" value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.previewBeam?.color ?? '#ffffff'} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) { const f = fixtures.find((f) => f.id === id); state.updateFixture(id, { previewBeam: { direction: 'auto', ...f?.previewBeam, color: event.target.value } }) } state.endHistoryGroup() }} /></label>
           <button type="button" onClick={() => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { previewBeam: { direction: 'auto' } }); state.endHistoryGroup() }} className="text-dim">Auto beam</button>
+          <button type="button" onClick={() => window.dispatchEvent(new Event('openlights-open-calibration'))} className="rounded bg-panel2 px-2 py-1">Beam Direction…</button>
+          <button type="button" onClick={() => setBeamColorOpen(true)} className="rounded bg-panel2 px-2 py-1">Beam Color…</button>
           <label>Name position<select aria-label="Fixture name position" className="ml-1 rounded bg-panel2 p-1" value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.namePosition ?? 'above'} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { namePosition: event.target.value as FixtureDef['namePosition'] }); state.endHistoryGroup() }}><option value="above">Above</option><option value="below">Below</option><option value="hidden">Hidden</option></select></label>
           {(['iconSize', 'rotation'] as const).map((key) => <label key={key}>{key === 'iconSize' ? 'Icon size' : 'Rotation'}<input aria-label={`Fixture ${key}`} type="number" min={key === 'iconSize' ? 4 : undefined} max={key === 'iconSize' ? 80 : undefined} value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? (key === 'iconSize' ? 10 : 0)} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: key === 'iconSize' ? Math.max(4, Math.min(80, value)) : value }); state.endHistoryGroup() }} className="ml-1 w-16 rounded bg-panel2 p-1" /></label>)}
         </div>
+        {/* Fixture options (Guide p.62; wizard Build Your Preview step,
+            video 04:45): Disable, Hide light beam, Ignore Master Dimmer —
+            applied to every selected fixture. */}
+        <div className="mt-2 flex flex-wrap gap-3">
+          {([['disabled', 'Disable'], ['hideBeam', 'Hide light beam'], ['ignoreMasterDimmer', 'Ignore Master Dimmer']] as const).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-1">
+              <input type="checkbox" checked={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? false} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: event.target.checked }); state.endHistoryGroup() }} />
+              {label}
+            </label>
+          ))}
+        </div>
+        {beamColorOpen && <BeamColorDialog onClose={() => setBeamColorOpen(false)} />}
       </section>}
 
       <section id="fixture-storage-tray" className="rounded border border-line bg-panel p-2 text-xs">

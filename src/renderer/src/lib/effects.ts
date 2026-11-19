@@ -1,4 +1,4 @@
-import { fixtureChannelMap } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureChannelMap } from '@shared/fixtureProfiles'
 import type { EffectDef, FixtureDef } from '@shared/types'
 import { FIXTURE_ATTRIBUTE_MAP, scaleAttribute } from './automationRuntime'
 
@@ -62,17 +62,30 @@ export function computeEffectPatch(
 
   for (const effect of enabled) {
     const ids = new Set(effect.fixtureIds)
-    const targets = orderedEffectFixtures(effect, ids.size > 0 ? fixtures.filter((f) => ids.has(f.id)) : fixtures)
+    const ordered = orderedEffectFixtures(effect, ids.size > 0 ? fixtures.filter((f) => ids.has(f.id)) : fixtures)
+    // Effects run across a multi-beam fixture's cells (Piece 7, Video B
+    // 13:15 — the fire effect): when the effect's attribute is a beam
+    // property, each beam becomes its own phase target, writing to the
+    // beam's channel. With no phase spread every cell gets the same
+    // value (unison); with a spread the wave chases across the cells.
+    // Any other attribute (a global dimmer, pan, strobe) stays one
+    // target for the whole fixture.
+    const targets: { fixture: FixtureDef; attribute: string }[] = []
+    for (const fixture of ordered) {
+      const beams = fixtureBeams(fixture).filter((beam) => beam.properties[effect.attribute] !== undefined)
+      if (beams.length > 0) for (const beam of beams) targets.push({ fixture, attribute: beam.properties[effect.attribute] })
+      else targets.push({ fixture, attribute: effect.attribute })
+    }
     if (targets.length === 0) continue
     const frequency = effectFrequency(effect, bpm)
     const spread = Math.max(0, effect.phaseSpread) / 360
     const size = Math.max(0, Math.min(255, effect.size))
     const offset = Math.max(0, Math.min(255, effect.offset))
 
-    targets.forEach((fixture, index) => {
+    targets.forEach(({ fixture, attribute }, index) => {
       if (fixture.disabled) return
       const map = fixtureChannelMap(fixture)
-      const channelOffset = map[effect.attribute]
+      const channelOffset = map[attribute]
       if (channelOffset === undefined) return
 
       const phase =
@@ -83,10 +96,12 @@ export function computeEffectPatch(
         ? Math.max(0, Math.min(255, effect.minValue ?? 0)) + ((wave + 1) / 2) * (Math.max(0, Math.min(255, effect.maxValue ?? 255)) - Math.max(0, Math.min(255, effect.minValue ?? 0)))
         : offset + wave * size
       const channel = fixture.channelStart + channelOffset
+      // Ignore Master Dimmer (LightKey Fixture Options, Guide p.62): the
+      // master fader never scales this fixture — effects included.
       const next = scaleAttribute(
-        effect.attribute,
+        attribute,
         value,
-        master
+        fixture.ignoreMasterDimmer ? 255 : master
       )
       channels[channel] = effect.blendMode === 'add'
         ? Math.min(255, (channels[channel] ?? 0) + next)

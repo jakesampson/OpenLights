@@ -13,6 +13,14 @@ export interface FixtureDef {
   universe?: number
   notes?: string
   disabled?: boolean
+  /** Hide the virtual light beam in the Preview (LightKey Fixture Options,
+   *  Guide p.62; wizard Build Your Preview step, video 04:45). The fixture
+   *  still outputs DMX — only the drawn beam is hidden. */
+  hideBeam?: boolean
+  /** Ignore the Master Dimmer for this fixture (LightKey Fixture Options,
+   *  Guide p.62; wizard Build Your Preview step, video 04:45). The master
+   *  fader never scales this fixture's output. */
+  ignoreMasterDimmer?: boolean
   positionOptions?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }
   propertyOrder?: string[]
   hiddenProperties?: string[]
@@ -20,6 +28,11 @@ export interface FixtureDef {
   profileId?: string
   modeId?: string
   profile?: FixtureProfile
+  /** Beam-direction calibration (Piece 4, LightKey Guide pp.58–60) —
+   *  home direction, rotation flip, pan/tilt limits and perspective.
+   *  Absent = uncalibrated; every field optional, defaulted in
+   *  lib/calibration.ts. */
+  calibration?: FixtureCalibration
   id: string
   name: string
   /** Short name (≤4 chars) shown in the Preview; the full name stays for lists and panels (Guide p.30). */
@@ -86,6 +99,11 @@ export interface FanDef {
   order: 'selection' | 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top' | 'name' | 'address'
   start: number
   end: number
+  /** When set, the fan distributes over these beams (cells) in listed
+   *  order instead of over fixtures — LightKey Guide §8 p.119: the
+   *  Fanning HUD "offers beams vs fixtures" for multi-beam fixtures.
+   *  Unset (the default) fans across fixtures as before. */
+  beams?: { fixtureId: string; beamId: string }[]
   // Colour fans (attribute 'color', LightKey Guide §8 + "How to Use
   // Fanning" video): the fanned value is a colour, not a number — the
   // endpoints and any intermediate anchors carry hex colours, and the
@@ -186,12 +204,18 @@ export interface EffectDef {
 export interface PreviewTruss {
   id: string
   name: string
-  shape: 'u' | 'straight'
+  shape: 'u' | 'straight' | 'curved' | 'circular'
   x: number
   y: number
   width: number
   height: number
   rotation: number
+  /** Curved truss only: start / end angle of the arc in degrees, in the
+   *  truss's local frame (0° = +x, increasing clockwise). The arc is the
+   *  ellipse in the width × height box; defaults are a 90° arc, top
+   *  (−90°) to right (0°). A circular truss ignores these (full 360°). */
+  startAngle?: number
+  endAngle?: number
 }
 
 /** Text formatting for Live page objects (7.8). */
@@ -314,6 +338,9 @@ export interface StageObject {
   flipX?: boolean
   flipY?: boolean
   trussShape?: PreviewTruss['shape']
+  /** Curved truss only — see PreviewTruss.startAngle / endAngle. */
+  startAngle?: number
+  endAngle?: number
 }
 
 export interface DmxStatus {
@@ -359,6 +386,37 @@ export interface FixtureChannel {
   defaultValue: number
   highlightValue: number
 }
+/** One of the five orientations in LightKey's Perspective picker (Guide
+ *  p.60): the direction the beam points in relation to the viewing
+ *  direction — up, down, left, right, or parallel to the viewing
+ *  direction (towards/away from the viewer, the centre option). Only
+ *  ONE perspective per fixture — LightKey's limitation, replicated here
+ *  rather than "fixed" by offering both. In the picker's cross layout
+ *  the top tile is "down" (a ceiling-hung fixture, head pointing down)
+ *  and the bottom tile is "up" (Guide p.60 example). */
+export type CalibrationPerspective = 'up' | 'down' | 'left' | 'right' | 'parallel'
+
+/** Beam-direction calibration for one fixture (Piece 4, LightKey Guide
+ *  pp.58–60). Angles are in degrees from the centre of the physical
+ *  pan/tilt range (the home angle is always 0°); homeDirection is in
+ *  Preview compass degrees (0 = up/north on the canvas, clockwise). */
+export interface FixtureCalibration {
+  /** Direction the beam points at home, Preview compass degrees. */
+  homeDirection?: number
+  /** The yoke turns the opposite way to LightKey's expectation — pan is
+   *  mirrored before output (Rotation step flip, Guide p.59). */
+  rotationReversed?: boolean
+  /** Allowed pan range in degrees from the home angle; unset ends mean
+   *  the profile's full range. */
+  panMin?: number
+  panMax?: number
+  /** Allowed tilt range in degrees from the centre of the tilt range. */
+  tiltMin?: number
+  tiltMax?: number
+  /** The fixture's orientation in relation to the viewing direction. */
+  perspective?: CalibrationPerspective
+}
+
 export interface FixtureProfile {
   id: string
   name: string
@@ -366,7 +424,7 @@ export interface FixtureProfile {
   legacyType: FixtureType
   /** Original OFL document is retained so unsupported metadata is never lost. */
   ofl?: { manufacturerKey: string; fixtureKey: string; source?: unknown }
-  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[]; flexibleLeds?: { channelsPerLed: number; maxLeds: number; defaultLeds: number; minLeds?: number } }[]
+  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[]; flexibleLeds?: { channelsPerLed: number; maxLeds: number; defaultLeds: number; minLeds?: number }; /** Total pan range in degrees from the fixture profile (Guide p.60 — "Lightkey needs to know a moving light's pan and tilt ranges"); OFL pan capabilities carry angleStart/angleEnd. Unset = the 540°/270° defaults in lib/calibration.ts. */ panRange?: number; /** Total tilt range in degrees from the fixture profile. */ tiltRange?: number }[]
 }
 
 export const FIXTURE_PRESETS: FixturePreset[] = BUILTIN_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))

@@ -1,6 +1,7 @@
 import type { FanDef, FixtureChannel, FixtureDef } from '@shared/types'
 import { availableProperties } from './availableProperties'
-import { evaluateColorFan, evaluateFan, orderedFanFixtures } from './fanning'
+import { fixtureBeams } from '@shared/fixtureProfiles'
+import { evaluateFan, fanTargetColors, orderedFanTargets } from './fanning'
 import { normalizeColorFavorite } from './colorMix'
 
 // Pure helpers for the Fanning HUD (Guide §8, p.118 to 123). The HUD lives
@@ -75,6 +76,8 @@ export function defaultColorFan(fixtureIds: string[], startColor: string, endCol
 
 export interface FanRow {
   fixture: FixtureDef
+  /** Set when the row is one beam (cell) of the fixture, not the whole fixture. */
+  beam?: { id: string; name: string }
   /** Position in the fan's ordered list — the index anchors refer to. */
   index: number
   /** Value that lands on this fixture (null when it has no such channel). */
@@ -86,18 +89,31 @@ export interface FanRow {
   defined: boolean
 }
 
+/** Every beam (cell) of the given fixtures, in fixture order — the "Beams" side of the Guide p.119 fixtures-vs-beams choice. */
+export function fanBeamTargets(fixtures: FixtureDef[], fixtureIds: string[]): { fixtureId: string; beamId: string }[] {
+  return fixtureIds.flatMap((id) => {
+    const fixture = fixtures.find((f) => f.id === id)
+    return (fixture ? fixtureBeams(fixture) : []).map((beam) => ({ fixtureId: id, beamId: beam.id }))
+  })
+}
+
 export function fanRows(fixtures: FixtureDef[], fan: FanDef): FanRow[] {
-  const ordered = orderedFanFixtures(fixtures, fan)
+  const targets = orderedFanTargets(fixtures, fan)
   const values = evaluateFan(fixtures, fan)
-  const colorValues = fan.attribute === 'color' ? evaluateColorFan(fixtures, fan) : null
-  const defined = new Set(definedFanIndexes(fan, ordered.length))
-  return ordered.map((fixture, index) => ({
-    fixture,
-    index,
-    value: colorValues ? null : values[fixture.id]?.[fan.attribute] ?? null,
-    colorValue: colorValues ? colorValues[fixture.id] ?? null : undefined,
-    defined: defined.has(index)
-  }))
+  const colorValues = fan.attribute === 'color' ? fanTargetColors(fixtures, fan) : null
+  const defined = new Set(definedFanIndexes(fan, targets.length))
+  return targets.map((target, index) => {
+    // A beam row reads/writes the beam's own channel for the attribute.
+    const attribute = target.beam?.properties[fan.attribute] ?? fan.attribute
+    return {
+      fixture: target.fixture,
+      ...(target.beam ? { beam: { id: target.beam.id, name: target.beam.name } } : {}),
+      index,
+      value: colorValues ? null : values[target.fixture.id]?.[attribute] ?? null,
+      colorValue: colorValues ? colorValues[index] ?? null : undefined,
+      defined: defined.has(index)
+    }
+  })
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
@@ -112,6 +112,8 @@ export function GroupsPresetsPanel() {
   const [dragOverId, setDragOverId] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
+  const composerInputRef = useRef<HTMLInputElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!contextMenu && !headerMenu) return
@@ -133,6 +135,19 @@ export function GroupsPresetsPanel() {
     window.addEventListener('openlights-preset-palette-context', open)
     return () => window.removeEventListener('openlights-preset-palette-context', open)
   }, [])
+
+  // Focus the composer / rename input synchronously when it opens (19 Nov
+  // 2026, Jake: right-click → New Preset sometimes left the name box
+  // unfocused so typing went nowhere). `autoFocus` is queued by the browser
+  // as a separate task, so a fast keystroke after the click could land
+  // before focus arrived; useLayoutEffect runs in the same commit, before
+  // paint and before the next keystroke is processed.
+  useLayoutEffect(() => {
+    if (composer) composerInputRef.current?.focus()
+  }, [composer])
+  useLayoutEffect(() => {
+    if (renaming) renameInputRef.current?.focus()
+  }, [renaming])
 
   // --- "Show in Cue" (LightKey Guide p.144) --------------------------------
   // The cues containing the right-clicked preset or sequence, for the
@@ -440,7 +455,7 @@ export function GroupsPresetsPanel() {
 
   const renameInput = (item: PaletteItem) => (
     <input
-      autoFocus
+      ref={renameInputRef}
       aria-label={`Rename ${item.kind}`}
       value={renameValue}
       onChange={(event) => setRenameValue(event.target.value)}
@@ -616,7 +631,7 @@ export function GroupsPresetsPanel() {
       )}
       {composer && (
         <div className="mx-1 flex flex-wrap items-center gap-1 rounded border border-line bg-panel2 p-2">
-          <input autoFocus aria-label={composer.type === 'group' ? 'New group name' : composer.type === 'sequence' ? 'New sequence name' : 'New preset name'} placeholder={composer.type === 'group' ? 'Group name' : composer.type === 'sequence' ? 'Sequence name' : 'Preset name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
+          <input ref={composerInputRef} aria-label={composer.type === 'group' ? 'New group name' : composer.type === 'sequence' ? 'New sequence name' : 'New preset name'} placeholder={composer.type === 'group' ? 'Group name' : composer.type === 'sequence' ? 'Sequence name' : 'Preset name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
           {(composer.type === 'preset' || composer.type === 'preset-snapshot') && (
             <select aria-label="Preset category" value={composerCategory} onChange={(event) => setComposerCategory(event.target.value as PresetCategory)} className="rounded bg-bg px-1 py-1 text-xs">
               {CATEGORY_LABELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}

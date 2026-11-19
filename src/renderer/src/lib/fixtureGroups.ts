@@ -23,3 +23,29 @@ export function canParentGroup(groups: { id: string; parentId?: string | null }[
   while (current) { if (seen.has(current)) return false; seen.add(current); const group = groups.find((g) => g.id === current); if (!group) return false; current = group.parentId ?? null }
   return true
 }
+
+/** Next free "Group N" name for the Group command (Layout > Group,
+ *  Control-click → Group, Guide p.35). LightKey's auto-name for a group
+ *  created from a selection is not documented in the guide; "Group N" is
+ *  the name, editable afterwards in the Fixture Groups panel. */
+export function nextGroupName(existingNames: string[]): string {
+  const taken = new Set(existingNames.map((name) => name.trim()))
+  let n = 1
+  while (taken.has(`Group ${n}`)) n += 1
+  return `Group ${n}`
+}
+
+/** Move fixtures into the named group, repairing the group records so they
+ *  agree with the fixtures' `group` fields (Piece 5). The Group command
+ *  writes the field; without this the migration's 'Ungrouped' record keeps
+ *  claiming the fixtures and the new group never appears in the Fixture
+ *  Groups panel. Records emptied by the move (and with no child groups)
+ *  are dropped. */
+export function moveFixturesToGroup(groups: FixtureGroup[], fixtureIds: string[], name: string): FixtureGroup[] {
+  const ids = new Set(fixtureIds)
+  const result = groups.map((g) => ({ ...g, fixtureIds: g.fixtureIds.filter((id) => !ids.has(id)) }))
+  let group = result.find((g) => g.name === name)
+  if (!group) { group = { id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: [] }; result.push(group) }
+  for (const id of fixtureIds) if (!group.fixtureIds.includes(id)) group.fixtureIds.push(id)
+  return result.filter((g) => g.fixtureIds.length > 0 || result.some((c) => c.parentId === g.id))
+}

@@ -1,5 +1,5 @@
 import type { FanDef, FixtureDef } from '@shared/types'
-import { fixtureMode } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { hexToRgb, rgbToHex } from './colorMix'
 
 /**
@@ -95,28 +95,84 @@ export function orderedFanFixtures(fixtures: FixtureDef[], fan: FanDef): Fixture
   return selected
 }
 
-export function evaluateFan(fixtures: FixtureDef[], fan: FanDef): Record<string, Record<string, number>> {
-  // Colour fans write the fanned colour into the fixture's own colour
-  // channels — RGB channels for RGB fixtures, CMY (255 minus each
-  // component) for CMY fixtures. White / Amber / UV are left untouched:
-  // a fanned colour is a hue, not a white/amber level.
-  if (fan.attribute === 'color') {
-    const colors = evaluateColorFan(fixtures, fan)
-    return Object.fromEntries(Object.entries(colors).flatMap(([id, hex]) => {
-      const fixture = fixtures.find((f) => f.id === id)
-      const model = fixture ? colorModelForFixture(fixture) : null
-      if (!model) return []
-      const rgb = hexToRgb(hex)
-      if (!rgb) return []
-      const values: Record<string, number> = model === 'rgb' ? { ...rgb } : { cyan: 255 - rgb.red, magenta: 255 - rgb.green, yellow: 255 - rgb.blue }
-      return [[id, values]]
-    }))
+/** One fanning target: a whole fixture, or one beam (cell) of it. */
+export interface FanTarget {
+  fixture: FixtureDef
+  beam?: { id: string; name: string; properties: Record<string, string> }
+}
+
+/**
+ * The targets a fan distributes over, in fan order. A fan with `beams`
+ * set distributes over those beams (cells) in listed order — LightKey
+ * Guide §8 p.119 — instead of over its fixtures; otherwise the targets
+ * are the fan's fixtures in order.
+ */
+export function orderedFanTargets(fixtures: FixtureDef[], fan: FanDef): FanTarget[] {
+  if (fan.beams?.length) {
+    const byId = new Map(fixtures.map((f) => [f.id, f]))
+    return fan.beams.flatMap(({ fixtureId, beamId }) => {
+      const fixture = byId.get(fixtureId)
+      const beam = fixture && fixtureBeams(fixture).find((b) => b.id === beamId)
+      return fixture && beam ? [{ fixture, beam }] : []
+    })
   }
-  const ordered = orderedFanFixtures(fixtures, fan), axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
-  const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? ordered.map((f) => f.previewPosition?.[axis] ?? 0) : undefined
-  const values = fanValues(ordered.length, fan.start, fan.end, fan.mode, positions, fan.anchors)
-  return Object.fromEntries(ordered.flatMap((f, i) => {
-    const channel = fixtureMode(f)?.channels.find((c) => c.attribute === fan.attribute)
-    return channel ? [[f.id, { [fan.attribute]: Math.max(channel.min, Math.min(channel.max, values[i])) }]] : []
-  }))
+  return orderedFanFixtures(fixtures, fan).map((fixture) => ({ fixture }))
+}
+
+/** The fanned colour per target for a colour fan, as hex strings (null where the target has no colour) — the HUD rows for a beam fan need a colour per beam, not per fixture. */
+export function fanTargetColors(fixtures: FixtureDef[], fan: FanDef): (string | null)[] {
+  const targets = orderedFanTargets(fixtures, fan)
+  const axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
+  const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? targets.map((t) => t.fixture.previewPosition?.[axis] ?? 0) : undefined
+  const colors = fanColorValues(targets.length, fan.startColor ?? '#ff0000', fan.endColor ?? '#0000ff', fan.mode, positions, fan.anchors)
+  return targets.map((target, i) => {
+    if (target.beam) return ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow'].some((a) => target.beam!.properties[a] !== undefined) ? colors[i] : null
+    return colorModelForFixture(target.fixture) ? colors[i] : null
+  })
+}
+
+export function evaluateFan(fixtures: FixtureDef[], fan: FanDef): Record<string, Record<string, number>> {
+  // Colour fans write the fanned colour into the target's own colour
+  // channels — RGB channels for RGB fixtures, CMY (255 minus each
+  // component) for CMY fixtures, or the beam's own colour properties
+  // when fanning across beams. White / Amber / UV are left untouched:
+  // a fanned colour is a hue, not a white/amber level.
+  const targets = orderedFanTargets(fixtures, fan)
+  const axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
+  const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? targets.map((t) => t.fixture.previewPosition?.[axis] ?? 0) : undefined
+  if (fan.attribute === 'color') {
+    const colors = fanColorValues(targets.length, fan.startColor ?? '#ff0000', fan.endColor ?? '#0000ff', fan.mode, positions, fan.anchors)
+    const values: Record<string, Record<string, number>> = {}
+    targets.forEach((target, i) => {
+      const rgb = hexToRgb(colors[i])
+      if (!rgb) return
+      const entries: [string, number][] = []
+      if (target.beam) {
+        // Beam colour: the beam's own rgb/cmy properties.
+        for (const [attribute, channel] of Object.entries(target.beam.properties)) {
+          if (attribute === 'red') entries.push([channel, rgb.red])
+          else if (attribute === 'green') entries.push([channel, rgb.green])
+          else if (attribute === 'blue') entries.push([channel, rgb.blue])
+          else if (attribute === 'cyan') entries.push([channel, 255 - rgb.red])
+          else if (attribute === 'magenta') entries.push([channel, 255 - rgb.green])
+          else if (attribute === 'yellow') entries.push([channel, 255 - rgb.blue])
+        }
+      } else {
+        const model = colorModelForFixture(target.fixture)
+        if (model === 'rgb') entries.push(...Object.entries(rgb))
+        else if (model === 'cmy') entries.push(['cyan', 255 - rgb.red], ['magenta', 255 - rgb.green], ['yellow', 255 - rgb.blue])
+      }
+      if (entries.length) values[target.fixture.id] = { ...values[target.fixture.id], ...Object.fromEntries(entries) }
+    })
+    return values
+  }
+  const values = fanValues(targets.length, fan.start, fan.end, fan.mode, positions, fan.anchors)
+  const result: Record<string, Record<string, number>> = {}
+  targets.forEach((target, i) => {
+    const attribute = target.beam?.properties[fan.attribute] ?? fan.attribute
+    const channel = fixtureMode(target.fixture)?.channels.find((c) => c.attribute === attribute)
+    if (!channel) return
+    result[target.fixture.id] = { ...result[target.fixture.id], [attribute]: Math.max(channel.min, Math.min(channel.max, values[i])) }
+  })
+  return result
 }

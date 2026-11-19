@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
-import { clearFanRowValue, fanRows, FAN_MODE_OPTIONS, FAN_ORDER_OPTIONS, fannableProperties, setFanRowColor, setFanRowValue } from '../lib/fanningHud'
+import { clearFanRowValue, fanBeamTargets, fanRows, FAN_MODE_OPTIONS, FAN_ORDER_OPTIONS, fannableProperties, setFanRowColor, setFanRowValue } from '../lib/fanningHud'
 
 function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
@@ -102,9 +102,11 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
   const channel = channels.find((c) => c.attribute === draft.attribute)
   const isColor = draft.attribute === 'color'
   const rows = fanRows(fixtures, draft)
-  // Guide p.119: fan at least three fixtures (or one fixture with at
-  // least three beams — beams are not fanned yet, see NOTES.md).
-  const canCreate = selectedCount >= 3
+  // Guide p.119: fan at least three fixtures — or one fixture with at
+  // least three beams. The HUD offers beams vs fixtures for a
+  // multi-beam fixture; a beam fan spreads over the fixture's cells.
+  const draftBeams = fanBeamTargets(fixtures, draft.fixtureIds)
+  const canCreate = selectedCount >= 3 || draftBeams.length >= 3
   const editingDisabled = isCreating && !canCreate
   const min = channel?.min ?? 0, max = channel?.max ?? 255
 
@@ -115,11 +117,11 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
         <button type="button" onClick={onClose} className="rounded bg-panel2 px-2 py-1 text-xs">Done</button>
       </div>
       <p className="mt-1 text-[10px] text-dim">
-        {isCreating ? `New fan across ${draft.fixtureIds.length} selected fixture${draft.fixtureIds.length === 1 ? '' : 's'}` : `Editing fan across ${draft.fixtureIds.length} fixture${draft.fixtureIds.length === 1 ? '' : 's'}`}
+        {isCreating ? `New fan across ${draft.beams ? `${draft.beams.length} beam${draft.beams.length === 1 ? '' : 's'}` : `${draft.fixtureIds.length} selected fixture${draft.fixtureIds.length === 1 ? '' : 's'}`}` : `Editing fan across ${draft.beams ? `${draft.beams.length} beam${draft.beams.length === 1 ? '' : 's'}` : `${draft.fixtureIds.length} fixture${draft.fixtureIds.length === 1 ? '' : 's'}`}`}
         {!hasActiveCue && ' — saving starts a new cue'}
       </p>
       {isCreating && !canCreate && (
-        <p className="mt-2 rounded bg-panel2 p-2 text-[11px] text-text">Select at least three fixtures to fan a property (Guide §8, p.119). Fans already saved on the active cue can still be edited below.</p>
+        <p className="mt-2 rounded bg-panel2 p-2 text-[11px] text-text">Select at least three fixtures — or one fixture with at least three beams — to fan a property (Guide §8, p.119). Fans already saved on the active cue can still be edited below.</p>
       )}
       {channels.length === 0 ? (
         <p className="mt-2 text-[11px] text-dim">No fannable properties on these fixtures.</p>
@@ -145,22 +147,31 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
               <input type="checkbox" checked={Boolean(draft.considerSpacing)} disabled={editingDisabled} onChange={(event) => onCommit({ ...draft, considerSpacing: event.target.checked })} />
               Consider spacing
             </label>
+            {draftBeams.length > 0 && (
+              <label className="text-[10px] text-dim">Fan across
+                <select aria-label="Fan across fixtures or beams" value={draft.beams ? 'beams' : 'fixtures'} disabled={editingDisabled} onChange={(event) => { if (event.target.value === 'beams') onCommit({ ...draft, beams: draftBeams, anchors: undefined }); else onCommit({ ...draft, beams: undefined, anchors: undefined }) }} className="ml-1 rounded border border-line bg-panel2 px-1 py-1 text-xs text-text disabled:opacity-40">
+                  <option value="fixtures">Fixtures</option>
+                  <option value="beams">Beams</option>
+                </select>
+              </label>
+            )}
           </div>
 
           <div className="mt-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-dim">Fixtures — set a {isColor ? 'colour' : 'value'} per fixture</div>
-            {rows.length === 0 && <p className="mt-1 text-[11px] text-dim">No fixtures in this fan.</p>}
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-dim">{draft.beams ? 'Beams' : 'Fixtures'} — set a {isColor ? 'colour' : 'value'} per {draft.beams ? 'beam' : 'fixture'}</div>
+            {rows.length === 0 && <p className="mt-1 text-[11px] text-dim">No {draft.beams ? 'beams' : 'fixtures'} in this fan.</p>}
             {rows.map((row) => {
               const isFirst = row.index === 0, isLast = row.index === rows.length - 1
+              const rowName = row.beam ? `${row.fixture.name} · ${row.beam.name}` : row.fixture.name
               return (
-                <div key={row.fixture.id} className="mt-1 flex items-center gap-2 text-xs">
-                  <span title={row.defined ? 'Defined value' : 'Calculated value'} aria-label={row.defined ? `Defined value for ${row.fixture.name}` : `Calculated value for ${row.fixture.name}`} className={row.defined ? 'text-sm leading-none text-blue-400' : 'text-sm leading-none text-dim'}>●</span>
-                  <span className="min-w-0 flex-1 truncate">{row.fixture.name}{isFirst ? ' · first' : isLast ? ' · last' : ''}</span>
+                <div key={row.beam ? `${row.fixture.id}:${row.beam.id}` : row.fixture.id} className="mt-1 flex items-center gap-2 text-xs">
+                  <span title={row.defined ? 'Defined value' : 'Calculated value'} aria-label={row.defined ? `Defined value for ${rowName}` : `Calculated value for ${rowName}`} className={row.defined ? 'text-sm leading-none text-blue-400' : 'text-sm leading-none text-dim'}>●</span>
+                  <span className="min-w-0 flex-1 truncate">{rowName}{isFirst ? ' · first' : isLast ? ' · last' : ''}</span>
                   {isColor ? (
                     row.colorValue ? (
                       <ColorField
                         value={row.colorValue}
-                        label={`${row.fixture.name} colour`}
+                        label={`${rowName} colour`}
                         disabled={editingDisabled}
                         onCommit={(value) => onCommit(setFanRowColor(draft, row.index, value, rows.length))}
                       />
@@ -174,13 +185,13 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
                       value={row.value}
                       min={min}
                       max={max}
-                      label={`${row.fixture.name} ${attributeLabel(draft.attribute)} value`}
+                      label={`${rowName} ${attributeLabel(draft.attribute)} value`}
                       disabled={editingDisabled}
                       onCommit={(value) => onCommit(setFanRowValue(draft, row.index, value, rows.length))}
                     />
                   )}
                   {row.defined && !isFirst && !isLast && (
-                    <button type="button" title={`Clear defined value for ${row.fixture.name}`} aria-label={`Clear defined value for ${row.fixture.name}`} disabled={editingDisabled} onClick={() => onCommit(clearFanRowValue(draft, row.index, rows.length))} className="px-1 text-xs text-dim hover:text-white disabled:opacity-40">×</button>
+                    <button type="button" title={`Clear defined value for ${rowName}`} aria-label={`Clear defined value for ${rowName}`} disabled={editingDisabled} onClick={() => onCommit(clearFanRowValue(draft, row.index, rows.length))} className="px-1 text-xs text-dim hover:text-white disabled:opacity-40">×</button>
                   )}
                 </div>
               )
@@ -197,7 +208,7 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
           </div>
           {fans.map((fan) => (
             <div key={fan.id} className="mt-1 flex items-center gap-2 text-xs">
-              <span className="min-w-0 flex-1 truncate">{attributeLabel(fan.attribute)} · {FAN_MODE_OPTIONS.find((o) => o.value === fan.mode)?.label ?? fan.mode} · {fan.fixtureIds.length} fixtures</span>
+              <span className="min-w-0 flex-1 truncate">{attributeLabel(fan.attribute)} · {FAN_MODE_OPTIONS.find((o) => o.value === fan.mode)?.label ?? fan.mode} · {fan.beams ? `${fan.beams.length} beams` : `${fan.fixtureIds.length} fixtures`}</span>
               {fan.id === draft.id
                 ? <span className="text-[10px] text-dim">Editing</span>
                 : <button type="button" onClick={() => onEditFan(fan)} className="text-text underline">Edit</button>}

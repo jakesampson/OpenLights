@@ -58,19 +58,22 @@ export function computeCueChannels(
   for (const fixture of fixtures) {
     const attrs = transformPosition(cue.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
     const map = fixtureChannelMap(fixture)
+    // Ignore Master Dimmer (LightKey Fixture Options, Guide p.62): the
+    // master fader never scales this fixture — its effective master is full.
+    const effectiveMaster = fixture.ignoreMasterDimmer ? 255 : master
     if (fixture.disabled) { for (const offset of Object.values(map)) channels[fixture.channelStart + offset] = 0; continue }
 
     if (zeroMissing) {
       for (const attr of Object.keys(map)) {
         const channel = fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)
-        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, master)
+        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, effectiveMaster)
       }
     }
 
     for (const [attr, value] of Object.entries(attrs)) {
       const offset = map[attr]
       if (offset === undefined || typeof value !== 'number' || Number.isNaN(value)) continue
-      channels[fixture.channelStart + offset] = scaleAttribute(attr, value, master)
+      channels[fixture.channelStart + offset] = scaleAttribute(attr, value, effectiveMaster)
     }
 
     // A fixture with no dimmer channel still has a working Dimmer in

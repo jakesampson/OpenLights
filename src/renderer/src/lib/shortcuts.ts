@@ -32,6 +32,10 @@ export const SHORTCUTS: ShortcutBinding[] = [
   { key: 'Ctrl+D', label: 'Design view', command: 'design', code: 'd', ctrl: true },
   { key: 'Ctrl+L', label: 'Live view', command: 'live', code: 'l', ctrl: true },
   { key: 'Ctrl+J', label: 'Edit preview', command: 'editPreview', code: 'j', ctrl: true },
+  { key: 'Ctrl+Shift+H', label: 'Highlight mode', command: 'highlight', code: 'h', ctrl: true, shift: true },
+  { key: 'Ctrl+Shift+Alt+P', label: 'Beam Direction…', command: 'beamDirection', code: 'p', ctrl: true, shift: true, alt: true },
+  // Group (Guide p.35): Layout > Group, Control-click → Group — Command-Option-G on Mac (ctrl matches Cmd there).
+  { key: 'Ctrl+Alt+G', label: 'Group', command: 'group', code: 'g', ctrl: true, alt: true },
   { key: 'F11', label: 'Full screen', command: 'fullscreen', code: 'f11' },
   { key: 'B', label: 'Blackout', command: 'blackout', code: 'b' },
   { key: 'Space', label: 'Go / play automation', command: 'go', code: ' ' },

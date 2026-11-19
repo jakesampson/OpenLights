@@ -29,6 +29,11 @@ import { orderedLiveControls } from './lib/cuePriority'
 import { activeOwnedEffects } from './lib/effectOwnership'
 import { ContextMenu } from './components/ContextMenu'
 import { calculateTapTempo } from './lib/tapTempo'
+import { SetupWizard } from './components/SetupWizard'
+import { WelcomeScreen } from './components/WelcomeScreen'
+import { NewProjectDialog } from './components/NewProjectDialog'
+import { WizardDmxStep } from './components/WizardDmxStep'
+import { WizardDoneStep } from './components/WizardDoneStep'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -71,6 +76,30 @@ export default function App() {
   } = useShowStore()
   const [tab, setTab] = useState<Tab>('Design')
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
+  const setupWizardStep = useShowStore((s) => s.setupWizardStep)
+  const welcomeOpen = useShowStore((s) => s.welcomeOpen)
+  const newProjectDialogOpen = useShowStore((s) => s.newProjectDialogOpen)
+  const newProjectTemplate = useShowStore((s) => s.newProjectTemplate)
+  // Setup wizard (Piece 5, Guide ch.4): the wizard runs in the Design view
+  // and drives the workspace per step — the Patch tool panel for patching,
+  // Preview edit mode for Build Your Preview and Fixture Groups, edit mode
+  // off for Light Beam Directions. DMX Output and That's It replace the
+  // workspace with their own panels (rendered below).
+  useEffect(() => {
+    if (!setupWizardStep) return
+    setTab('Design')
+    if (setupWizardStep === 'patch') setToolPanel('Patch')
+    else setToolPanel(null)
+    useShowStore.getState().setPreviewEditing(setupWizardStep === 'preview' || setupWizardStep === 'groups')
+  }, [setupWizardStep])
+  // Create the project the New Project dialog named (Guide p.26). The
+  // creation itself lives in ProjectBar — it owns the save path and
+  // snapshot — via the `openlights-create-project` event; this only makes
+  // sure the new project lands in the Design view.
+  const createProject = (name: string) => {
+    setTab('Design')
+    window.dispatchEvent(new CustomEvent('openlights-create-project', { detail: name }))
+  }
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
@@ -265,15 +294,22 @@ export default function App() {
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
       else if (command === 'blackout') state.toggleBlackout()
+      else if (command === 'highlight') state.toggleHighlightMode()
+      else if (command === 'beamDirection') window.dispatchEvent(new Event('openlights-open-calibration'))
+      else if (command === 'group') {
+        // Group the current selection (Guide p.35: Layout > Group, or
+        // Control-click → Group).
+        state.groupSelection()
+      }
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel && !(setupWizardStep === 'patch' && toolPanel === 'Patch')) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab])
+  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab, setupWizardStep])
 
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)
@@ -316,6 +352,7 @@ export default function App() {
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
     <div className="app">
+      <SetupWizard />
       <ContextMenu />
       {/* Top bar */}
       <header className={`top-bar ${isMac ? 'top-bar-mac' : ''}`}>
@@ -444,6 +481,9 @@ export default function App() {
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
       </header>
 
+      {/* DMX Output and That's It replace the workspace with their own
+          panels; the other wizard steps use the Design view below. */}
+      {setupWizardStep === 'dmx' ? <WizardDmxStep /> : setupWizardStep === 'done' ? <WizardDoneStep /> : (<>
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
@@ -520,12 +560,15 @@ export default function App() {
           </div>
         </div>
       </div>
+      </>)}
       {toolPanel && (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 ${toolPanel === 'Patch' ? 'p-0' : 'p-4'}`}
           role="presentation"
           onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeToolPanel()
+            // During the wizard's patching step the wizard bar is the
+            // navigation — the backdrop must not dismiss the panel.
+            if (event.target === event.currentTarget && setupWizardStep !== 'patch') closeToolPanel()
           }}
         >
           <section
@@ -535,18 +578,20 @@ export default function App() {
             className={`panel flex w-full flex-col overflow-hidden shadow-2xl ${toolPanel === 'Patch' ? 'h-full max-w-none rounded-none' : 'max-h-[92vh] max-w-6xl'}`}
           >
             <header className={`flex items-center gap-3 border-b border-line px-4 py-3 ${toolPanel === 'Patch' ? `patch-dialog-header ${isMac ? 'patch-dialog-header-mac' : ''}` : ''}`}>
-              {toolPanel === 'Patch' && <button type="button" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={closeToolPanel}>Done</button>}
+              {toolPanel === 'Patch' && setupWizardStep !== 'patch' && <button type="button" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={closeToolPanel}>Done</button>}
               <h2 className="flex-1 text-xs font-semibold uppercase tracking-wider text-dim">{toolPanel === 'Patch' ? show?.name ?? 'Fixture Patch' : toolPanel}</h2>
               {toolPanel !== 'Patch' && <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>Close</button>}
             </header>
             <div className={`min-h-0 flex-1 ${toolPanel === 'Patch' ? 'overflow-hidden p-4' : 'overflow-auto p-4'}`}>
-              {toolPanel === 'Patch' && <PatchPanel onShowInPreview={(fixtureId) => { useShowStore.getState().selectFixtures([fixtureId]); goTab('Design'); closeToolPanel() }} />}
+              {toolPanel === 'Patch' && <PatchPanel onShowInPreview={(fixtureId) => { useShowStore.getState().selectFixtures([fixtureId]); goTab('Design'); if (setupWizardStep === 'patch') useShowStore.getState().setSetupWizardStep('preview'); else closeToolPanel() }} />}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>
           </section>
         </div>
       )}
+      {welcomeOpen && <WelcomeScreen />}
+      {newProjectDialogOpen && <NewProjectDialog template={newProjectTemplate} onSave={createProject} onClose={() => { const state = useShowStore.getState(); state.setNewProjectDialogOpen(false); state.setNewProjectTemplate(null) }} />}
     </div>
   )
 }

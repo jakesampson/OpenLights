@@ -8,7 +8,7 @@ describe('Windows and context menu commands', () => {
     const menuCommands = WINDOWS_MENU.flatMap((group) => group.items.flatMap((item) => item.command ? [item.command] : []))
     const contextCommands = Object.values(CONTEXT_MENUS).flat()
     expect([...menuCommands, ...contextCommands].every((command) => commands.has(command))).toBe(true)
-    expect(WINDOWS_MENU.map((group) => group.label)).toEqual(['File', 'Edit', 'View', 'Live', 'Window', 'Help'])
+    expect(WINDOWS_MENU.map((group) => group.label)).toEqual(['File', 'Edit', 'View', 'Layout', 'Live', 'Window', 'Help'])
     expect(Object.keys(CONTEXT_MENUS)).toEqual(['fixture', 'preset', 'cue', 'page'])
   })
 })
