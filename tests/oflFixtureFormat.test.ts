@@ -24,7 +24,7 @@ describe('Open Fixture Library format', () => {
     const profile = importOflFixture(oflFixture, { manufacturer: 'Sample Brand' })
     expect(profile).toMatchObject({ id: 'ofl:sample-brand:sample-move', name: 'Sample Move', manufacturer: 'Sample Brand', legacyType: 'moving-head' })
     expect(profile.modes[0].channels.map((channel) => [channel.number, channel.attribute, channel.propertyType])).toEqual([
-      [0, 'Dimmer', 'intensity'], [1, 'Red', 'color'], [2, 'Pan', 'position'], [3, 'Pan fine 1', 'position'], [4, 'Unused 5', 'other']
+      [0, 'intensity', 'intensity'], [1, 'red', 'color'], [2, 'pan', 'position'], [3, 'Pan fine 1', 'position'], [4, 'Unused 5', 'other']
     ])
     expect(profile.modes[0].channels[2]).toMatchObject({ defaultValue: 128, highlightValue: 255 })
     expect(profile.modes[0].channels[3]).toMatchObject({ defaultValue: 0, highlightValue: 255 })
@@ -50,7 +50,7 @@ describe('Open Fixture Library format', () => {
     }
     const profile = importOflFixture(colourFixture, { manufacturer: 'Sample Brand' })
     expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
-      ['Red', 0], ['Green', 0], ['Blue', 255], ['Cyan', 255], ['Magenta', 255], ['Yellow', 0], ['Blue (forced off)', 0]
+      ['red', 0], ['green', 0], ['blue', 255], ['cyan', 255], ['magenta', 255], ['yellow', 0], ['blue 2', 0]
     ])
   })
 
@@ -68,7 +68,7 @@ describe('Open Fixture Library format', () => {
     }
     const profile = importOflFixture(dimmerFixture, { manufacturer: 'Sample Brand' })
     expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
-      ['Dimmer', 255], ['Dimmer (forced off)', 0]
+      ['intensity', 255], ['intensity 2', 0]
     ])
   })
 
@@ -92,7 +92,7 @@ describe('Open Fixture Library format', () => {
     }
     const profile = importOflFixture(matrix)
     expect(profile.modes[0].channels.map((channel) => channel.attribute)).toEqual([
-      'Red (1, 1, 1)', 'Green (1, 1, 1)', 'Red (2, 1, 1)', 'Green (2, 1, 1)'
+      'red', 'green', 'red 2', 'green 2'
     ])
     expect(profile.legacyType).toBe('pixel-bar-17ch')
     // A matrix mode whose insert is first and pixel-major is flexible: the

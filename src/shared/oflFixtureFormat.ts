@@ -201,9 +201,18 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       const definition = descriptor?.definition ?? {}
       const label = descriptor?.byte ? `${definition.name ?? descriptor.key} fine ${descriptor.byte}` : String(definition.name ?? descriptor?.key ?? channelKey)
       const type = propertyType(definition, descriptor?.key ?? String(channelKey))
+      // Piece 2: the Design panel and the output model address properties
+      // by their canonical lowercase names (intensity, red, green, blue,
+      // pan, tilt…), while OFL channel names are display labels
+      // ("Dimmer", "Red", "Pan"). Normalise a coarse channel's attribute
+      // to the canonical name when it names a standard property, so an
+      // OFL fixture gets the same wheel, faders and dimmer as a built-in
+      // one. Fine channels keep their "X fine N" names — they are
+      // distinct channels.
+      const attribute = descriptor?.byte ? label : canonicalAttribute(label, type)
       return {
         number,
-        attribute: uniqueAttribute(label, used),
+        attribute: uniqueAttribute(attribute, used),
         propertyType: type,
         control: channelControl(definition),
         slots: channelSlots(definition),
@@ -251,6 +260,26 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
 
 function colorName(attribute: string): string | undefined {
   return ['Red', 'Green', 'Blue', 'White', 'Amber', 'UV', 'Cyan', 'Magenta', 'Yellow'].find((name) => attribute.toLowerCase().includes(name.toLowerCase()))
+}
+
+/**
+ * Canonical attribute for an OFL channel label: the lowercase property
+ * name the Design panel and the output model use (intensity, red, …),
+ * when the channel is that property. Anything else keeps its label —
+ * in particular a "Pan/Tilt Speed" channel is not the pan position, and
+ * a colour-wheel preset is not a colour mixer.
+ */
+function canonicalAttribute(label: string, type: FixtureChannel['propertyType']): string {
+  if (type === 'intensity') return 'intensity'
+  if (type === 'color') {
+    const color = colorName(label)
+    if (color) return color.toLowerCase()
+  }
+  if (type === 'position') {
+    const match = /^(pan|tilt)(?=[\s]|$)/i.exec(label.trim())
+    if (match) return match[1].toLowerCase()
+  }
+  return label
 }
 
 /**

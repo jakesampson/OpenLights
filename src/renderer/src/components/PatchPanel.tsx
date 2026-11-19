@@ -3,9 +3,11 @@ import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { modeChannelOffset } from '@shared/fixtureProfiles'
 import { exportOflFixture, oflFilename } from '@shared/oflFixtureFormat'
+import { filterProfiles } from '../lib/filterProfiles'
 import { fixtureWidth, placementError } from '../lib/patch'
 import { useShowStore } from '../stores/showStore'
 import { FixtureGroups } from './FixtureGroups'
+import { FixtureProfileEditor } from './FixtureProfileEditor'
 import { PatchDialog } from './PatchDialog'
 
 const PATCH_MIME = 'application/x-openlights-fixture-profile'
@@ -40,6 +42,7 @@ export function PatchPanel() {
   const [patchNotice, setPatchNotice] = useState('')
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
   const [patchDialog, setPatchDialog] = useState<{ profile: FixtureProfile; modeId: string; start: number } | null>(null)
 
   useEffect(() => {
@@ -48,11 +51,10 @@ export function PatchPanel() {
     return () => { active = false }
   }, [])
 
-  const matchingProfiles = library.filter((profile) => {
-    const matchesBrand = (profile.manufacturer || 'Generic') === manufacturer
-    const needle = query.trim().toLowerCase()
-    return matchesBrand && (!needle || `${profile.name} ${profile.manufacturer}`.toLowerCase().includes(needle))
-  })
+  // The library search + brand filter (lib/filterProfiles): a model
+  // matches when its brand is selected and the query (name or brand)
+  // matches, so the search box and the brand list share one filter.
+  const matchingProfiles = useMemo(() => filterProfiles(library, { query, manufacturer }), [library, query, manufacturer])
 
   const occupied = useMemo(() => {
     const result = new Map<number, OccupiedChannel>()
@@ -190,7 +192,7 @@ export function PatchPanel() {
           {!matchingProfiles.length && <p className="p-2 text-xs text-dim">No matching models</p>}
         </div>
       </div>
-      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibrary()}>Import OFL library</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile} onClick={exportSelectedOfl}>Export OFL</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibrary()}>Import OFL library</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile} onClick={exportSelectedOfl}>Export OFL</button><button type="button" className="btn-theme text-[10px]" onClick={() => setEditorOpen(true)}>Profile editor</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
     </aside>
 
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">
@@ -212,6 +214,7 @@ export function PatchPanel() {
       <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a model to add it, or drag a patched fixture to a new starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
     </div>
     {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
+    {editorOpen && <div role="dialog" aria-modal="true" aria-label="Fixture profile editor" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel max-h-full w-full max-w-4xl overflow-auto p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture profile editor</strong><button type="button" className="btn-theme text-xs" onClick={() => setEditorOpen(false)}>Done</button></div><FixtureProfileEditor profiles={library} /></div></div>}
     {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} />}
   </section>
 }
