@@ -119,8 +119,8 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
     // channel values all go through valueFor, which rounds — so no
     // other raw float can be rendered into the panel.
     expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
-    expect(design).toContain("Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}")
-    expect(design).toContain('const value = activeCue ? valueFor(attribute) : 0')
+    expect(design).toContain("Pan {valueFor('pan')} · Tilt {valueFor('tilt')}")
+    expect(design).toContain('const value = valueFor(attribute)')
     expect(design).toContain('Math.round(')
   })
 

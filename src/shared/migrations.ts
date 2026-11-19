@@ -165,7 +165,41 @@ export function migrateShow(raw: unknown): ShowDef {
   // exactly as they are; this only fills blanks, so it is idempotent.
   const usedShortNames = new Set<string>()
   for (const raw of doc.fixtures as unknown[]) { const name = record(raw).shortName; if (typeof name === 'string' && name.trim()) usedShortNames.add(name.trim().toUpperCase()) }
-  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ?? profile, inStorage: fixture.inStorage === true, previewBeam: { direction: (() => { const d = record(fixture.previewBeam).direction; return d === 'auto' || typeof d === 'number' ? d : 'auto' })() }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
+  // Built-in profile snapshots go stale (Jake, 20 Nov 2026): patching
+  // stores a structuredClone of the profile on the fixture, and Piece 11
+  // (19 Nov 2026) changed the colour defaults (blue 0 → 255) — so a
+  // fixture patched before then keeps blue at 0 forever: no colour on the
+  // wheel and the Dimmer brings up black until the wheel is touched,
+  // while a fixture patched after auto-goes blue. Built-in profiles are
+  // immutable library data (saveFixtureProfile refuses a same-id edit),
+  // so an inline deviation from the library is staleness, never a user
+  // edit: backfill the channel defaults from the current library
+  // profile, matched by mode and attribute. Channel layout is never
+  // touched, and custom / OFL profiles (which a user can edit) are left
+  // exactly as stored.
+  const healBuiltinProfileDefaults = (rawProfile: unknown, library: (typeof BUILTIN_PROFILES)[number] | undefined): unknown => {
+    if (!library) return rawProfile
+    const stored = record(rawProfile)
+    if (!Array.isArray(stored.modes)) return rawProfile
+    return {
+      ...stored,
+      modes: stored.modes.map((rawMode) => {
+        const mode = record(rawMode)
+        const libraryMode = library.modes.find((m) => m.id === mode.id)
+        if (!libraryMode || !Array.isArray(mode.channels)) return mode
+        const byAttribute = new Map(libraryMode.channels.map((c) => [c.attribute, c]))
+        return {
+          ...mode,
+          channels: mode.channels.map((rawChannel) => {
+            const channel = record(rawChannel)
+            const match = typeof channel.attribute === 'string' ? byAttribute.get(channel.attribute) : undefined
+            return match && typeof match.defaultValue === 'number' ? { ...channel, defaultValue: match.defaultValue } : channel
+          })
+        }
+      })
+    }
+  }
+  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ? healBuiltinProfileDefaults(fixture.profile, typeof fixture.profileId === 'string' ? BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) : undefined) : profile, inStorage: fixture.inStorage === true, previewBeam: { direction: (() => { const d = record(fixture.previewBeam).direction; return d === 'auto' || typeof d === 'number' ? d : 'auto' })() }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
   if (!Array.isArray(doc.fixtureGroups)) {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))

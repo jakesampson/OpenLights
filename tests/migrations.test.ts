@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, defaultFixtureValues } from '../src/renderer/src/stores/showStore'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '../src/shared/migrations'
+import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
+import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 import { DEFAULT_OBJECT_STYLES, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '../src/shared/liveObjectDefaults'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('cancelAnimationFrame', vi.fn())
@@ -240,6 +242,75 @@ describe('live cue sequence migration (7.10)', () => {
   it('is idempotent and does not bump schemaVersion', () => {
     const once: any = migrateShow(sequenceShow())
     expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('stale built-in profile defaults (Piece 11, Jake 20 Nov 2026)', () => {
+  // A fixture patched before Piece 11 (19 Nov 2026) carries an inline
+  // profile snapshot whose colour defaults are the old ones — blue at 0,
+  // not 255 — because allocateFixtures stores a structuredClone of the
+  // profile at patch time and fixtureProfile() prefers that snapshot
+  // over the current library profile. The old project then shows no
+  // colour on the wheel and the Dimmer brings up black, until the wheel
+  // is touched and real values are written. A fixture patched after
+  // Piece 11 auto-goes blue. Loading must heal the snapshot: built-in
+  // profiles are immutable library data (saveFixtureProfile refuses a
+  // same-id edit), so any inline deviation from the library is
+  // staleness, never a user edit — custom / OFL profiles are untouched.
+  const staleBarProfile = () => {
+    const profile = structuredClone(BUILTIN_PROFILES.find((p) => p.id === 'pan-4x1x30-17ch')!)
+    // Pre-Piece-11 formula: pan/tilt centred, everything else 0.
+    for (const channel of profile.modes[0].channels) {
+      channel.defaultValue = channel.attribute === 'pan' || channel.attribute === 'tilt' ? 128 : 0
+    }
+    return profile
+  }
+  const staleBar = () => ({
+    id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch',
+    profileId: 'pan-4x1x30-17ch', modeId: 'default',
+    channelStart: 1, channels: 17, profile: staleBarProfile()
+  })
+
+  it('backfills the blue default from the current built-in profile', () => {
+    const show = migrateShow({ fixtures: [staleBar()], cues: [] })
+    const fixture = show.fixtures[0]
+    const defaults = defaultFixtureValues(fixture)
+    expect(defaults.blue).toBe(255)
+    expect(defaults.blue2).toBe(255)
+    expect(defaults.blue3).toBe(255)
+    expect(defaults.blue4).toBe(255)
+    expect(defaults.red).toBe(0)
+    expect(defaults.intensity).toBe(0)
+    // The defaults layer of the output carries the blue too, so the
+    // Dimmer brings up blue on the old fixture without touching the wheel.
+    const channels = computeCueChannels([fixture], { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, 255, true)
+    expect(channels[3]).toBe(255)
+    expect(channels[6]).toBe(255)
+    expect(channels[9]).toBe(255)
+    expect(channels[12]).toBe(255)
+    expect(channels[13]).toBe(0)
+  })
+
+  it('leaves a custom (non-built-in) profile exactly as stored', () => {
+    const custom = staleBarProfile()
+    custom.id = 'custom-bar'
+    custom.name = 'My edited bar'
+    const fixture = { ...staleBar(), profileId: 'custom-bar', profile: custom }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(0)
+    expect(show.fixtures[0].profile.name).toBe('My edited bar')
+  })
+
+  it('keeps an explicit per-fixture default ahead of the library one', () => {
+    const fixture = { ...staleBar(), defaultValues: { blue: 40 } }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(40)
+    expect(defaultFixtureValues(show.fixtures[0]).blue2).toBe(255)
+  })
+
+  it('is idempotent', () => {
+    const once: any = migrateShow({ fixtures: [staleBar()], cues: [] })
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })
 })

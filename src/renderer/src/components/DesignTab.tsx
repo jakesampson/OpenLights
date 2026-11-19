@@ -360,7 +360,7 @@ export function DesignTab() {
   const colorHeaderValue = activeColorProperty === 'hue' ? `${Math.round(hsv.h)}°`
     : activeColorProperty === 'saturation' ? percentHeaderText(hsv.s)
     : activeColorProperty === 'brightness' ? percentHeaderText(hsv.v)
-    : activeColorProperty ? percentHeaderText(((activeCue ? linkedValueFor(activeColorProperty) : 0) / 255) * 100)
+    : activeColorProperty ? percentHeaderText((linkedValueFor(activeColorProperty) / 255) * 100)
     : null
   const additionalColourAttributes = commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))
   // "Reset Default" only belongs on the Colour menu once a fixture has a
@@ -782,7 +782,7 @@ export function DesignTab() {
                     // alone would lie as soon as a beam separates. The
                     // write below goes through updateValues, whose store
                     // paths fan the value out to every beam.
-                    const value = activeCue ? linkedValueFor(attribute) : 0
+                    const value = linkedValueFor(attribute)
                     const fan = fanFor(attribute)
                     return (
                       <div
@@ -1076,7 +1076,7 @@ export function DesignTab() {
               <>
                 <PositionControl fixtures={selectedFixtures} update={updateValues} current={selectedFixtures[0] ? positionFractions(cueValues[selectedFixtures[0].id] ?? {}, fixtureAttributes(selectedFixtures[0])) : undefined} />
                 <span className="font-mono text-[10px] text-dim">
-                  Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}
+                  Pan {valueFor('pan')} · Tilt {valueFor('tilt')}
                 </span>
               </>
             )}
@@ -1094,7 +1094,14 @@ export function DesignTab() {
           ) : (
             <>
             {beam1Attributes.map((attribute) => {
-              const value = activeCue ? beam1ValueFor(attribute) : 0
+              // Faders read the resolved value — overrides, then cue,
+              // then defaults (fixtureAttr) — and are NOT gated on an
+              // active cue: Design writes live in manualOverrides with
+              // no cue active, so gating blanked faders whose values
+              // the wheel and the Dimmer already showed (Jake,
+              // 20 Nov 2026). With nothing selected the value helpers
+              // return 0 on their own.
+              const value = beam1ValueFor(attribute)
               const channel = channelByAttribute.get(attribute)
               return (
                 <div
@@ -1123,7 +1130,7 @@ export function DesignTab() {
               )
             })}
             {faderAttributes.map((attribute) => {
-              const value = activeCue ? valueFor(attribute) : 0
+              const value = valueFor(attribute)
               const fan = fanFor(attribute)
               // Only slider properties are fannable (Guide §8, p.118:
               // "any custom property represented by a slider") — wheel
