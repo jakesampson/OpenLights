@@ -213,7 +213,25 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       }
     })
     const name = typeof mode.name === 'string' ? mode.name : `Mode ${modeIndex + 1}`
-    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels }
+    // Flexible LED strip/matrix (LightKey Guide p.29, FLEX): a mode whose
+    // first channel block is a matrix insert (pixel-major order) has its
+    // LED channels first and the remaining channels after them, so the
+    // fixture can be patched with fewer LEDs and the footprint shrinks.
+    // A per-channel insert or an insert that is not first has no such
+    // layout, so the LED count stays fixed for those modes.
+    const rawChannels = Array.isArray(mode.channels) ? mode.channels : []
+    const inserts = rawChannels.map((channel, index) => ({ insert: record(channel), index })).filter(({ insert }) => insert.insert === 'matrixChannels' && Array.isArray(insert.templateChannels))
+    const flexibleLeds = (() => {
+      if (inserts.length !== 1 || inserts[0].index !== 0) return undefined
+      const insert = inserts[0].insert
+      if (insert.channelOrder === 'perChannel') return undefined
+      const templateCount = (insert.templateChannels as unknown[]).length
+      const pixels = repeatKeys(fixture, insert.repeatFor)
+      if (templateCount < 1 || pixels.length < 2) return undefined
+      if (expandedChannels.length - pixels.length * templateCount < 0) return undefined
+      return { channelsPerLed: templateCount, maxLeds: pixels.length, defaultLeds: pixels.length, minLeds: 1 }
+    })()
+    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}) }
   })
 
   const name = typeof fixture.name === 'string' && fixture.name.trim() ? fixture.name : 'OFL fixture'

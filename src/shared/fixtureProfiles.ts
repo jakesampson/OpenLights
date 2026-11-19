@@ -42,7 +42,64 @@ export const BUILTIN_PROFILES: FixtureProfile[] = [
 
 const pixel = BUILTIN_PROFILES.find((p) => p.legacyType === 'pixel-bar-17ch')!
 pixel.modes[0].beams = Array.from({ length: 4 }, (_, index) => ({ id: `cell-${index + 1}`, name: `Cell ${index + 1}`, properties: Object.fromEntries(['red', 'green', 'blue'].map((attribute) => [attribute, `${attribute}${index === 0 ? '' : index + 1}`])) }))
+// Flexible LED strip (LightKey Guide p.29, FLEX): the mode's first 12
+// channels are the 4 cells' RGB (3 per LED) and the last 5 are globals
+// (intensity, strobe, function, speed, list type). Choosing fewer LEDs
+// shrinks the footprint; the globals slide down behind the LED block.
+pixel.modes[0].flexibleLeds = { channelsPerLed: 3, maxLeds: 4, defaultLeds: 4, minLeds: 1 }
 
 export function fixtureProfile(fixture: FixtureDef): FixtureProfile | undefined { return fixture.profile ?? BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type) }
 export function fixtureMode(fixture: FixtureDef) { const profile = fixtureProfile(fixture); return profile?.modes.find((m) => m.id === fixture.modeId) ?? profile?.modes[0] }
-export function fixtureChannelMap(fixture: FixtureDef): Record<string, number> { return Object.fromEntries((fixtureMode(fixture)?.channels ?? []).filter((c) => c.number < fixture.channels).map((c) => [c.attribute, c.number])) }
+
+/** Clamp an LED count to a flexible mode's range; non-flexible modes ignore it. */
+function ledCountFor(mode: FixtureProfile['modes'][number], ledCount?: number): number {
+  const flexible = mode.flexibleLeds
+  if (!flexible) return 0
+  return Math.max(flexible.minLeds ?? 1, Math.min(flexible.maxLeds, ledCount ?? flexible.defaultLeds))
+}
+
+/** DMX footprint of a mode: globals plus the chosen number of LED groups. */
+export function modeFootprint(mode: FixtureProfile['modes'][number], ledCount?: number): number {
+  const total = mode.channels.length ? Math.max(...mode.channels.map((c) => c.number)) + 1 : 0
+  const flexible = mode.flexibleLeds
+  if (!flexible) return total
+  return ledCountFor(mode, ledCount) * flexible.channelsPerLed + Math.max(0, total - flexible.maxLeds * flexible.channelsPerLed)
+}
+
+/**
+ * DMX offset of a mode channel inside a fixture, or null when the channel
+ * does not exist at this LED count (an LED past the chosen count). LED
+ * channels keep their number — the LED block starts at 0 — while the
+ * globals slide down behind the chosen LED block.
+ */
+export function modeChannelOffset(mode: FixtureProfile['modes'][number], channelNumber: number, ledCount?: number): number | null {
+  const flexible = mode.flexibleLeds
+  if (!flexible) return channelNumber
+  const ledSpan = flexible.maxLeds * flexible.channelsPerLed
+  if (channelNumber < ledSpan) {
+    const pixel = Math.floor(channelNumber / flexible.channelsPerLed)
+    return pixel < ledCountFor(mode, ledCount) ? channelNumber : null
+  }
+  return ledCountFor(mode, ledCount) * flexible.channelsPerLed + (channelNumber - ledSpan)
+}
+
+/** A fixture's beams (cells), limited to its chosen LED count when flexible. */
+export function fixtureBeams(fixture: FixtureDef): NonNullable<FixtureProfile['modes'][number]['beams']> {
+  const mode = fixtureMode(fixture)
+  const beams = mode?.beams ?? []
+  const flexible = mode?.flexibleLeds
+  if (!flexible) return beams
+  return beams.slice(0, ledCountFor(mode, fixture.ledCount))
+}
+
+export function fixtureChannelMap(fixture: FixtureDef): Record<string, number> {
+  const mode = fixtureMode(fixture)
+  if (!mode) return {}
+  const result: Record<string, number> = {}
+  for (const channel of mode.channels) {
+    const offset = modeChannelOffset(mode, channel.number, fixture.ledCount)
+    if (offset === null || offset >= fixture.channels) continue
+    result[channel.attribute] = offset
+  }
+  return result
+}

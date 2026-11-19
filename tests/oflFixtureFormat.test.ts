@@ -54,6 +54,9 @@ describe('Open Fixture Library format', () => {
       'Red (1, 1, 1)', 'Green (1, 1, 1)', 'Red (2, 1, 1)', 'Green (2, 1, 1)'
     ])
     expect(profile.legacyType).toBe('pixel-bar-17ch')
+    // A matrix mode whose insert is first and pixel-major is flexible: the
+    // LED count can be chosen at patch time and the footprint shrinks.
+    expect(profile.modes[0].flexibleLeds).toEqual({ channelsPerLed: 2, maxLeds: 2, defaultLeds: 2, minLeds: 1 })
   })
 
   it('exports native OpenLights profiles as OFL JSON without mutating them', () => {

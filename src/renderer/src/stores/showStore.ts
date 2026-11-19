@@ -42,6 +42,7 @@ import type { LivePage } from '@shared/types'
 import type { StageObject } from '@shared/types'
 import type { FixtureProfile } from '@shared/types'
 import { allocateFixtures, type PatchOptions } from '../lib/patch'
+import { proposeShortName } from '@shared/shortNames'
 import { validateProfile } from '@shared/profileValidation'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { fixtureMode } from '@shared/fixtureProfiles'
@@ -1445,6 +1446,7 @@ const actions: ShowState = {
       const fixture: FixtureDef = {
         id: crypto.randomUUID(),
         name: name?.trim() || preset.name,
+        shortName: proposeShortName(fixtures.map((f) => f.shortName).filter((s): s is string => Boolean(s)), preset.type),
         inStorage: true,
         type: preset.type,
         channelStart: nextFreeChannel(fixtures),
@@ -1475,7 +1477,7 @@ const actions: ShowState = {
   duplicateFixture: (id) => set((state) => {
     const original = state.show?.fixtures.find((f) => f.id === id)
     if (!original) return state
-    const copy: FixtureDef = { ...structuredClone(original), id: crypto.randomUUID(), name: `${original.name} copy`, channelStart: nextFreeChannel(state.show!.fixtures), inStorage: true }
+    const copy: FixtureDef = { ...structuredClone(original), id: crypto.randomUUID(), name: `${original.name} copy`, shortName: proposeShortName(state.show!.fixtures.map((f) => f.shortName).filter((s): s is string => Boolean(s)), original.type), channelStart: nextFreeChannel(state.show!.fixtures), inStorage: true }
     if (copy.channelStart + copy.channels - 1 > 512) throw new Error('No free channels for the duplicate')
     const cues = state.cues.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
     const presets = state.presets.map((p) => ({ ...p, fixtureValues: { ...p.fixtureValues, ...(p.fixtureValues[id] ? { [copy.id]: { ...p.fixtureValues[id] } } : {}) } }))

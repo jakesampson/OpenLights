@@ -5,7 +5,7 @@ import { resizeFixtureIcon, rotateFixtureIcon } from '../lib/fixtureGeometry'
 import { marqueeSelection } from '../lib/previewSelection'
 import { fitPreview, type Bounds } from '../lib/previewViewport'
 import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
-import { fixtureMode } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { orderedFanFixtures } from '../lib/fanning'
 import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
 import { fixtureValuesToHex } from '../lib/colorMix'
@@ -491,8 +491,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
 
         <StageObjectLayer editing={editing} selectedId={selectedStageObjectId} select={(id) => { setSelectedStageObjectId(id); setSelectedPreviewTrussId(null); selectFixtures([]) }} />
         {/* Beams */}
-        {fixtureViews.map((f) => {
-          const x = f.pos.x
+        {fixtureViews.flatMap((f) => Array.from({ length: Math.max(1, f.count ?? 1) }, (_, instance) => ({ f, instance }))).map(({ f, instance }) => {
+          // Count > 1 (Guide p.30): the fixture's instances share one DMX
+          // address and properties, so they fan out from the one stored
+          // position and move together; the base position is what the
+          // marquee/fit logic sees.
+          const x = f.pos.x + instance * 28
           const y = f.pos.y
           const on = f.intensity > 0
           const op = Math.min(f.intensity / 255, 1)
@@ -504,7 +508,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
             <g
-              key={f.id}
+              key={`${f.id}:${instance}`}
               data-context-menu="fixture"
               role={selectable ? 'button' : undefined}
               tabIndex={selectable ? 0 : undefined}
@@ -542,7 +546,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   strokeWidth="1"
                 />
               )}
-              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.name}</text>}
+              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.shortName ?? f.name}</text>}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
               <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
@@ -574,8 +578,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 pointerEvents="all"
                 aria-hidden="true"
               />
-              {(fixtureMode(f)?.beams ?? []).map((beam, index) => <rect key={beam.id} x={x + (index - 1.5) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
-              {editing && selected && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
+              {fixtureBeams(f).map((beam, index) => <rect key={beam.id} x={x + (index - 1.5) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {editing && selected && instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )
         })}

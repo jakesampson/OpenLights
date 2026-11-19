@@ -22,6 +22,12 @@ export interface FixtureDef {
   profile?: FixtureProfile
   id: string
   name: string
+  /** Short name (≤4 chars) shown in the Preview; the full name stays for lists and panels (Guide p.30). */
+  shortName?: string
+  /** Count > 1: that many Preview instances of this fixture, sharing one DMX address and properties (Guide p.30). */
+  count?: number
+  /** Chosen LED count for a flexible strip/matrix mode (Guide p.29, FLEX); undefined means the mode default. */
+  ledCount?: number
   type: FixtureType
   channelStart: number // 1-based DMX channel
   channels: number
@@ -340,7 +346,7 @@ export interface FixtureProfile {
   legacyType: FixtureType
   /** Original OFL document is retained so unsupported metadata is never lost. */
   ofl?: { manufacturerKey: string; fixtureKey: string; source?: unknown }
-  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[] }[]
+  modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[]; flexibleLeds?: { channelsPerLed: number; maxLeds: number; defaultLeds: number; minLeds?: number } }[]
 }
 
 export const FIXTURE_PRESETS: FixturePreset[] = BUILTIN_PROFILES.map((profile) => ({ id: profile.id, name: profile.name, type: profile.legacyType, channels: Math.max(...profile.modes[0].channels.map((c) => c.number)) + 1 }))
