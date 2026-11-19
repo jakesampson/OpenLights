@@ -54,7 +54,7 @@ describe('Open Fixture Library format', () => {
     ])
   })
 
-  it('defaults an undefined dimmer to full unless the definition sets one (Piece 13)', () => {
+  it('defaults an undefined dimmer to 0 unless the definition sets one', () => {
     const dimmerFixture = {
       ...oflFixture,
       fixtureKey: 'dimmer-test',
@@ -68,7 +68,7 @@ describe('Open Fixture Library format', () => {
     }
     const profile = importOflFixture(dimmerFixture, { manufacturer: 'Sample Brand' })
     expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
-      ['intensity', 255], ['intensity 2', 0]
+      ['intensity', 0], ['intensity 2', 0]
     ])
   })
 

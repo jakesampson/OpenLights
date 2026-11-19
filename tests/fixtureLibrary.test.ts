@@ -52,7 +52,7 @@ describe('bundled fixture library (Piece 2)', () => {
     const r3 = load('chauvet-professional/rogue-r3-spot.json')
     expect(r3).toMatchObject({ id: 'ofl:chauvet-professional:rogue-r3-spot', name: 'Rogue R3 Spot', manufacturer: 'Chauvet Professional' })
     expect(r3.modes.map((mode) => [mode.name, mode.channels.length])).toEqual([['19-channel', 19], ['25-channel', 25]])
-    expect(r3.modes[1].channels.find((channel) => channel.attribute === 'intensity')?.defaultValue).toBe(255)
+    expect(r3.modes[1].channels.find((channel) => channel.attribute === 'intensity')?.defaultValue).toBe(0)
     // Chauvet FXarray Q5 — User Manual Rev. 1, DMX pp.7–9 (see NOTES.md
     // for the UM/QRG discrepancies left open).
     const q5 = load('chauvet-dj/fxarray-q5.json')
@@ -82,7 +82,7 @@ describe('bundled fixture library (Piece 2)', () => {
       'red', 'green', 'blue', 'red 2', 'green 2', 'blue 2', 'red 3', 'green 3', 'blue 3',
       'red 4', 'green 4', 'blue 4', 'intensity', 'Strobe', 'Programs', 'Program Speed', 'Curve Select'
     ])
-    expect(ep4.modes[0].channels.find((channel) => channel.attribute === 'intensity')?.defaultValue).toBe(255)
+    expect(ep4.modes[0].channels.find((channel) => channel.attribute === 'intensity')?.defaultValue).toBe(0)
     expect(ep4.modes[0].channels.find((channel) => channel.attribute === 'blue')?.defaultValue).toBe(255)
     expect(ep4.modes[0].channels.find((channel) => channel.attribute === 'red')?.defaultValue).toBe(0)
     expect(ep4.modes[0].beams?.map((beam) => [beam.id, beam.name, beam.properties])).toEqual([

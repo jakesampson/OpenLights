@@ -130,21 +130,21 @@ export function DesignTab() {
       ? Math.round(
           selectedFixtures.reduce(
             // The undefined fallback for a property: 255 for a dimmer
-            // fixture's RGB (it shows white) and for a virtual dimmer
-            // (a fixture with colour channels but no dimmer channel is
-            // full open until its dimmer is set — LightKey shows
-            // "Full" for a fresh RGBAW fixture); 0 otherwise (a
-            // fixture with a dimmer channel starts dark).
-            (total, fixture) => total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : attribute === 'intensity' && isVirtualDimmer(fixture) ? 255 : 0),
+            // fixture's RGB (it shows white); 0 otherwise — a fixture
+            // with a dimmer channel starts dark, and a virtual dimmer
+            // (a fixture with colour channels but no dimmer channel)
+            // reads 0 until its dimmer is set (Jake, 19 Nov 2026,
+            // reversing Piece 13's full-open default).
+            (total, fixture) => total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0),
             0
           ) / selectedFixtures.length
         )
       : 0
   // The dimmer reads the effective intensity — the cue or preset value,
-  // else the fixture's default (100% for a dimmer channel since Piece
-  // 13, full open for a virtual dimmer, dark for a fixture with
-  // neither). With no cue at all the defaults still apply, so a fresh
-  // fixture reads 100% here and is lit in the output.
+  // else the fixture's default (0 for a dimmer channel and for a virtual
+  // dimmer — a fresh fixture is dark; Jake, 19 Nov 2026, reversing
+  // Piece 13). With no cue at all the defaults still apply, so a fresh
+  // fixture reads 0 here and is dark in the output.
   const dimmer = valueFor('intensity')
   // The wheel drives every beam of a multipart fixture, so it reads the
   // linked colour: the average of an attribute across the fixture's
@@ -154,12 +154,12 @@ export function DesignTab() {
   // individual beams selected the wheel already reads those beams
   // (valueFor), and a single-cell fixture reads as before — including
   // valueFor's undefined fallbacks (255 for a dimmer fixture's RGB,
-  // 255 for a virtual dimmer's intensity, 0 otherwise).
+  // 0 otherwise).
   const linkedValueFor = (attribute: string) => {
     if (selectedBeams.length || !selectedFixtures.length) return valueFor(attribute)
     return Math.round(selectedFixtures.reduce((total, fixture) => {
       const keys = fixtureBeams(fixture).map((beam) => beam.properties[attribute]).filter((key): key is string => Boolean(key))
-      if (!keys.length) return total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : attribute === 'intensity' && isVirtualDimmer(fixture) ? 255 : 0)
+      if (!keys.length) return total + fixtureAttr(fixture.id, attribute, fixture.type === 'dimmer' && ['red', 'green', 'blue'].includes(attribute) ? 255 : 0)
       return total + keys.reduce((sum, key) => sum + fixtureAttr(fixture.id, key, 0), 0) / keys.length
     }, 0) / selectedFixtures.length)
   }

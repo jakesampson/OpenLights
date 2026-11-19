@@ -110,8 +110,8 @@ describe('preset edits propagate to cues that reference them', () => {
     expect(channels()).toEqual([255, 200, 0, 0])
     useShowStore.getState().deletePreset('p1')
     // No ad-hoc values on the cue: the fixture defaults fill in — the
-    // generic LED defaults to intensity 255 and LightKey blue (Piece 11).
-    expect(channels()).toEqual([255, 0, 0, 255])
+    // generic LED defaults to intensity 0 (dark) and LightKey blue.
+    expect(channels()).toEqual([0, 0, 0, 255])
   })
 
   it('keeps the cue’s ad-hoc values winning over the preset', () => {

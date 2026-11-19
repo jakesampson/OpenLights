@@ -85,11 +85,11 @@ describe('Virtual dimmer in the Design panel', () => {
     expect(container?.querySelector('.color-wheel')).not.toBeNull()
   })
 
-  it('reads full open when the virtual dimmer is not set, and the cue value when it is', () => {
+  it('reads 0 when the virtual dimmer is not set, and the cue value when it is', () => {
     setShow(RGBA, { red: 255, green: 0, blue: 0 })
     renderInRoot(<DesignTab />)
-    expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('255')
-    expect(container?.textContent).toContain('100%')
+    expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('0')
+    expect(container?.textContent).toContain('0%')
   })
 
   it('reads the cue intensity for a virtual-dimmer fixture', () => {
@@ -120,10 +120,10 @@ describe('Virtual dimmer in the Design panel', () => {
     expect(container?.textContent).toContain('50%')
   })
 
-  it('reads full open for a dimmer-channel fixture with no intensity set (Piece 13)', () => {
+  it('reads 0 for a dimmer-channel fixture with no intensity set', () => {
     setShow(LED_WASH, { red: 255, green: 0, blue: 0 })
     renderInRoot(<DesignTab />)
-    expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('255')
-    expect(container?.textContent).toContain('100%')
+    expect(dimmerFader()?.getAttribute('aria-valuenow')).toBe('0')
+    expect(container?.textContent).toContain('0%')
   })
 })

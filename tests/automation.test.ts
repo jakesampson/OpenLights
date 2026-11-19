@@ -110,6 +110,10 @@ describe('computeCueChannels', () => {
         channels: 4
       })
       fixtureValues[rgbaId] = {
+        // The dimmer is open so the address mapping shows through: an
+        // unset virtual dimmer now defaults to 0 (dark), which would
+        // zero these channels and hide the mapping.
+        intensity: 255,
         red: rgbaStart,
         green: rgbaStart + 1,
         blue: rgbaStart + 2,
@@ -126,6 +130,7 @@ describe('computeCueChannels', () => {
         channels: 4
       })
       fixtureValues[rgbwId] = {
+        intensity: 255,
         red: rgbwStart,
         green: rgbwStart + 1,
         blue: rgbwStart + 2,

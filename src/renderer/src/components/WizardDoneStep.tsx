@@ -16,7 +16,7 @@ export function WizardDoneStep() {
   return (
     <div className="mx-auto w-full max-w-[620px] px-6 py-12 text-center">
       <h2 className="text-2xl font-semibold">That&apos;s It</h2>
-      <p className="mt-2 text-sm text-dim">Have fun creating magic lightshows with Lightkey.</p>
+      <p className="mt-2 text-sm text-dim">Have fun creating magic lightshows with OpenLights.</p>
       <div className="mx-auto mt-8 max-w-[420px] rounded border border-line bg-panel p-4 text-left text-sm">
         <div className="flex justify-between py-1"><span className="text-dim">Fixtures patched</span><span className="font-semibold">{fixtures.length}</span></div>
         <div className="flex justify-between border-t border-line/40 py-1"><span className="text-dim">Fixture groups</span><span className="font-semibold">{groups.length}</span></div>

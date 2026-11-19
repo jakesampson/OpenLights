@@ -83,9 +83,12 @@ export function computeCueChannels(
     // hardware and are untouched. The scaling applies to the values
     // this call wrote — the cue's values and, with zeroMissing, the
     // default fill — so a blue default at half dimmer comes out at
-    // half. A colour defined by a higher layer is not scaled by a
+    // half. An unset virtual dimmer defaults to 0 (dark), not full:
+    // a fresh fixture is dark with its blue default underneath, and
+    // raising the Dimmer brings it up (Jake, 19 Nov 2026, reversing
+    // Piece 13). A colour defined by a higher layer is not scaled by a
     // lower layer's dimmer (known limitation, see NOTES.md).
-    const virtualDimmer = map['intensity'] === undefined ? attrs.intensity : undefined
+    const virtualDimmer = map['intensity'] === undefined ? (attrs.intensity ?? 0) : undefined
     if (typeof virtualDimmer === 'number' && !Number.isNaN(virtualDimmer)) {
       for (const attr of DIMMER_ATTRIBUTES) {
         if (attr === 'intensity') continue

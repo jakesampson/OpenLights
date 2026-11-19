@@ -363,15 +363,15 @@ function canonicalAttribute(label: string, type: FixtureChannel['propertyType'])
  * it sets one. When it sets none, LightKey's default colour is blue
  * (Guide p.85) — a blue-component colour channel (Blue, Cyan, Magenta)
  * defaults to full (255) on its coarse byte, the other colour components
- * to 0 — and the dimmer defaults to full (255) too, so a fixture added
- * for the first time starts at 100% (Jake, 19 Nov 2026 — Piece 13, the
- * same as the virtual dimmer). Fine bytes default to 0.
+ * to 0 — and the dimmer defaults to 0 (dark), so a fixture added for the
+ * first time is dark with blue underneath (Jake, 19 Nov 2026 — reversing
+ * Piece 13, which had the dimmer at full). Fine bytes default to 0.
  */
 function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined, type: FixtureChannel['propertyType']): number {
   const byte = descriptor?.byte ?? 0
   const value = dmxByte(definition.defaultValue, definition.dmxValueResolution, byte, 0)
   if (definition.defaultValue != null || byte !== 0) return value
-  if (type === 'intensity') return 255
+  if (type === 'intensity') return 0
   const color = colorName(descriptor?.key ?? '')
   return color === 'Blue' || color === 'Cyan' || color === 'Magenta' ? 255 : value
 }

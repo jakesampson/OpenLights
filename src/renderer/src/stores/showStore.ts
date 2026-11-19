@@ -293,6 +293,11 @@ interface ShowState {
   moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
   reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
   addCue: () => void
+  /** Create a cue AND make it active when no cue is active (the write
+      paths' model — mirroring updateSelectedFixtures). addCue on its own
+      deliberately does not activate (the Add-cue button's behaviour), so
+      write paths that assumed it did must call this instead. */
+  ensureActiveCue: () => void
   duplicateCue: (id: string) => void
   updateCue: (id: string, patch: Partial<CueDef>) => void
   deleteCue: (id: string) => void
@@ -606,13 +611,18 @@ function showBuddyCueValues(look: TemplateLook): Record<string, Record<string, n
   }
 
   for (let index = 1; index <= 4; index++) {
+    // Virtual-dimmer fixtures (no dimmer channel): the look's intensity
+    // must be stored explicitly — an unset virtual dimmer now defaults
+    // to 0 (dark), so without it these fixtures would go dark.
     values[`simger-q12bt-${index}`] = {
+      intensity: look.intensity,
       red: look.red,
       green: look.green,
       blue: look.blue,
       amber: look.amber
     }
     values[`corepar-q120-${index}`] = {
+      intensity: look.intensity,
       red: look.red,
       green: look.green,
       blue: look.blue,
@@ -702,7 +712,7 @@ let sessionPasscode = ''
     needed). Shared by setSelectedColor, setSelectedBaseColor and
     loadColorDefault. */
 function writeColourToActiveCue(get: () => ShowState, patch: Record<string, Record<string, number>>) {
-  if (!get().activeCueId) get().addCue()
+  if (!get().activeCueId) get().ensureActiveCue()
   const cue = get().cues.find((s) => s.id === get().activeCueId)
   if (!cue) return
   const fixtureValues = { ...cue.fixtureValues }
@@ -1052,7 +1062,7 @@ const actions: ShowState = {
     if (!clipboard) return
     const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, clipboard.property && fixtureAttributes(f).includes(clipboard.property) ? { [clipboard.property]: clipboard.values[clipboard.property] } : mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().addCue()
+    if (!state.activeCueId) get().ensureActiveCue()
     const cue = get().cues.find((s) => s.id === get().activeCueId)
     if (!cue) return
     const fixtureValues = { ...cue.fixtureValues }
@@ -1060,6 +1070,7 @@ const actions: ShowState = {
     get().updateCue(cue.id, { fixtureValues })
   },
   saveFan: (fan) => {
+    if (!get().activeCueId) get().ensureActiveCue()
     const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId)
     if (!cue || !state.show) return
     const fixtureValues = structuredClone(cue.fixtureValues)
@@ -1279,7 +1290,7 @@ const actions: ShowState = {
       for (const [attribute, value] of Object.entries(values)) if (beam.properties[attribute] && Number.isFinite(value)) patch[selected.fixtureId] = { ...patch[selected.fixtureId], [beam.properties[attribute]]: clamp(value) }
     }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().addCue()
+    if (!state.activeCueId) get().ensureActiveCue()
     const cue = get().cues.find((s) => s.id === get().activeCueId)
     if (!cue) return
     const fixtureValues = { ...cue.fixtureValues }
@@ -1606,6 +1617,32 @@ const actions: ShowState = {
       const cues = [...state.cues, newCue]
       return persistState(state, { cues }, { cues })
     }),
+
+  // A write with no active cue must land somewhere: create the cue the
+  // way addCue does, but activate it in the same update — the model
+  // updateSelectedFixtures uses (it builds the cue inline and sets
+  // activeCueId together). Calling addCue() here would repeat the old
+  // bug: the cue would exist but stay inactive and the write would be
+  // dropped by the lookup that follows.
+  ensureActiveCue: () => {
+    if (get().activeCueId) return
+    set((state) => {
+      if (state.activeCueId) return state
+      const fixtures = state.show?.fixtures ?? []
+      const fixtureValues: CueDef['fixtureValues'] = {}
+      for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
+      const newCue: CueDef = {
+        id: crypto.randomUUID(),
+        name: `Cue ${state.cues.length + 1}`,
+        presetIds: [],
+        sequenceIds: [],
+        fixtureValues,
+        fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
+      }
+      const cues = [...state.cues, newCue]
+      return persistState(state, { cues }, { cues, activeCueId: newCue.id, cuePlaying: false })
+    })
+  },
 
   duplicateCue: (id) =>
     set((state) => {

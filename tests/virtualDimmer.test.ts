@@ -21,9 +21,14 @@ describe('virtual dimmer', () => {
     expect(computeCueChannels([rgba], cue, 255, true)).toMatchObject({ 1: 0, 2: 0, 3: 128, 4: 0 })
   })
 
-  it('leaves the default at full when no dimmer is set', () => {
+  it('a fresh virtual-dimmer fixture is dark with blue underneath', () => {
+    // Jake, 19 Nov 2026: the default colour stays blue, but the dimmer
+    // defaults to 0 — the blue default is still there (raising the
+    // dimmer brings it up), it is just scaled to 0 by the unset dimmer.
     const cue = { id: 's', name: 'Cue', fadeMs: 0, fixtureValues: {} }
-    expect(computeCueChannels([rgba], cue, 255, true)).toMatchObject({ 1: 0, 2: 0, 3: 255, 4: 0 })
+    expect(computeCueChannels([rgba], cue, 255, true)).toMatchObject({ 1: 0, 2: 0, 3: 0, 4: 0 })
+    const open = { id: 's', name: 'Cue', fadeMs: 0, fixtureValues: { f: { intensity: 255 } } }
+    expect(computeCueChannels([rgba], open, 255, true)).toMatchObject({ 1: 0, 2: 0, 3: 255, 4: 0 })
   })
 
   it('does not invent colour channels when the cue defines nothing and zeroMissing is off', () => {

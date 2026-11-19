@@ -10,6 +10,10 @@ describe('data-driven fixture profiles', () => {
       const fixture: FixtureDef = { id: 'f', name: preset.name, type: preset.type, channelStart: 23, channels: preset.channels }
       const profile = BUILTIN_PROFILES.find((p) => p.id === preset.id)!
       const values = Object.fromEntries(profile.modes[0].channels.map((c, index) => [c.attribute, 30 + index]))
+      // Fixtures with no dimmer channel get an open virtual dimmer for
+      // the comparison: an unset virtual dimmer now defaults to 0
+      // (dark), which would zero the colours and hide the mapping.
+      if (!('intensity' in values)) values.intensity = 255
       const cue = { id: 's', name: 'Cue', fadeMs: 0, fixtureValues: { f: values } }
       const migrated = migrateShow({ fixtures: [fixture] }).fixtures[0]
       const before = computeCueChannels([fixture], cue), after = computeCueChannels([migrated], cue)

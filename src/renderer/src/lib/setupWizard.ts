@@ -14,7 +14,7 @@ export const WIZARD_STEPS: { id: WizardStep; title: string; description: string 
   { id: 'preview', title: 'Build Your Preview', description: 'Move and resize the icons so they match the physical locations of your fixtures.' },
   { id: 'groups', title: 'Fixture Groups', description: 'Create groups of fixtures that will be selected together.' },
   { id: 'directions', title: 'Light Beam Directions', description: 'Please set the beam direction for each fixture.' },
-  { id: 'done', title: "That's It", description: 'Have fun creating magic lightshows with Lightkey.' },
+  { id: 'done', title: "That's It", description: 'Have fun creating magic lightshows with OpenLights.' },
 ]
 
 export function nextWizardStep(step: WizardStep): WizardStep | null {
