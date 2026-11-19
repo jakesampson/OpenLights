@@ -20,20 +20,10 @@ function annulusSector(rOuter: number, rInner: number, a0: number, a1: number): 
   return `M ${p1.x.toFixed(2)} ${p1.y.toFixed(2)} A ${rOuter} ${rOuter} 0 ${large} 1 ${p2.x.toFixed(2)} ${p2.y.toFixed(2)} L ${p3.x.toFixed(2)} ${p3.y.toFixed(2)} A ${rInner} ${rInner} 0 ${large} 0 ${p4.x.toFixed(2)} ${p4.y.toFixed(2)} Z`
 }
 
-export interface ExtraColorChannel {
-  attribute: string
-  label: string
-  /** Current channel value, 0–255. */
-  value: number
-  /** The channel's colour, for the arc's fill. */
-  color: string
-}
-
 interface InnerArc {
   key: string
   label: string
-  kind: 'saturation' | 'brightness' | 'channel'
-  attribute?: string
+  kind: 'saturation' | 'brightness'
   /** Current value as a fraction, 0–1 (max at the arc's start). */
   fraction: number
   maxColor: string
@@ -43,12 +33,14 @@ interface InnerArc {
 // LightKey's round Color control (Guide p.82–84, and Jake's LightKey
 // screenshot Screenshot_2026-11-19_at_9.56.05_am.png): an outer hue ring
 // with tick marks and six triangle markers at the pure hues (red, yellow,
-// green, cyan, blue, magenta), and inner arcs in the centre — saturation
-// on the left half, brightness on the right half, plus one arc per
-// additional colour channel the fixture has (White / Amber / UV …), the
-// inner circle divided equally between them. A fixture without those
-// channels shows no extra arcs. The centre disc shows the current colour
-// and opens the system colour window on click (Guide p.84).
+// green, cyan, blue, magenta), and exactly two inner arcs in the centre —
+// saturation on the left half, brightness on the right half. The centre
+// disc shows the current colour and opens the system colour window on
+// click (Guide p.84). Additional colour channels (White / Amber / UV /
+// lime) are NOT arcs: Guide pp.85–86 puts them as "sliders next to the
+// main color control", and Jake verified in LightKey 19 Nov 2026 that
+// White, Amber and UV are sliders beside the wheel — they live in
+// DesignTab next to this control, not in it.
 //
 // Each inner arc is a vertical slider bent into an arc: its value is
 // highest at the arc's start end and lowest at its finish end. With
@@ -58,13 +50,11 @@ interface InnerArc {
 // arc or the hue ring sets its value by pointer angle, clamped to the
 // nearer end past either end of the arc (arcRelAngle); the white
 // marker on each arc shows the current value.
-export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = false, onHsvChange, onExtraChange, onCentrePick }: {
+export function ColorWheelControl({ hsv, centreHex, disabled = false, onHsvChange, onCentrePick }: {
   hsv: { h: number; s: number; v: number }
-  extraChannels: ExtraColorChannel[]
   centreHex: string
   disabled?: boolean
   onHsvChange: (next: { h: number; s: number; v: number }) => void
-  onExtraChange: (attribute: string, value: number) => void
   onCentrePick: (hex: string) => void
 }) {
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -80,8 +70,7 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
 
   const arcs: InnerArc[] = [
     { key: 'saturation', label: 'Saturation', kind: 'saturation', fraction: hsv.s / 100, maxColor: `hsl(${hsv.h}, 100%, 50%)`, minColor: `hsl(${hsv.h}, 0%, 50%)` },
-    { key: 'brightness', label: 'Brightness', kind: 'brightness', fraction: hsv.v / 100, maxColor: `hsl(${hsv.h}, ${hsv.s}%, 50%)`, minColor: '#000000' },
-    ...extraChannels.map((c) => ({ key: c.attribute, label: c.label, kind: 'channel' as const, attribute: c.attribute, fraction: c.value / 255, maxColor: c.color, minColor: '#111111' }))
+    { key: 'brightness', label: 'Brightness', kind: 'brightness', fraction: hsv.v / 100, maxColor: `hsl(${hsv.h}, ${hsv.s}%, 50%)`, minColor: '#000000' }
   ]
   const span = 360 / arcs.length
   const arcStart = (index: number) => 180 + index * span
@@ -111,18 +100,16 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
     if (!arc) return
     if (arc.kind === 'saturation') onHsvChange({ h: hsv.h, s: Math.round(fraction * 100), v: hsv.v })
     else if (arc.kind === 'brightness') onHsvChange({ h: hsv.h, s: hsv.s, v: Math.round(fraction * 100) })
-    else if (arc.attribute) onExtraChange(arc.attribute, Math.round(fraction * 255))
   }
 
   const endDrag = () => { drag.end(); activeZone.current = null; setDragZone(null); setTooltip(null) }
 
   // The popup for a pointer position while dragging: the DRAGGED zone's
   // live value, as `Label: value` — Hue in degrees, Saturation /
-  // Brightness in percent, extra channels 0–255. The zone comes from
-  // the drag (activeZone), not from the pointer's current angle, so
-  // dragging an arc past its end — where the pointer crosses into
-  // another arc's sector — still shows the dragged arc's value. Null
-  // when nothing is being dragged.
+  // Brightness in percent. The zone comes from the drag (activeZone),
+  // not from the pointer's current angle, so dragging an arc past its
+  // end — where the pointer crosses into another arc's sector — still
+  // shows the dragged arc's value. Null when nothing is being dragged.
   const tooltipFor = (event: React.PointerEvent) => {
     const rect = wrapRef.current?.getBoundingClientRect()
     const point = pointAt(event)
@@ -136,8 +123,7 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
     const start = arcStart(zone.index)
     const rel = arcRelAngle(point.angle, start, span)
     const fraction = 1 - rel / span
-    const value = arc.kind === 'channel' ? Math.round(fraction * 255) : Math.round(fraction * 100)
-    return { x, y, text: `${arc.label}: ${value}` }
+    return { x, y, text: `${arc.label}: ${Math.round(fraction * 100)}` }
   }
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -186,7 +172,6 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
     event.preventDefault()
     if (arc.kind === 'saturation') onHsvChange({ h: hsv.h, s: Math.max(0, Math.min(100, hsv.s + delta)), v: hsv.v })
     else if (arc.kind === 'brightness') onHsvChange({ h: hsv.h, s: hsv.s, v: Math.max(0, Math.min(100, hsv.v + delta)) })
-    else if (arc.attribute) onExtraChange(arc.attribute, Math.max(0, Math.min(255, Math.round(arc.fraction * 255) + delta)))
   }
 
   const hueSegments = Array.from({ length: 60 }, (_, i) => i * 6)
@@ -250,11 +235,11 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
             <line x1={polar(77, hsv.h).x} y1={polar(77, hsv.h).y} x2={polar(97, hsv.h).x} y2={polar(97, hsv.h).y} stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
           </>
         )}
-        {/* Inner arcs: saturation, brightness, then one per extra channel. */}
+        {/* Inner arcs: saturation (left half) and brightness (right half). */}
         {arcs.map((arc, i) => {
           const start = arcStart(i)
-          const value = arc.kind === 'saturation' ? hsv.s : arc.kind === 'brightness' ? hsv.v : Math.round(arc.fraction * 255)
-          const max = arc.kind === 'channel' ? 255 : 100
+          const value = arc.kind === 'saturation' ? hsv.s : hsv.v
+          const max = 100
           const markerAngle = start + (1 - arc.fraction) * span
           const ticksInArc = Array.from({ length: 11 }, (_, k) => start + (k / 10) * span)
           return (

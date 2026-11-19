@@ -14,17 +14,19 @@ import { dispatchFanHud, FanDeleteDot, FanMenuButton, FannedIcon } from './Prope
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
 
 // Colour attributes the round Color control owns (LightKey Guide p.82–
-// 85): Red/Green/Blue (or Cyan/Magenta/Yellow) are driven by the hue
-// wheel, and the additional colour channels by the wheel's inner arcs —
+// 86): Red/Green/Blue (or Cyan/Magenta/Yellow) are driven by the hue
+// wheel, and the additional colour channels by the sliders beside it —
 // so they are not rendered as channel faders when the wheel is shown.
 // A fixture the wheel does not support keeps its faders as the fallback.
 const COLOUR_FADER_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']
-// Additional colour channels (Guide p.85: cool/warm white, amber, lime,
-// ultraviolet) that appear as inner arcs in the wheel's centre — only
-// when the selected fixtures actually have them.
+// Additional colour channels (Guide pp.85–86: cool/warm white, amber,
+// lime, ultraviolet) that appear as sliders beside the wheel — only
+// when the selected fixtures actually have them. A fixture without
+// them shows no sliders at all.
 const ADDITIONAL_COLOUR_ATTRIBUTES = ['white', 'amber', 'uv', 'lime']
 
 function attributeLabel(attribute: string) {
+  if (attribute === 'uv') return 'UV'
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
 }
 
@@ -228,11 +230,13 @@ export function DesignTab() {
         </div>
 
         {/* Colour: LightKey's round control (Guide p.82–85) — the outer
-            hue ring, saturation and brightness as inner arcs, and one
-            inner arc per additional colour channel the fixtures have
-            (White / Amber / UV …). The centre disc opens the system
-            colour window. The per-channel colour faders are gone: the
-            wheel is the colour control. */}
+            hue ring, saturation and brightness as inner arcs — plus the
+            additional-colour sliders beside it (Guide pp.85–86, verified
+            by Jake in LightKey 19 Nov 2026: White / Amber / UV are
+            sliders next to the main colour control, not inner arcs).
+            The centre disc opens the system colour window. The
+            per-channel colour faders are gone: the wheel + its sliders
+            are the colour control. */}
         <div className="flex shrink-0 flex-col items-center gap-0.5">
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
             {colorFan && <FanDeleteDot label="Colour" onDelete={() => deleteFanKeep(colorFan)} />}
@@ -246,24 +250,64 @@ export function DesignTab() {
               <FannedIcon label="Colour" onEdit={() => dispatchFanHud({ attribute: 'color' })} />
             </div>
           ) : (
-            <ColorWheelControl
-              hsv={hsv}
-              extraChannels={additionalColourAttributes.map((attribute) => ({
-                attribute,
-                label: attributeLabel(attribute),
-                value: valueFor(attribute),
-                color: channelFillColor(attribute)
-              }))}
-              centreHex={colorHex(colorValues)}
-              disabled={!canEdit || !colorSupported}
-              onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s, v: next.v }); setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
-              onExtraChange={(attribute, next) => updateValues({ [attribute]: next })}
-              onCentrePick={(hex) => {
-                const picked = hexToRgb(hex)
-                if (picked) { const p = rgbToHsv({ red: picked.red, green: picked.green, blue: picked.blue }); if (p.s > 0 && p.v > 0) setPreservedHsv({ h: p.h, s: p.s, v: p.v }) }
-                setColor(hex)
-              }}
-            />
+            <div className="flex items-stretch gap-1">
+              <ColorWheelControl
+                hsv={hsv}
+                centreHex={colorHex(colorValues)}
+                disabled={!canEdit || !colorSupported}
+                onHsvChange={(next) => { setPreservedHsv({ h: next.h, s: next.s, v: next.v }); setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v))) }}
+                onCentrePick={(hex) => {
+                  const picked = hexToRgb(hex)
+                  if (picked) { const p = rgbToHsv({ red: picked.red, green: picked.green, blue: picked.blue }); if (p.s > 0 && p.v > 0) setPreservedHsv({ h: p.h, s: p.s, v: p.v }) }
+                  setColor(hex)
+                }}
+              />
+              {/* Additional-colour sliders beside the wheel — the same
+                  shared FillFader as the channel faders, one per
+                  additional colour channel the selected fixtures
+                  actually have, wired through updateValues (the same
+                  write path the inner arcs used). A fixture without
+                  White / Amber / UV / lime shows no sliders. Each slider
+                  fans like any other slider property (Guide §8, p.118);
+                  while the Colour fan is active the whole colour block
+                  — wheel and sliders — is replaced by the FannedIcon,
+                  as the arcs were before. The sliders are disabled only
+                  by canEdit, not by colorSupported, so a white-only
+                  fixture still gets a working White slider when the
+                  wheel itself does not apply. */}
+              {additionalColourAttributes.map((attribute) => {
+                const value = activeCue ? valueFor(attribute) : 0
+                const fan = fanFor(attribute)
+                return (
+                  <div key={attribute} className="chan">
+                    <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
+                      {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
+                      {attributeLabel(attribute)}
+                      {showFanButtons && !fan && (
+                        <FanMenuButton label={attributeLabel(attribute)} items={[{ label: `Add ${attributeLabel(attribute)} Fanning…`, onSelect: () => dispatchFanHud({ attribute }) }]} disabled={!canEdit} />
+                      )}
+                    </span>
+                    {fan ? (
+                      <FannedIcon label={attributeLabel(attribute)} onEdit={() => dispatchFanHud({ attribute })} />
+                    ) : (
+                      <>
+                        <FillFader
+                          value={value}
+                          onChange={(next) => updateValues({ [attribute]: next })}
+                          label={`${attributeLabel(attribute)} for selected fixtures`}
+                          fillColor={channelFillColor(attribute)}
+                          disabled={!canEdit}
+                          trackClassName="design-fill-track"
+                        />
+                        <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
+                          {value}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
           )}
           {/* No numeric RGB readout under the wheel (Jake, 19 Nov 2026):
               the green channel printed a raw float (9.450000000000001,

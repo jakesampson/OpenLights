@@ -1,9 +1,10 @@
-// LightKey's round Color control (Guide p.82–85; Jake's LightKey
+// LightKey's round Color control (Guide p.82–86; Jake's LightKey
 // screenshot Screenshot_2026-11-19_at_9.56.05_am.png): the outer hue
-// ring, saturation and brightness as inner arcs, and one inner arc per
-// additional colour channel the fixture has — White / Amber / UV — with
-// no extra arcs for a fixture without them. Source assertions (no DOM
-// renderer), in the repo's style.
+// ring, saturation and brightness as inner arcs — and nothing else in
+// the wheel. Additional colour channels (White / Amber / UV / lime)
+// are sliders beside the wheel (Guide pp.85–86, verified by Jake in
+// LightKey 19 Nov 2026), with no sliders for a fixture without them.
+// Source assertions (no DOM renderer), in the repo's style.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -64,7 +65,10 @@ describe('ColorWheelControl — LightKey’s round control', () => {
     expect(wheel).toContain("{ type: 'arc', index:")
     expect(wheel).toContain('activeZone.current = zone')
     expect(wheel).toContain('onHsvChange({ h: Math.round(point.angle)')
-    expect(wheel).toContain('onExtraChange(arc.attribute, Math.round(fraction * 255))')
+    // No extra-channel drag path: the wheel has only hue, saturation
+    // and brightness — White / Amber / UV are sliders beside it.
+    expect(wheel).not.toContain('onExtraChange')
+    expect(wheel).not.toContain('extraChannels')
   })
 })
 
@@ -99,17 +103,29 @@ describe('DesignTab — the wheel is the colour control', () => {
     expect(css).toContain('outline: none')
   })
 
-  it('shows inner arcs only for additional colour channels the fixtures have', () => {
+  it('renders White / Amber / UV as sliders beside the wheel, only for fixtures that have them', () => {
+    // Guide pp.85–86 + Jake's LightKey check 19 Nov 2026: additional
+    // colours are "sliders next to the main color control", and "if no
+    // sliders are visible then the selected fixtures don't support
+    // these features" — so one slider per additional colour channel
+    // the fixtures actually have, in the colour block beside the
+    // wheel, and none for a fixture without them.
     expect(design).toContain("const ADDITIONAL_COLOUR_ATTRIBUTES = ['white', 'amber', 'uv', 'lime']")
     expect(design).toContain('commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))')
-    expect(design).toContain('extraChannels={additionalColourAttributes.map((attribute) => ({')
-    expect(design).toContain('onExtraChange={(attribute, next) => updateValues({ [attribute]: next })}')
+    expect(design).toContain('additionalColourAttributes.map((attribute) => {')
+    expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
+    // The wheel itself takes no extra channels any more.
+    expect(design).not.toContain('extraChannels=')
+    expect(design).not.toContain('onExtraChange')
+    expect(wheel).not.toContain('extraChannels')
+    expect(wheel).not.toContain('onExtraChange')
   })
 
   it('removes the per-channel colour faders when the wheel is shown', () => {
-    // Red/Green/Blue/White/Amber/Uv faders are gone — the wheel owns
-    // colour — but a fixture the wheel does not support keeps its
-    // faders as the fallback.
+    // Red/Green/Blue faders are gone — the wheel owns colour, and
+    // White/Amber/UV/lime are sliders beside the wheel, not channel
+    // faders in the strip — but a fixture the wheel does not support
+    // keeps its faders as the fallback.
     expect(design).toContain("const COLOUR_FADER_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']")
     expect(design).toContain('const faderAttributes = colorSupported')
     expect(design).toContain('channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute))')
@@ -117,7 +133,8 @@ describe('DesignTab — the wheel is the colour control', () => {
     expect(design).not.toContain('className="wheel-input"')
   })
 
-  it('colours the UV arc violet', () => {
+  it('colours the UV slider violet and labels it UV', () => {
     expect(design).toContain("case 'uv': return '#a855f7'")
+    expect(design).toContain("if (attribute === 'uv') return 'UV'")
   })
 })
