@@ -41,7 +41,7 @@ function renderWithCue() {
     cues: [{ id: 'c1', name: 'Cue 1', presetIds: ['p1'], sequenceIds: [], fixtureValues: {}, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: show.presets ?? [], selectedFixtureIds: ['led'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: show.presets ?? [], selectedFixtureIds: ['led'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
   const el = document.createElement('div')
   document.body.appendChild(el)

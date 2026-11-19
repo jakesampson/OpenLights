@@ -46,7 +46,7 @@ function setShow() {
     }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [], activeCueId: 'c1', editingPresetId: null, previewEditing: false })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false, previewEditing: false })
   })
 }
 
@@ -156,7 +156,7 @@ describe('multibeams: one beam per cell', () => {
       cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { bar: { intensity: 255 } }, fadeMs: 0 }]
     }
     act(() => {
-      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [], activeCueId: 'c1', editingPresetId: null, previewEditing: false })
+      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false, previewEditing: false })
     })
   }
 

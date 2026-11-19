@@ -41,7 +41,7 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { intensity: 255, ...values } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
@@ -120,7 +120,10 @@ describe('Default colour (blue) and the Colour default menu', () => {
     openColourMenu()
     expect(menuItem('Reset Default')).not.toBeNull()
     click(menuItem('Load Default')!)
-    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 0, blue: 0 })
+    // Load Default defines an override (LightKey's real Overrides) —
+    // the cue keeps its green until Add Overrides merges it in.
+    expect(useShowStore.getState().manualOverrides.fx1).toMatchObject({ red: 255, green: 0, blue: 0 })
+    expect(cueValues('fx1')).toMatchObject({ red: 0, green: 255, blue: 0 })
     // Reset clears the custom default; loading the default now gives
     // the built-in blue, and Reset leaves the menu.
     openColourMenu()
@@ -129,7 +132,7 @@ describe('Default colour (blue) and the Colour default menu', () => {
     openColourMenu()
     expect(menuItem('Reset Default')).toBeNull()
     click(menuItem('Load Default')!)
-    expect(cueValues('fx1')).toMatchObject({ red: 0, green: 0, blue: 255 })
+    expect(useShowStore.getState().manualOverrides.fx1).toMatchObject({ red: 0, green: 0, blue: 255 })
     expect(centreHex()).toBe('#0000ff')
   })
 })

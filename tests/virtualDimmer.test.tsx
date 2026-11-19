@@ -42,7 +42,7 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { ...values } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
@@ -99,18 +99,19 @@ describe('Virtual dimmer in the Design panel', () => {
     expect(container?.textContent).toContain('50%')
   })
 
-  it('keyboard on the Dimmer fader writes the intensity into the cue', () => {
+  it('keyboard on the Dimmer fader defines an intensity override (not a cue edit)', () => {
     setShow(RGBA, { intensity: 128, red: 255, green: 0, blue: 0 })
     renderInRoot(<DesignTab />)
     const fader = dimmerFader()
     if (!fader) throw new Error('no Dimmer fader')
     keydown(fader, 'ArrowUp')
-    expect(cueValues('fx1').intensity).toBe(129)
+    expect(useShowStore.getState().manualOverrides.fx1?.intensity).toBe(129)
+    expect(cueValues('fx1').intensity).toBe(128)
     keydown(fader, 'ArrowDown')
     keydown(fader, 'ArrowDown')
-    expect(cueValues('fx1').intensity).toBe(127)
+    expect(useShowStore.getState().manualOverrides.fx1?.intensity).toBe(127)
     // The colour is untouched by the dimmer.
-    expect(cueValues('fx1').red).toBe(255)
+    expect(useShowStore.getState().manualOverrides.fx1?.red).toBeUndefined()
   })
 
   it('reads the cue intensity as before for a fixture with a dimmer channel', () => {

@@ -58,7 +58,7 @@ function setShow(values: Record<string, number>) {
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, ...values } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 

@@ -28,6 +28,8 @@ import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { activeOwnedEffects } from './lib/effectOwnership'
 import { ContextMenu } from './components/ContextMenu'
+import { OverridesField } from './components/OverridesField'
+import { editAdHocTarget } from './lib/liveOverrideTargets'
 import { calculateTapTempo } from './lib/tapTempo'
 import { SetupWizard } from './components/SetupWizard'
 import { WelcomeScreen } from './components/WelcomeScreen'
@@ -66,6 +68,9 @@ export default function App() {
     editingPresetId,
     saveEditingPreset,
     cancelEditingPreset,
+    editingCueAdHocId,
+    saveEditingCueAdHoc,
+    cancelEditingCueAdHoc,
     toggleBlackout,
     activateCue,
     cueNext,
@@ -104,6 +109,9 @@ export default function App() {
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  const editingCueAdHoc = editingCueAdHocId ? cues.find((c) => c.id === editingCueAdHocId) : undefined
+  // In-place cue ad-hoc editing opens in Design (Guide ch.11, p.201).
+  useEffect(() => { if (editingCueAdHocId) setTab('Design') }, [editingCueAdHocId])
   // "Show in Cue" from the Preset Palette (LightKey Guide p.144): reveal
   // a Live cue — select its page, select the button (accent border),
   // switch to Live and scroll it into view. Mirrors ProjectSearch's
@@ -114,6 +122,7 @@ export default function App() {
       if (!detail?.pageId || !detail?.controlId) return
       const state = useShowStore.getState()
       if (state.editingPresetId) state.saveEditingPreset()
+      if (state.editingCueAdHocId) state.saveEditingCueAdHoc()
       state.selectLivePage(detail.pageId)
       // selectLivePage clears the page-object selection, so select after.
       state.setPageObjectSelection([{ type: 'cue', id: detail.controlId }])
@@ -129,9 +138,10 @@ export default function App() {
     window.addEventListener('openlights-reveal-live-control', reveal)
     return () => window.removeEventListener('openlights-reveal-live-control', reveal)
   }, [])
-  // Switching to Live while a preset is open ends the session, keeping
-  // the edits (they were written live, undoable); Cancel is explicit.
-  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); setTab(view) }
+  // Switching to Live while a preset or a cue's ad-hoc layer is open
+  // ends the session, keeping the edits (they were written live,
+  // undoable); Cancel is explicit.
+  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
@@ -304,16 +314,20 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      const state = useShowStore.getState()
+      // Return / Enter hides the override labels when they are up and
+      // focus is not in a field (Guide ch.11, p.116).
+      if (event.key === 'Enter' && state.showOverrideLabels && event.target === document.body) { event.preventDefault(); state.setShowOverrideLabels(false); return }
       const binding = matchShortcut(event, event.target as HTMLElement | null)
       if (!binding) return
       event.preventDefault()
-      const state = useShowStore.getState()
       const command = binding.command
       if (command === 'undo' || command === 'redo') state[command]()
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
       else if (command === 'design') { if (!state.locked) setTab('Design') }
       else if (command === 'live') setTab('Live')
       else if (command === 'editPreview') togglePreviewEditing()
+      else if (command === 'showOverrides') state.setShowOverrideLabels(!state.showOverrideLabels)
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
       else if (command === 'blackout') state.toggleBlackout()
@@ -327,7 +341,7 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
@@ -337,7 +351,33 @@ export default function App() {
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)
     if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
+    else window.dispatchEvent(new CustomEvent('openlights-menu-command', { detail: { command } }))
   }), [])
+
+  // Menu commands with no keyboard binding (Add Overrides, Edit Ad Hoc
+  // Properties — Guide ch.11, pp.201–202) arrive as custom events, from
+  // the context menu or the native app menu (see onMenuCommand above).
+  useEffect(() => {
+    const onMenuCommand = (event: Event) => {
+      const { command, selectedOnly } = (event as CustomEvent<{ command: string; selectedOnly?: boolean }>).detail
+      const state = useShowStore.getState()
+      if (command === 'addOverrides') state.addOverridesToCues(undefined, selectedOnly ?? false)
+      else if (command === 'editAdHocProperties') {
+        const target = editAdHocTarget(state)
+        if (target && 'cueId' in target) state.startEditingCueAdHoc(target.cueId)
+        else if (target && 'popup' in target) window.dispatchEvent(new Event('openlights-open-live-properties'))
+      }
+    }
+    window.addEventListener('openlights-menu-command', onMenuCommand)
+    return () => window.removeEventListener('openlights-menu-command', onMenuCommand)
+  }, [])
+
+  // A click on an override label row opens the fixture in Design.
+  useEffect(() => {
+    const showDesign = () => setTab('Design')
+    window.addEventListener('openlights-show-design', showDesign)
+    return () => window.removeEventListener('openlights-show-design', showDesign)
+  }, [])
 
   // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots) live in
   // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
@@ -578,11 +618,15 @@ export default function App() {
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
             </span>
           )}
-          <span aria-hidden="true">▱</span>
-          <select aria-label="Active cue" value={activeCueId ?? ''} onChange={(event) => event.target.value ? activateCue(event.target.value) : undefined}>
-            <option value="">{blackout ? 'Blackout' : 'Overrides'}</option>
-            {cues.filter((cue) => !cue.blackout).map((cue) => <option key={cue.id} value={cue.id}>{cue.name}</option>)}
-          </select>
+          {editingCueAdHoc && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">Ad hoc · {editingCueAdHoc.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingCueAdHoc}>Save</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingCueAdHoc}>Cancel</button>
+            </span>
+          )}
+          <OverridesField />
         </div>
 
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />

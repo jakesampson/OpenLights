@@ -74,7 +74,7 @@ describe('beam 1 sliders on a multipart fixture', () => {
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderEl('Red 1 for selected fixtures')).toBeTruthy()
     expect(sliderEl('Green 1 for selected fixtures')).toBeTruthy()
@@ -87,14 +87,17 @@ describe('beam 1 sliders on a multipart fixture', () => {
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0, red2: 0, green2: 0, blue2: 0, red3: 0, green3: 0, blue3: 0, red4: 0, green4: 0, blue4: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     // Pointer at the top of the 150-tall mocked track: full (255).
     act(() => { sliderEl('Red 1 for selected fixtures').dispatchEvent(pointer('pointerdown', 75, 0)) })
-    expect(cueValues('bar')).toMatchObject({ red: 255 })
-    expect(cueValues('bar').red2).toBe(0)
-    expect(cueValues('bar').red3).toBe(0)
-    expect(cueValues('bar').red4).toBe(0)
+    // A Design write defines an override, not a cue edit — and only
+    // LED 1's red is overridden; beams 2–4 stay put.
+    expect(s().manualOverrides.bar).toMatchObject({ red: 255 })
+    expect(s().manualOverrides.bar.red2).toBeUndefined()
+    expect(s().manualOverrides.bar.red3).toBeUndefined()
+    expect(s().manualOverrides.bar.red4).toBeUndefined()
+    expect(cueValues('bar').red).toBe(0)
     // And the slider reads its own beam back.
     expect(sliderEl('Red 1 for selected fixtures').getAttribute('aria-valuenow')).toBe('255')
   })
@@ -105,7 +108,7 @@ describe('beam 1 sliders on a multipart fixture', () => {
       fixtures: [PAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { par: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(container?.querySelector('[aria-label="Red 1 for selected fixtures"]')).toBeNull()
     expect(container?.querySelector('[aria-label="Green 1 for selected fixtures"]')).toBeNull()
@@ -119,7 +122,7 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 0, red: 255, green: 0, blue: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().selectFixtureBeam('bar', 'cell-2')
     s().updateSelectedBeamValues({ intensity: 200 })
     expect(cueValues('bar').intensity).toBe(200)
@@ -135,7 +138,7 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0, red2: 0, green2: 0, blue2: 0, red3: 0, green3: 0, blue3: 0, red4: 0, green4: 0, blue4: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().updateBeamValues('bar', 'cell-1', { red: 120 })
     expect(cueValues('bar')).toMatchObject({ red: 120 })
     expect(cueValues('bar').red2).toBe(0)
@@ -152,7 +155,7 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
       fixtures: [PAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { par: { intensity: 0, red: 0, green: 0, blue: 255 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().setSelectedBaseColor({ red: 255, green: 0, blue: 0 })
     s().updateSelectedFixtures({ intensity: 255 })
     const state = s()

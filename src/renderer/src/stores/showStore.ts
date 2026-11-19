@@ -14,6 +14,7 @@ import {
   objectsInRect, pasteObjects, renameObject, resizeObject, setAttachment, setObjectStyle,
   type PageClipboard, type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
+import { addOverridesTargetIds } from '../lib/liveOverrideTargets'
 import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
 import { sequenceOrder } from '../lib/sequenceClock'
@@ -157,7 +158,7 @@ interface ShowState {
   /** Write values to one explicit beam of one fixture (beam 1's sliders):
    * the same beam mapping as updateSelectedBeamValues, without needing
    * that beam to be the current selection. */
-  updateBeamValues: (fixtureId: string, beamId: string, values: Record<string, number>) => void
+  updateBeamValues: (fixtureId: string, beamId: string, values: Record<string, number>, manual?: boolean) => void
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
@@ -208,7 +209,20 @@ interface ShowState {
   pastePageObjects: (dx?: number, dy?: number) => void
   setManualOverrides: (values: Record<string, number>) => void
   clearManualOverrides: () => void
-  releaseManualOverrides: (fixtureIds?: string[], property?: string) => void
+  /** Release overrides: one property, a property group (several
+   * attributes, e.g. a label row's Color = red/green/blue), or all
+   * properties of the given fixtures (no property = all). */
+  releaseManualOverrides: (fixtureIds?: string[], property?: string | string[]) => void
+  /** Merge the current manual overrides into the ad-hoc properties of
+   * the given cues / Live buttons (Guide ch.11, p.202, "Add Overrides").
+   * ids omitted = resolve from the Live selection, else the active cue.
+   * selectedOnly = Option held: only the selected fixtures merge. */
+  addOverridesToCues: (ids?: string[], selectedOnly?: boolean) => void
+  /** Whether the Preview shows the per-fixture override labels (the
+   * white callouts LightKey shows when Overrides is toggled on). */
+  showOverrideLabels: boolean
+  setShowOverrideLabels: (visible: boolean) => void
+  toggleOverrideLabels: () => void
   locateFixtures: (ids: string[]) => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
@@ -232,7 +246,7 @@ interface ShowState {
   parentFixtureGroup: (id: string, parentId: string | null) => void
   moveFixtureGroup: (id: string, direction: -1 | 1) => void
   removeFixtureGroup: (id: string) => void
-  updateSelectedFixtures: (values: Record<string, number>) => void
+  updateSelectedFixtures: (values: Record<string, number>, manual?: boolean) => void
   setSelectedColor: (color: RgbColor, manual?: boolean) => void
   /** Set the base colour (the wheel's hue / saturation / brightness) on
       the selected fixtures, without touching White / Amber / UV / Lime:
@@ -275,6 +289,14 @@ interface ShowState {
   startEditingPreset: (id: string) => void
   saveEditingPreset: () => void
   cancelEditingPreset: () => void
+  /** In-place cue ad-hoc editing (Guide ch.11, p.201, "Edit Ad Hoc
+   * Properties"): id of the cue whose ad-hoc layer is open in Design,
+   * or null. Mirrors preset editing — Design writes land in the cue
+   * while it is open, and Cancel restores the cue's previous values. */
+  editingCueAdHocId: string | null
+  startEditingCueAdHoc: (id: string) => void
+  saveEditingCueAdHoc: () => void
+  cancelEditingCueAdHoc: () => void
   updateEditingPresetValues: (values: Record<string, number>, beams?: { fixtureId: string; beamId: string }[]) => void
   applyPaletteDrop: (drag: PaletteDragItem, targetGroupId: string | null, before?: { kind: 'preset' | 'sequence'; id: string } | null) => void
   applyPresetsToOverrides: (ids: string[], selectedOnly?: boolean) => void
@@ -297,7 +319,7 @@ interface ShowState {
   duplicateSequenceStep: (id: string, stepId: string) => void
   moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
   reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
-  addCue: () => void
+  addCue: () => CueDef
   /** Create a cue AND make it active when no cue is active (the write
       paths' model — mirroring updateSelectedFixtures). addCue on its own
       deliberately does not activate (the Add-cue button's behaviour), so
@@ -427,6 +449,42 @@ let flashState: { patch: Record<number, number>; activeCueId: string | null } | 
  * on Cancel. Edits write straight into the preset (undoable), so Cancel
  * restores this snapshot and Save just ends the session. */
 let editingPresetSnapshot: { preset: PresetDef; activePresetIds: string[]; selectedFixtureIds: string[] } | null = null
+
+/** In-place cue ad-hoc editing (Guide ch.11, p.201): the cue as it was
+ * when editing started, plus the active cue and fixture selection to
+ * restore on Cancel. Mirrors the preset-editing snapshot. */
+let editingCueAdHocSnapshot: { cue: CueDef; activeCueId: string | null; selectedFixtureIds: string[] } | null = null
+
+/** Merge a per-fixture patch into the manual overrides (a Design write
+ * defines the property for the fixture — LightKey Guide ch.8, p.80). */
+function mergeManualOverrides(current: Record<string, Record<string, number>>, patch: Record<string, Record<string, number>>): Record<string, Record<string, number>> {
+  const next = { ...current }
+  for (const [fixtureId, values] of Object.entries(patch)) next[fixtureId] = { ...next[fixtureId], ...values }
+  return next
+}
+
+/** Merge the current overrides into an ad-hoc layer (a cue's
+ * fixtureValues or a Live button's captured adHocValues) — "Add
+ * Overrides" (Guide ch.11, p.202). selectedOnly limits the merge to
+ * the fixtures the operator has selected ("Add Overrides for Selected
+ * Fixtures", Option held). */
+function mergeOverridesIntoAdHoc(existing: Record<string, Record<string, number>>, overrides: Record<string, Record<string, number>>, selectedOnly: boolean, selectedFixtureIds: string[]): Record<string, Record<string, number>> {
+  const next = structuredClone(existing)
+  for (const [fixtureId, values] of Object.entries(overrides)) {
+    if (selectedOnly && !selectedFixtureIds.includes(fixtureId)) continue
+    next[fixtureId] = { ...next[fixtureId], ...values }
+  }
+  return next
+}
+
+/** The fixture values a new cue starts with: LightKey's defaults, with
+ * any currently overridden properties overlaid (Guide ch.11, p.191 —
+ * creating a cue adds the overridden properties to it). */
+function newCueFixtureValues(fixtures: FixtureDef[], manualOverrides: Record<string, Record<string, number>>): CueDef['fixtureValues'] {
+  const fixtureValues: CueDef['fixtureValues'] = {}
+  for (const fixture of fixtures) fixtureValues[fixture.id] = { ...defaultFixtureValues(fixture), ...manualOverrides[fixture.id] }
+  return fixtureValues
+}
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
   return fixtures.reduce((max, f) => Math.max(max, f.channelStart - 1 + f.channels), 0) + 1
@@ -764,8 +822,11 @@ let sessionPasscode = ''
     needed). Shared by setSelectedColor, setSelectedBaseColor and
     loadColorDefault. */
 function writeColourToActiveCue(get: () => ShowState, patch: Record<string, Record<string, number>>) {
-  if (!get().activeCueId) get().ensureActiveCue()
-  const cue = get().cues.find((s) => s.id === get().activeCueId)
+  // While a cue's ad-hoc layer is being edited, the wheel writes to that
+  // cue even if the operator switched the active cue mid-edit.
+  const targetId = get().editingCueAdHocId ?? get().activeCueId
+  if (!targetId) get().ensureActiveCue()
+  const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
   if (!cue) return
   const fixtureValues = { ...cue.fixtureValues }
   for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
@@ -821,6 +882,8 @@ const actions: ShowState = {
   selectedLayoutTrussIds: [],
   selectedStageObjectId: null,
   editingPresetId: null,
+  editingCueAdHocId: null,
+  showOverrideLabels: false,
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
@@ -854,6 +917,7 @@ const actions: ShowState = {
     // Loading a different show must not leave the previous show's look
     // latched on the outputs.
     flashState = null
+    editingCueAdHocSnapshot = null
     configureSequences([])
     configureLocateOutput({})
     suppressPresetsForCue(false)
@@ -885,6 +949,8 @@ const actions: ShowState = {
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
+      editingCueAdHocId: null,
+      showOverrideLabels: false,
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       effectClipboard: null,
@@ -1124,13 +1190,17 @@ const actions: ShowState = {
     Object.assign(values, state.manualOverrides[fixture.id])
     set({ propertyClipboard: { fixture: structuredClone(fixture), values: property && property in values ? { [property]: values[property] } : values, property } })
   },
-  pasteFixtureProperties: (manual = false) => {
+  pasteFixtureProperties: (manual) => {
     const state = get(), clipboard = state.propertyClipboard
     if (!clipboard) return
     const patch = Object.fromEntries((state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id)).map((f) => [f.id, clipboard.property && fixtureAttributes(f).includes(clipboard.property) ? { [clipboard.property]: clipboard.values[clipboard.property] } : mapCopiedProperties(clipboard.fixture, clipboard.values, f)]))
-    if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    // No explicit target: a Design paste defines overrides — unless a
+    // cue's ad-hoc layer is being edited, when it pastes into the cue.
+    const toOverrides = manual ?? !state.editingCueAdHocId
+    if (toOverrides) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, patch) }); return }
+    const targetId = state.editingCueAdHocId ?? state.activeCueId
+    if (!targetId) get().ensureActiveCue()
+    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
     if (!cue) return
     const fixtureValues = { ...cue.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
@@ -1199,7 +1269,17 @@ const actions: ShowState = {
       patch[fixture.id] = colour
     }
     if (!Object.keys(patch).length) return
-    writeColourToActiveCue(get, patch)
+    if (state.editingPresetId) {
+      // Load the defaults into the preset being edited, not the cue.
+      const preset = state.presets.find((p) => p.id === state.editingPresetId)
+      if (!preset) return
+      const fixtureValues = structuredClone(preset.fixtureValues)
+      for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
+      get().updatePresetContents(preset.id, fixtureValues)
+      return
+    }
+    if (state.editingCueAdHocId) { writeColourToActiveCue(get, patch); return }
+    set({ manualOverrides: mergeManualOverrides(state.manualOverrides, patch) })
   },
   resetColorDefault: () => {
     const state = get()
@@ -1357,23 +1437,26 @@ const actions: ShowState = {
       const beamPatch = beamValuePatch(fixture, beam, values)
       if (Object.keys(beamPatch).length) patch[selected.fixtureId] = { ...patch[selected.fixtureId], ...beamPatch }
     }
-    if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
-    if (!state.activeCueId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (manual) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, patch) }); return }
+    const targetId = state.editingCueAdHocId ?? state.activeCueId
+    if (!targetId) get().ensureActiveCue()
+    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
     if (!cue) return
     const fixtureValues = { ...cue.fixtureValues }
     for (const [id, attributes] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...attributes }
     get().updateCue(cue.id, { fixtureValues })
   },
 
-  updateBeamValues: (fixtureId, beamId, values) => {
+  updateBeamValues: (fixtureId, beamId, values, manual = false) => {
     const state = get()
     const fixture = state.show?.fixtures.find((f) => f.id === fixtureId), beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === beamId)
     if (!fixture || !beam) return
     const patch = beamValuePatch(fixture, beam, values)
     if (!Object.keys(patch).length) return
-    if (!state.activeCueId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (manual) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, { [fixtureId]: patch }) }); return }
+    const targetId = state.editingCueAdHocId ?? state.activeCueId
+    if (!targetId) get().ensureActiveCue()
+    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
     if (!cue) return
     get().updateCue(cue.id, { fixtureValues: { ...cue.fixtureValues, [fixtureId]: { ...cue.fixtureValues[fixtureId], ...patch } } })
   },
@@ -1600,6 +1683,7 @@ const actions: ShowState = {
     const state = get(), preset = state.presets.find((p) => p.id === id)
     if (!preset) return
     if (state.editingPresetId && state.editingPresetId !== id) state.saveEditingPreset()
+    if (state.editingCueAdHocId) state.saveEditingCueAdHoc()
     editingPresetSnapshot = { preset: structuredClone(preset), activePresetIds: [...state.activePresetIds], selectedFixtureIds: [...state.selectedFixtureIds] }
     const fixtureIds = Object.keys(preset.fixtureValues).filter((fixtureId) => state.show?.fixtures.some((f) => f.id === fixtureId))
     if (fixtureIds.length) state.selectFixtures(fixtureIds)
@@ -1618,6 +1702,47 @@ const actions: ShowState = {
     get().updatePresetContents(snapshot.preset.id, snapshot.preset.fixtureValues)
     set({ editingPresetId: null, activePresetIds: snapshot.activePresetIds, selectedFixtureIds: snapshot.selectedFixtureIds })
   },
+  startEditingCueAdHoc: (id) => {
+    const state = get(), cue = state.cues.find((c) => c.id === id)
+    if (!cue) return
+    if (state.editingCueAdHocId && state.editingCueAdHocId !== id) state.saveEditingCueAdHoc()
+    if (state.editingPresetId) state.saveEditingPreset()
+    editingCueAdHocSnapshot = { cue: structuredClone(cue), activeCueId: state.activeCueId, selectedFixtureIds: [...state.selectedFixtureIds] }
+    const fixtureIds = Object.keys(cue.fixtureValues).filter((fixtureId) => state.show?.fixtures.some((f) => f.id === fixtureId))
+    if (fixtureIds.length) state.selectFixtures(fixtureIds)
+    // The cue must be active while its ad-hoc layer is edited: Design
+    // reads and writes resolve through the active cue.
+    get().activateCue(id)
+    set({ editingCueAdHocId: id })
+  },
+  saveEditingCueAdHoc: () => {
+    if (!get().editingCueAdHocId) return
+    editingCueAdHocSnapshot = null
+    set({ editingCueAdHocId: null })
+  },
+  cancelEditingCueAdHoc: () => {
+    const state = get(), snapshot = editingCueAdHocSnapshot
+    if (!state.editingCueAdHocId || !snapshot) return
+    editingCueAdHocSnapshot = null
+    get().updateCue(snapshot.cue.id, { fixtureValues: snapshot.cue.fixtureValues })
+    set({ editingCueAdHocId: null, selectedFixtureIds: snapshot.selectedFixtureIds })
+    // Back to the cue that was active before the edit started.
+    if (snapshot.activeCueId) get().activateCue(snapshot.activeCueId)
+  },
+  addOverridesToCues: (ids, selectedOnly = false) => {
+    const state = get()
+    const targets = ids ?? addOverridesTargetIds(state)
+    if (!targets.length || !Object.keys(state.manualOverrides).length) return
+    const targetSet = new Set(targets)
+    const cues = state.cues.map((cue) => targetSet.has(cue.id) ? { ...cue, fixtureValues: mergeOverridesIntoAdHoc(cue.fixtureValues, state.manualOverrides, selectedOnly, state.selectedFixtureIds) } : cue)
+    const livePages = (state.show?.livePages ?? []).map((page) => ({
+      ...page,
+      controls: page.controls.map((control) => targetSet.has(control.id) ? { ...control, adHocValues: mergeOverridesIntoAdHoc(control.adHocValues ?? {}, state.manualOverrides, selectedOnly, state.selectedFixtureIds) } : control)
+    }))
+    set(persistState(state, { cues, livePages }, { cues }))
+  },
+  setShowOverrideLabels: (visible) => set({ showOverrideLabels: visible }),
+  toggleOverrideLabels: () => set((state) => ({ showOverrideLabels: !state.showOverrideLabels })),
   updateEditingPresetValues: (values, beams) => set((state) => {
     const preset = state.presets.find((p) => p.id === state.editingPresetId)
     if (!preset) return state
@@ -1693,22 +1818,25 @@ const actions: ShowState = {
     return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId })
   }),
 
-  addCue: () =>
+  addCue: () => {
+    let newCue: CueDef | undefined
     set((state) => {
       const fixtures = state.show?.fixtures ?? []
-      const fixtureValues: CueDef['fixtureValues'] = {}
-      for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
-      const newCue: CueDef = {
+      newCue = {
         id: crypto.randomUUID(),
         name: `Cue ${nextCueNumber(state.cues)}`,
         presetIds: [],
         sequenceIds: [],
-        fixtureValues,
+        // Creating a cue adds the currently overridden properties to it
+        // (Guide ch.11, p.191) — overlaid on LightKey's defaults.
+        fixtureValues: newCueFixtureValues(fixtures, state.manualOverrides),
         fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
       }
       const cues = [...state.cues, newCue]
       return persistState(state, { cues }, { cues })
-    }),
+    })
+    return newCue!
+  },
 
   // A write with no active cue must land somewhere: create the cue the
   // way addCue does, but activate it in the same update — the model
@@ -1724,14 +1852,12 @@ const actions: ShowState = {
     set((state) => {
       if (state.activeCueId && state.cues.some((s) => s.id === state.activeCueId)) return state
       const fixtures = state.show?.fixtures ?? []
-      const fixtureValues: CueDef['fixtureValues'] = {}
-      for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
       const newCue: CueDef = {
         id: crypto.randomUUID(),
         name: `Cue ${nextCueNumber(state.cues)}`,
         presetIds: [],
         sequenceIds: [],
-        fixtureValues,
+        fixtureValues: newCueFixtureValues(fixtures, state.manualOverrides),
         fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
       }
       const cues = [...state.cues, newCue]
@@ -1768,9 +1894,10 @@ const actions: ShowState = {
       return persistState(state, { cues }, { cues })
     }),
 
-  updateSelectedFixtures: (values) =>
+  updateSelectedFixtures: (values, manual = false) =>
     set((state) => {
-      const existingCue = state.cues.find((cue) => cue.id === state.activeCueId)
+      const targetId = state.editingCueAdHocId ?? state.activeCueId
+      const existingCue = state.cues.find((cue) => cue.id === targetId)
       const selectedFixtureIds = state.selectedFixtureIds.filter((id) =>
         state.show?.fixtures.some((fixture) => fixture.id === id)
       )
@@ -1782,10 +1909,22 @@ const actions: ShowState = {
       }
       if (Object.keys(patch).length === 0) return state
 
+      // A Design write defines the property for the fixture (LightKey
+      // Guide ch.8, p.80) — it lands in the manual overrides, never in
+      // a cue, so no cue is minted for a live tweak.
+      if (manual) {
+        const patchByFixture: Record<string, Record<string, number>> = {}
+        for (const fixtureId of selectedFixtureIds) {
+          const fixture = state.show.fixtures.find((f) => f.id === fixtureId)
+          patchByFixture[fixtureId] = fixture ? fanColourToBeams(fixture, patch) : patch
+        }
+        return { manualOverrides: mergeManualOverrides(state.manualOverrides, patchByFixture) }
+      }
+
       const activeCue: CueDef = existingCue ?? {
         id: crypto.randomUUID(), name: `Cue ${nextCueNumber(state.cues)}`, fadeMs: 1000,
         presetIds: [], sequenceIds: [],
-        fixtureValues: Object.fromEntries(state.show.fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)]))
+        fixtureValues: newCueFixtureValues(state.show.fixtures, state.manualOverrides)
       }
       const selected = new Set(selectedFixtureIds)
       const sourceCues = existingCue ? state.cues : [...state.cues, activeCue]
@@ -2311,7 +2450,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

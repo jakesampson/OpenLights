@@ -54,7 +54,7 @@ function setShow(intensity = 255, type: 'led-wash' | 'moving-head' = 'led-wash')
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity, red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0, pan: 128, tilt: 128, gobo: 0, strobe: 0 } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 

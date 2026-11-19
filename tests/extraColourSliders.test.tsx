@@ -48,12 +48,17 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { intensity: 255, ...values } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
   return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+}
+
+// A Design write defines an override (LightKey's real Overrides).
+function overrideValues(fixtureId: string) {
+  return useShowStore.getState().manualOverrides[fixtureId] ?? {}
 }
 
 beforeEach(() => {
@@ -122,20 +127,20 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     expect(container?.querySelector('.color-wheel')).not.toBeNull()
   })
 
-  it('keyboard on a slider changes the fixture channel value in the cue', () => {
+  it('keyboard on a slider defines an override for the fixture channel', () => {
     setShow(LED_WASH, { red: 0, green: 0, blue: 0, white: 128, amber: 64, uv: 32 })
     renderInRoot(<DesignTab />)
     const white = slider('White')
     if (!white) throw new Error('no White slider')
     keydown(white, 'ArrowUp')
-    expect(cueValues('fx1').white).toBe(129)
+    expect(overrideValues('fx1').white).toBe(129)
     keydown(white, 'ArrowDown')
     keydown(white, 'ArrowDown')
-    expect(cueValues('fx1').white).toBe(127)
+    expect(overrideValues('fx1').white).toBe(127)
     const uv = slider('UV')
     if (!uv) throw new Error('no UV slider')
     keydown(uv, 'ArrowUp')
-    expect(cueValues('fx1').uv).toBe(33)
+    expect(overrideValues('fx1').uv).toBe(33)
     // The other channels are untouched.
     expect(cueValues('fx1').amber).toBe(64)
     expect(cueValues('fx1').red).toBe(0)
@@ -217,7 +222,8 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     // writes the base colour only (255, 128, 128).
     expect(arcValue('Brightness')).toBe('100')
     expect(slider('White')?.getAttribute('aria-valuenow')).toBe('0')
-    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 128, blue: 128, white: 0, amber: 0, uv: 0 })
+    expect(overrideValues('fx1')).toMatchObject({ red: 255, green: 128, blue: 128 })
+    expect(overrideValues('fx1').white).toBeUndefined()
   })
 
   it('dragging the hue ring to yellow does not move Amber', () => {
@@ -236,7 +242,8 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     keydown(hue() ?? hueEl, 'PageUp')
     expect(arcValue('Colour hue')).toBe('60')
     expect(slider('Amber')?.getAttribute('aria-valuenow')).toBe('0')
-    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 255, blue: 0, white: 0, amber: 0, uv: 0 })
+    expect(overrideValues('fx1')).toMatchObject({ red: 255, green: 255, blue: 0 })
+    expect(overrideValues('fx1').amber).toBeUndefined()
   })
 })
 

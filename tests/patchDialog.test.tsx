@@ -71,7 +71,7 @@ function setTestShow(fixtures: FixtureDef[]) {
   if (!base) throw new Error('store has no default show')
   const show: ShowDef = { ...base, id: 'test-show', fixtures, cues: [], presets: [] }
   act(() => {
-    useShowStore.setState({ show, cues: [], presets: [], selectedFixtureIds: [], activeCueId: null, editingPresetId: null })
+    useShowStore.setState({ show, cues: [], presets: [], selectedFixtureIds: [], activeCueId: null, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 

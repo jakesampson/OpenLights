@@ -91,12 +91,17 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     ...extra
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: (extra.presets as never[]) ?? [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: (extra.presets as never[]) ?? [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
   return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+}
+
+// A Design write defines an override (LightKey's real Overrides).
+function overrideValues(fixtureId: string) {
+  return useShowStore.getState().manualOverrides[fixtureId] ?? {}
 }
 
 const fixturesDir = resolve(__dirname, '..', 'fixtures')
@@ -132,7 +137,7 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     act(() => { wheelEl().dispatchEvent(pointer('pointerdown', 75, 16)) })
     act(() => { wheelEl().dispatchEvent(pointer('pointermove', 75, 16)) })
     act(() => { wheelEl().dispatchEvent(pointer('pointerup', 75, 16, 0)) })
-    expect(cueValues('bar')).toMatchObject({
+    expect(overrideValues('bar')).toMatchObject({
       red: 255, green: 0, blue: 0,
       red2: 255, green2: 0, blue2: 0,
       red3: 255, green3: 0, blue3: 0,
@@ -244,6 +249,6 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     // …so loading the default restores all four, not just beam 1.
     act(() => { useShowStore.getState().setSelectedBaseColor({ red: 255, green: 0, blue: 0 }) })
     act(() => { useShowStore.getState().loadColorDefault() })
-    expect(cueValues('bar')).toMatchObject(ALL_GREEN)
+    expect(overrideValues('bar')).toMatchObject(ALL_GREEN)
   })
 })

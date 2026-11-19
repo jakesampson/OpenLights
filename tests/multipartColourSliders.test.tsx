@@ -83,6 +83,11 @@ function cueValues(fixtureId: string) {
   return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
 }
 
+// A Design write defines an override (LightKey's real Overrides).
+function overrideValues(fixtureId: string) {
+  return useShowStore.getState().manualOverrides[fixtureId] ?? {}
+}
+
 describe('additional-colour sliders across beams', () => {
   it('the UV slider reads the average UV across the Q5 five pods', () => {
     // UV 0 / 200 / 100 / 100 / 100 averages to 100 — beam 1 alone
@@ -92,7 +97,7 @@ describe('additional-colour sliders across beams', () => {
       fixtures: [q5Fixture()],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0, uv: 0, 'uv 2': 200, 'uv 3': 100, 'uv 4': 100, 'uv 5': 100 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderEl('UV for selected fixtures').getAttribute('aria-valuenow')).toBe('100')
   })
@@ -103,11 +108,11 @@ describe('additional-colour sliders across beams', () => {
       fixtures: [q5Fixture()],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     // Pointer at the top of the 150-tall mocked track: full (255).
     act(() => { sliderEl('UV for selected fixtures').dispatchEvent(pointer('pointerdown', 75, 0)) })
-    expect(cueValues('q5')).toMatchObject({ uv: 255, 'uv 2': 255, 'uv 3': 255, 'uv 4': 255, 'uv 5': 255 })
+    expect(overrideValues('q5')).toMatchObject({ uv: 255, 'uv 2': 255, 'uv 3': 255, 'uv 4': 255, 'uv 5': 255 })
     // And the slider now reads the linked value back.
     expect(sliderEl('UV for selected fixtures').getAttribute('aria-valuenow')).toBe('255')
   })

@@ -32,6 +32,9 @@ export const SHORTCUTS: ShortcutBinding[] = [
   { key: 'Ctrl+D', label: 'Design view', command: 'design', code: 'd', ctrl: true },
   { key: 'Ctrl+L', label: 'Live view', command: 'live', code: 'l', ctrl: true },
   { key: 'Ctrl+J', label: 'Edit preview', command: 'editPreview', code: 'j', ctrl: true },
+  // Show overridden properties (Guide ch.11, p.116: Fixture > Show
+  // Properties, Cmd-P) — the Overrides toggle in the header.
+  { key: 'Ctrl+P', label: 'Show overridden properties', command: 'showOverrides', code: 'p', ctrl: true },
   { key: 'Ctrl+Shift+H', label: 'Highlight mode', command: 'highlight', code: 'h', ctrl: true, shift: true },
   { key: 'Ctrl+Shift+Alt+P', label: 'Beam Direction…', command: 'beamDirection', code: 'p', ctrl: true, shift: true, alt: true },
   // Group (Guide p.35): Layout > Group, Control-click → Group — Command-Option-G on Mac (ctrl matches Cmd there).

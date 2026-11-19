@@ -24,7 +24,12 @@ describe('toolbar dispatch', () => {
     expect(toolbar).toContain("querySelectorAll<HTMLDetailsElement>('details[open]')")
     expect(toolbar).toContain("window.addEventListener('pointerdown', closeOutside)")
     expect(app.match(/<WorkspaceToolbar/g)).toHaveLength(1)
-    expect(app).toContain('aria-label="Active cue"')
+    expect(app).toContain('<OverridesField />')
+    // The header Overrides field is LightKey's real Overrides (Guide
+    // ch.11, p.116; Jake's LightKey screenshots 20 Nov 2026) — a toggle
+    // that shows the per-fixture override labels, not the old
+    // jump-to-any-cue picker.
+    expect(app).not.toContain('aria-label="Active cue"')
     expect(app).toContain('className="lightkey-action header-patch-button"')
     expect(app).not.toContain('src="./openlights-logo.png"')
     const projectBar = readFileSync('src/renderer/src/components/ProjectBar.tsx', 'utf8')

@@ -17,6 +17,7 @@ import { CalibrationDialog } from './CalibrationDialog'
 import { isCalibrationComplete } from '../lib/calibration'
 import { useShowStore } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
+import { overridePropertyGroups } from '../lib/overrideLabels'
 import { instanceKey, instancePositions } from '../lib/previewLayout'
 import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
@@ -89,12 +90,16 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, highlightMode, toggleHighlightMode, setupWizardStep } = useShowStore()
+  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, highlightMode, toggleHighlightMode, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
   // when leaving Design or when the project locks.
   const [fanDraft, setFanDraft] = useState<FanDef | null>(null)
+  // The override-label row the pointer is over (LightKey, Jake's
+  // screenshot 20 Nov 2026): its row highlights blue and shows the ✕
+  // that clears just that property's override for that fixture.
+  const [hoveredLabelRow, setHoveredLabelRow] = useState<string | null>(null)
   // Beam Direction dialog (Piece 4, Guide pp.58–60): opens from Layout >
   // Beam Direction…, the fixture's shortcut menu, or the Preview edit
   // panel's Beam Direction… button — for the selected fixtures. It
@@ -388,6 +393,11 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     return views
   }, [fixtures, activeCue, cueValues, dragPositions, outputChannels])
 
+  // Fixtures with overridden properties, one label each (the first
+  // instance only for a Count fixture — LightKey shows one label per
+  // fixture, Guide ch.11 p.116).
+  const labelledFixtures = fixtureViews.filter((f) => f.instance === 0 && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0)
+
   // Newly patched fixtures appear with a short fade/scale-in when they
   // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a
   // LightKey behaviour, so it stays at 300ms). The marker is set by
@@ -544,6 +554,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGrid)" pointerEvents="none" />}
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGridMajor)" pointerEvents="none" />}
         <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="transparent" onPointerDown={(event) => {
+          // Clicking anywhere in the Preview hides the override labels
+          // (Guide ch.11, p.116).
+          if (showOverrideLabels) setShowOverrideLabels(false)
           // Blank drag: in edit mode without Space this is marquee
           // selection (LightKey Guide p.53); with Space held it pans,
           // and outside edit mode — where there is no marquee — a blank
@@ -706,6 +719,14 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   included; in edit mode the group's pointerdown still
                   owns selection + dragging. */}
               {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) selectFixture(f.id, event.shiftKey) }}>{f.shortName ?? f.name}</text>}
+              {/* The blue dot left of the name (Guide ch.11, p.116; Jake's
+                  LightKey screenshots 20 Nov 2026): a fixture with
+                  overridden properties. Clicking it shows the override
+                  labels. The name is centre-anchored, so the dot sits
+                  left of the estimated text edge. */}
+              {selectable && f.namePosition !== 'hidden' && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0 && (() => { const nameY = f.namePosition === 'below' ? y + 20 : y - 13; const halfWidth = ((f.shortName ?? f.name).length * 4.6) / 2; return (
+                <circle cx={x - halfWidth - 7} cy={nameY - 3} r="3" fill="#0A84FF" stroke="var(--bg)" strokeWidth="1" role="button" aria-label={`Overridden properties for ${f.name}`} style={{ cursor: 'pointer' }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setShowOverrideLabels(true) }}><title>Overridden properties — click to show</title></circle>
+              ) })()}
               {isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? (setupWizardStep === 'directions' ? y + 48 : y + 32) : (setupWizardStep === 'directions' ? y + 36 : y + 20)} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {/* Wizard Light Beam Directions step (Piece 5, video 07:05):
                   every fixture gets a yellow Set… button below its icon;
@@ -759,6 +780,35 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )
+        })}
+
+        {/* Override labels (Guide ch.11, p.116; Jake's LightKey
+            screenshots 20 Nov 2026): one white callout per overridden
+            fixture, pointer arrow to the fixture, one row per overridden
+            property. Hovering a row highlights it blue and shows an ✕
+            that clears just that property's override for that fixture
+            (Alt/Option clears it for all fixtures); clicking a row
+            selects the fixture and opens it in Design. */}
+        {showOverrideLabels && labelledFixtures.map((f) => {
+          const groups = overridePropertyGroups(manualOverrides[f.id])
+          const width = Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18
+          const height = groups.length * 12 + 6
+          const lx = f.pos.x + 12
+          const ly = f.pos.y + 14
+          return <g key={`overrides-${f.key}`} data-override-label={f.id}>
+            <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            {groups.map((group, i) => {
+              const rowY = ly + 6 + i * 12
+              const key = `${f.id}:${group.name}`
+              const hovered = hoveredLabelRow === key
+              return <g key={group.name} onMouseEnter={() => setHoveredLabelRow(key)} onMouseLeave={() => setHoveredLabelRow((current) => current === key ? null : current)} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-show-design')) }} style={{ cursor: 'pointer' }}>
+                {hovered && <rect x={lx + 1} y={rowY - 8} width={width - 2} height={11} fill="#0A84FF" />}
+                <text x={lx + 5} y={rowY} fontSize={9} fill={hovered ? '#ffffff' : '#111111'}>{group.name}</text>
+                {hovered && <text x={lx + width - 4} y={rowY} fontSize={10} textAnchor="end" fill="#ffffff" aria-label={`Clear ${group.name} override on ${f.name}`} onClick={(event) => { event.stopPropagation(); releaseManualOverrides(event.altKey ? undefined : [f.id], group.attributes) }}>×</text>}
+              </g>
+            })}
+          </g>
         })}
 
         {marquee && <rect x={Math.min(marquee.start.x, marquee.current.x)} y={Math.min(marquee.start.y, marquee.current.y)} width={Math.abs(marquee.current.x - marquee.start.x)} height={Math.abs(marquee.current.y - marquee.start.y)} fill="var(--sel)" fillOpacity="0.12" stroke="var(--sel)" strokeWidth="1" pointerEvents="none" />}

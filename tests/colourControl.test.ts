@@ -89,10 +89,10 @@ describe('DesignTab — the wheel is the colour control', () => {
     // Amber, or the arcs move each other (Jake, 19 Nov 2026: saturation
     // down pulled brightness down, hue to yellow drove Amber).
     expect(design).toContain('setWheelColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
-    expect(design).toContain('setSelectedBaseColor(rgb, false)')
+    expect(design).toContain('setSelectedBaseColor(rgb, writeManual)')
     // The centre picker still applies a whole colour via setColor.
     expect(design).toContain('onCentrePick={(hex) => {')
-    expect(design).toContain('setSelectedColor(rgb, false)')
+    expect(design).toContain('setSelectedColor(rgb, writeManual)')
   })
 
   it('defaults saturation and brightness to 100% for a black fixture', () => {

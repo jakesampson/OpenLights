@@ -232,8 +232,13 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   -webkit-app-region: no-drag;
   transform: translateX(7px);
 }
-.header-look-field > span { color: var(--text); font-size: 18px; }
-.header-look-field select { min-width: 0; flex: 1; appearance: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; }
+/* The Overrides field is a toggle, not a dropdown (Jake's LightKey
+   screenshots, 20 Nov 2026): it always reads "Overrides", and the
+   paintbrush beside it appears only while overrides exist. */
+.header-look-field .overrides-toggle { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; appearance: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; text-align: left; padding: 0; cursor: pointer; }
+.header-look-field .overrides-toggle svg, .header-look-field .overrides-clear svg { flex: none; display: block; }
+.header-look-field .overrides-clear { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text); padding: 0; cursor: pointer; }
+.header-look-field .overrides-clear:hover { background: rgb(255 255 255 / 0.12); }
 /* Native <select> popups are an OS surface outside the DOM: on Windows
    Chromium paints the popup white while the option text inherits the
    select's white colour, so every row is unreadable (Jake, 20 Nov 2026:
@@ -335,7 +340,7 @@ select optgroup { background: #555658; color: #fff; }
 .top-bar .lightkey-action:hover, .top-bar .lightkey-action.on,
 .top-bar .project-search-button:hover, .top-bar .project-search.open .project-search-button { background: rgba(255, 255, 255, 0.14); color: #fff; }
 .top-bar .header-look-field { background: #555658; }
-.top-bar .header-look-field > span, .top-bar .header-look-field select { color: #fff; }
+.top-bar .header-look-field .overrides-toggle, .top-bar .header-look-field .overrides-clear { color: #fff; }
 .top-bar .project-search.open > input { background: #555658; border-color: #767678; color: #fff; }
 /* Header dropdown menus (property ···, effects wand, layout/settings):
    grey surfaces, white text; the selected item is macOS blue. */

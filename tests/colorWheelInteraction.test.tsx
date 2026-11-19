@@ -248,10 +248,14 @@ describe('DesignTab — black fixture starts vivid; brightness 0 must not lock c
       cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }]
     }
     act(() => {
-      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null })
+      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     })
     renderInRoot(<DesignTab />)
     const cueValues = () => useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues['fx1'] ?? {}
+    // Wheel writes define overrides now (LightKey's real Overrides) —
+    // the cue stays at its original black; the override carries the
+    // wheel's colour.
+    const overrideValues = () => useShowStore.getState().manualOverrides['fx1'] ?? {}
     const arcValue = (label: string) => container?.querySelector(`[aria-label="${label}"]`)?.getAttribute('aria-valuenow')
 
     // A black fixture: the wheel starts at saturation/brightness 100%
@@ -271,9 +275,10 @@ describe('DesignTab — black fixture starts vivid; brightness 0 must not lock c
     // brightness is 100), it does not wait for a brightness drag.
     act(() => { wheelEl().dispatchEvent(pointer('pointerdown', 134, 75)) })
     expect(wheelEl().getAttribute('aria-valuenow')).toBe('90')
-    expect(cueValues().red).toBe(128)
-    expect(cueValues().green).toBe(255)
-    expect(cueValues().blue).toBe(0)
+    expect(overrideValues().red).toBe(128)
+    expect(overrideValues().green).toBe(255)
+    expect(overrideValues().blue).toBe(0)
+    expect(cueValues().red).toBe(0)
     act(() => { wheelEl().dispatchEvent(pointer('pointerup', 134, 75, 0)) })
 
     // Brightness to 0 (drag past the bottom end of the right arc):
@@ -281,25 +286,27 @@ describe('DesignTab — black fixture starts vivid; brightness 0 must not lock c
     act(() => { wheelEl().dispatchEvent(pointer('pointerdown', 112, 75)) })
     act(() => { wheelEl().dispatchEvent(pointer('pointermove', 72, 112)) })
     act(() => { wheelEl().dispatchEvent(pointer('pointerup', 72, 112, 0)) })
-    expect(cueValues().red).toBe(0)
-    expect(cueValues().green).toBe(0)
-    expect(cueValues().blue).toBe(0)
+    expect(overrideValues().red).toBe(0)
+    expect(overrideValues().green).toBe(0)
+    expect(overrideValues().blue).toBe(0)
 
     // Hue to blue at brightness 0: the marker moves and sticks, the
     // fixture stays black until the brightness comes back.
     act(() => { wheelEl().dispatchEvent(pointer('pointerdown', 24, 105)) })
     expect(wheelEl().getAttribute('aria-valuenow')).toBe('240')
-    expect(cueValues().red).toBe(0)
-    expect(cueValues().green).toBe(0)
-    expect(cueValues().blue).toBe(0)
+    expect(overrideValues().red).toBe(0)
+    expect(overrideValues().green).toBe(0)
+    expect(overrideValues().blue).toBe(0)
     act(() => { wheelEl().dispatchEvent(pointer('pointerup', 24, 105, 0)) })
 
     // Brightness back to full (top of the right arc): the fixture
     // comes up in the chosen hue, not black or red.
     act(() => { wheelEl().dispatchEvent(pointer('pointerdown', 75, 38)) })
-    expect(cueValues().red).toBe(0)
-    expect(cueValues().green).toBe(0)
-    expect(cueValues().blue).toBe(255)
+    expect(overrideValues().red).toBe(0)
+    expect(overrideValues().green).toBe(0)
+    expect(overrideValues().blue).toBe(255)
     expect(wheelEl().getAttribute('aria-valuenow')).toBe('240')
+    // And the cue was never edited by any of it.
+    expect(cueValues()).toEqual({ intensity: 255, red: 0, green: 0, blue: 0 })
   })
 })

@@ -115,12 +115,18 @@ function setShow(entries: { fixture: FixtureDef; values: Record<string, number> 
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: Object.fromEntries(entries.map((e) => [e.fixture.id, { intensity: 255, ...e.values }])), fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: fixtures.map((f) => f.id), activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: fixtures.map((f) => f.id), activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
   return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+}
+
+// A Design write defines an override (LightKey's real Overrides) —
+// these tests assert the value the fixture takes, which is the override.
+function overrideValues(fixtureId: string) {
+  return useShowStore.getState().manualOverrides[fixtureId] ?? {}
 }
 
 function shutterCard() {
@@ -185,23 +191,23 @@ describe('Shutter/Strobe panel', () => {
     setShow([{ fixture: R3, values: { red: 0, green: 0, blue: 255, Strobe: 1 } }])
     renderInRoot(<DesignTab />)
     click(radio('Open')!)
-    expect(cueValues('r3').Strobe).toBe(6)
+    expect(overrideValues('r3').Strobe).toBe(6)
     click(radio('Closed')!)
-    expect(cueValues('r3').Strobe).toBe(2)
+    expect(overrideValues('r3').Strobe).toBe(2)
   })
 
   it('Strobe cycles the strobe modes in guide order and Pulse selects the pulse range — real strobe-range values', () => {
     setShow([{ fixture: R3, values: { red: 0, green: 0, blue: 255, Strobe: 6 } }])
     renderInRoot(<DesignTab />)
     click(buttonIn(shutterCard(), 'Strobe')!)
-    expect(cueValues('r3').Strobe).toBe(42)
+    expect(overrideValues('r3').Strobe).toBe(42)
     // Inside the Synchronising range (8–76): the fixture strobes.
-    expect(cueValues('r3').Strobe).toBeGreaterThanOrEqual(8)
-    expect(cueValues('r3').Strobe).toBeLessThanOrEqual(76)
+    expect(overrideValues('r3').Strobe).toBeGreaterThanOrEqual(8)
+    expect(overrideValues('r3').Strobe).toBeLessThanOrEqual(76)
     click(buttonIn(shutterCard(), 'Strobe')!)
-    expect(cueValues('r3').Strobe).toBe(181)
+    expect(overrideValues('r3').Strobe).toBe(181)
     click(buttonIn(shutterCard(), 'Pulse')!)
-    expect(cueValues('r3').Strobe).toBe(111)
+    expect(overrideValues('r3').Strobe).toBe(111)
   })
 
   it('shows a speed fader while strobing, and the speed moves the value inside the mode range', () => {
@@ -213,22 +219,22 @@ describe('Shutter/Strobe panel', () => {
     expect(speed).not.toBeNull()
     expect(speed?.getAttribute('aria-valuenow')).toBe('128')
     keydown(speed!, 'ArrowUp', { shiftKey: true })
-    expect(cueValues('r3').Strobe).toBe(45)
-    expect(cueValues('r3').Strobe).toBeGreaterThanOrEqual(8)
-    expect(cueValues('r3').Strobe).toBeLessThanOrEqual(76)
+    expect(overrideValues('r3').Strobe).toBe(45)
+    expect(overrideValues('r3').Strobe).toBeGreaterThanOrEqual(8)
+    expect(overrideValues('r3').Strobe).toBeLessThanOrEqual(76)
   })
 
   it('supports the card keys O / C / S / P', () => {
     setShow([{ fixture: R3, values: { red: 0, green: 0, blue: 255, Strobe: 1 } }])
     renderInRoot(<DesignTab />)
     keydown(shutterCard()!, 'o')
-    expect(cueValues('r3').Strobe).toBe(6)
+    expect(overrideValues('r3').Strobe).toBe(6)
     keydown(shutterCard()!, 's')
-    expect(cueValues('r3').Strobe).toBe(42)
+    expect(overrideValues('r3').Strobe).toBe(42)
     keydown(shutterCard()!, 'c')
-    expect(cueValues('r3').Strobe).toBe(2)
+    expect(overrideValues('r3').Strobe).toBe(2)
     keydown(shutterCard()!, 'p')
-    expect(cueValues('r3').Strobe).toBe(111)
+    expect(overrideValues('r3').Strobe).toBe(111)
   })
 
   it('disables Closed when the profile has no closed range (EP4)', () => {
@@ -238,8 +244,8 @@ describe('Shutter/Strobe panel', () => {
     expect(radio('Open')?.getAttribute('aria-checked')).toBe('true')
     click(buttonIn(shutterCard(), 'Strobe')!)
     // Inside the EP4 strobe range (10–255 = 1–30 Hz): the bar strobes.
-    expect(cueValues('ep4').Strobe).toBe(133)
-    expect(cueValues('ep4').Strobe).toBeGreaterThanOrEqual(10)
+    expect(overrideValues('ep4').Strobe).toBe(133)
+    expect(overrideValues('ep4').Strobe).toBeGreaterThanOrEqual(10)
   })
 
   it('shows Mixed when the selected fixtures disagree', () => {
@@ -259,8 +265,8 @@ describe('Shutter/Strobe panel', () => {
     const dimmer = fader('Dimmer for selected fixtures')
     expect(dimmer).not.toBeNull()
     keydown(dimmer!, 'ArrowUp')
-    expect(cueValues('r3').intensity).toBe(1)
-    expect(cueValues('r3').Strobe).toBe(6)
+    expect(overrideValues('r3').intensity).toBe(1)
+    expect(overrideValues('r3').Strobe).toBe(6)
   })
 
   it('clicking the card selects it — the blue border', () => {
@@ -296,7 +302,7 @@ describe('Auto Program + Auto Program Speed panels', () => {
     expect(listbox?.textContent).toContain('RGB colors switching')
     const option = [...(listbox?.querySelectorAll('[role="option"]') ?? [])].find((o) => o.textContent === 'Effect program 1') as HTMLElement
     click(option)
-    expect(cueValues('ep4').Programs).toBe(91)
+    expect(overrideValues('ep4').Programs).toBe(91)
     expect(programCard()?.textContent).toContain('Effect program 1')
     const speed = fader('Auto Program Speed for selected fixtures')
     expect(speed).not.toBeNull()
@@ -309,9 +315,9 @@ describe('Auto Program + Auto Program Speed panels', () => {
     const speed = fader('Auto Program Speed for selected fixtures')
     expect(speed).not.toBeNull()
     keydown(speed!, 'Home')
-    expect(cueValues('ep4')['Program Speed']).toBe(255)
+    expect(overrideValues('ep4')['Program Speed']).toBe(255)
     keydown(speed!, 'End')
-    expect(cueValues('ep4')['Program Speed']).toBe(0)
+    expect(overrideValues('ep4')['Program Speed']).toBe(0)
   })
 
   it('choosing "No Selection" again writes the no-function range', () => {
@@ -320,7 +326,7 @@ describe('Auto Program + Auto Program Speed panels', () => {
     click(buttonIn(programCard(), 'Effect program 1')!)
     const option = [...(container?.querySelectorAll('[role="option"]') ?? [])].find((o) => o.textContent === 'No Selection') as HTMLElement
     click(option)
-    expect(cueValues('ep4').Programs).toBe(5)
+    expect(overrideValues('ep4').Programs).toBe(5)
     expect(programSpeedCard()?.textContent).toContain('No Selection')
   })
 
@@ -332,7 +338,7 @@ describe('Auto Program + Auto Program Speed panels', () => {
     expect(container?.querySelector('[role="listbox"]')).not.toBeNull()
     keydown(button, 'ArrowDown')
     keydown(button, 'Enter')
-    expect(cueValues('ep4').Programs).toBe(17)
+    expect(overrideValues('ep4').Programs).toBe(17)
   })
 
   it('shows Mixed when the selected fixtures run different programs', () => {
@@ -352,7 +358,7 @@ describe('no panels without the channels', () => {
     if (!base) throw new Error('store has no default show')
     const fixture: FixtureDef = { id: 'fx1', name: 'Test Par', type: 'par', channelStart: 1, channels: 4 }
     const show = { ...base, id: 'test-show', fixtures: [fixture], cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }] }
-    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null }) })
+    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
     renderInRoot(<DesignTab />)
     expect(shutterCard()).toBeNull()
     expect(programCard()).toBeNull()
@@ -364,7 +370,7 @@ describe('no panels without the channels', () => {
     if (!base) throw new Error('store has no default show')
     const fixture: FixtureDef = { id: 'fx1', name: 'Test Head', type: 'moving-head', channelStart: 1, channels: 8 }
     const show = { ...base, id: 'test-show', fixtures: [fixture], cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0, strobe: 0 } }, fadeMs: 0 }] }
-    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null }) })
+    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
     renderInRoot(<DesignTab />)
     expect(shutterCard()).toBeNull()
     expect(fader('Strobe for selected fixtures')).not.toBeNull()

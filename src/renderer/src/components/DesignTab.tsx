@@ -159,6 +159,8 @@ export function DesignTab() {
     loadColorDefault,
     resetColorDefault,
     editingPresetId,
+    editingCueAdHocId,
+    manualOverrides,
     updateEditingPresetValues,
     deleteFan,
   } = useShowStore()
@@ -166,9 +168,12 @@ export function DesignTab() {
   const activeCue = cues.find((cue) => cue.id === activeCueId)
   // The cue's resolved look (Piece 8): its presets in order, then its
   // ad-hoc values. The panel reads the resolved look, so a property
-  // defined by a preset shows in the controls; writes still target the
-  // cue's ad-hoc layer (updateValues / setSelectedColor write
-  // cue.fixtureValues), which wins over the preset.
+  // defined by a preset shows in the controls; defined (overridden)
+  // properties sit on top of it (Guide ch.8, p.80) — a manual override
+  // is what the fixture is actually doing, so the panel shows it.
+  // Writes define overrides (below), except while a preset or a cue's
+  // ad-hoc layer is being edited, when they write into that stored
+  // layer instead.
   const cueValues = activeCue ? resolveCueValues(activeCue, presets, fixtures) : {}
   // In-place preset editing (LightKey, Guide ch.9): the bottom panel edits
   // the preset's own values, not the active cue's. Where the preset does
@@ -182,7 +187,9 @@ export function DesignTab() {
   // such channel at all (e.g. a dimmer fixture's RGB, which shows 255).
   const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) => {
     const fixture = fixtures.find((f) => f.id === fixtureId)
-    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? cueValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
+    // While a preset is being edited the panel reads the preset's own
+    // values; otherwise a defined (overridden) property reads first.
+    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute]) ?? cueValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
   }
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
@@ -243,8 +250,13 @@ export function DesignTab() {
       return total + keys.reduce((sum, key) => sum + fixtureAttr(fixture.id, key, 0), 0) / keys.length
     }, 0) / selectedFixtures.length)
   }
+  // A Design write defines the property for the fixture (Guide ch.8,
+  // p.80) — it becomes a manual override — except while a preset or a
+  // cue's ad-hoc layer is being edited, when it writes into that stored
+  // layer instead. This is also what stops Design writes minting cues.
+  const writeManual = !editingPreset && !editingCueAdHocId
   const updateValues = editingPreset ? updateEditingPresetValues
-    : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, false) : updateSelectedFixtures
+    : selectedBeams.length ? (values: Record<string, number>) => updateSelectedBeamValues(values, writeManual) : (values: Record<string, number>) => updateSelectedFixtures(values, writeManual)
   // The wheel's hue / saturation / brightness describe the base colour
   // (the RGB or CMY mix) only. White / Amber / UV are separate LEDs
   // (Guide p.85) with their own sliders beside the wheel — they change
@@ -403,17 +415,18 @@ export function DesignTab() {
       updateEditingPresetValues({ [attribute]: next }, selectedFixtures.map((fixture) => ({ fixtureId: fixture.id, beamId: fixtureBeams(fixture)[0].id })))
       return
     }
-    for (const fixture of selectedFixtures) updateBeamValues(fixture.id, fixtureBeams(fixture)[0].id, { [attribute]: next })
+    for (const fixture of selectedFixtures) updateBeamValues(fixture.id, fixtureBeams(fixture)[0].id, { [attribute]: next }, writeManual)
   }
 
   // The cue/preset value with no fixture-default fallback: an unset
   // property is undefined, not the channel default. The Auto Program
-  // display needs this — an unset program is "No Selection" (LightKey,
-  // Jake's screenshot), not the channel's default value: a fresh Rogue
-  // R3 Spot would otherwise read as "Auto program 1" because its first
-  // range starts at 0.
+  // card reads through here so an undefined program shows "No Selection"
+  // (a raw fixtureAttr would read the channel default and an R3 Spot
+  // would otherwise read as "Auto program 1" because its first range
+  // starts at 0). A defined (overridden) property still reads first,
+  // like fixtureAttr.
   const rawAttr = (fixtureId: string, attribute: string) =>
-    editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? cueValues[fixtureId]?.[attribute]
+    editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute]) ?? cueValues[fixtureId]?.[attribute]
   // The shutter state is unanimous across the selection or mixed —
   // averaging raw DMX values across fixtures would land in the wrong
   // slot, so each fixture's state is read and they must agree.
@@ -543,8 +556,8 @@ export function DesignTab() {
     const rgb = hexToRgb(hex)
     if (!rgb) return
     if (editingPreset) updateEditingPresetValues({ ...rgb })
-    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
-    else setSelectedColor(rgb, false)
+    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, writeManual)
+    else setSelectedColor(rgb, writeManual)
   }
 
   // The wheel's own write path: hue / saturation / brightness set the
@@ -556,8 +569,8 @@ export function DesignTab() {
     const rgb = hexToRgb(hex)
     if (!rgb) return
     if (editingPreset) updateEditingPresetValues({ ...rgb })
-    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, false)
-    else setSelectedBaseColor(rgb, false)
+    else if (selectedBeams.length) updateSelectedBeamValues({ ...rgb }, writeManual)
+    else setSelectedBaseColor(rgb, writeManual)
   }
 
   // Per-property fanning (LightKey Guide §8, p.118–123): each property's
