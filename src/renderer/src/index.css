@@ -392,7 +392,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .header-lock-dialog > span[role="alert"] { color: #fca5a5; font-size: 12px; }
 .header-lock-dialog > div { display: flex; justify-content: flex-end; gap: 8px; }
 .header-lock-dialog button { min-width: 74px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 7px 12px; color: var(--text); }
-.header-lock-dialog button.primary { border-color: var(--accent); background: var(--accent); color: #111; font-weight: 600; }
+/* Lock dialog primary — the same macOS default blue as the header
+   Done button (#0A84FF, white text, #2b93ff hover), not the theme
+   accent purple it used to be. */
+.header-lock-dialog button.primary { border-color: #0a84ff; background: #0a84ff; color: #fff; font-weight: 600; }
+.header-lock-dialog button.primary:hover { background: #2b93ff; border-color: #2b93ff; }
 
 .window-title {
   -webkit-app-region: no-drag;
@@ -802,6 +806,35 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
+}
+
+/* Additional-colour sliders beside the colour wheel (LightKey, Jake's
+   screenshots 19 Nov 2026 — lightkey-colour-wheel-*.png): a 2×2 grid —
+   White top-left, UV top-right, Amber bottom-left, Lime bottom-right —
+   so a fixture with fewer than four shows its empty slot(s) instead of
+   collapsing the grid. Two 64px columns (one .chan each) and two equal
+   rows stretching the card body, so each track is half the wheel's
+   height: the 90px min-height floor the channel strip needs is lifted
+   here, or two stacked tracks could never fit the card. The empty slot
+   is a blank cell the size of a slider column — LightKey's fourth slot
+   is bare card background (sampled (67, 84, 110), the card colour
+   itself), so it carries no background of its own. */
+.additional-colour-grid {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(2, 64px);
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  min-height: 0;
+}
+
+.additional-colour-grid .design-fill-track {
+  min-height: 0;
+}
+
+.additional-colour-empty-slot {
+  min-height: 0;
+  min-width: 0;
 }
 
 /* Colour wheel (LightKey's round Color control): the hue ring and inner

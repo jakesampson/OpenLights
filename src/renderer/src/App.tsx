@@ -20,7 +20,7 @@ import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
-import { resolveCue } from '@shared/cueResolution'
+import { resolveCue, fanPresetFixtureValues } from '@shared/cueResolution'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -183,7 +183,7 @@ export default function App() {
         if (!alive) return
         const state = useShowStore.getState()
         const cue = state.cues.find((item) => item.id === state.activeCueId)
-        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue ? resolveCue(cue, state.presets) : undefined)
+        const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue ? resolveCue(cue, state.presets, state.show?.fixtures ?? []) : undefined)
         root.style.setProperty('--adaptive-hue', String(hue ?? 283))
       } catch { /* Keep the previous appearance if output is unavailable. */ }
       finally { pending = false }
@@ -218,7 +218,10 @@ export default function App() {
     for (const id of activePresetIds) {
       const preset = presets.find((item) => item.id === id)
       if (!preset) continue
-      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, master))
+      // A preset's colour is the fixture's colour (Jake, 19 Nov
+      // 2026): applying it live fans the bare colour out to every
+      // beam, so a red preset lights all four cells of a 4Bar.
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []) }, master))
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master])
@@ -231,10 +234,10 @@ export default function App() {
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
-      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], resolveCue(cue, presets), scaledMaster))
+      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], resolveCue(cue, presets, show?.fixtures ?? []), scaledMaster))
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: preset.fixtureValues }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []) }, scaledMaster))
       }
       if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
     }

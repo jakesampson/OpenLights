@@ -206,7 +206,7 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     })
   })
 
-  it('preset editing is unaffected — the preset keeps bare RGB only', () => {
+  it('preset editing fans the colour out too — the preset stores every beam (batch 3)', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [{ id: 'bar', name: 'PAN 4x1x30', type: 'pixel-bar-17ch', channelStart: 1, channels: 17 }],
@@ -217,7 +217,15 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     s().startEditingPreset('p')
     useShowStore.setState({ selectedFixtureIds: ['bar'] })
     act(() => { s().updateEditingPresetValues({ red: 255, green: 0, blue: 0 }) })
-    expect(s().presets[0].fixtureValues.bar).toEqual({ red: 255, green: 0, blue: 0 })
+    // Was bare RGB only (the linked-wheel commit left preset editing
+    // beam-1-only); batch 3 fans it like the wheel, built-in "red2"
+    // spelling for this bar.
+    expect(s().presets[0].fixtureValues.bar).toEqual({
+      red: 255, green: 0, blue: 0,
+      red2: 255, green2: 0, blue2: 0,
+      red3: 255, green3: 0, blue3: 0,
+      red4: 255, green4: 0, blue4: 0
+    })
     // And the cue itself was not touched by the preset edit.
     expect(s().cues[0].fixtureValues.bar).toEqual({ intensity: 255 })
   })

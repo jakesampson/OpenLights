@@ -4,25 +4,20 @@ import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '@shared/types'
 
 export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = Object.fromEntries(BUILTIN_PROFILES.map((profile) => [profile.legacyType, Object.fromEntries(profile.modes[0].channels.map((c) => [c.attribute, c.number]))]))
 
-/** Attributes that respond to the master intensity fader. */
-const DIMMER_ATTRIBUTES = new Set([
-  'intensity',
-  'red',
-  'green',
-  'blue',
-  'white',
-  'amber',
-  'uv',
-  'red2',
-  'green2',
-  'blue2',
-  'red3',
-  'green3',
-  'blue3',
-  'red4',
-  'green4',
-  'blue4'
-])
+/**
+ * Attributes that respond to the master intensity fader — a fixture's
+ * LED channels (LightKey's virtual dimmer scales "all the fixture's
+ * LED values", verified 19 Nov 2026). Matched by base name with an
+ * optional pod number, so both spellings count: the built-in "red2"
+ * and the OFL "red 2" (the OFL import's uniqueAttribute puts a space
+ * before the pod number), any pod count, and every LED type — RGB,
+ * White / Amber / UV / Lime and CMY alike. Anything else (strobe,
+ * pan, function, a fine channel such as "red 2 fine") never scales.
+ */
+export function isDimmerAttribute(attr: string): boolean {
+  const match = /^(intensity|red|green|blue|white|amber|uv|lime|cyan|magenta|yellow) ?\d*$/.exec(attr.trim().toLowerCase())
+  return match !== null
+}
 
 /** List valid attributes for a fixture type, in channel order. */
 export function fixtureAttributes(fixture: FixtureDef | FixtureDef['type']): string[] {
@@ -33,10 +28,36 @@ export function fixtureAttributes(fixture: FixtureDef | FixtureDef['type']): str
 }
 
 function scaleAttribute(attr: string, value: number, master: number): number {
-  if (!DIMMER_ATTRIBUTES.has(attr)) return clamp(value)
+  if (!isDimmerAttribute(attr)) return clamp(value)
   return clamp((clamp(value) * clamp(master)) / 255)
 }
 export { scaleAttribute }
+
+/**
+ * Dimmer limits (LightKey Fixture Options, Guide p.62): remap a fixture's
+ * real dimmer channel so Off sends minDimmer and Full sends maxDimmer.
+ * Applied to the composed output frame, like calibration limits, so every
+ * source (cues, live, effects, sequences) is clamped the same way.
+ * Disabled fixtures stay at zero, and fixtures with no dimmer channel
+ * (virtual dimmer) are untouched — there is no dimmer value to remap.
+ */
+export function applyDimmerLimits(output: Record<number, number>, fixtures: FixtureDef[]): Record<number, number> {
+  const next = { ...output }
+  for (const fixture of fixtures) {
+    if (fixture.disabled) continue
+    const min = Math.max(0, Math.min(255, Math.round(fixture.minDimmer ?? 0)))
+    const max = Math.max(0, Math.min(255, Math.round(fixture.maxDimmer ?? 255)))
+    if (min <= 0 && max >= 255) continue
+    if (min >= max) continue
+    const offset = fixtureChannelMap(fixture)['intensity']
+    if (offset === undefined) continue
+    const channel = fixture.channelStart + offset
+    const value = next[channel]
+    if (typeof value !== 'number') continue
+    next[channel] = Math.round(min + ((max - min) * Math.max(0, Math.min(255, value))) / 255)
+  }
+  return next
+}
 
 /**
  * Map a cue's fixture values onto a 1-based DMX channel patch.
@@ -90,8 +111,12 @@ export function computeCueChannels(
     // lower layer's dimmer (known limitation, see NOTES.md).
     const virtualDimmer = map['intensity'] === undefined ? (attrs.intensity ?? 0) : undefined
     if (typeof virtualDimmer === 'number' && !Number.isNaN(virtualDimmer)) {
-      for (const attr of DIMMER_ATTRIBUTES) {
-        if (attr === 'intensity') continue
+      // Every LED channel this fixture actually has — its own channel
+      // map, so any pod spelling or count scales ("red 2", "red2",
+      // "white 2", "uv 5", CMY and lime pods alike), not just the
+      // spellings a fixed list happens to name.
+      for (const attr of Object.keys(map)) {
+        if (attr === 'intensity' || !isDimmerAttribute(attr)) continue
         const offset = map[attr]
         if (offset === undefined) continue
         const channel = fixture.channelStart + offset

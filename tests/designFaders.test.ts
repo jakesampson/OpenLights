@@ -80,7 +80,12 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
   })
 
   it('still wires Dimmer and channels to the same store updates', () => {
-    expect(design).toContain("onChange={(next) => updateValues({ intensity: next })}")
+    // The Dimmer writes intensity through updateValues — plus the
+    // guide's auto-open (Guide p.98): a non-zero Dimmer opens a closed
+    // shutter, so the onChange is a block now, not a one-liner (batch 4,
+    // 19 Nov 2026).
+    expect(design).toContain('updateValues({ intensity: next })')
+    expect(design).toContain("updateValues({ intensity: next, [shutterChannel.attribute]: open })")
     expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
     // The Dimmer fader is available for a fixture with a dimmer channel
     // and for a virtual-dimmer fixture (colour, no dimmer channel).

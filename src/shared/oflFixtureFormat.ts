@@ -80,6 +80,14 @@ function channelSlots(channel: JsonRecord): FixtureChannel['slots'] {
       name: comment || type.replace(/([a-z])([A-Z])/g, '$1 $2'),
       from: dmxByte(range[0], channel.dmxValueResolution, 0, 0),
       to: dmxByte(range[1], channel.dmxValueResolution, 0, 255),
+      // The OFL capability type is the range's meaning: 'ShutterStrobe'
+      // ranges strobe, 'Effect' ranges are auto programs, 'NoFunction'
+      // is the off/no-program range, 'EffectSpeed' is a program speed.
+      // The name alone does not carry it (an EP4 "RGB colors switching"
+      // range is an auto program; a Spectra "Open" range is ShutterStrobe
+      // typed), so keep it on the slot for the Shutter/Strobe and Auto
+      // Program panels to read.
+      capabilityType: type,
       kind: /Rotation|Speed|Continuous/.test(type) ? 'spin' as const : 'slot' as const
     }
   })

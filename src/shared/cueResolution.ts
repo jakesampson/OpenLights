@@ -1,4 +1,5 @@
-import type { CueDef, PresetDef } from './types'
+import type { CueDef, FixtureDef, PresetDef } from './types'
+import { fanColourToBeams } from './fixtureProfiles'
 
 /**
  * Cue resolution (Piece 8, LightKey Guide ch.11 "Edit cue contents",
@@ -15,15 +16,40 @@ import type { CueDef, PresetDef } from './types'
  * output.ts `configureSequences`); only the cue's static look resolves
  * through this module.
  */
+/**
+ * Fan a preset's stored values out to every beam of each multipart
+ * fixture — the linked-wheel rule (Jake, 19 Nov 2026) at the point a
+ * preset is applied: a preset's colour is the fixture's colour, so a
+ * preset that stores only the bare colour (as presets written before
+ * the fan-out did) still lights every cell. Ad-hoc values are never
+ * fanned here — they are the operator's explicit per-fixture values
+ * and the wheel already fans ad-hoc writes itself. Fixtures the
+ * caller does not pass stay exactly as stored.
+ */
+export function fanPresetFixtureValues(
+  fixtureValues: Record<string, Record<string, number>>,
+  fixtures: FixtureDef[]
+): Record<string, Record<string, number>> {
+  if (!fixtures.length) return fixtureValues
+  const byId = new Map(fixtures.map((f) => [f.id, f]))
+  const result: Record<string, Record<string, number>> = {}
+  for (const [fixtureId, patch] of Object.entries(fixtureValues)) {
+    const fixture = byId.get(fixtureId)
+    result[fixtureId] = fixture ? fanColourToBeams(fixture, patch) : { ...patch }
+  }
+  return result
+}
+
 export function resolveCueValues(
   cue: CueDef,
-  presets: PresetDef[]
+  presets: PresetDef[],
+  fixtures: FixtureDef[] = []
 ): Record<string, Record<string, number>> {
   const values: Record<string, Record<string, number>> = {}
   for (const id of cue.presetIds ?? []) {
     const preset = presets.find((p) => p.id === id)
     if (!preset) continue
-    for (const [fixtureId, patch] of Object.entries(preset.fixtureValues ?? {})) {
+    for (const [fixtureId, patch] of Object.entries(fanPresetFixtureValues(preset.fixtureValues ?? {}, fixtures))) {
       values[fixtureId] = { ...values[fixtureId], ...patch }
     }
   }
@@ -40,6 +66,6 @@ export function resolveCueValues(
  * fadeMs, blackout, fans, presetIds, sequenceIds) pass through untouched;
  * only the values are replaced by the resolved look.
  */
-export function resolveCue(cue: CueDef, presets: PresetDef[]): CueDef {
-  return { ...cue, fixtureValues: resolveCueValues(cue, presets) }
+export function resolveCue(cue: CueDef, presets: PresetDef[], fixtures: FixtureDef[] = []): CueDef {
+  return { ...cue, fixtureValues: resolveCueValues(cue, presets, fixtures) }
 }

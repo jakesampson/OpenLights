@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { StageObjectTools } from './StageObjects'
-import { BeamColorDialog } from './BeamColorDialog'
 import type { FixtureDef, PreviewTruss } from '@shared/types'
 import type { AlignMode } from '../lib/align'
 
@@ -30,7 +29,6 @@ export function PreviewEditPanel() {
   const setPreviewTrusses = useShowStore((s) => s.setPreviewTrusses)
   const selectedTruss = trusses.find((item) => item.id === selectedPreviewTrussId)
   const [newTrussShape, setNewTrussShape] = useState<PreviewTruss['shape']>('straight')
-  const [beamColorOpen, setBeamColorOpen] = useState(false)
 
   if (!editing) return null
 
@@ -78,12 +76,10 @@ export function PreviewEditPanel() {
         <h3 className="text-[10px] font-semibold uppercase tracking-wide text-dim">Fixture properties</h3>
         <div className="mt-1 flex flex-wrap items-end gap-2">
           <label>Beam angle<input aria-label="Preview beam angle" type="number" className="ml-1 w-16 rounded bg-panel2 p-1" value={(() => { const f = fixtures.find((f) => f.id === selectedFixtureIds[0]); return f && typeof f.previewBeam?.direction === 'number' ? f.previewBeam.direction : 0 })()} onChange={(event) => { const direction = Number(event.target.value); if (!Number.isFinite(direction)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) { const f = fixtures.find((f) => f.id === id); state.updateFixture(id, { previewBeam: { ...f?.previewBeam, direction } }) } state.endHistoryGroup() }} /></label>
-          <label>Beam colour<input aria-label="Preview beam colour" type="color" className="ml-1 h-6 w-8" value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.previewBeam?.color ?? '#ffffff'} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) { const f = fixtures.find((f) => f.id === id); state.updateFixture(id, { previewBeam: { direction: 'auto', ...f?.previewBeam, color: event.target.value } }) } state.endHistoryGroup() }} /></label>
-          <button type="button" onClick={() => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { previewBeam: { direction: 'auto' } }); state.endHistoryGroup() }} className="text-dim">Auto beam</button>
           <button type="button" onClick={() => window.dispatchEvent(new Event('openlights-open-calibration'))} className="rounded bg-panel2 px-2 py-1">Beam Direction…</button>
-          <button type="button" onClick={() => setBeamColorOpen(true)} className="rounded bg-panel2 px-2 py-1">Beam Color…</button>
           <label>Name position<select aria-label="Fixture name position" className="ml-1 rounded bg-panel2 p-1" value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.namePosition ?? 'above'} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { namePosition: event.target.value as FixtureDef['namePosition'] }); state.endHistoryGroup() }}><option value="above">Above</option><option value="below">Below</option><option value="hidden">Hidden</option></select></label>
           {(['iconSize', 'rotation'] as const).map((key) => <label key={key}>{key === 'iconSize' ? 'Icon size' : 'Rotation'}<input aria-label={`Fixture ${key}`} type="number" min={key === 'iconSize' ? 4 : undefined} max={key === 'iconSize' ? 80 : undefined} value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? (key === 'iconSize' ? 10 : 0)} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: key === 'iconSize' ? Math.max(4, Math.min(80, value)) : value }); state.endHistoryGroup() }} className="ml-1 w-16 rounded bg-panel2 p-1" /></label>)}
+          {([['minDimmer', 'Min dimmer'], ['maxDimmer', 'Max dimmer']] as const).map(([key, label]) => <label key={key}>{label}<input aria-label={`Fixture ${key}`} type="number" min={0} max={255} value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? (key === 'minDimmer' ? 0 : 255)} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: Math.max(0, Math.min(255, Math.round(value))) }); state.endHistoryGroup() }} className="ml-1 w-16 rounded bg-panel2 p-1" /></label>)}
         </div>
         {/* Fixture options (Guide p.62; wizard Build Your Preview step,
             video 04:45): Disable, Hide light beam, Ignore Master Dimmer —
@@ -96,7 +92,6 @@ export function PreviewEditPanel() {
             </label>
           ))}
         </div>
-        {beamColorOpen && <BeamColorDialog onClose={() => setBeamColorOpen(false)} />}
       </section>}
 
       <section id="fixture-storage-tray" className="rounded border border-line bg-panel p-2 text-xs">

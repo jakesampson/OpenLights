@@ -82,3 +82,15 @@ describe('Done is macOS default blue', () => {
     expect(css).toContain('background: #5b5b5d;')
   })
 })
+
+describe('header lock dialog primary button is macOS default blue', () => {
+  it('matches Done — #0A84FF with white text — not the theme accent purple', () => {
+    // The dialog is a modal, not a header-bar control, so it was left
+    // purple when the header went grey/blue (19 Nov 2026); Jake's
+    // call is blue like Done. Same values as the Done rule above, so
+    // the two primary buttons cannot drift apart unnoticed.
+    expect(css).toContain('.header-lock-dialog button.primary { border-color: #0a84ff; background: #0a84ff; color: #fff; font-weight: 600; }')
+    expect(css).toContain('.header-lock-dialog button.primary:hover { background: #2b93ff; border-color: #2b93ff; }')
+    expect(css).not.toContain('.header-lock-dialog button.primary { border-color: var(--accent); background: var(--accent); color: #111;')
+  })
+})

@@ -4,12 +4,16 @@ import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { resolveCueValues } from '@shared/cueResolution'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
+import { findAutoProgram, programSlotForValue, programSpeedRange } from '../lib/autoProgram'
+import { findShutterChannel, shutterSpeedForValue, shutterStateForValue, shutterValueForState, valueAtSpeed, type ShutterState } from '../lib/shutterStrobe'
+import { wheelSlotValue } from '../lib/wheelProperties'
 import { hexToRgb, rgbToHex, colorChannels } from '../lib/colorMix'
 import { displayHsv, hsvToRgb, rgbToHsv } from '../lib/colorWheel'
 import { useShowStore, defaultFixtureValues } from '../stores/showStore'
 import { ColorWheelControl } from './ColorWheelControl'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
+import { positionFractions } from '../lib/position'
 import { dispatchFanHud, FanDeleteDot, FanMenuButton, FannedIcon } from './PropertyFan'
 
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
@@ -36,7 +40,7 @@ function attributeLabel(attribute: string) {
 // which value the arrow keys will adjust. Clicking a control selects
 // it; clicking spare space in the panel clears it. The wheel is one
 // control ('colour' — the whole card); each fader is its own.
-type SelectedDesignControl = 'colour' | 'dimmer' | `slider:${string}` | `channel:${string}`
+type SelectedDesignControl = 'colour' | 'dimmer' | 'shutter' | 'autoProgram' | 'autoProgramSpeed' | `slider:${string}` | `channel:${string}`
 
 // The colour card's active property — the last colour property the
 // user adjusted (LightKey's card header, Jake's LightKey screenshots
@@ -89,6 +93,37 @@ function channelFillColor(attribute: string) {
   }
 }
 
+// The 2×2 grid slots beside the colour wheel, in LightKey's positions
+// (lightkey-colour-wheel-*.png, 19 Nov 2026 — the fixture there has
+// White / Amber / UV): White top-left, UV top-right, Amber
+// bottom-left, and the fourth (bottom-right) slot empty. Lime takes
+// the remaining slot; no LightKey shot shows Lime, so that placement
+// is inferred from the pattern, not verified.
+const ADDITIONAL_COLOUR_GRID_SLOTS = ['white', 'uv', 'amber', 'lime'] as const
+
+// The grid's four cells in slot order: the fixture's attribute in its
+// slot, or null for an empty slot. A fixture with fewer than four
+// additional colours keeps its empty slot(s) instead of collapsing.
+export function additionalColourSlots(attributes: readonly string[]): (string | null)[] {
+  return ADDITIONAL_COLOUR_GRID_SLOTS.map((slot) => (attributes.includes(slot) ? slot : null))
+}
+
+// Value gradient for an additional-colour slider (LightKey, colours
+// sampled from the strips in lightkey-colour-wheel-*.png): the strip
+// runs full colour at the top to black at the bottom — White
+// white→black, UV deep blue-violet #1710a0→black, Amber gold
+// #dbac46→black. Lime has no LightKey shot; it follows the pattern
+// with the lime fill colour (#84cc16).
+export function additionalColourFillGradient(attribute: string): string | null {
+  switch (attribute) {
+    case 'white': return 'linear-gradient(to top, #000000, #ffffff)'
+    case 'amber': return 'linear-gradient(to top, #000000, #dbac46)'
+    case 'uv': return 'linear-gradient(to top, #000000, #1710a0)'
+    case 'lime': return 'linear-gradient(to top, #000000, #84cc16)'
+    default: return null
+  }
+}
+
 function colorHex(values: Record<string, number>) {
   const hex = (attribute: string) =>
     Math.max(0, Math.min(255, Math.round(values[attribute] ?? 0)))
@@ -123,7 +158,7 @@ export function DesignTab() {
   // defined by a preset shows in the controls; writes still target the
   // cue's ad-hoc layer (updateValues / setSelectedColor write
   // cue.fixtureValues), which wins over the preset.
-  const cueValues = activeCue ? resolveCueValues(activeCue, presets) : {}
+  const cueValues = activeCue ? resolveCueValues(activeCue, presets, fixtures) : {}
   // In-place preset editing (LightKey, Guide ch.9): the bottom panel edits
   // the preset's own values, not the active cue's. Where the preset does
   // not define an attribute for a fixture, the cue value shows as the
@@ -276,6 +311,9 @@ export function DesignTab() {
     // kept from whatever the wheel last chose.
     else setPreservedHsv((prev) => ({ ...prev, s: 100, v: 100 }))
     setActiveColorProperty(null)
+    // The program list belongs to this selection and cue; a new one
+    // starts closed.
+    setProgramListOpen(false)
     // With no fixtures selected the controls are gone, so a selection
     // pointing at one of them is dropped too. Switching fixtures or
     // cues keeps the selection: the control (Dimmer, Colour, a fader)
@@ -299,7 +337,7 @@ export function DesignTab() {
   const colorHeaderValue = activeColorProperty === 'hue' ? `${Math.round(hsv.h)}°`
     : activeColorProperty === 'saturation' ? percentHeaderText(hsv.s)
     : activeColorProperty === 'brightness' ? percentHeaderText(hsv.v)
-    : activeColorProperty ? percentHeaderText(((activeCue ? valueFor(activeColorProperty) : 0) / 255) * 100)
+    : activeColorProperty ? percentHeaderText(((activeCue ? linkedValueFor(activeColorProperty) : 0) / 255) * 100)
     : null
   const additionalColourAttributes = commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))
   // "Reset Default" only belongs on the Colour menu once a fixture has a
@@ -308,13 +346,159 @@ export function DesignTab() {
   const hasCustomColorDefault = selectedFixtures.some((fixture) =>
     colorChannels(fixtureAttributes(fixture)).some((attribute) => fixture.defaultValues?.[attribute] !== undefined)
   )
-  // The colour channels the wheel owns are not also channel faders — but
-  // only when the wheel is shown; a fixture it does not support keeps
-  // its faders as the fallback.
+  // Shutter/Strobe + Auto Program cards (LightKey, Jake's screenshot 19
+  // Nov 2026 — see lib/shutterStrobe.ts and lib/autoProgram.ts for the
+  // guide references). The shutter channel is the fixture's
+  // shutter/strobe channel with mappable ranges; the program channel is
+  // its built-in-program channel, with its speed channel when it has
+  // one. A channel with no mappable ranges (a slot-less raw byte, like
+  // the built-in moving head's strobe) has no card and stays a fader.
+  // Defined here, before faderAttributes, because the card channels are
+  // excluded from the fader row below.
+  const shutter = findShutterChannel(availableProperties(selectedFixtures))
+  const shutterChannel = shutter?.channel
+  const autoProgram = findAutoProgram(availableProperties(selectedFixtures))
+  const cardAttributes = new Set([
+    ...(shutter ? [shutterChannel!.attribute] : []),
+    ...(autoProgram ? [autoProgram.programChannel.attribute, ...(autoProgram.speedChannel ? [autoProgram.speedChannel.attribute] : [])] : [])
+  ])
   const faderAttributes = colorSupported
-    ? channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute))
-    : channelAttributes
+    ? channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute) && !cardAttributes.has(attribute))
+    : channelAttributes.filter((attribute) => !cardAttributes.has(attribute))
   const channelByAttribute = new Map(availableProperties(selectedFixtures).map((c) => [c.attribute, c]))
+
+  // The cue/preset value with no fixture-default fallback: an unset
+  // property is undefined, not the channel default. The Auto Program
+  // display needs this — an unset program is "No Selection" (LightKey,
+  // Jake's screenshot), not the channel's default value: a fresh Rogue
+  // R3 Spot would otherwise read as "Auto program 1" because its first
+  // range starts at 0.
+  const rawAttr = (fixtureId: string, attribute: string) =>
+    editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? cueValues[fixtureId]?.[attribute]
+  // The shutter state is unanimous across the selection or mixed —
+  // averaging raw DMX values across fixtures would land in the wrong
+  // slot, so each fixture's state is read and they must agree.
+  const shutterReadings = shutter && shutterChannel
+    ? selectedFixtures.map((fixture) => shutterStateForValue(shutter, fixtureAttr(fixture.id, shutterChannel.attribute, 0)))
+    : []
+  const shutterState: ShutterState | 'mixed' = shutterReadings.length && shutterReadings.every((r) => r.state === shutterReadings[0].state)
+    ? shutterReadings[0].state
+    : 'mixed'
+  // The speed position while strobing/pulsing, from the first fixture's
+  // value inside the active mode's range (LightKey: drag on the
+  // Strobe/Pulse button, Guide p.98).
+  const shutterSpeed = shutter && shutterChannel && (shutterState === 'strobe' || shutterState === 'pulse')
+    ? shutterSpeedForValue(shutter, fixtureAttr(selectedFixtures[0].id, shutterChannel.attribute, 0))
+    : undefined
+  // The program selection is unanimous across the selection or mixed —
+  // same reason as the shutter: slot membership, not an average.
+  const programSlotsSelected = autoProgram
+    ? selectedFixtures.map((fixture) => {
+        const value = rawAttr(fixture.id, autoProgram.programChannel.attribute)
+        return value === undefined ? undefined : programSlotForValue(autoProgram, value)
+      })
+    : []
+  const programMixed = programSlotsSelected.some((slot) => slot?.id !== programSlotsSelected[0]?.id)
+  const programSlot = programMixed ? undefined : programSlotsSelected[0]
+  const speedRange = autoProgram ? programSpeedRange(autoProgram) : undefined
+
+  const writeShutter = (value: number | undefined) => {
+    if (value !== undefined && shutterChannel) updateValues({ [shutterChannel.attribute]: value })
+  }
+  // Re-clicking Strobe / Pulse advances to the next mode the fixture
+  // supports (Guide p.98: Strobe, Synchronised, Random, Random
+  // synchronised, Lightning; Pulse opening, closing, alternating,
+  // burst, random variants). The speed position carries across, so the
+  // rate does not jump when the mode changes.
+  const cycleShutterEffect = (kind: 'strobe' | 'pulse') => {
+    if (!shutter || !shutterChannel) return
+    const slots = kind === 'strobe' ? shutter.strobeSlots : shutter.pulseSlots
+    if (!slots.length) return
+    const current = shutterStateForValue(shutter, fixtureAttr(selectedFixtures[0].id, shutterChannel.attribute, 0))
+    const currentIndex = current.slot ? slots.findIndex((slot) => slot.id === current.slot!.id) : -1
+    const nextIndex = current.state === kind && currentIndex >= 0 ? (currentIndex + 1) % slots.length : 0
+    writeShutter(shutterValueForState(shutter, kind, { modeIndex: nextIndex, speed: shutterSpeed?.position ?? 0.5 }))
+  }
+  const setShutterSpeed = (position: number) => {
+    if (!shutterSpeed) return
+    writeShutter(valueAtSpeed(shutterSpeed.slot, position))
+  }
+  // The shutter card's keys (Guide pp.97–98: O open, C close, S cycle
+  // strobe, P cycle pulse). Card-local only — the keys act when the
+  // card has focus, so they never fight the app-wide shortcuts. The
+  // speed fader keeps its own arrow keys (FillFader), so this handler
+  // takes no arrow keys: a press on the fader would otherwise step
+  // the speed twice.
+  const onShutterKeyDown = (event: React.KeyboardEvent) => {
+    if (!shutter) return
+    const key = event.key.toLowerCase()
+    if (key === 'o' || key === 'c' || key === 's' || key === 'p') {
+      event.preventDefault()
+      event.stopPropagation()
+      if (key === 'o') writeShutter(shutterValueForState(shutter, 'open'))
+      else if (key === 'c') writeShutter(shutterValueForState(shutter, 'closed'))
+      else if (key === 's') cycleShutterEffect('strobe')
+      else cycleShutterEffect('pulse')
+    }
+  }
+
+  // The Auto Program option list (Guide pp.110–111): click the
+  // property's button, the list appears, click an option. Options are
+  // the program channel's ranges except the no-function range, which
+  // "No Selection" writes; each option writes its range's midpoint,
+  // the established wheelSlotValue path.
+  const programOptions = autoProgram
+    ? [
+        { id: '__none', name: 'No Selection', value: autoProgram.noFunctionSlot ? wheelSlotValue(autoProgram.programChannel, autoProgram.noFunctionSlot.id) : 0 },
+        ...autoProgram.programSlots.map((slot) => ({ id: slot.id, name: slot.name, value: wheelSlotValue(autoProgram.programChannel, slot.id) }))
+      ]
+    : []
+  const [programListOpen, setProgramListOpen] = useState(false)
+  const [programActiveId, setProgramActiveId] = useState<string | null>(null)
+  const programCardRef = useRef<HTMLDivElement>(null)
+  const selectProgramOption = (option: { id: string; value: number }) => {
+    if (!autoProgram) return
+    updateValues({ [autoProgram.programChannel.attribute]: option.value })
+    setProgramListOpen(false)
+  }
+  const onProgramButtonKeyDown = (event: React.KeyboardEvent) => {
+    if (!autoProgram) return
+    const options = programOptions
+    const activeIndex = Math.max(0, options.findIndex((option) => option.id === programActiveId))
+    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      if (!programListOpen) {
+        setProgramListOpen(true)
+        setProgramActiveId(programSlot?.id ?? '__none')
+      } else if (event.key === 'ArrowDown') {
+        setProgramActiveId(options[Math.min(options.length - 1, activeIndex + 1)]?.id ?? null)
+      } else {
+        const option = options[activeIndex]
+        if (option) selectProgramOption(option)
+      }
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      if (programListOpen) setProgramActiveId(options[Math.max(0, activeIndex - 1)]?.id ?? null)
+    } else if (event.key === 'Escape') {
+      setProgramListOpen(false)
+    } else if (event.key.length === 1) {
+      // Type-ahead: the first letters of an option's name (Guide p.111).
+      const match = options.find((option) => option.name.toLowerCase().startsWith(event.key.toLowerCase()))
+      if (match) {
+        setProgramListOpen(true)
+        setProgramActiveId(match.id)
+      }
+    }
+  }
+  // Close the program list on a pointerdown outside the card.
+  useEffect(() => {
+    if (!programListOpen) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (programCardRef.current && !programCardRef.current.contains(event.target as Node)) setProgramListOpen(false)
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [programListOpen])
 
   const setColor = (hex: string) => {
     const rgb = hexToRgb(hex)
@@ -353,6 +537,18 @@ export function DesignTab() {
   const panFan = fanFor('pan')
   const tiltFan = fanFor('tilt')
   const positionFan = panFan ?? tiltFan
+  // The Auto Program Speed slider fans like any other slider property
+  // (Guide §8, p.118); the program list itself does not (only slider
+  // properties fan), and neither does Shutter/Strobe.
+  const speedFan = autoProgram?.speedChannel ? fanFor(autoProgram.speedChannel.attribute) : undefined
+  // The speed fader's 0–255 position inside the speed range (an options
+  // speed channel spans only its EffectSpeed range, not the whole
+  // channel — see lib/autoProgram.ts). The readout is the percent of
+  // that range: LightKey's speed is 0–1 (Guide p.314), and no
+  // per-fixture Hz mapping exists in the OFL data to show Hertz.
+  const speedFaderValue = autoProgram?.speedChannel && speedRange && speedRange.max > speedRange.min
+    ? Math.round(((valueFor(autoProgram.speedChannel.attribute) - speedRange.min) / (speedRange.max - speedRange.min)) * 255)
+    : 0
 
   return (
     <div
@@ -401,7 +597,20 @@ export function DesignTab() {
             <>
               <FillFader
                 value={dimmer}
-                onChange={(next) => updateValues({ intensity: next })}
+                onChange={(next) => {
+                  // Guide p.98: LightKey automatically opens the shutter
+                  // when a non-zero Dimmer is applied while the shutter
+                  // was closed. Design-tab Dimmer only — the Live faders
+                  // write through their own path; see NOTES.md.
+                  if (next > 0 && shutter && shutterState === 'closed') {
+                    const open = shutterValueForState(shutter, 'open')
+                    if (open !== undefined && shutterChannel) {
+                      updateValues({ intensity: next, [shutterChannel.attribute]: open })
+                      return
+                    }
+                  }
+                  updateValues({ intensity: next })
+                }}
                 label="Dimmer for selected fixtures"
                 fillColor="#d9d4f5"
                 disabled={!canEdit || !dimmerAvailable}
@@ -496,54 +705,80 @@ export function DesignTab() {
                   as the arcs were before. The sliders are disabled only
                   by canEdit, not by colorSupported, so a white-only
                   fixture still gets a working White slider when the
-                  wheel itself does not apply. */}
-              {additionalColourAttributes.map((attribute) => {
-                const value = activeCue ? valueFor(attribute) : 0
-                const fan = fanFor(attribute)
-                return (
-                  <div
-                    key={attribute}
-                    className="chan"
-                    // Its own control: clicking (or tabbing into) a
-                    // slider selects that slider, not the wheel — and
-                    // stops here, so the card's own select never fires
-                    // for it.
-                    onPointerDown={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
-                    onFocus={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
-                  >
-                    <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
-                      {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
-                      {attributeLabel(attribute)}
-                      {showFanButtons && !fan && (
-                        <FanMenuButton label={attributeLabel(attribute)} items={[{ label: `Add ${attributeLabel(attribute)} Fanning…`, onSelect: () => dispatchFanHud({ attribute }) }]} disabled={!canEdit} />
-                      )}
-                    </span>
-                    {fan ? (
-                      <FannedIcon label={attributeLabel(attribute)} onEdit={() => dispatchFanHud({ attribute })} />
-                    ) : (
-                      <>
-                        <FillFader
-                          value={value}
-                          onChange={(next) => {
-                            // Moving a slider switches the card header
-                            // to that property (LightKey).
-                            if (attribute === 'white' || attribute === 'amber' || attribute === 'uv' || attribute === 'lime') setActiveColorProperty(attribute)
-                            updateValues({ [attribute]: next })
-                          }}
-                          label={`${attributeLabel(attribute)} for selected fixtures`}
-                          fillColor={channelFillColor(attribute)}
-                          disabled={!canEdit}
-                          trackClassName="design-fill-track"
-                          selected={selectedControl === `slider:${attribute}`}
-                        />
-                        <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
-                          {value}
+                  wheel itself does not apply. The sliders sit in a 2×2
+                  grid in LightKey's slots (White top-left, UV
+                  top-right, Amber bottom-left, Lime bottom-right) and
+                  each FillFader carries its value gradient (white,
+                  UV blue-violet, amber gold, lime green — full colour
+                  at the top, black at the bottom, sampled from Jake's
+                  LightKey screenshots); a fixture with fewer than four
+                  keeps its empty slot(s) instead of collapsing the
+                  grid, as LightKey does for White/Amber/UV. */}
+              {additionalColourAttributes.length > 0 && (
+                <div data-testid="additional-colour-grid" className="additional-colour-grid">
+                  {additionalColourSlots(additionalColourAttributes).map((slot, index) => {
+                    if (slot === null) {
+                      // Empty slot (LightKey): a blank cell the size of
+                      // a slider column — no label, no slider, nothing
+                      // to click — so the grid keeps its 2×2 shape.
+                      return <div key={`empty-${index}`} data-testid="additional-colour-empty-slot" aria-hidden="true" className="additional-colour-empty-slot" />
+                    }
+                    const attribute = slot
+                    // The linked read (Jake, 19 Nov 2026): the slider shows
+                    // the average White / Amber / UV / Lime across the
+                    // fixture's beams, like the wheel's own read — beam 1
+                    // alone would lie as soon as a beam separates. The
+                    // write below goes through updateValues, whose store
+                    // paths fan the value out to every beam.
+                    const value = activeCue ? linkedValueFor(attribute) : 0
+                    const fan = fanFor(attribute)
+                    return (
+                      <div
+                        key={attribute}
+                        className="chan"
+                        // Its own control: clicking (or tabbing into) a
+                        // slider selects that slider, not the wheel — and
+                        // stops here, so the card's own select never fires
+                        // for it.
+                        onPointerDown={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
+                        onFocus={(event) => { event.stopPropagation(); setSelectedControl(`slider:${attribute}`) }}
+                      >
+                        <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
+                          {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
+                          {attributeLabel(attribute)}
+                          {showFanButtons && !fan && (
+                            <FanMenuButton label={attributeLabel(attribute)} items={[{ label: `Add ${attributeLabel(attribute)} Fanning…`, onSelect: () => dispatchFanHud({ attribute }) }]} disabled={!canEdit} />
+                          )}
                         </span>
-                      </>
-                    )}
-                  </div>
-                )
-              })}
+                        {fan ? (
+                          <FannedIcon label={attributeLabel(attribute)} onEdit={() => dispatchFanHud({ attribute })} />
+                        ) : (
+                          <>
+                            <FillFader
+                              value={value}
+                              onChange={(next) => {
+                                // Moving a slider switches the card header
+                                // to that property (LightKey).
+                                if (attribute === 'white' || attribute === 'amber' || attribute === 'uv' || attribute === 'lime') setActiveColorProperty(attribute)
+                                updateValues({ [attribute]: next })
+                              }}
+                              label={`${attributeLabel(attribute)} for selected fixtures`}
+                              fillColor={channelFillColor(attribute)}
+                              fillGradient={additionalColourFillGradient(attribute) ?? undefined}
+                              disabled={!canEdit}
+                              trackClassName="design-fill-track"
+                              selected={selectedControl === `slider:${attribute}`}
+                            />
+                            <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
+                              {value}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
           )}
           </div>
@@ -555,6 +790,214 @@ export function DesignTab() {
               Dimmer % (Math.round), Pan/Tilt and channel values
               (valueFor, which rounds). */}
         </div>
+
+        {/* Shutter/Strobe card (LightKey Guide pp.97–98; Jake's
+            screenshot 19 Nov 2026): Open / Closed radios, Strobe and
+            Pulse buttons that cycle the fixture's strobe modes / pulse
+            styles — only the ones its profile supports — and a speed
+            fader while an effect is active. The channel's ranges are
+            the state (see lib/shutterStrobe.ts), so Strobe writes a
+            value inside a ShutterStrobe range and the fixture itself
+            strobes. No fan button: Shutter is not in the guide's
+            fanning list (§8, p.118). */}
+        {shutter && shutterChannel && (
+          <div className="flex min-h-0 shrink-0 flex-col items-stretch gap-0.5">
+            <div
+              data-testid="shutter-strobe-card"
+              className={`flex min-h-0 w-48 flex-1 flex-col rounded-lg border-2 bg-panel2 p-2 ${selectedControl === 'shutter' ? 'border-[#0A84FF]' : 'border-line'}`}
+              // Its own control: clicking (or tabbing into) the card
+              // selects the shutter — the blue border — and stops here,
+              // so the panel's spare-space clear never fires for it.
+              onPointerDown={(event) => { event.stopPropagation(); setSelectedControl('shutter') }}
+              onFocus={() => setSelectedControl('shutter')}
+              onKeyDown={onShutterKeyDown}
+            >
+              <div className="flex flex-none items-center gap-2 pb-1">
+                <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: '#0A84FF' }} />
+                <span className="text-[13px] text-white">Shutter/Strobe</span>
+              </div>
+              <div className="flex flex-none items-center gap-4 px-1 py-1" role="radiogroup" aria-label="Shutter">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={shutterState === 'open'}
+                  disabled={!canEdit}
+                  onClick={() => writeShutter(shutterValueForState(shutter, 'open'))}
+                  className="flex items-center gap-1.5 text-[13px] text-white disabled:opacity-40"
+                >
+                  <span aria-hidden="true" className={`flex h-4 w-4 items-center justify-center rounded-full border ${shutterState === 'open' ? 'border-[#0A84FF]' : 'border-zinc-400'}`}>
+                    {shutterState === 'open' && <span className="h-2.5 w-2.5 rounded-full bg-[#0A84FF]" />}
+                  </span>
+                  Open
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={shutterState === 'closed'}
+                  disabled={!canEdit || !shutter.closedSlot}
+                  title={shutter.closedSlot ? undefined : 'This fixture has no closed shutter range'}
+                  onClick={() => writeShutter(shutterValueForState(shutter, 'closed'))}
+                  className="flex items-center gap-1.5 text-[13px] text-white disabled:opacity-40"
+                >
+                  <span aria-hidden="true" className={`flex h-4 w-4 items-center justify-center rounded-full border ${shutterState === 'closed' ? 'border-[#0A84FF]' : 'border-zinc-400'}`}>
+                    {shutterState === 'closed' && <span className="h-2.5 w-2.5 rounded-full bg-[#0A84FF]" />}
+                  </span>
+                  Closed
+                </button>
+              </div>
+              <div className="flex flex-none items-center gap-2 px-1 py-1">
+                <button
+                  type="button"
+                  aria-pressed={shutterState === 'strobe'}
+                  disabled={!canEdit || shutter.strobeSlots.length === 0}
+                  title={shutter.strobeSlots.length ? undefined : 'This fixture has no strobe range'}
+                  onClick={() => cycleShutterEffect('strobe')}
+                  className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[13px] ${shutterState === 'strobe' ? 'bg-panel text-white' : 'text-zinc-300'} disabled:opacity-40`}
+                >
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z" /></svg>
+                  Strobe
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={shutterState === 'pulse'}
+                  disabled={!canEdit || shutter.pulseSlots.length === 0}
+                  title={shutter.pulseSlots.length ? undefined : 'This fixture has no pulse range'}
+                  onClick={() => cycleShutterEffect('pulse')}
+                  className={`flex items-center gap-1.5 rounded px-1.5 py-0.5 text-[13px] ${shutterState === 'pulse' ? 'bg-panel text-white' : 'text-zinc-300'} disabled:opacity-40`}
+                >
+                  <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M3 21h18V3L3 21z" /></svg>
+                  Pulse
+                </button>
+              </div>
+              {(shutterState === 'strobe' || shutterState === 'pulse') && shutterSpeed && (
+                <div className="mt-1 flex min-h-0 flex-1 gap-2">
+                  <div className="flex w-10 flex-none flex-col items-center">
+                    <FillFader
+                      value={Math.round(shutterSpeed.position * 255)}
+                      onChange={(next) => setShutterSpeed(next / 255)}
+                      label={`${shutterState === 'strobe' ? 'Strobe' : 'Pulse'} speed for selected fixtures`}
+                      fillColor="#f59e0b"
+                      disabled={!canEdit}
+                      trackClassName="design-fill-track"
+                      selected={selectedControl === 'shutter'}
+                    />
+                    <span className="font-mono text-[12px] text-white">
+                      {Math.round(shutterSpeed.position * 100)}%
+                    </span>
+                  </div>
+                  <span className="min-w-0 flex-1 pt-1 text-[11px] leading-snug text-dim">
+                    {shutterSpeed.slot.name}
+                  </span>
+                </div>
+              )}
+              {shutterState === 'mixed' && (
+                <span className="px-1 pt-1 text-[11px] text-dim">Mixed</span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Auto Program + Auto Program Speed (LightKey Guide p.314 —
+            custom fixture properties, not built-ins; Jake's screenshot
+            19 Nov 2026): the program is a list of options (Guide
+            pp.110–111) showing "No Selection" until one is chosen, and
+            the speed is its slider, showing "No Selection" until a
+            program is chosen because its meaning depends on the
+            selected option. The speed slider fans like any other slider
+            property (Guide §8, p.118); the program list itself does
+            not, and neither does Shutter/Strobe. */}
+        {autoProgram && (
+          <div className="flex min-h-0 shrink-0 flex-col gap-2">
+            <div
+              data-testid="auto-program-speed-card"
+              className={`flex w-56 flex-none flex-col rounded-lg border-2 bg-panel2 p-2 ${selectedControl === 'autoProgramSpeed' ? 'border-[#0A84FF]' : 'border-line'}`}
+              onPointerDown={(event) => { event.stopPropagation(); setSelectedControl('autoProgramSpeed') }}
+              onFocus={() => setSelectedControl('autoProgramSpeed')}
+            >
+              <div className="flex flex-none items-center gap-2 pb-1">
+                <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: '#0A84FF' }} />
+                <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-white">
+                  <span className="truncate">Auto Program Speed</span>
+                  {speedFan && <FanDeleteDot label="Auto Program Speed" onDelete={() => deleteFanKeep(speedFan)} />}
+                  {showFanButtons && !speedFan && autoProgram.speedChannel && (
+                    <FanMenuButton label="Auto Program Speed" items={[{ label: 'Add Auto Program Speed Fanning…', onSelect: () => dispatchFanHud({ attribute: autoProgram.speedChannel!.attribute }) }]} disabled={!canEdit} />
+                  )}
+                </span>
+              </div>
+              {speedFan ? (
+                <div className="flex min-h-0 flex-1 items-center justify-center">
+                  <FannedIcon label="Auto Program Speed" onEdit={() => dispatchFanHud({ attribute: autoProgram.speedChannel!.attribute })} />
+                </div>
+              ) : programMixed ? (
+                <span className="flex flex-1 items-center justify-center py-2 text-[13px] text-dim">Mixed</span>
+              ) : programSlot && autoProgram.speedChannel && speedRange ? (
+                <div className="flex min-h-0 flex-1 gap-2">
+                  <div className="flex w-10 flex-none flex-col items-center">
+                    <FillFader
+                      value={speedFaderValue}
+                      onChange={(next) => {
+                        const range = speedRange
+                        updateValues({ [autoProgram.speedChannel!.attribute]: Math.round(range.min + ((range.max - range.min) * next) / 255) })
+                      }}
+                      label="Auto Program Speed for selected fixtures"
+                      fillColor="#f59e0b"
+                      disabled={!canEdit}
+                      trackClassName="design-fill-track"
+                      selected={selectedControl === 'autoProgramSpeed'}
+                    />
+                    <span className="font-mono text-[12px] text-white">
+                      {Math.round((speedFaderValue / 255) * 100)}%
+                    </span>
+                  </div>
+                  <span className="min-w-0 flex-1 pt-1 text-[11px] leading-snug text-dim">
+                    {programSlot.name}
+                  </span>
+                </div>
+              ) : (
+                <span className="flex flex-1 items-center justify-center py-2 text-[13px] text-dim">No Selection</span>
+              )}
+            </div>
+            <div
+              ref={programCardRef}
+              data-testid="auto-program-card"
+              className={`relative flex w-56 flex-none flex-col rounded-lg border-2 bg-panel2 p-2 ${selectedControl === 'autoProgram' ? 'border-[#0A84FF]' : 'border-line'}`}
+              onPointerDown={(event) => { event.stopPropagation(); setSelectedControl('autoProgram') }}
+              onFocus={() => setSelectedControl('autoProgram')}
+            >
+              <div className="flex flex-none items-center gap-2 pb-1">
+                <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: '#0A84FF' }} />
+                <span className="text-[13px] text-white">Auto Program</span>
+              </div>
+              <button
+                type="button"
+                aria-haspopup="listbox"
+                aria-expanded={programListOpen}
+                disabled={!canEdit}
+                onClick={() => { setProgramListOpen((open) => !open); setProgramActiveId(programSlot?.id ?? '__none') }}
+                onKeyDown={onProgramButtonKeyDown}
+                className={`flex flex-none items-center justify-center rounded px-2 py-1.5 text-[13px] ${programSlot ? 'text-white' : 'text-dim'} disabled:opacity-40`}
+              >
+                {programMixed ? 'Mixed' : programSlot?.name ?? 'No Selection'}
+              </button>
+              {programListOpen && (
+                <div role="listbox" aria-label="Auto Program" className="absolute inset-x-2 top-full z-10 max-h-48 overflow-y-auto rounded-lg border border-line bg-panel2 py-1 shadow-lg">
+                  {programOptions.map((option) => (
+                    <div
+                      key={option.id}
+                      role="option"
+                      aria-selected={option.id === (programSlot?.id ?? '__none')}
+                      onClick={() => selectProgramOption(option)}
+                      onMouseEnter={() => setProgramActiveId(option.id)}
+                      className={`cursor-pointer px-2 py-1 text-[13px] ${option.id === programActiveId ? 'bg-panel text-white' : 'text-zinc-300'}`}
+                    >
+                      {option.name}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {hasPanTilt && (
           <div className="flex shrink-0 flex-col items-center gap-0.5">
@@ -579,7 +1022,7 @@ export function DesignTab() {
               </div>
             ) : (
               <>
-                <PositionControl fixtures={selectedFixtures} update={updateValues} />
+                <PositionControl fixtures={selectedFixtures} update={updateValues} current={selectedFixtures[0] ? positionFractions(cueValues[selectedFixtures[0].id] ?? {}, fixtureAttributes(selectedFixtures[0])) : undefined} />
                 <span className="font-mono text-[10px] text-dim">
                   Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}
                 </span>

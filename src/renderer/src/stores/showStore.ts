@@ -1,6 +1,7 @@
 import type { FanDef, FrameConfig, LiveControl, LiveObjectStyle } from '@shared/types'
 import { cuesToPresets } from '@shared/cueConversion'
-import { resolveCue, resolveCueValues } from '@shared/cueResolution'
+import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
+import { fanColourToBeams } from '@shared/fixtureProfiles'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
@@ -411,7 +412,7 @@ function cuePatch(
   // The cue resolves through its preset references first (Piece 8): a
   // preset edit updates every cue that references it, because the values
   // are resolved here at output time, never copied into the cue.
-  return computeCueChannels(state.show?.fixtures ?? [], resolveCue(cue, state.show?.presets ?? []), state.master, true)
+  return computeCueChannels(state.show?.fixtures ?? [], resolveCue(cue, state.show?.presets ?? [], state.show?.fixtures ?? []), state.master, true)
 }
 
 /**
@@ -853,6 +854,16 @@ const actions: ShowState = {
     })
     const restored = get().cues.find((cue) => cue.id === get().activeCueId)
     if (restored) sendImmediate(cueOutput(get(), restored))
+    // "Activate at startup" (Guide ch.11, p.204): cue buttons on the
+    // visible page flagged for startup activate when a project opens.
+    // Ignored when the startup mode restores the last state, as the guide
+    // requires. setLiveValue applies the usual exclusivity and
+    // touching-group rules, so two flagged cues in one exclusive frame
+    // still end with one lit.
+    if (show && show.startup?.mode !== 'restore') {
+      const page = show.livePages?.find((p) => p.id === get().activeLivePageId) ?? show.livePages?.[0]
+      for (const control of page?.controls ?? []) if (control.activateAtStartup) get().setLiveValue(control.id, 255)
+    }
   },
   setStartupMode: (mode) => set((state) => persistState(state, { startup: { ...state.show?.startup, mode } })),
   showForSave: () => {
@@ -1052,7 +1063,7 @@ const actions: ShowState = {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
     const activeCue = state.cues.find((s) => s.id === state.activeCueId)
-    const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets) : {})[fixture.id] }
+    const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})[fixture.id] }
     for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
     Object.assign(values, state.manualOverrides[fixture.id])
     set({ propertyClipboard: { fixture: structuredClone(fixture), values: property && property in values ? { [property]: values[property] } : values, property } })
@@ -1107,7 +1118,7 @@ const actions: ShowState = {
     const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
     if (!fixtures.length) return
     const activeCue = state.cues.find((c) => c.id === state.activeCueId)
-    const cueValues = activeCue ? resolveCueValues(activeCue, state.presets) : {}
+    const cueValues = activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {}
     get().beginHistoryGroup()
     for (const fixture of fixtures) {
       const channels = colorChannels(fixtureAttributes(fixture))
@@ -1370,15 +1381,16 @@ const actions: ShowState = {
   capturePreset: (name, category) => set((state) => {
     const cue = state.cues.find((item) => item.id === state.activeCueId)
     if (!cue || !state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
-    const color = /^(red|green|blue|white|amber|uv)([2-4])?$/
-    const position = new Set(['pan', 'tilt'])
     const fixtureValues: PresetDef['fixtureValues'] = {}
     for (const fixture of state.show.fixtures) {
       if (!state.selectedFixtureIds.includes(fixture.id)) continue
       const supported = new Set(fixtureAttributes(fixture))
-      const source = resolveCueValues(cue, state.presets)[fixture.id] ?? {}
-      const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) &&
-        (category === 'color' ? color.test(attribute) : category === 'position' ? position.has(attribute) : category === 'intensity' ? attribute === 'intensity' : !color.test(attribute) && !position.has(attribute) && attribute !== 'intensity'))
+      const source = resolveCueValues(cue, state.presets, state.show?.fixtures ?? [])[fixture.id] ?? {}
+      // The category test is the shared one (presetProperties): its
+      // colour match covers every beam ("red 2" and "red2" alike, any
+      // pod), so a colour preset captured from a multipart look keeps
+      // every cell, not just beam 1 (Jake, 19 Nov 2026).
+      const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value) && matchesPresetCategory(attribute, category))
       if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
     }
     if (!Object.keys(fixtureValues).length) return state
@@ -1408,7 +1420,7 @@ const actions: ShowState = {
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
     const activeCue = state.cues.find((s) => s.id === state.activeCueId)
-    const values = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets) : {})
+    const values = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})
     for (const [id, patch] of Object.entries(state.manualOverrides)) values[id] = { ...values[id], ...patch }
     const sequence: SequenceDef = { id: crypto.randomUUID(), name: name.trim(), order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: crypto.randomUUID(), name: 'Step 1', fixtureValues: values, presetIds: [], fadeMs: 1000, holdMs: 0 }] }
     return persistState(state, { sequences: [...(state.show?.sequences ?? []), sequence] })
@@ -1418,7 +1430,7 @@ const actions: ShowState = {
     const state = get(), sequence = state.show?.sequences?.find((s) => s.id === id)
     if (!sequence) return
     const activeCue = state.cues.find((s) => s.id === state.activeCueId)
-    const fixtureValues = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets) : {})
+    const fixtureValues = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})
     for (const [fixtureId, patch] of Object.entries(state.manualOverrides)) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
     get().updateSequence(id, { steps: [...sequence.steps, { id: crypto.randomUUID(), name: `Step ${sequence.steps.length + 1}`, fixtureValues, presetIds: [], fadeMs: 0, holdMs: 1000 }] })
   },
@@ -1482,7 +1494,11 @@ const actions: ShowState = {
   }),
   applyPresetsToOverrides: (ids, selectedOnly = false) => set((state) => {
     const manualOverrides = structuredClone(state.manualOverrides)
-    for (const id of ids) for (const [fixtureId, values] of Object.entries(state.presets.find((p) => p.id === id)?.fixtureValues ?? {})) {
+    // A preset's colour is the fixture's colour (Jake, 19 Nov 2026):
+    // applying it fans the bare colour out to every beam, like every
+    // other preset-application path.
+    const fixtures = state.show?.fixtures ?? []
+    for (const id of ids) for (const [fixtureId, values] of Object.entries(fanPresetFixtureValues(state.presets.find((p) => p.id === id)?.fixtureValues ?? {}, fixtures))) {
       if (selectedOnly && !state.selectedFixtureIds.includes(fixtureId)) continue
       manualOverrides[fixtureId] = { ...manualOverrides[fixtureId], ...values }
     }
@@ -1556,7 +1572,15 @@ const actions: ShowState = {
       }
     } else {
       const patch = Object.fromEntries(Object.entries(values).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => [key, clamp(value)]))
-      for (const id of state.selectedFixtureIds) write(id, patch)
+      // A whole-fixture colour write fans out to every beam (Jake,
+      // 19 Nov 2026): the wheel's bare RGB, and the White / Amber /
+      // UV sliders, land on every cell of a multipart fixture, not
+      // just beam 1. Per-beam writes never reach this branch — with
+      // beams selected the beam-properties path above handles them.
+      for (const id of state.selectedFixtureIds) {
+        const fixture = state.show?.fixtures.find((f) => f.id === id)
+        write(id, fixture ? fanColourToBeams(fixture, patch) : patch)
+      }
     }
     const presets = state.presets.map((p) => p.id === preset.id ? { ...p, fixtureValues } : p)
     resendActiveCueForPreset(state, preset.id, presets)
@@ -1573,7 +1597,7 @@ const actions: ShowState = {
     const fixtureValues = structuredClone(preset.fixtureValues)
     for (const fixture of state.show.fixtures.filter((f) => state.selectedFixtureIds.includes(f.id))) {
       const activeCue = state.cues.find((s) => s.id === state.activeCueId)
-      const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets) : {})[fixture.id] }
+      const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})[fixture.id] }
       for (const activeId of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
       Object.assign(values, state.manualOverrides[fixture.id])
       const allowed = fixtureAttributes(fixture)
@@ -1698,7 +1722,14 @@ const actions: ShowState = {
         if (cue.id !== activeCue.id) return cue
         const fixtureValues = { ...cue.fixtureValues }
         for (const fixtureId of selected) {
-          fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...patch }
+          // A whole-fixture colour write fans out to every beam
+          // (Jake, 19 Nov 2026): the White / Amber / UV sliders, and
+          // any other bare colour write, land on every cell of a
+          // multipart fixture, not just beam 1. Per-beam writes never
+          // reach here — with beams selected DesignTab routes them
+          // through updateSelectedBeamValues instead.
+          const fixture = state.show?.fixtures.find((f) => f.id === fixtureId)
+          fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...(fixture ? fanColourToBeams(fixture, patch) : patch) }
         }
         return { ...cue, fixtureValues }
       })

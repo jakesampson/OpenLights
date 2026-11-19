@@ -102,6 +102,37 @@ export function fixtureBeams(fixture: FixtureDef): NonNullable<FixtureProfile['m
   return beams.slice(0, ledCountFor(mode, fixture.ledCount))
 }
 
+/** Colour attributes a whole-fixture colour write covers (LightKey
+ *  Guide p.85: the base colour plus the separate White / Amber / UV /
+ *  Lime LEDs). */
+const COLOUR_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime'] as const
+
+/**
+ * Fan a bare colour patch out to every beam of a multipart fixture —
+ * the linked-wheel rule (Jake, 19 Nov 2026) applied to any colour
+ * write: a whole-fixture colour is the fixture's colour, so `red`
+ * lands on every cell's red channel ("red 2" in OFL profiles, "red2"
+ * in built-ins), and likewise White / Amber / UV / Lime and CMY.
+ * Only keys the patch does not already carry are filled, so an
+ * explicit per-beam value still wins, and a patch that already
+ * names a beam's channel is left alone. A single-cell fixture, or a
+ * patch with no colour keys, comes back unchanged.
+ */
+export function fanColourToBeams(fixture: FixtureDef, values: Record<string, number>): Record<string, number> {
+  const beams = fixtureBeams(fixture)
+  if (beams.length < 2) return { ...values }
+  const result = { ...values }
+  for (const beam of beams) {
+    for (const name of COLOUR_ATTRIBUTES) {
+      const channel = beam.properties[name]
+      if (!channel || channel in result) continue
+      const base = values[name]
+      if (typeof base === 'number' && Number.isFinite(base)) result[channel] = Math.max(0, Math.min(255, Math.round(base)))
+    }
+  }
+  return result
+}
+
 export function fixtureChannelMap(fixture: FixtureDef): Record<string, number> {
   const mode = fixtureMode(fixture)
   if (!mode) return {}

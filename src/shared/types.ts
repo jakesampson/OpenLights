@@ -21,6 +21,13 @@ export interface FixtureDef {
    *  Guide p.62; wizard Build Your Preview step, video 04:45). The master
    *  fader never scales this fixture's output. */
   ignoreMasterDimmer?: boolean
+  /** Minimum/maximum dimmer (LightKey Fixture Options, Guide p.62): the
+   *  dimmer values sent when the fixture's Dimmer is Off / Full. Applied
+   *  at the DMX output only — the Preview beam is unaffected in LightKey,
+   *  but OpenLights' Preview reads the sent frame, so the limit shows
+   *  there too (see NOTES.md). Absent = 0 / 255. */
+  minDimmer?: number
+  maxDimmer?: number
   positionOptions?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }
   propertyOrder?: string[]
   hiddenProperties?: string[]
@@ -56,7 +63,7 @@ export interface FixtureDef {
   inStorage?: boolean
   iconSize?: number
   namePosition?: 'above' | 'below' | 'hidden'
-  previewBeam?: { direction: number | 'auto'; color?: string }
+  previewBeam?: { direction: number | 'auto' }
   rotation?: number
 }
 
@@ -261,6 +268,10 @@ export interface LiveControl {
   modifiers?: { intensity: number; speed: number; size: number }
   priority?: number
   frameStep?: 'next' | 'previous'
+  /** Activate this cue when the project opens (Guide ch.11, p.204).
+   *  Ignored when the startup mode restores the last state, as the guide
+   *  requires. Only cues on the visible page are activated. */
+  activateAtStartup?: boolean
 }
 
 export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'
@@ -377,7 +388,7 @@ export interface FixturePreset {
 
 export interface FixtureChannel {
   control?: 'slider' | 'color-wheel' | 'gobo-wheel' | 'options'
-  slots?: { id: string; name: string; from: number; to: number; kind: 'slot' | 'spin' | 'scroll' }[]
+  slots?: { id: string; name: string; from: number; to: number; kind: 'slot' | 'spin' | 'scroll'; /** OFL capability type of this range when the profile came from OFL (e.g. 'ShutterStrobe', 'Effect', 'NoFunction', 'EffectSpeed', 'SoundSensitivity') — the range's meaning, which the name alone does not always carry (an EP4 "RGB colors switching" range is an auto program). Hand-authored slots leave it unset and callers fall back to the name. */ capabilityType?: string }[]
   number: number // zero-based offset within the fixture mode
   attribute: string
   propertyType: 'intensity' | 'color' | 'position' | 'other'

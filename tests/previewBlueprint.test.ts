@@ -112,6 +112,13 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
     expect(panelSource).toContain('Truss properties')
     expect(panelSource).toContain('Fixture properties')
     expect(panelSource).toContain('Fixture storage')
+    // No manual beam-colour override (Jake, 19 Nov 2026): the inline
+    // "Beam colour" input, the "Auto beam" reset and the "Beam Color…"
+    // dialog are gone — the beam is always the fixture's live colour.
+    expect(panelSource).not.toContain('Beam colour')
+    expect(panelSource).not.toContain('Auto beam')
+    expect(panelSource).not.toContain('Beam Color')
+    expect(panelSource).not.toContain('BeamColorDialog')
     expect(panelSource).toContain('id="fixture-storage-tray"')
     // Align is dispatched to the canvas (it needs the live fixture
     // positions); the canvas listens for it.

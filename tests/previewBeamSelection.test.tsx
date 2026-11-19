@@ -141,6 +141,111 @@ describe('Preview beam and label clicks select the fixture', () => {
   })
 })
 
+describe('multibeams: one beam per cell', () => {
+  // Jake's 4-LED bar (EP4 / pixel-bar-17ch): 4 cells, RGB per cell on
+  // DMX offsets 0-11 and the master dimmer on offset 12.
+  function setBarShow() {
+    const base = useShowStore.getState().show
+    if (!base) throw new Error('store has no default show')
+    const show = {
+      ...base,
+      id: 'test-show',
+      fixtures: [
+        { id: 'bar', name: 'EP4 Bar', type: 'pixel-bar-17ch', channelStart: 1, channels: 17 }
+      ],
+      cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { bar: { intensity: 255 } }, fadeMs: 0 }]
+    }
+    act(() => {
+      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [], activeCueId: 'c1', editingPresetId: null, previewEditing: false })
+    })
+  }
+
+  // Cell colours as [r, g, b] per cell; the master dimmer is separate.
+  function setBarChannels(intensity: number, cells: Array<[number, number, number]> = [[255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0]]) {
+    channels = new Array(512).fill(0)
+    channels[12] = intensity
+    cells.forEach(([r, g, b], i) => {
+      channels[i * 3] = r
+      channels[i * 3 + 1] = g
+      channels[i * 3 + 2] = b
+    })
+  }
+
+  async function renderBarPreview() {
+    setBarShow()
+    renderInRoot(<StagePreview />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+  }
+
+  function polygonsFor(name: string) {
+    const group = labelFor(name).closest('g')
+    return [...(group?.querySelectorAll('polygon') ?? [])] as unknown as HTMLElement[]
+  }
+
+  // Midpoint of the polygon's top edge — the beam's origin, which
+  // should sit on its cell. A single fixture lands at x 400 (the
+  // demo-arc position for one fixture), so the four cell centres are
+  // 386.5, 395.5, 404.5, 413.5 and the top edge is y 63.
+  function beamTopCentre(polygon: HTMLElement) {
+    const points = (polygon.getAttribute('points') ?? '').split(' ').map((pair) => pair.split(',').map(Number))
+    const topY = Math.min(...points.map(([, y]) => y))
+    const topXs = points.filter(([, y]) => y === topY).map(([x]) => x)
+    return { x: (Math.min(...topXs) + Math.max(...topXs)) / 2, y: topY }
+  }
+
+  it('renders one beam polygon per cell', async () => {
+    setBarChannels(255)
+    await renderBarPreview()
+    expect(polygonsFor('EP4 Bar')).toHaveLength(4)
+  })
+
+  it('starts each beam at its own cell, not at the fixture centre', async () => {
+    setBarChannels(255)
+    await renderBarPreview()
+    const centres = polygonsFor('EP4 Bar').map(beamTopCentre)
+    expect(centres.map((c) => c.x)).toEqual([386.5, 395.5, 404.5, 413.5])
+    expect(centres.every((c) => c.y === 63)).toBe(true)
+  })
+
+  it('draws per-cell beams much shorter than the single beam', async () => {
+    setBarChannels(255)
+    await renderBarPreview()
+    for (const polygon of polygonsFor('EP4 Bar')) {
+      expect(beamGeometry(polygon).length).toBeCloseTo(64, 5)
+    }
+  })
+
+  it('scales per-cell beam length with the dimmer', async () => {
+    setBarChannels(128)
+    await renderBarPreview()
+    for (const polygon of polygonsFor('EP4 Bar')) {
+      expect(beamGeometry(polygon).length).toBeCloseTo(64 * (128 / 255), 5)
+    }
+  })
+
+  it('draws no beam for a dark cell while the lit cells keep theirs, in place', async () => {
+    setBarChannels(255, [[255, 0, 0], [0, 0, 0], [0, 0, 255], [255, 255, 0]])
+    await renderBarPreview()
+    const polygons = polygonsFor('EP4 Bar')
+    expect(polygons).toHaveLength(3)
+    expect(polygons.map(beamTopCentre).map((c) => c.x)).toEqual([386.5, 404.5, 413.5])
+  })
+
+  it('clicking a cell beam selects the fixture', async () => {
+    setBarChannels(255)
+    await renderBarPreview()
+    click(polygonsFor('EP4 Bar')[2])
+    expect(useShowStore.getState().selectedFixtureIds).toEqual(['bar'])
+  })
+
+  it('a single-beam fixture still renders exactly one beam', async () => {
+    setChannels(255)
+    await renderPreview()
+    expect(polygonsFor('Test Wash 1')).toHaveLength(1)
+    expect(beamGeometry(polygonsFor('Test Wash 1')[0]).length).toBeCloseTo(146, 5)
+  })
+})
+
 describe('beam length follows brightness', () => {
   it('at full intensity the beam is the full 146 long', async () => {
     setChannels(255)

@@ -50,14 +50,16 @@ export function WelcomeScreen() {
 
   // The overlay must be a solid full-screen scrim (19 Nov 2026, Jake's
   // screenshot: the startup menu floated over the live Preview/dock with
-  // no background). An opacity-modified theme background does NOT paint:
-  // the theme colours are defined in tailwind.config.js as plain
-  // `var(--bg)` with no `<alpha-value>` placeholder, so Tailwind drops
-  // every opacity-modified `bg-bg` utility — the built CSS has no such
-  // rule at all. Plain `bg-bg` compiles to `var(--bg)` and is solid. The
-  // content is also taller than short viewports, so the overlay scrolls
-  // (`overflow-y-auto` + `min-h-full` flex centring: centred when short,
-  // scrolls from the top when tall instead of clipping).
+  // no background). It was `bg-bg` at 95% then, and that painted nothing:
+  // the theme colours were plain `var(--bg)` with no `<alpha-value>`
+  // placeholder, so Tailwind generated no opacity-modified `bg-bg`
+  // utility at all. The placeholder is fixed now (tailwind.config.js,
+  // `color-mix`), so 95% would paint — but this overlay stays solid
+  // `bg-bg` on purpose: a full-screen scrim must be opaque, and 95%
+  // would still let the Preview bleed through. The content is also
+  // taller than short viewports, so the overlay scrolls (`overflow-y-auto`
+  // + `min-h-full` flex centring: centred when short, scrolls from the
+  // top when tall instead of clipping).
   return (
     <div className="fixed inset-0 z-[70] overflow-y-auto bg-bg" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
       <div className="flex min-h-full items-center justify-center p-6">

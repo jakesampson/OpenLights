@@ -12,6 +12,7 @@ import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
 import { computeCueChannels } from './automationRuntime'
 import { applyCalibrationOutput } from './calibration'
+import { applyDimmerLimits } from './automationRuntime'
 
 let sequences: SequenceDef[] = []
 let sequencePresets: PresetDef[] = []
@@ -113,6 +114,12 @@ function flush(now = performance.now()) {
   // output and a reversed yoke mirrors pan. Applied to the composed
   // output so every source (cues, live, effects) is clamped the same way.
   output = applyCalibrationOutput(output, runtime.fixtures)
+  // Dimmer limits (Guide p.62): remap the sent dimmer into
+  // [minDimmer, maxDimmer] at the output. Skipped under blackout, blind
+  // and freeze — blackout must stay zero, and blind/freeze hold frames
+  // were already limited when they were captured, so remapping them
+  // again would double-apply the limit.
+  if (!runtime.blackout && !blind && !freeze) output = applyDimmerLimits(output, runtime.fixtures)
   // Highlight Mode is a view of the rig, not a held frame: it applies to
   // the composed output, but never overrides blackout, blind or freeze.
   if (highlight.active && !runtime.blackout && !blind && !freeze) output = applyHighlight(output, runtime.fixtures, highlight.fixtureIds)

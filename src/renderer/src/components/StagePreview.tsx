@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { previewFixtureValues, previewBeamAppearance } from '../lib/previewOutput'
+import { previewFixtureValues, previewBeamAppearance, previewCellBeams, cellBeamGeometry } from '../lib/previewOutput'
 import { alignObjects, type AlignMode } from '../lib/align'
 import { resizeFixtureIcon, rotateFixtureIcon } from '../lib/fixtureGeometry'
 import { marqueeSelection } from '../lib/previewSelection'
@@ -11,6 +11,7 @@ import { orderedFanTargets } from '../lib/fanning'
 import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
 import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
+import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
 import { isCalibrationComplete } from '../lib/calibration'
@@ -27,6 +28,8 @@ interface FixtureView extends FixtureDef {
   pos: Pos
   intensity: number
   color: string
+  /** Live DMX values by attribute, for the per-cell beams. */
+  values: Record<string, number>
 }
 
 function clamp(v: number, min = 0, max = 255) {
@@ -138,7 +141,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       // change the start and end color"); red → blue when undefined.
       // The colours are the cue's resolved look (Piece 8) — a colour
       // defined by a preset is the colour the fixture shows.
-      const values = activeCue ? resolveCueValues(activeCue, state.presets) : {}
+      const values = activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {}
       const firstColor = fixtureValuesToHex(values[selected[0]?.id ?? ''] ?? {}) ?? '#ff0000'
       const lastColor = fixtureValuesToHex(values[selected[selected.length - 1]?.id ?? ''] ?? {}) ?? '#0000ff'
       setFanDraft(withSelectedBeams(defaultColorFan([...selectedFixtureIds], firstColor, lastColor)))
@@ -228,6 +231,21 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // or from a Space+blank drag in edit mode; a blank drag without Space
   // stays marquee selection in edit mode (see NOTES.md).
   const panRef = useRef<{ startClient: Pos; startCentre: Pos; moved: boolean } | null>(null)
+  // Missed-release guard — the same shape as the fader bug (NOTES.md
+  // Item 1): pointer capture does not deliver pointerup for a release
+  // outside the window, so a fixture / truss / marquee / pan / handle
+  // drag tracked only by a ref stays live and re-engages on hover-back.
+  // useDragEnd arms the window-level backstop (pointerup /
+  // pointercancel / blur) — armed once here, on any canvas
+  // pointerdown, since every canvas drag starts with one — and a move
+  // with no button held cancels the drag outright, mirroring
+  // onPointerCancel (in-progress drag discarded, no commit).
+  const dragGuard = useDragEnd()
+  const cancelCanvasDrag = () => {
+    dragGuard.end()
+    if (fixtureHandleRef.current) { const f = fixtureHandleRef.current.fixture; useShowStore.getState().updateFixture(f.id, { iconSize: f.iconSize, rotation: f.rotation }); fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup() }
+    setMarquee(null); panRef.current = null; dragRef.current = null; setDragPositions(null); trussDragRef.current = null; setTrussDraft(null)
+  }
   const pointerOverRef = useRef(false)
   // The native wheel listener reads the latest view without re-registering.
   const viewStateRef = useRef({ zoom, viewCentre })
@@ -314,8 +332,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // layout" button did when it was toggled off.
   useEffect(() => {
     if (editing) return
+    dragGuard.end()
     setDragPositions(null); dragRef.current = null; trussDragRef.current = null; setTrussDraft(null)
-  }, [editing])
+  }, [editing, dragGuard.end])
   const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
   const cues: CueDef[] = show?.cues ?? []
@@ -323,7 +342,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // The cue's resolved look (Piece 8) for the preview's dimmer-fixture
   // colours; memoised so the fixture views only recompute when the cue
   // or a preset it references changes.
-  const cueValues = useMemo(() => (activeCue ? resolveCueValues(activeCue, show?.presets ?? []) : {}), [activeCue, show?.presets])
+  const cueValues = useMemo(() => (activeCue ? resolveCueValues(activeCue, show?.presets ?? [], show?.fixtures ?? []) : {}), [activeCue, show?.presets, show?.fixtures])
 
   const fixtureViews = useMemo((): FixtureView[] => {
     if (fixtures.length === 0) {
@@ -338,7 +357,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         key: `demo-${i}:0`,
         pos: { x: pos.x, y: pos.y },
         intensity: 170,
-        color: '#c24bd6'
+        color: '#c24bd6',
+        values: {}
       }))
     }
     // One view per Count instance: each instance is its own placeable
@@ -360,7 +380,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           key: instanceKey(f.id, instance),
           pos: dragPositions?.[instanceKey(f.id, instance)] ?? stored[instance] ?? fallback,
           intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
-          color: fixtureColor(values, f.type === 'dimmer')
+          color: fixtureColor(values, f.type === 'dimmer'),
+          values
         })
       }
     })
@@ -488,9 +509,11 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-fixture')) event.preventDefault() }}
         onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-fixture'), point = pointAt(event); if (point && storedFixtures.some((f) => f.id === id)) { event.preventDefault(); setFixturePositions({ [id]: point }); selectFixtures([id]) } }}
         viewBox={`${viewCentre.x - 400 / zoom} ${viewCentre.y - 170 / zoom} ${800 / zoom} ${340 / zoom}`}
-        onPointerMove={(event) => { if (fixtureHandleRef.current) { const d = fixtureHandleRef.current, point = pointAt(event); if (point) useShowStore.getState().updateFixture(d.fixture.id, d.mode === 'resize' ? { iconSize: resizeFixtureIcon(d.fixture, d.centre, d.start, point) } : { rotation: rotateFixtureIcon(d.fixture, d.centre, d.start, point) }); return } if (marquee) { const point = pointAt(event); if (point) setMarquee({ ...marquee, current: point }); return } if (trussDragRef.current) { const point = pointAt(event); if (point) { const drag = trussDragRef.current; const next = drag.mode === 'move' ? moveTruss(drag.original, drag.start, point) : drag.mode === 'rotate' ? rotateTruss(drag.original, drag.start, point, event.shiftKey) : drag.mode === 'sweep-start' ? sweepTruss(drag.original, 'start', drag.start, point, event.shiftKey) : drag.mode === 'sweep-end' ? sweepTruss(drag.original, 'end', drag.start, point, event.shiftKey) : resizeTruss(drag.original, drag.start, point, event.shiftKey); drag.current = drag.mode === 'rotate' || drag.mode === 'sweep-start' || drag.mode === 'sweep-end' ? next : snapTrussEndpoints(next, trusses); setTrussDraft(drag.current) } return } if (panRef.current) { const pan = panRef.current; const rect = svgRef.current?.getBoundingClientRect(); if (rect) { const scale = (800 / zoom) / rect.width; if (Math.abs(event.clientX - pan.startClient.x) > 3 || Math.abs(event.clientY - pan.startClient.y) > 3) pan.moved = true; setViewCentre({ x: pan.startCentre.x - (event.clientX - pan.startClient.x) * scale, y: pan.startCentre.y - (event.clientY - pan.startClient.y) * scale }) } return } if (!dragRef.current) return; const position = pointAt(event); if (position) { const drag = dragRef.current; const dx = position.x - drag.start.x, dy = position.y - drag.start.y; const positions = Object.fromEntries(Object.entries(drag.originals).map(([id, original]) => [id, { x: clamp(original.x + dx, 0, 800), y: clamp(original.y + dy, 0, 340) }])); drag.positions = positions; setDragPositions(positions) } }}
+        onPointerDown={() => dragGuard.begin()}
+        onPointerMove={(event) => { if (event.buttons === 0) { cancelCanvasDrag(); return } if (fixtureHandleRef.current) { const d = fixtureHandleRef.current, point = pointAt(event); if (point) useShowStore.getState().updateFixture(d.fixture.id, d.mode === 'resize' ? { iconSize: resizeFixtureIcon(d.fixture, d.centre, d.start, point) } : { rotation: rotateFixtureIcon(d.fixture, d.centre, d.start, point) }); return } if (marquee) { const point = pointAt(event); if (point) setMarquee({ ...marquee, current: point }); return } if (trussDragRef.current) { const point = pointAt(event); if (point) { const drag = trussDragRef.current; const next = drag.mode === 'move' ? moveTruss(drag.original, drag.start, point) : drag.mode === 'rotate' ? rotateTruss(drag.original, drag.start, point, event.shiftKey) : drag.mode === 'sweep-start' ? sweepTruss(drag.original, 'start', drag.start, point, event.shiftKey) : drag.mode === 'sweep-end' ? sweepTruss(drag.original, 'end', drag.start, point, event.shiftKey) : resizeTruss(drag.original, drag.start, point, event.shiftKey); drag.current = drag.mode === 'rotate' || drag.mode === 'sweep-start' || drag.mode === 'sweep-end' ? next : snapTrussEndpoints(next, trusses); setTrussDraft(drag.current) } return } if (panRef.current) { const pan = panRef.current; const rect = svgRef.current?.getBoundingClientRect(); if (rect) { const scale = (800 / zoom) / rect.width; if (Math.abs(event.clientX - pan.startClient.x) > 3 || Math.abs(event.clientY - pan.startClient.y) > 3) pan.moved = true; setViewCentre({ x: pan.startCentre.x - (event.clientX - pan.startClient.x) * scale, y: pan.startCentre.y - (event.clientY - pan.startClient.y) * scale }) } return } if (!dragRef.current) return; const position = pointAt(event); if (position) { const drag = dragRef.current; const dx = position.x - drag.start.x, dy = position.y - drag.start.y; const positions = Object.fromEntries(Object.entries(drag.originals).map(([id, original]) => [id, { x: clamp(original.x + dx, 0, 800), y: clamp(original.y + dy, 0, 340) }])); drag.positions = positions; setDragPositions(positions) } }}
         onPointerUp={(event) => { if (fixtureHandleRef.current) { fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (marquee) { const ids = marqueeSelection([...fixtureViews.map((f) => ({ id: f.key, x: f.pos.x, y: f.pos.y, width: 20, height: 20 })), ...trusses.map((t) => ({ ...t, height: t.shape === 'straight' ? 8 : t.height }))], marquee.start, pointAt(event) ?? marquee.current); const fixtures = [...new Set(ids.map((id) => fixtureViews.find((f) => f.key === id)?.id).filter((id): id is string => Boolean(id)))]; selectFixtures(marquee.additive ? [...new Set([...selectedFixtureIds, ...fixtures])] : fixtures); const selected = ids.filter((id) => trusses.some((t) => t.id === id)); setSelectedLayoutTrussIds(marquee.additive ? [...new Set([...selectedLayoutTrussIds, ...selected])] : selected); setSelectedPreviewTrussId(selected[0] ?? null); setMarquee(null); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (panRef.current) { const pan = panRef.current; panRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); if (!pan.moved && !editing) selectFixtures([]); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); const tray = document.getElementById('fixture-storage-tray')?.getBoundingClientRect(); if (tray && event.clientX >= tray.left && event.clientX <= tray.right && event.clientY >= tray.top && event.clientY <= tray.bottom) { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of drag.fixtureIds) state.updateFixture(id, { inStorage: true }); state.endHistoryGroup(); selectFixtures([]); return } setFixtureInstancePositions(Object.fromEntries(Object.entries(drag.positions).map(([key, position]) => [key, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
-        onPointerCancel={() => { if (fixtureHandleRef.current) { const f = fixtureHandleRef.current.fixture; useShowStore.getState().updateFixture(f.id, { iconSize: f.iconSize, rotation: f.rotation }); fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup() } setMarquee(null); panRef.current = null; dragRef.current = null; setDragPositions(null); trussDragRef.current = null; setTrussDraft(null) }}
+        onPointerCancel={cancelCanvasDrag}
+        onLostPointerCapture={cancelCanvasDrag}
         preserveAspectRatio="xMidYMid meet"
       >
         {/* Blueprint grid (LightKey's edit-mode Preview, Guide p.53:
@@ -587,6 +610,25 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           // opacity are untouched.
           const beamBottom = top + (bottom - top) * op
           const beamFarHalf = 7 + (34 - 7) * op
+          // One beam per cell (LightKey Guide p.57, §8 p.119 — cells
+          // are "beams"; `fixtureBeams` derives them from the
+          // repeating colour pods). Each cell's beam starts at its
+          // own cell rect — the rects sit 9 units apart, centred on
+          // the fixture — and uses that cell's own colour and
+          // brightness (`previewCellBeams`), falling back to the
+          // fixture's colour where a cell carries no data. A cell
+          // with no brightness draws no beam, so a chase across the
+          // cells shows only the lit cells. Per-cell beams are
+          // shorter than the single beam (full 64, not 146 — see
+          // CELL_BEAM_FULL_LENGTH in previewOutput): at 146 the
+          // neighbouring cones would merge into one wide wash and
+          // the cells would be indistinguishable. The cone angle is
+          // the single beam's, and each beam rotates about its own
+          // cell, so a floor fixture's cells still aim up. A
+          // single-pod fixture has no beams and renders exactly the
+          // one beam it always did.
+          const cells = previewCellBeams(f, f.values, { color: appearance.color, opacity: op })
+          const multiBeam = cells.length >= 2
           const selectable = fixtures.length > 0
           const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
@@ -622,7 +664,27 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   : undefined
               }
             >
-              {on && !f.hideBeam && (
+              {on && !f.hideBeam && multiBeam && cells.map((cell, index) => {
+                if (cell.opacity <= 0) return null
+                // The cell's own centre: the rects are 9 apart,
+                // centred on the fixture (see the cell rects below).
+                const cx = x + (index - (cells.length - 1) / 2) * 9
+                const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity)
+                const cellBottom = top + length
+                return (
+                  <polygon
+                    key={cell.id}
+                    points={`${cx - nearHalf},${top} ${cx + nearHalf},${top} ${cx + farHalf},${cellBottom} ${cx - farHalf},${cellBottom}`}
+                    transform={`rotate(${appearance.direction} ${cx} ${y})`}
+                    fill={cell.color}
+                    fillOpacity={cell.opacity * 0.28}
+                    stroke={cell.color}
+                    strokeOpacity={cell.opacity * 0.45}
+                    strokeWidth="1"
+                  />
+                )
+              })}
+              {on && !f.hideBeam && !multiBeam && (
                 <polygon
                   points={`${x - 7},${top} ${x + 7},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
                   transform={`rotate(${appearance.direction} ${x} ${y})`}
@@ -687,7 +749,13 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 pointerEvents="all"
                 aria-hidden="true"
               />
-              {fixtureBeams(f).map((beam, index) => <rect key={beam.id} x={x + (index - 1.5) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {/* Cell rects: one per beam, 9 units apart and centred
+                  on the fixture — the old `(index - 1.5)` only centred
+                  four cells, so a five-cell fixture (Q5 30ch) sat
+                  4.5 units off-centre. Each rect now shows its own
+                  cell's colour (the fixture colour where a cell
+                  carries no data), matching its beam. */}
+              {fixtureBeams(f).map((beam, index) => <rect key={beam.id} x={x + (index - (fixtureBeams(f).length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : cells[index]?.color ?? f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
               {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )
