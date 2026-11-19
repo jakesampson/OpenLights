@@ -1,11 +1,14 @@
 // Setup wizard chrome (Piece 5, Guide ch.4 pp.26–37; video 03:31–09:45).
-// A fixed bar above the workspace (z-60, over the Patch overlay's z-50 so
-// Back / Next stay reachable on the patching step) with the step dots, the
-// step title and description, the step's actions, and Back / Next. There is
-// no Skip button in LightKey — every guide step ends with "click Next" — so
-// this bar has Back / Next only. Back from DMX Output returns to the
-// Project Browser (the guide's Step 1); closing the wizard exits to the
-// Design view with the project as-is and does not resume.
+// The bar of the full-window modal in App.tsx: step dots, the step title
+// and description, the step's actions, and Back / Next. The modal owns the
+// stacking (fixed inset-0, z-[70], solid bg-bg) — the bar no longer needs
+// its own z-index, and the Patch panel renders inside the modal, so no
+// overlay can sit over the bar and swallow clicks on Back / Next (the
+// patch-step bug, 19 Nov 2026). There is no Skip button in LightKey —
+// every guide step ends with "click Next" — so this bar has Back / Next
+// only. Back from DMX Output returns to the Project Browser (the guide's
+// Step 1); closing the wizard exits to the Design view with the project
+// as-is and does not resume.
 
 import { useState } from 'react'
 import { useShowStore } from '../stores/showStore'
@@ -40,7 +43,7 @@ export function SetupWizard() {
   const calibrated = step === 'directions' ? fixtures.filter((f) => isCalibrationComplete(f)).length : 0
 
   return (
-    <div className="relative z-[60] border-b border-line bg-panel shadow-lg">
+    <div className="shrink-0 border-b border-line bg-panel shadow-lg">
       <div className="flex items-center gap-3 px-4 py-2">
         <div className="flex items-center gap-1" aria-label={`Step ${index + 1} of ${WIZARD_STEPS.length}: ${current.title}`}>
           {WIZARD_STEPS.map((s, i) => (

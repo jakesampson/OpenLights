@@ -80,16 +80,19 @@ export default function App() {
   const welcomeOpen = useShowStore((s) => s.welcomeOpen)
   const newProjectDialogOpen = useShowStore((s) => s.newProjectDialogOpen)
   const newProjectTemplate = useShowStore((s) => s.newProjectTemplate)
-  // Setup wizard (Piece 5, Guide ch.4): the wizard runs in the Design view
-  // and drives the workspace per step — the Patch tool panel for patching,
-  // Preview edit mode for Build Your Preview and Fixture Groups, edit mode
-  // off for Light Beam Directions. DMX Output and That's It replace the
-  // workspace with their own panels (rendered below).
+  // Setup wizard (Piece 5, Guide ch.4): the wizard is a full-window modal
+  // (rendered below) and drives the workspace per step — the Patch panel
+  // renders inside the modal for patching, Preview edit mode for Build Your
+  // Preview and Fixture Groups, edit mode off for Light Beam Directions.
+  // The Patch tool panel never opens during the wizard: its overlay used to
+  // sit over the whole window with a `-webkit-app-region: drag` header,
+  // which swallowed clicks on the wizard bar's Back / Next on the patch
+  // step (19 Nov 2026, Jake's screenshot) even though the bar painted
+  // above it.
   useEffect(() => {
     if (!setupWizardStep) return
     setTab('Design')
-    if (setupWizardStep === 'patch') setToolPanel('Patch')
-    else setToolPanel(null)
+    setToolPanel(null)
     useShowStore.getState().setPreviewEditing(setupWizardStep === 'preview' || setupWizardStep === 'groups')
   }, [setupWizardStep])
   // Create the project the New Project dialog named (Guide p.26). The
@@ -304,7 +307,7 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel && !(setupWizardStep === 'patch' && toolPanel === 'Patch')) setToolPanel(null); else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
@@ -348,12 +351,124 @@ export default function App() {
     ...paletteShortcuts
   ]
   const closeToolPanel = () => setToolPanel(null)
+  // The Design workspace (Preview + side panel + bottom panel) renders
+  // either under the header in the normal flow, or inside the setup wizard
+  // modal for its preview / groups / directions steps — one JSX tree, used
+  // in exactly one place at a time.
+  const designWorkspace = (<>
+      {/* Main row */}
+      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
+
+        {/* In Design edit mode the side panel becomes the Preview
+            Inspector (LightKey Guide p.53: "On the right of the window is
+            the Inspector where you can change the properties of the
+            selected objects") — the shape tools, layout tools and the
+            selected truss/fixture properties move out of the canvas
+            overlays and in here, so the canvas stays clean. Otherwise
+            it is the Preset Palette as before. */}
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'} onContextMenu={tab === 'Design' && previewEditing ? undefined : (event) => {
+          if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
+          event.preventDefault()
+          window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
+        }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
+          {tab === 'Design' && previewEditing ? <PreviewEditPanel /> : (<>
+            <div className="flex items-center justify-between px-2 py-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
+                Preset Palette
+              </div>
+            </div>
+            <GroupsPresetsPanel />
+          </>)}
+        </div>
+      </div>
+
+      {/* Bottom row — the Design / Live switch lives here, built into the
+          bottom panel (Jake, 18 Nov 2026, screenshots 9.17.29): a pinned row
+          at the top of the bottom panel, centred on the panel's own width
+          with flex justify-center. The panel is the bottom-grid's first
+          column, so its width excludes the right sidebar (Preset Palette /
+          Shortcuts) — that is what keeps the pill centred, where the old
+          divider-straddling pill drifted off-centre and the header pill was
+          in the wrong place entirely. The row is flex-none, so it never
+          scrolls away with the Live canvas below it, and the switch works
+          identically in Design, Live and Live Edit. */}
+      <div className="bottom-grid">
+        <div className="panel bottom-panel-shell">
+          {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
+              10.12.28 / 10.17.25): rendered here, as a child of the bottom
+              panel itself — NOT inside the scrolling Live workspace — so it
+              sits on top of the panel's left edge (see
+              .bottom-panel-shell > .live-master-column in index.css) and
+              canvas content scrolls underneath it, while the column itself
+              never moves or scrolls. Only in Live; Design keeps
+              BottomPlayback with its own playback master. */}
+          {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
+          <div className="bottom-panel-switch">
+            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+            {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
+          </div>
+          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback />}
+          </div>
+        </div>
+
+        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">
+            Shortcuts · {tab}
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
+            {shortcuts.map((s) => (
+              <div
+                key={s.key + s.label}
+                className="flex items-center justify-between gap-2 px-1 py-1 text-xs border-b border-line/40 last:border-0"
+              >
+                <kbd className="rounded bg-panel2 border border-line px-1.5 py-0.5 text-zinc-300 shrink-0">
+                  {s.key}
+                </kbd>
+                <span className="text-dim truncate text-right">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+  </>)
+
+  // "Show in Preview" from the patch grid (LightKey Guide p.35): select the
+  // fixture and, on the wizard's patching step, advance to Build Your
+  // Preview; anywhere else it just closes the Patch tool panel.
+  const patchShowInPreview = (fixtureId: string) => {
+    useShowStore.getState().selectFixtures([fixtureId])
+    goTab('Design')
+    if (setupWizardStep === 'patch') useShowStore.getState().setSetupWizardStep('preview')
+    else closeToolPanel()
+  }
 
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
     <div className="app">
-      <SetupWizard />
-      <ContextMenu />
+      {setupWizardStep ? (
+        // Setup wizard modal (19 Nov 2026, Jake's screenshots): the wizard
+        // used to be a bar above the header with the step bodies below it,
+        // so the app header split the tutorial in two — and on the patch
+        // step the Patch tool panel's `-webkit-app-region: drag` header sat
+        // over the top of the window and swallowed clicks on Back / Next
+        // even though the bar painted above it. The wizard is now one
+        // full-window modal over the entire GUI (solid `bg-bg` — opacity-
+        // modified theme backgrounds generate no rule, see the Project
+        // Browser fix — z-[70] like the WelcomeScreen) with the step bar
+        // and the current step's body inside it. Back / Next only, no Skip
+        // (LightKey, Guide ch.4); × exits to Design as-is.
+        <div className="fixed inset-0 z-[70] flex flex-col bg-bg" role="dialog" aria-modal="true" aria-label="Setup wizard">
+          <SetupWizard />
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {setupWizardStep === 'dmx' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDmxStep /></div>
+            : setupWizardStep === 'done' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDoneStep /></div>
+            : setupWizardStep === 'patch' ? <div className="min-h-0 flex-1 overflow-hidden p-4"><PatchPanel onShowInPreview={patchShowInPreview} /></div>
+            : designWorkspace}
+          </div>
+        </div>
+      ) : (<>
       {/* Top bar */}
       <header className={`top-bar ${isMac ? 'top-bar-mac' : ''}`}>
         <div className="flex items-center gap-2">
@@ -481,87 +596,10 @@ export default function App() {
         <WorkspaceToolbar view={tab} onView={goTab} onBlackout={handleBlackout} />
       </header>
 
-      {/* DMX Output and That's It replace the workspace with their own
-          panels; the other wizard steps use the Design view below. */}
-      {setupWizardStep === 'dmx' ? <WizardDmxStep /> : setupWizardStep === 'done' ? <WizardDoneStep /> : (<>
-      {/* Main row */}
-      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
-
-        {/* In Design edit mode the side panel becomes the Preview
-            Inspector (LightKey Guide p.53: "On the right of the window is
-            the Inspector where you can change the properties of the
-            selected objects") — the shape tools, layout tools and the
-            selected truss/fixture properties move out of the canvas
-            overlays and in here, so the canvas stays clean. Otherwise
-            it is the Preset Palette as before. */}
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'} onContextMenu={tab === 'Design' && previewEditing ? undefined : (event) => {
-          if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
-          event.preventDefault()
-          window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
-        }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
-          {tab === 'Design' && previewEditing ? <PreviewEditPanel /> : (<>
-            <div className="flex items-center justify-between px-2 py-1">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
-                Preset Palette
-              </div>
-            </div>
-            <GroupsPresetsPanel />
-          </>)}
-        </div>
-      </div>
-
-      {/* Bottom row — the Design / Live switch lives here, built into the
-          bottom panel (Jake, 18 Nov 2026, screenshots 9.17.29): a pinned row
-          at the top of the bottom panel, centred on the panel's own width
-          with flex justify-center. The panel is the bottom-grid's first
-          column, so its width excludes the right sidebar (Preset Palette /
-          Shortcuts) — that is what keeps the pill centred, where the old
-          divider-straddling pill drifted off-centre and the header pill was
-          in the wrong place entirely. The row is flex-none, so it never
-          scrolls away with the Live canvas below it, and the switch works
-          identically in Design, Live and Live Edit. */}
-      <div className="bottom-grid">
-        <div className="panel bottom-panel-shell">
-          {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
-              10.12.28 / 10.17.25): rendered here, as a child of the bottom
-              panel itself — NOT inside the scrolling Live workspace — so it
-              sits on top of the panel's left edge (see
-              .bottom-panel-shell > .live-master-column in index.css) and
-              canvas content scrolls underneath it, while the column itself
-              never moves or scrolls. Only in Live; Design keeps
-              BottomPlayback with its own playback master. */}
-          {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
-          <div className="bottom-panel-switch">
-            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
-            {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
-          </div>
-          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback />}
-          </div>
-        </div>
-
-        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
-          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">
-            Shortcuts · {tab}
-          </div>
-          <div className="flex-1 min-h-0 overflow-y-auto pr-1">
-            {shortcuts.map((s) => (
-              <div
-                key={s.key + s.label}
-                className="flex items-center justify-between gap-2 px-1 py-1 text-xs border-b border-line/40 last:border-0"
-              >
-                <kbd className="rounded bg-panel2 border border-line px-1.5 py-0.5 text-zinc-300 shrink-0">
-                  {s.key}
-                </kbd>
-                <span className="text-dim truncate text-right">{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      {designWorkspace}
       </>)}
-      {toolPanel && (
+      <ContextMenu />
+      {toolPanel && !setupWizardStep && (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 ${toolPanel === 'Patch' ? 'p-0' : 'p-4'}`}
           role="presentation"
@@ -583,7 +621,7 @@ export default function App() {
               {toolPanel !== 'Patch' && <button type="button" className="btn-theme text-xs" onClick={closeToolPanel}>Close</button>}
             </header>
             <div className={`min-h-0 flex-1 ${toolPanel === 'Patch' ? 'overflow-hidden p-4' : 'overflow-auto p-4'}`}>
-              {toolPanel === 'Patch' && <PatchPanel onShowInPreview={(fixtureId) => { useShowStore.getState().selectFixtures([fixtureId]); goTab('Design'); if (setupWizardStep === 'patch') useShowStore.getState().setSetupWizardStep('preview'); else closeToolPanel() }} />}
+              {toolPanel === 'Patch' && <PatchPanel onShowInPreview={patchShowInPreview} />}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
             </div>

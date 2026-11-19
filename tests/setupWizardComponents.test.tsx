@@ -178,6 +178,19 @@ describe('SetupWizard chrome', () => {
     expect(state().welcomeOpen).toBe(true)
   })
 
+  it('Next on the patch step advances to preview', () => {
+    const state = () => useShowStore.getState()
+    state().startSetupWizard()
+    state().setSetupWizardStep('patch')
+    renderInRoot(<SetupWizard />)
+    expect(text()).toContain('Fixture Patching')
+    const buttons = [...(container?.querySelectorAll('button') ?? [])]
+    const next = buttons.find((b) => b.textContent === 'Next')
+    act(() => { next?.click() })
+    expect(state().setupWizardStep).toBe('preview')
+    expect(text()).toContain('Build Your Preview')
+  })
+
   it('shows Create Groups for Me on the groups step', () => {
     const state = () => useShowStore.getState()
     state().setShow(migrateShow({ fixtures: [{ id: 'p1', name: 'PAR1', type: 'par', channelStart: 1, channels: 4 }], cues: [] } as unknown as ShowDef))
