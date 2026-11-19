@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { useDragEnd } from './useDragEnd'
 
 const clampFader = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
@@ -20,7 +21,12 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
   valueText?: string
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
-  const dragging = useRef(false)
+  // A drag tracked only by a ref stays live when pointerup is missed
+  // (released outside the window — capture never delivers it), so the
+  // next hover-back over the track resumes dragging. The guard ends the
+  // drag on any window pointerup / pointercancel / blur, and a move with
+  // no button held ends it too — a hover-back move has buttons === 0.
+  const drag = useDragEnd()
 
   const valueFromPointer = (clientY: number) => {
     const rect = trackRef.current?.getBoundingClientRect()
@@ -52,10 +58,11 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
       aria-valuetext={valueText ?? `${Math.round((value / 255) * 100)}%`}
       aria-disabled={disabled || undefined}
       className={trackClassName}
-      onPointerDown={(event) => { if (disabled) return; dragging.current = true; event.currentTarget.setPointerCapture(event.pointerId); valueFromPointer(event.clientY) }}
-      onPointerMove={(event) => { if (dragging.current) valueFromPointer(event.clientY) }}
-      onPointerUp={() => { dragging.current = false }}
-      onPointerCancel={() => { dragging.current = false }}
+      onPointerDown={(event) => { if (disabled) return; drag.begin(); event.currentTarget.setPointerCapture(event.pointerId); valueFromPointer(event.clientY) }}
+      onPointerMove={(event) => { if (event.buttons === 0) { drag.end(); return } if (drag.isActive()) valueFromPointer(event.clientY) }}
+      onPointerUp={() => drag.end()}
+      onPointerCancel={() => drag.end()}
+      onLostPointerCapture={() => drag.end()}
       onKeyDown={onKeyDown}
     >
       <div className="live-master-fill" style={{ height: `${(value / 255) * 100}%`, backgroundColor: fillColor }} />

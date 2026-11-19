@@ -26,3 +26,27 @@ export function mixColor(rgb: RgbColor, emitters: string[]): Record<string, numb
   for (const [attribute, value] of Object.entries({ red, green, blue })) if (emitters.includes(attribute)) output[attribute] = clamp(value)
   return output
 }
+/** RGB (0–255 per channel) to lowercase `#rrggbb`. */
+export function rgbToHex(rgb: RgbColor): string {
+  const part = (value: number) => Math.max(0, Math.min(255, Math.round(value))).toString(16).padStart(2, '0')
+  return `#${part(rgb.red)}${part(rgb.green)}${part(rgb.blue)}`
+}
+
+/**
+ * The colour a fixture's stored values show as, as a hex string — the same
+ * mixing DesignTab's colour display uses (white and amber folded into RGB;
+ * CMY fixtures read as 255 minus each component). Null when the values
+ * carry no colour channels at all.
+ */
+export function fixtureValuesToHex(values: Record<string, number>): string | null {
+  if (['red', 'green', 'blue'].every((a) => values[a] !== undefined)) {
+    const red = Math.min(255, (values.red ?? 0) + (values.white ?? 0) + (values.amber ?? 0))
+    const green = Math.min(255, (values.green ?? 0) + (values.white ?? 0) + (values.amber ?? 0) * 0.45)
+    const blue = Math.min(255, (values.blue ?? 0) + (values.white ?? 0))
+    return rgbToHex({ red, green, blue })
+  }
+  if (['cyan', 'magenta', 'yellow'].every((a) => values[a] !== undefined)) {
+    return rgbToHex({ red: 255 - (values.cyan ?? 0), green: 255 - (values.magenta ?? 0), blue: 255 - (values.yellow ?? 0) })
+  }
+  return null
+}

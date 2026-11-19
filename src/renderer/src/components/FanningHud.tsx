@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
-import { availableProperties } from '../lib/availableProperties'
-import { clearFanRowValue, fanRows, FAN_MODE_OPTIONS, FAN_ORDER_OPTIONS, setFanRowValue } from '../lib/fanningHud'
+import { clearFanRowValue, fanRows, FAN_MODE_OPTIONS, FAN_ORDER_OPTIONS, fannableProperties, setFanRowColor, setFanRowValue } from '../lib/fanningHud'
 
 function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
@@ -40,6 +39,39 @@ function NumberField({ value, min, max, label, disabled, onCommit }: {
   />
 }
 
+// Colour input that commits on the native picker's change event (when the
+// picker is dismissed) or on blur — not on every input event, so dragging
+// through colours does not save a fan (and an undo step) per shade. The
+// same commit-on-blur/Enter discipline as NumberField above.
+function ColorField({ value, label, disabled, onCommit }: {
+  value: string
+  label: string
+  disabled?: boolean
+  onCommit: (value: string) => void
+}) {
+  const [hex, setHex] = useState(value)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => { setHex(value) }, [value])
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    const commit = () => { if (el.value !== value) onCommit(el.value) }
+    el.addEventListener('change', commit)
+    return () => el.removeEventListener('change', commit)
+  }, [value, onCommit])
+  return <input
+    ref={inputRef}
+    type="color"
+    aria-label={label}
+    title={label}
+    value={hex}
+    disabled={disabled}
+    onChange={(event) => setHex(event.target.value)}
+    onBlur={() => { if (hex !== value) onCommit(hex) }}
+    className="h-6 w-10 cursor-pointer rounded border border-line bg-panel2 p-0.5 disabled:opacity-40"
+  />
+}
+
 interface FanningHudProps {
   draft: FanDef
   fixtures: FixtureDef[]
@@ -66,8 +98,9 @@ interface FanningHudProps {
 export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue, onCommit, onEditFan, onNewFan, onDeleteFan, onClose }: FanningHudProps) {
   const isCreating = draft.id === ''
   const draftFixtures = fixtures.filter((f) => draft.fixtureIds.includes(f.id))
-  const channels = availableProperties(draftFixtures)
+  const channels = fannableProperties(draftFixtures)
   const channel = channels.find((c) => c.attribute === draft.attribute)
+  const isColor = draft.attribute === 'color'
   const rows = fanRows(fixtures, draft)
   // Guide p.119: fan at least three fixtures (or one fixture with at
   // least three beams — beams are not fanned yet, see NOTES.md).
@@ -94,7 +127,7 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
         <>
           <div className="mt-2 flex flex-wrap gap-2">
             <label className="text-[10px] text-dim">Property
-              <select aria-label="Fanned property" value={draft.attribute} disabled={editingDisabled} onChange={(event) => { const next = channels.find((c) => c.attribute === event.target.value); if (!next) return; onCommit({ ...draft, attribute: next.attribute, start: next.min, end: next.max, anchors: undefined }) }} className="ml-1 rounded border border-line bg-panel2 px-1 py-1 text-xs text-text disabled:opacity-40">
+              <select aria-label="Fanned property" value={draft.attribute} disabled={editingDisabled} onChange={(event) => { const next = channels.find((c) => c.attribute === event.target.value); if (!next) return; onCommit(next.attribute === 'color' ? { ...draft, attribute: 'color', startColor: '#ff0000', endColor: '#0000ff', anchors: undefined } : { ...draft, attribute: next.attribute, start: next.min, end: next.max, anchors: undefined }) }} className="ml-1 rounded border border-line bg-panel2 px-1 py-1 text-xs text-text disabled:opacity-40">
                 {channels.map((c) => <option key={c.attribute} value={c.attribute}>{attributeLabel(c.attribute)}</option>)}
               </select>
             </label>
@@ -115,7 +148,7 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
           </div>
 
           <div className="mt-2">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-dim">Fixtures — set a value per fixture</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-dim">Fixtures — set a {isColor ? 'colour' : 'value'} per fixture</div>
             {rows.length === 0 && <p className="mt-1 text-[11px] text-dim">No fixtures in this fan.</p>}
             {rows.map((row) => {
               const isFirst = row.index === 0, isLast = row.index === rows.length - 1
@@ -123,7 +156,18 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
                 <div key={row.fixture.id} className="mt-1 flex items-center gap-2 text-xs">
                   <span title={row.defined ? 'Defined value' : 'Calculated value'} aria-label={row.defined ? `Defined value for ${row.fixture.name}` : `Calculated value for ${row.fixture.name}`} className={row.defined ? 'text-sm leading-none text-blue-400' : 'text-sm leading-none text-dim'}>●</span>
                   <span className="min-w-0 flex-1 truncate">{row.fixture.name}{isFirst ? ' · first' : isLast ? ' · last' : ''}</span>
-                  {row.value === null ? (
+                  {isColor ? (
+                    row.colorValue ? (
+                      <ColorField
+                        value={row.colorValue}
+                        label={`${row.fixture.name} colour`}
+                        disabled={editingDisabled}
+                        onCommit={(value) => onCommit(setFanRowColor(draft, row.index, value, rows.length))}
+                      />
+                    ) : (
+                      <span className="text-dim">—</span>
+                    )
+                  ) : row.value === null ? (
                     <span className="text-dim">—</span>
                   ) : (
                     <NumberField

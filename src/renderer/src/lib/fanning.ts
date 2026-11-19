@@ -1,12 +1,26 @@
 import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureMode } from '@shared/fixtureProfiles'
+import { hexToRgb, rgbToHex } from './colorMix'
+
+/**
+ * A fixture's position along a fan, 0 at the first fixture and 1 at the
+ * last — from the fixture order (and, when Consider Spacing is on, the
+ * fixtures' Preview positions) and the fan mode. Shared by the numeric
+ * and colour fans so the spread maths is single-sourced.
+ */
+export function fanPositionRatio(i: number, count: number, mode: FanDef['mode'], positions?: number[]): number {
+  const last = count - 1
+  let ratio = last ? i / last : 0
+  if (positions?.length === count && positions[last] !== positions[0]) ratio = (positions[i] - positions[0]) / (positions[last] - positions[0])
+  if (mode === 'reverse') ratio = 1 - ratio
+  if (mode === 'centre') ratio = last ? Math.abs(ratio * 2 - 1) : 0
+  return ratio
+}
 
 export function fanValues(count: number, start: number, end: number, mode: FanDef['mode'], positions?: number[], anchors?: FanDef['anchors']): number[] {
   if (count < 1) return []
   const last = count - 1
   return Array.from({ length: count }, (_, i) => {
-    let ratio = last ? i / last : 0
-    if (positions?.length === count && positions[last] !== positions[0]) ratio = (positions[i] - positions[0]) / (positions[last] - positions[0])
     if (anchors && anchors.length >= 1) {
       // Defined values interpolate piecewise: the endpoints (start/end)
       // are always defined, so a single intermediate anchor already bends
@@ -20,10 +34,55 @@ export function fanValues(count: number, start: number, end: number, mode: FanDe
       const left = [...points].reverse().find((a) => a.index <= i) ?? points[0], right = points.find((a) => a.index >= i) ?? points[points.length - 1]
       return Math.round(left.value + (right.value - left.value) * (right.index === left.index ? 0 : (i - left.index) / (right.index - left.index)))
     }
-    if (mode === 'reverse') ratio = 1 - ratio
-    if (mode === 'centre') ratio = last ? Math.abs(ratio * 2 - 1) : 0
-    return Math.round(start + (end - start) * ratio)
+    return Math.round(start + (end - start) * fanPositionRatio(i, count, mode, positions))
   })
+}
+
+/**
+ * Colour fan values (LightKey Guide §8 + "How to Use Fanning" video:
+ * define a colour for the first and last fixture — or any fixture — and
+ * the colours in between are calculated automatically). The same spread
+ * as fanValues, in RGB space: the endpoints are start/end colours, any
+ * intermediate anchor bends the fan through its colour, and the mode and
+ * Consider Spacing apply exactly as for numeric fans.
+ */
+export function fanColorValues(count: number, startColor: string, endColor: string, mode: FanDef['mode'], positions?: number[], anchors?: FanDef['anchors']): string[] {
+  if (count < 1) return []
+  const last = count - 1
+  const start = hexToRgb(startColor) ?? { red: 255, green: 0, blue: 0 }
+  const end = hexToRgb(endColor) ?? { red: 0, green: 0, blue: 255 }
+  const lerp = (a: { red: number; green: number; blue: number }, b: { red: number; green: number; blue: number }, t: number) =>
+    rgbToHex({ red: Math.round(a.red + (b.red - a.red) * t), green: Math.round(a.green + (b.green - a.green) * t), blue: Math.round(a.blue + (b.blue - a.blue) * t) })
+  return Array.from({ length: count }, (_, i) => {
+    if (anchors && anchors.length >= 1) {
+      const byIndex = new Map<number, { red: number; green: number; blue: number }>([[0, start]])
+      if (last > 0) byIndex.set(last, end)
+      for (const a of anchors) {
+        const color = a.color ? hexToRgb(a.color) : null
+        if (color && a.index >= 0 && a.index <= last) byIndex.set(a.index, color)
+      }
+      const points = [...byIndex.entries()].map(([index, value]) => ({ index, value })).sort((a, b) => a.index - b.index)
+      const left = [...points].reverse().find((a) => a.index <= i) ?? points[0], right = points.find((a) => a.index >= i) ?? points[points.length - 1]
+      return lerp(left.value, right.value, right.index === left.index ? 0 : (i - left.index) / (right.index - left.index))
+    }
+    return lerp(start, end, fanPositionRatio(i, count, mode, positions))
+  })
+}
+
+/** How a fixture mixes colour: RGB channels, CMY channels, or neither. */
+export function colorModelForFixture(fixture: FixtureDef): 'rgb' | 'cmy' | null {
+  const attributes = (fixtureMode(fixture)?.channels ?? []).map((c) => c.attribute)
+  if (['red', 'green', 'blue'].every((a) => attributes.includes(a))) return 'rgb'
+  if (['cyan', 'magenta', 'yellow'].every((a) => attributes.includes(a))) return 'cmy'
+  return null
+}
+
+/** Colour per fixture for a colour fan, as hex strings. */
+export function evaluateColorFan(fixtures: FixtureDef[], fan: FanDef): Record<string, string> {
+  const ordered = orderedFanFixtures(fixtures, fan), axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
+  const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? ordered.map((f) => f.previewPosition?.[axis] ?? 0) : undefined
+  const values = fanColorValues(ordered.length, fan.startColor ?? '#ff0000', fan.endColor ?? '#0000ff', fan.mode, positions, fan.anchors)
+  return Object.fromEntries(ordered.filter((f) => colorModelForFixture(f)).map((f, i) => [f.id, values[i]]))
 }
 
 export function orderedFanFixtures(fixtures: FixtureDef[], fan: FanDef): FixtureDef[] {
@@ -37,6 +96,22 @@ export function orderedFanFixtures(fixtures: FixtureDef[], fan: FanDef): Fixture
 }
 
 export function evaluateFan(fixtures: FixtureDef[], fan: FanDef): Record<string, Record<string, number>> {
+  // Colour fans write the fanned colour into the fixture's own colour
+  // channels — RGB channels for RGB fixtures, CMY (255 minus each
+  // component) for CMY fixtures. White / Amber / UV are left untouched:
+  // a fanned colour is a hue, not a white/amber level.
+  if (fan.attribute === 'color') {
+    const colors = evaluateColorFan(fixtures, fan)
+    return Object.fromEntries(Object.entries(colors).flatMap(([id, hex]) => {
+      const fixture = fixtures.find((f) => f.id === id)
+      const model = fixture ? colorModelForFixture(fixture) : null
+      if (!model) return []
+      const rgb = hexToRgb(hex)
+      if (!rgb) return []
+      const values: Record<string, number> = model === 'rgb' ? { ...rgb } : { cyan: 255 - rgb.red, magenta: 255 - rgb.green, yellow: 255 - rgb.blue }
+      return [[id, values]]
+    }))
+  }
   const ordered = orderedFanFixtures(fixtures, fan), axis = fan.order === 'top-bottom' || fan.order === 'bottom-top' ? 'y' : 'x'
   const positions = fan.considerSpacing && ['left-right', 'right-left', 'top-bottom', 'bottom-top'].includes(fan.order) ? ordered.map((f) => f.previewPosition?.[axis] ?? 0) : undefined
   const values = fanValues(ordered.length, fan.start, fan.end, fan.mode, positions, fan.anchors)

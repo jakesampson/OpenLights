@@ -144,8 +144,14 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   gap: 14px;
   min-height: 50px;
   padding: 5px 150px 5px 28px;
-  background: color-mix(in srgb, var(--panel) 82%, #33413d);
-  border-bottom: 1px solid var(--line);
+  /* LightKey's header grey, sampled from Jake's LightKey screenshot
+     (Screenshot_2026-11-19_at_8.23.23_am.png): the flat header band
+     measures RGB (68, 67, 69) across its full width. Header bar only —
+     the rest of the app keeps its own theme. */
+  background: #444345;
+  /* Neutral grey divider, not the theme's purple line — the header is
+     grey and white only (Jake, 19 Nov 2026). */
+  border-bottom: 1px solid #5a5a5c;
   flex: 0 0 auto;
   -webkit-app-region: drag;
 }
@@ -157,12 +163,14 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar > .flex:first-child > :nth-child(4) { order: 7; }
 .top-bar > .flex:first-child > :nth-child(5) { order: 9; }
 .top-bar > .flex:first-child > details summary,
-.top-bar > .flex:first-child > button:not(.lightkey-action),
+.top-bar > .flex:first-child > button:not(.lightkey-action):not(.lightkey-project),
 .top-bar > .flex:first-child > div:last-child > button:not(.lightkey-action) {
   min-height: 32px;
-  border-color: color-mix(in srgb, var(--line) 60%, transparent);
-  background: color-mix(in srgb, var(--panel2) 55%, transparent);
+  border-color: #767678;
+  background: #5b5b5d;
+  color: #fff;
 }
+.top-bar > .flex:first-child > button:not(.lightkey-action):not(.lightkey-project):hover { background: #6d6d6f; }
 .top-bar details > summary { list-style: none; }
 .top-bar details > summary::-webkit-details-marker { display: none; }
 
@@ -190,12 +198,18 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   transform: translateY(-50%);
 }
 
+/* macOS: the native traffic lights end at ~64px, so the patch (fixture
+   editor) icon sits just right of them — the same tight left-edge placement
+   as LightKey's header, where the icon sits close to the left edge. */
 .top-bar-mac .header-patch-button {
-  left: 124px;
+  left: 80px;
 }
 
+/* macOS: the project title follows ~20px after the 32px patch icon, the
+   same icon-to-title gap as LightKey's header (icon, then title close
+   after it). The traffic lights themselves are native chrome, untouched. */
 .top-bar-mac .lightkey-project {
-  margin-left: 173px;
+  margin-left: 104px;
 }
 
 .top-bar-mac {
@@ -228,7 +242,12 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lighting-toolbar > .header-icon:nth-child(3) { margin-left: 14px; }
 .lighting-toolbar > .header-more:first-of-type { margin-left: 217px; }
 .lighting-toolbar > .effects-menu { margin-left: 42px; }
-.top-bar > .flex:first-child > :nth-child(3) { margin-left: 41px; transform: translateX(-10px); }
+/* The Edit control starts the right cluster (Edit, search, layout/settings).
+   margin-left: auto absorbs all free space here, so the cluster is pinned to
+   the header's right edge: when the search field expands, this margin
+   shrinks and Edit slides left while the layout/settings button stays
+   exactly where it was — the LightKey slide-to-fit behaviour. */
+.top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }
 .header-icon {
   display: inline-flex;
   align-items: center;
@@ -269,21 +288,64 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .lightkey-action:hover, .lightkey-action.on { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
 .lightkey-action svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 
-.project-search { position: absolute; right: 196px; order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; margin-left: 0; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
-.project-search.open { width: 280px; flex-basis: 280px; }
+/* Project search: an in-flow flex item at the right of the header (Edit,
+   search, layout/settings), NOT an absolutely positioned overlay. Opening
+   it grows its flex-basis 32px -> 280px and the flex row reflows around
+   it, so the field can never paint over the Edit button: the auto margin
+   on Edit shrinks and Edit slides left, as in LightKey. The field and its
+   input may shrink below their open size (minima 40px / 120px) on narrow
+   windows instead of overflowing or overlapping anything. */
+.project-search { order: 8; display: flex; width: 32px; flex: 0 0 32px; align-items: center; flex-direction: row-reverse; color: var(--dim); transition: width 160ms ease, flex-basis 160ms ease; -webkit-app-region: no-drag; }
+.project-search.open { width: 280px; flex: 0 1 280px; min-width: 40px; }
 .project-search-button { display: inline-flex; width: 32px; height: 32px; flex: 0 0 32px; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: var(--dim); font-size: 25px; line-height: 1; }
 .project-search-button:hover, .project-search.open .project-search-button { background: color-mix(in srgb, var(--panel2) 75%, transparent); color: var(--text); }
 .project-search > input { width: 0; min-width: 0; height: 32px; margin-right: 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--text); opacity: 0; pointer-events: none; transition: width 160ms ease, opacity 120ms ease, padding 160ms ease, margin 160ms ease; }
-.project-search.open > input { width: 240px; flex: 0 0 240px; margin-right: 8px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel2); opacity: 1; pointer-events: auto; }
-.top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type { transform: translateX(-18px); }
-.top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-18px); }
-.top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-28px); }
+.project-search.open > input { width: 240px; flex: 0 1 240px; min-width: 120px; margin-right: 8px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel2); opacity: 1; pointer-events: auto; }
+
+/* Header: grey and white only (Jake, 19 Nov 2026, screenshot 9.26.05)
+   — no purple anywhere in the top bar. The background stays the
+   sampled LightKey grey; every icon and button in it is grey (#5b5b5d surfaces,
+   #767678 borders, #d2d2d2 icons, #555658 pills/fields) or white text.
+   The rest of the app keeps its theme — every rule here is scoped to
+   .top-bar. The red Blackout button and the yellow preset-editing badge
+   are not purple, so they stay as they are. */
+.top-bar { color: #fff; }
+.top-bar .lightkey-project small { color: #c8c8c8; }
+/* Done — macOS default blue (systemBlue, dark appearance #0A84FF,
+   Apple HIG; LightKey's own Done measures ~#2060D0 in Jake's LightKey
+   screenshot, the same blue family a shade deeper). White text. The
+   Edit state stays grey like the other header buttons. This rule comes
+   after the grey header-button rule above and ties it on specificity,
+   so it wins by order. */
+.top-bar > .flex:first-child > button.btn-theme.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+.top-bar > .flex:first-child > button.btn-theme.on:hover { background: #2b93ff; border-color: #2b93ff; }
+.top-bar .header-icon, .top-bar .lightkey-action, .top-bar .project-search-button { color: #d2d2d2; }
+.top-bar .header-icon:hover, .top-bar .header-icon.on,
+.top-bar .lightkey-action:hover, .top-bar .lightkey-action.on,
+.top-bar .project-search-button:hover, .top-bar .project-search.open .project-search-button { background: rgba(255, 255, 255, 0.14); color: #fff; }
+.top-bar .header-look-field { background: #555658; }
+.top-bar .header-look-field > span, .top-bar .header-look-field select { color: #fff; }
+.top-bar .project-search.open > input { background: #555658; border-color: #767678; color: #fff; }
+/* Header dropdown menus (property ···, effects wand, layout/settings):
+   grey surfaces, white text; the selected item is macOS blue. */
+.top-bar .header-more-menu, .top-bar .header-submenu { background: #4a4a4d; border-color: #6a6a6d; }
+.top-bar .header-more-menu > strong, .top-bar .header-submenu > span { color: #c8c8c8; }
+.top-bar .header-more-menu button, .top-bar .header-submenu button,
+.top-bar .header-more-menu input { background: #555658; border-color: #6a6a6d; color: #fff; }
+.top-bar .header-more-menu button:hover, .top-bar .header-submenu button:hover { background: #666668; }
+.top-bar .header-more-menu button.on { background: #0a84ff; border-color: #0a84ff; color: #fff; }
+.top-bar [data-header-settings-menu] { background: #4a4a4d; border-color: #6a6a6d; }
+.top-bar [data-header-settings-menu] .text-dim { color: #c8c8c8; }
+.top-bar [data-header-settings-menu] input, .top-bar [data-header-settings-menu] select { background: #555658; border-color: #767678; color: #fff; }
+.top-bar [data-header-settings-menu] .btn-theme { background: #5b5b5d; border-color: #767678; color: #fff; }
+.top-bar [data-header-settings-menu] .btn-theme:hover { background: #6d6d6f; }
+.top-bar [data-header-settings-menu] label:hover, .top-bar [data-header-settings-menu] button:not(.btn-panic):hover { background: rgba(255, 255, 255, 0.10); }
+/* The DMX status dot inside the settings menu is an inline style
+   (accent purple when connected) — white here, so no purple shows in
+   the header; the button label already states the connection. */
+.top-bar [data-header-settings-menu] .btn-theme .rounded-full { background: #fff !important; }
 
 .top-bar > .flex:last-child { order: 10; }
-.top-bar > .flex:first-child > :nth-child(5) { position: absolute; right: 150px; transform: none; }
-
-.top-bar-mac .project-search { right: 66px; }
-.top-bar-mac > .flex:first-child > :nth-child(5) { right: 20px; }
 
 /* A 1920×1080 macOS display commonly gives Electron about 1600 CSS pixels
    after display scaling. Keep the Lightkey hierarchy, but remove the large
@@ -298,10 +360,17 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   .lighting-toolbar > .header-icon:nth-child(3) { margin-left: 8px; }
   .lighting-toolbar > .header-more:first-of-type { margin-left: 80px; }
   .lighting-toolbar > .effects-menu { margin-left: 18px; }
-  .top-bar > .flex:first-child > :nth-child(3) { margin-left: 18px; transform: none; }
-  .top-bar:has(.project-search.open) .lighting-toolbar > .header-more:first-of-type,
-  .top-bar:has(.project-search.open) .lighting-toolbar > .effects-menu { transform: translateX(-14px); }
-  .top-bar:has(.project-search.open) > .flex:first-child > :nth-child(3) { transform: translateX(-14px); }
+  .top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }
+}
+
+/* Narrow windows (Jake's ~1270 CSS px Mac window): shrink the open search
+   field, the project title and the spacer before the property menu, so the
+   expanding search still fits the row without overlap. */
+@media (max-width: 1400px) {
+  .lightkey-project { min-width: 200px; }
+  .lighting-toolbar > .header-more:first-of-type { margin-left: 40px; }
+  .project-search.open { width: 200px; flex-basis: 200px; }
+  .project-search.open > input { width: 160px; flex-basis: 160px; }
 }
 
 .top-bar button,
@@ -329,50 +398,19 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   -webkit-app-region: no-drag;
 }
 
-.window-controls {
-  display: none;
-  align-items: center;
-  gap: 4px;
-  -webkit-app-region: no-drag;
-}
-
-.window-control {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 28px;
-  padding: 6px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-}
-
-.window-control:hover {
-  background: var(--panel2);
-  color: var(--text);
-}
-
-.window-control svg {
-  width: 12px;
-  height: 12px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.4;
-}
-
-.window-control-close:hover {
-  background: #c42b1c;
-  color: white;
-}
-
+/* Flush, square-cornered main-window panels (Jake, 19 Nov 2026,
+   screenshot 9.26.05): the Preview, side panel, bottom panel and
+   Shortcuts panel sit against each other and the window edges with no
+   gutters and no border-radius — LightKey's own layout is the same
+   flush, square-cornered split (its Design/Live screenshots show the
+   Preview, palette and bottom panel meeting edge to edge with only a
+   1px divider between them). Only these four panels: dialogs and inner
+   panels keep their radius. Internal content padding stays. */
 .main-grid {
   display: grid;
   grid-template-columns: 1fr 260px;
-  gap: 12px;
-  padding: 12px;
+  gap: 0;
+  padding: 0;
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -380,8 +418,8 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .bottom-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 260px;
-  gap: 12px;
-  padding: 0 12px 12px;
+  gap: 0;
+  padding: 0;
   flex: 0 0 auto;
   /* 294px, not 260px: the pinned Design/Live switch row at the top of the
      bottom panel is 34px tall, and the grid grows by exactly that much so
@@ -390,6 +428,21 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   min-height: 0;
 }
 
+/* Square corners on the four main-window panels, and one 1px divider
+   per seam: the touching side's border is dropped so two 1px borders
+   never stack into a 2px line, and the outer edges run borderless to
+   the window edge (the header's own bottom border is the divider above
+   the main row). */
+.main-grid > .panel,
+.main-grid > .preview-stack > .panel,
+.bottom-grid > .panel { border-radius: 0; }
+.main-grid > .preview-stack > .panel { border-top: 0; border-left: 0; }
+.main-grid > .panel.side-panel { border-top: 0; border-right: 0; border-left: 0; }
+.bottom-grid > .panel { border-top: 0; }
+.bottom-grid > .panel + .panel { border-left: 0; }
+.bottom-grid > .panel:first-child { border-left: 0; border-bottom: 0; }
+.bottom-grid > .panel:last-child { border-right: 0; border-bottom: 0; }
+
 /* Stage preview keeps a 16:9 media frame and scales with the window */
 .stage {
   display: flex;
@@ -397,7 +450,10 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   justify-content: center;
   overflow: hidden;
   background: var(--bg);
-  padding: 8px;
+  /* No inset: the canvas runs edge to edge of the preview panel
+     (Jake, 19 Nov 2026) — the grid fills the whole window in edit mode
+     and the blank window fills it in preview mode. The Preview label
+     and zoom cluster are absolutely positioned overlays, not a frame. */
 }
 
 .stage-frame {
@@ -738,51 +794,41 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   padding: 6px;
 }
 
-.wheel-input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  cursor: pointer;
-  opacity: 0;
-}
-
-.wheel-input:disabled {
-  cursor: not-allowed;
-}
-
-/* Colour wheel */
-.wheel {
-  width: 108px;
-  height: 108px;
+/* Colour wheel (LightKey's round Color control): the hue ring and inner
+   arcs are focusable sliders — the focus ring is drawn on the wrapper
+   and on each arc. */
+.color-wheel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   border-radius: 50%;
-  border: 1px solid var(--line);
-  background: conic-gradient(
-    #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000
-  );
-  position: relative;
-  flex: none;
 }
 
-.wheel::after {
-  content: '';
+/* No outline on the wheel's arc sliders in any state (Jake, 19 Nov
+   2026): the focused arc's bounding-box outline drew a white box
+   around the active zone while dragging. The wheel wrapper keeps its
+   circular :focus-visible ring above, so keyboard focus is still
+   visible at the wheel level; the arcs themselves show their value
+   through the marker, which moves with the arrow keys. */
+.color-wheel [role="slider"] {
+  outline: none;
+}
+
+/* Colour wheel value popup: the small `Label: value` pill above the
+   pointer while dragging only. pointer-events: none, so it can never
+   intercept input or cover the wheel's hit area. Positioned by the
+   component (left/top inline, above the cursor). */
+.color-wheel-tooltip {
   position: absolute;
-  inset: 26%;
-  border-radius: 50%;
-  background: var(--panel);
+  z-index: 2;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
   pointer-events: none;
-}
-
-.wheel-marker {
-  position: absolute;
-  z-index: 1;
-  width: 10px;
-  height: 10px;
-  border: 2px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8);
-  pointer-events: none;
-  transform: translate(-50%, -50%);
+  transform: translate(-50%, calc(-100% - 10px));
 }
 
 /* Live Edit button properties popup: slides in from the right over the

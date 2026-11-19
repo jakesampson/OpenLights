@@ -116,8 +116,27 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: true
     },
-    titleBarStyle: 'hidden',
-    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#3a1b47', symbolColor: '#b79bc4', height: 72 }
+    // macOS: hiddenInset draws the NATIVE traffic lights (red/yellow/
+    // green) at the top-left of the header — the 'hidden' style used
+    // before showed no lights at all on Jake's Mac (checked against his
+    // screenshots: the reserved left space sat empty), so the only close
+    // path was the renderer's own purple buttons. hiddenInset is the
+    // canonical frameless-window option for traffic lights.
+    // trafficLightPosition centres the 12px lights in the 50px header
+    // ((50 - 12) / 2 = 19) and starts them at the standard 20px inset;
+    // the header's .top-bar-mac spacing (patch icon at 80px, title at
+    // 104px) already clears lights ending at ~72px, so no CSS change
+    // was needed. Windows/Linux keep the native caption buttons via
+    // the title bar overlay, restyled to the header itself: LightKey
+    // grey #444345 with #d2d2d2 glyphs, at the header's exact 50px
+    // height. The app uses box-sizing: border-box (index.css), so the
+    // header's min-height 50 already includes its 5px padding and 1px
+    // border — the earlier 61px (50 + 5 + 5 + 1) double-counted them
+    // and the overlay stuck out ~11px below the header into the preset
+    // palette (Jake, 19 Nov 2026, screenshot image-8.png).
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    trafficLightPosition: process.platform === 'darwin' ? { x: 20, y: 19 } : undefined,
+    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#444345', symbolColor: '#d2d2d2', height: 50 }
   })
   const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
     label: group.label,
@@ -125,13 +144,6 @@ function createWindow() {
   }))
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   mainWindow.setMenuBarVisibility(true)
-
-  mainWindow.on('maximize', () => {
-    mainWindow?.webContents.send('window:maximized', true)
-  })
-  mainWindow.on('unmaximize', () => {
-    mainWindow?.webContents.send('window:maximized', false)
-  })
 
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:5173')
@@ -148,24 +160,13 @@ function createWindow() {
   })
 }
 
-ipcMain.handle('window:is-maximized', () => mainWindow?.isMaximized() ?? false)
-ipcMain.on('window:minimize', () => mainWindow?.minimize())
-ipcMain.on('window:toggle-maximize', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMaximized()) mainWindow.unmaximize()
-  else mainWindow.maximize()
-})
+// The window close path stays: ProjectBar uses it when switching
+// projects (its beforeunload guard decides whether the close may go
+// ahead). Minimize/maximize/quit had no other callers besides the
+// renderer's own window-control buttons, which are gone — macOS has
+// the native traffic lights and Windows/Linux have the title bar
+// overlay, and Cmd+Q / menu Quit still reaches before-quit above.
 ipcMain.on('window:close', () => mainWindow?.close())
-ipcMain.on('app:quit', (event) => {
-  if (quitting) return
-  quitting = true
-  // This is an explicit application quit, not a project/window close.
-  // Notify the renderer first so its beforeunload guard stands down, then
-  // allow that IPC message to be delivered before asking Electron to quit.
-  event.sender.send('app:quitting')
-  shutdownDmx()
-  setTimeout(() => app.quit(), 50)
-})
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) app.dock.setIcon(nativeImage.createFromPath(APP_ICON))

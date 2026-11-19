@@ -31,6 +31,7 @@ export const SHORTCUTS: ShortcutBinding[] = [
   { key: 'Ctrl+W', label: 'Close project', command: 'close', code: 'w', ctrl: true },
   { key: 'Ctrl+D', label: 'Design view', command: 'design', code: 'd', ctrl: true },
   { key: 'Ctrl+L', label: 'Live view', command: 'live', code: 'l', ctrl: true },
+  { key: 'Ctrl+J', label: 'Edit preview', command: 'editPreview', code: 'j', ctrl: true },
   { key: 'F11', label: 'Full screen', command: 'fullscreen', code: 'f11' },
   { key: 'B', label: 'Blackout', command: 'blackout', code: 'b' },
   { key: 'Space', label: 'Go / play automation', command: 'go', code: ' ' },

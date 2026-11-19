@@ -4,8 +4,6 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     const asyncValue = async () => null
     const api: Record<string, unknown> = {
-      getWindowMaximized: async () => false,
-      onWindowMaximized: () => () => {},
       onMenuCommand: () => () => {},
       getChannels: async () => Array(512).fill(0),
       listShows: async () => [],
@@ -44,9 +42,14 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   await expect(optionsButton).toBeVisible()
   const optionsClosedBox = await optionsButton.boundingBox()
   expect(optionsClosedBox!.x + optionsClosedBox!.width).toBeLessThanOrEqual(1600)
+  const editButton = page.locator('.top-bar').getByText('Edit', { exact: true })
+  const editClosedBox = await editButton.boundingBox()
   await expect(page.getByLabel('Search project input')).toBeHidden()
   await searchButton.click()
   await expect(page.getByLabel('Search project input')).toBeVisible()
+  // Let the 160ms search-width transition (and the Edit slide it drives)
+  // settle before measuring boxes.
+  await page.waitForTimeout(250)
   const openSearchBox = await page.locator('.project-search').boundingBox()
   const openSearchInputBox = await page.getByLabel('Search project input').boundingBox()
   const optionsOpenBox = await optionsButton.boundingBox()
@@ -55,6 +58,11 @@ test('clicks through core Design and Live operation', async ({ page }) => {
   expect(openSearchInputBox!.x).toBeGreaterThanOrEqual(0)
   expect(optionsOpenBox!.x + optionsOpenBox!.width).toBeLessThanOrEqual(1600)
   expect(optionsOpenBox!.x).toBe(optionsClosedBox!.x)
+  // LightKey slide-to-fit: opening search pushes Edit left, and Edit never
+  // shares layout space with the open field.
+  const editOpenBox = await editButton.boundingBox()
+  expect(editOpenBox!.x).toBeLessThan(editClosedBox!.x)
+  expect(editOpenBox!.x + editOpenBox!.width).toBeLessThanOrEqual(openSearchInputBox!.x)
   await page.screenshot({ path: '/tmp/openlights-header-search-open.png' })
   await page.locator('.stage').click({ position: { x: 20, y: 20 } })
   await expect(page.getByLabel('Search project input')).toBeHidden()

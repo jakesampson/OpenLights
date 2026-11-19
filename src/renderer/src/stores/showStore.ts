@@ -79,6 +79,19 @@ interface ShowState {
   /** Live Edit mode for the active Live page (LightKey "Edit Live View"). UI-only state, like the page selection: it is not persisted in the show, not undo history, and it does not gate firing — cues fire the same in Live and in Edit (see LiveWorkspace). */
   liveEditing: boolean
   setLiveEditing: (editing: boolean) => void
+  /** Preview edit mode (LightKey Guide p.53, "Edit the Preview"): the header Edit button toggles it, and the StagePreview becomes editable — fixtures and trusses can be moved, the grid is shown. UI-only state, like liveEditing: not persisted, not undo history. */
+  previewEditing: boolean
+  setPreviewEditing: (editing: boolean) => void
+  /** Preview editing selection — also session-only. The right side panel
+      becomes the Preview inspector in edit mode (LightKey's Inspector,
+      Guide p.53), so the selection lives in the store where both the
+      canvas (StagePreview) and the panel (PreviewEditPanel) can reach it. */
+  selectedPreviewTrussId: string | null
+  setSelectedPreviewTrussId: (value: string | null) => void
+  selectedLayoutTrussIds: string[]
+  setSelectedLayoutTrussIds: (value: string[]) => void
+  selectedStageObjectId: string | null
+  setSelectedStageObjectId: (value: string | null) => void
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
@@ -612,6 +625,10 @@ const actions: ShowState = {
   activeLivePageId: null,
   pageActiveValues: {},
   liveEditing: false,
+  previewEditing: false,
+  selectedPreviewTrussId: null,
+  selectedLayoutTrussIds: [],
+  selectedStageObjectId: null,
   editingPresetId: null,
   selectedPageObjects: [],
   pageClipboard: null,
@@ -663,6 +680,10 @@ const actions: ShowState = {
       activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
       pageActiveValues: {},
       liveEditing: false,
+      previewEditing: false,
+      selectedPreviewTrussId: null,
+      selectedLayoutTrussIds: [],
+      selectedStageObjectId: null,
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
@@ -747,6 +768,10 @@ const actions: ShowState = {
 
   setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
   setLiveEditing: (editing) => set({ liveEditing: editing }),
+  setPreviewEditing: (editing) => set({ previewEditing: editing }),
+  setSelectedPreviewTrussId: (value) => set({ selectedPreviewTrussId: value }),
+  setSelectedLayoutTrussIds: (value) => set({ selectedLayoutTrussIds: value }),
+  setSelectedStageObjectId: (value) => set({ selectedStageObjectId: value }),
   togglePageObjectSelection: (ref) => set((state) => {
     const exists = state.selectedPageObjects.some((item) => item.type === ref.type && item.id === ref.id)
     return {
@@ -910,7 +935,13 @@ const actions: ShowState = {
     const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
     if (!cue || !fan) return
     const fixtureValues = structuredClone(cue.fixtureValues)
-    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][fan.attribute]
+    // A colour fan stores no 'color' key in the fixture values — its
+    // values land as red/green/blue (or cyan/magenta/yellow) — so
+    // clearing it removes those channels instead.
+    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) {
+      if (fan.attribute === 'color') for (const attr of ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow']) delete fixtureValues[fixtureId][attr]
+      else delete fixtureValues[fixtureId][fan.attribute]
+    }
     get().updateCue(cue.id, { fans: cue.fans?.filter((f) => f.id !== id), fixtureValues })
   },
   setSelectedColor: (color, manual = false) => {

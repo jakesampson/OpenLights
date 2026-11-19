@@ -1,5 +1,7 @@
 import type { FanDef, FixtureChannel, FixtureDef } from '@shared/types'
-import { evaluateFan, orderedFanFixtures } from './fanning'
+import { availableProperties } from './availableProperties'
+import { evaluateColorFan, evaluateFan, orderedFanFixtures } from './fanning'
+import { normalizeColorFavorite } from './colorMix'
 
 // Pure helpers for the Fanning HUD (Guide §8, p.118 to 123). The HUD lives
 // in the Preview — LightKey shows it around the fixtures' icons there — and
@@ -40,12 +42,46 @@ export function defaultFan(attribute: string, fixtureIds: string[], channel?: Fi
   }
 }
 
+/**
+ * Properties the Fanning HUD can fan, for the given fixtures: every
+ * common DMX channel, plus a synthetic Color property when the fixtures
+ * share a colour model (RGB or CMY — LightKey Guide §8, p.118 lists
+ * Color among the fannable properties, and the "How to Use Fanning"
+ * video fans colours as colours, not as three separate channels). The
+ * colour entry is not a DMX channel, so its number is -1 and its
+ * min/max are unused — a colour fan carries start/end colours instead.
+ */
+export function fannableProperties(fixtures: FixtureDef[]): FixtureChannel[] {
+  const props = availableProperties(fixtures)
+  const hasRgb = ['red', 'green', 'blue'].every((a) => props.some((c) => c.attribute === a))
+  const hasCmy = ['cyan', 'magenta', 'yellow'].every((a) => props.some((c) => c.attribute === a))
+  if (!hasRgb && !hasCmy) return props
+  return [...props, { number: -1, attribute: 'color', propertyType: 'color', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }]
+}
+
+export function defaultColorFan(fixtureIds: string[], startColor: string, endColor: string): FanDef {
+  return {
+    id: '',
+    attribute: 'color',
+    fixtureIds: [...fixtureIds],
+    mode: 'linear',
+    order: 'selection',
+    start: 0,
+    end: 255,
+    startColor: normalizeColorFavorite(startColor) ?? '#ff0000',
+    endColor: normalizeColorFavorite(endColor) ?? '#0000ff'
+  }
+}
+
 export interface FanRow {
   fixture: FixtureDef
   /** Position in the fan's ordered list — the index anchors refer to. */
   index: number
   /** Value that lands on this fixture (null when it has no such channel). */
   value: number | null
+  /** Colour that lands on this fixture, for colour fans (null when the
+      fixture has no colour channels). */
+  colorValue?: string | null
   /** LightKey's blue dot (Guide p.121): a value has been defined here. */
   defined: boolean
 }
@@ -53,11 +89,13 @@ export interface FanRow {
 export function fanRows(fixtures: FixtureDef[], fan: FanDef): FanRow[] {
   const ordered = orderedFanFixtures(fixtures, fan)
   const values = evaluateFan(fixtures, fan)
+  const colorValues = fan.attribute === 'color' ? evaluateColorFan(fixtures, fan) : null
   const defined = new Set(definedFanIndexes(fan, ordered.length))
   return ordered.map((fixture, index) => ({
     fixture,
     index,
-    value: values[fixture.id]?.[fan.attribute] ?? null,
+    value: colorValues ? null : values[fixture.id]?.[fan.attribute] ?? null,
+    colorValue: colorValues ? colorValues[fixture.id] ?? null : undefined,
     defined: defined.has(index)
   }))
 }
@@ -90,6 +128,20 @@ export function setFanRowValue(fan: FanDef, index: number, value: number, count 
   if (index <= 0) return { ...fan, start: next, anchors: (fan.anchors ?? []).filter((a) => a.index !== 0) }
   if (index >= count - 1) return { ...fan, end: next, anchors: (fan.anchors ?? []).filter((a) => a.index !== count - 1) }
   const anchors = [...(fan.anchors ?? []).filter((a) => a.index !== index), { index, value: next }].sort((a, b) => a.index - b.index)
+  return { ...fan, anchors }
+}
+
+/**
+ * The colour version of setFanRowValue: the first and last positions set
+ * the fan's start/end colours, any position in between becomes an
+ * intermediate anchor carrying that colour (video: "click any fixture
+ * to define its color"). A colour anchor's numeric `value` is unused.
+ */
+export function setFanRowColor(fan: FanDef, index: number, hex: string, count = fan.fixtureIds.length): FanDef {
+  const next = normalizeColorFavorite(hex) ?? '#000000'
+  if (index <= 0) return { ...fan, startColor: next, anchors: (fan.anchors ?? []).filter((a) => a.index !== 0) }
+  if (index >= count - 1) return { ...fan, endColor: next, anchors: (fan.anchors ?? []).filter((a) => a.index !== count - 1) }
+  const anchors = [...(fan.anchors ?? []).filter((a) => a.index !== index), { index, value: 0, color: next }].sort((a, b) => a.index - b.index)
   return { ...fan, anchors }
 }
 

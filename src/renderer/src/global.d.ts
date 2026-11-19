@@ -50,12 +50,7 @@ declare global {
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
       getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void
-      minimizeWindow: () => void
-      toggleWindowMaximize: () => void
       closeWindow: () => void
-      quitApp: () => void
-      getWindowMaximized: () => Promise<boolean>
-      onWindowMaximized: (callback: (maximized: boolean) => void) => () => void
       onMenuCommand: (callback: (command: string) => void) => () => void
       onAppQuitting: (callback: () => void) => () => void
     }
