@@ -6,6 +6,7 @@ import { marqueeSelection } from '../lib/previewSelection'
 import { fitPreview, type Bounds } from '../lib/previewViewport'
 import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
 import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
+import { resolveCueValues } from '@shared/cueResolution'
 import { orderedFanFixtures } from '../lib/fanning'
 import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
 import { fixtureValuesToHex } from '../lib/colorMix'
@@ -112,7 +113,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       // Start/end colours default to the first/last selected fixtures'
       // current colours (video: "click the first and last fixture to
       // change the start and end color"); red → blue when undefined.
-      const values = activeCue?.fixtureValues ?? {}
+      // The colours are the cue's resolved look (Piece 8) — a colour
+      // defined by a preset is the colour the fixture shows.
+      const values = activeCue ? resolveCueValues(activeCue, state.presets) : {}
       const firstColor = fixtureValuesToHex(values[selected[0]?.id ?? ''] ?? {}) ?? '#ff0000'
       const lastColor = fixtureValuesToHex(values[selected[selected.length - 1]?.id ?? ''] ?? {}) ?? '#0000ff'
       setFanDraft(defaultColorFan([...selectedFixtureIds], firstColor, lastColor))
@@ -294,6 +297,10 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
   const cues: CueDef[] = show?.cues ?? []
   const activeCue = activeCueId ? cues.find((s) => s.id === activeCueId) : null
+  // The cue's resolved look (Piece 8) for the preview's dimmer-fixture
+  // colours; memoised so the fixture views only recompute when the cue
+  // or a preset it references changes.
+  const cueValues = useMemo(() => (activeCue ? resolveCueValues(activeCue, show?.presets ?? []) : {}), [activeCue, show?.presets])
 
   const fixtureViews = useMemo((): FixtureView[] => {
     if (fixtures.length === 0) {
@@ -319,7 +326,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     const arc = fixturePositions(fixtures.length)
     const views: FixtureView[] = []
     fixtures.forEach((f, fixtureIndex) => {
-      const values = previewFixtureValues(f, outputChannels, activeCue?.fixtureValues[f.id])
+      const values = previewFixtureValues(f, outputChannels, cueValues[f.id])
       const stored = instancePositions(f)
       const count = f.count ?? 1
       for (let instance = 0; instance < count; instance++) {
@@ -335,7 +342,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       }
     })
     return views
-  }, [fixtures, activeCue, dragPositions, outputChannels])
+  }, [fixtures, activeCue, cueValues, dragPositions, outputChannels])
 
   // Newly patched fixtures appear with a short fade/scale-in when they
   // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a

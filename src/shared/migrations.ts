@@ -1,5 +1,5 @@
 /** Missing versions are legacy version 0. */
-export const CURRENT_SCHEMA_VERSION = 3
+export const CURRENT_SCHEMA_VERSION = 4
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
@@ -88,7 +88,33 @@ const steps: Record<number, (source: Document) => Document> = {
   // 19 Nov 2026: fixtures carry a short name (≤4 chars) for the Preview
   // (LightKey Guide p.30). The names themselves are filled in the additive
   // defaults below, so this step only bumps the version.
-  2: (source) => ({ ...source, schemaVersion: 3 })
+  2: (source) => ({ ...source, schemaVersion: 3 }),
+  // 19 Nov 2026 (Piece 8): cues store preset/sequence references like
+  // LightKey (Guide ch.11, pp.199–202) instead of only raw fixture values.
+  // The cue's existing raw values stay exactly where they are — they ARE
+  // the cue's ad-hoc properties (LightKey's "Ad hoc properties" item,
+  // p.201: a preset which does not appear in the Preset Palette), so an
+  // old show loads with byte-identical output and no new presets appear
+  // in the palette. The migration only establishes the reference model:
+  // every cue gains presetIds/sequenceIds (empty until the operator adds
+  // presets or sequences to the cue). Converting a cue's values into a
+  // visible preset is a separate, user-invoked action ("Convert cues to
+  // presets" in the palette) and is deliberately not done here.
+  3: (source) => {
+    const doc: Document = { ...source, schemaVersion: 4 }
+    if (Array.isArray(doc.cues)) {
+      doc.cues = doc.cues.map((raw) => {
+        const cue = record(raw)
+        return {
+          ...cue,
+          presetIds: Array.isArray(cue.presetIds) ? cue.presetIds.filter((id): id is string => typeof id === 'string') : [],
+          sequenceIds: Array.isArray(cue.sequenceIds) ? cue.sequenceIds.filter((id): id is string => typeof id === 'string') : [],
+          fixtureValues: record(cue.fixtureValues)
+        }
+      })
+    }
+    return doc
+  }
 }
 
 /** Non-destructive version steps. Future documents retain their version and unknown fields. */

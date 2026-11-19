@@ -63,7 +63,7 @@ export function LiveTab() {
                     : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
                 }`}
               >
-                <span className="flex items-center justify-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPresetColor(cue) }} />{cue.name}</span>
+                <span className="flex items-center justify-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPresetColor(cue, presets) }} />{cue.name}</span>
               </button>
             ))}
           </div>

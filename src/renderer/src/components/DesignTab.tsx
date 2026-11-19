@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureMode } from '@shared/fixtureProfiles'
+import { resolveCueValues } from '@shared/cueResolution'
 import { availableProperties } from '../lib/availableProperties'
 import { fixtureAttributes } from '../lib/automationRuntime'
 import { hexToRgb, rgbToHex, colorChannels } from '../lib/colorMix'
@@ -66,6 +67,7 @@ export function DesignTab() {
     activeCueId,
     selectedFixtureIds,
     selectedBeams,
+    updateCue,
     updateSelectedBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
@@ -80,7 +82,14 @@ export function DesignTab() {
     deleteFan,
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
+  const sequences = show?.sequences ?? []
   const activeCue = cues.find((cue) => cue.id === activeCueId)
+  // The cue's resolved look (Piece 8): its presets in order, then its
+  // ad-hoc values. The panel reads the resolved look, so a property
+  // defined by a preset shows in the controls; writes still target the
+  // cue's ad-hoc layer (updateValues / setSelectedColor write
+  // cue.fixtureValues), which wins over the preset.
+  const cueValues = activeCue ? resolveCueValues(activeCue, presets) : {}
   // In-place preset editing (LightKey, Guide ch.9): the bottom panel edits
   // the preset's own values, not the active cue's. Where the preset does
   // not define an attribute for a fixture, the cue value shows as the
@@ -93,7 +102,7 @@ export function DesignTab() {
   // such channel at all (e.g. a dimmer fixture's RGB, which shows 255).
   const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) => {
     const fixture = fixtures.find((f) => f.id === fixtureId)
-    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? activeCue?.fixtureValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
+    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? cueValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
   }
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
@@ -265,6 +274,43 @@ export function DesignTab() {
           ? <span className="rounded bg-yellow-400 px-2 py-0.5 text-[10px] font-semibold text-black">Editing preset “{editingPreset.name}” — changes save to the preset</span>
           : !activeCue && selectedFixtures.length > 0 && <span className="text-[10px] text-dim">No active cue — editing starts a new one</span>}
       </div>
+      {/* Cue contents (Piece 8, LightKey Guide ch.11 p.199): the presets
+          and sequences this cue is built from, in order — where two
+          define the same property the later one wins. The cue's own
+          values are the ad-hoc properties, edited with the controls
+          below; a preset edit updates every cue that references it. */}
+      {activeCue && !editingPreset && (
+        <div className="flex shrink-0 flex-wrap items-center gap-1 text-[11px]" aria-label="Cue contents">
+          <span className="text-dim">Contents:</span>
+          {(activeCue.presetIds ?? []).map((id) => {
+            const preset = presets.find((p) => p.id === id)
+            return (
+              <span key={id} title="Preset" className="inline-flex items-center gap-1 rounded bg-panel2 px-1.5 py-0.5">
+                {preset?.name ?? 'Missing preset'}
+                <button type="button" aria-label={`Remove ${preset?.name ?? 'preset'} from cue`} onClick={() => updateCue(activeCue.id, { presetIds: (activeCue.presetIds ?? []).filter((item) => item !== id) })}>×</button>
+              </span>
+            )
+          })}
+          {(activeCue.sequenceIds ?? []).map((id) => {
+            const sequence = sequences.find((s) => s.id === id)
+            return (
+              <span key={id} title="Sequence" className="inline-flex items-center gap-1 rounded bg-panel2 px-1.5 py-0.5">
+                {sequence?.name ?? 'Missing sequence'} (seq)
+                <button type="button" aria-label={`Remove ${sequence?.name ?? 'sequence'} from cue`} onClick={() => updateCue(activeCue.id, { sequenceIds: (activeCue.sequenceIds ?? []).filter((item) => item !== id) })}>×</button>
+              </span>
+            )
+          })}
+          <span className="text-dim">Ad hoc: {Object.values(activeCue.fixtureValues ?? {}).reduce((n, patch) => n + Object.keys(patch).length, 0)} properties</span>
+          <select aria-label="Add preset to cue" value="" onChange={(event) => { if (event.target.value) updateCue(activeCue.id, { presetIds: [...(activeCue.presetIds ?? []), event.target.value] }) }} className="rounded bg-panel2 px-1 py-0.5">
+            <option value="">+ Preset…</option>
+            {presets.filter((p) => !(activeCue.presetIds ?? []).includes(p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select aria-label="Add sequence to cue" value="" onChange={(event) => { if (event.target.value) updateCue(activeCue.id, { sequenceIds: [...(activeCue.sequenceIds ?? []), event.target.value] }) }} className="rounded bg-panel2 px-1 py-0.5">
+            <option value="">+ Sequence…</option>
+            {sequences.filter((s) => !(activeCue.sequenceIds ?? []).includes(s.id)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
+      )}
       <div className="flex min-h-0 flex-1 items-stretch gap-3">
         {/* Dimmer: the shared FillFader — the same LightKey-style solid
             fill bar as the Master fader (lavender fill), not a thin line

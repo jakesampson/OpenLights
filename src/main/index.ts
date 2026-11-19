@@ -63,13 +63,21 @@ function openLiveWindow(spec: LiveWindowSpec) {
 }
 ipcMain.handle('window:fullscreen', (event) => { const window = BrowserWindow.fromWebContents(event.sender); if (window) window.setFullScreen(!window.isFullScreen()) })
 ipcMain.handle('window:open-live', (_, pageId: string | null) => { const spec = { id: crypto.randomUUID(), pageId, width: 1000, height: 700 }; openLiveWindow(spec); return spec })
-ipcMain.handle('ofl-library:list', () => {
-  try { return JSON.parse(fs.readFileSync(OFL_LIBRARY_FILE, 'utf8')) as FixtureProfile[] } catch { return [] }
-})
-ipcMain.handle('ofl-library:import', async () => {
-  const selection = await dialog.showOpenDialog(mainWindow!, { title: 'Choose the extracted OFL export folder', properties: ['openDirectory'] })
-  if (selection.canceled || !selection.filePaths[0]) return { success: false, canceled: true, profiles: [] }
-  const root = selection.filePaths[0]
+/**
+ * The fixture library shipped in the repo (fixtures/ at the project root,
+ * loaded by default — Piece 2): the OFL export Jake provided plus the
+ * four profiles authored from their DMX charts. In dev this is the project
+ * root; in the packaged app it sits inside app.asar (or resources/).
+ */
+function bundledFixturesDir(): string | null {
+  for (const candidate of [path.join(app.getAppPath(), 'fixtures'), path.join(process.resourcesPath, 'fixtures')]) {
+    try { if (fs.statSync(candidate).isDirectory()) return candidate } catch { /* try the next candidate */ }
+  }
+  return null
+}
+
+/** Read every OFL fixture JSON under a folder (recursively) and convert it to a profile. */
+function loadOflFolder(root: string): { profiles: FixtureProfile[]; skipped: number } {
   const jsonFiles: string[] = []
   const visit = (directory: string) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
@@ -78,22 +86,41 @@ ipcMain.handle('ofl-library:import', async () => {
       else if (entry.isFile() && entry.name.toLowerCase().endsWith('.json')) jsonFiles.push(target)
     }
   }
+  visit(root)
+  const manufacturerFile = jsonFiles.find((file) => path.basename(file).toLowerCase() === 'manufacturers.json')
+  const manufacturers = manufacturerFile ? JSON.parse(fs.readFileSync(manufacturerFile, 'utf8')) as Record<string, { name?: string }> : {}
+  const profiles: FixtureProfile[] = []
+  let skipped = 0
+  for (const file of jsonFiles) {
+    if (file === manufacturerFile) continue
+    try {
+      const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
+      if (!isOflFixture(raw)) { skipped++; continue }
+      const manufacturerKey = typeof raw.manufacturerKey === 'string' ? raw.manufacturerKey : path.basename(path.dirname(file))
+      const fixtureKey = typeof raw.fixtureKey === 'string' ? raw.fixtureKey : path.basename(file, '.json')
+      profiles.push(importOflFixture(raw, { manufacturerKey, manufacturer: manufacturers[manufacturerKey]?.name, fixtureKey, preserveSource: false }))
+    } catch { skipped++ }
+  }
+  // Stable order (readdir order is OS-dependent): manufacturer, then name.
+  profiles.sort((a, b) => (a.manufacturer || '').localeCompare(b.manufacturer || '') || a.name.localeCompare(b.name))
+  return { profiles, skipped }
+}
+
+ipcMain.handle('ofl-library:list', () => {
+  try { return JSON.parse(fs.readFileSync(OFL_LIBRARY_FILE, 'utf8')) as FixtureProfile[] } catch { /* no cached library — seed it from the bundled fixtures */ }
+  const bundled = bundledFixturesDir()
+  if (!bundled) return []
   try {
-    visit(root)
-    const manufacturerFile = jsonFiles.find((file) => path.basename(file).toLowerCase() === 'manufacturers.json')
-    const manufacturers = manufacturerFile ? JSON.parse(fs.readFileSync(manufacturerFile, 'utf8')) as Record<string, { name?: string }> : {}
-    const profiles: FixtureProfile[] = []
-    let skipped = 0
-    for (const file of jsonFiles) {
-      if (file === manufacturerFile) continue
-      try {
-        const raw = JSON.parse(fs.readFileSync(file, 'utf8')) as Record<string, unknown>
-        if (!isOflFixture(raw)) { skipped++; continue }
-        const manufacturerKey = typeof raw.manufacturerKey === 'string' ? raw.manufacturerKey : path.basename(path.dirname(file))
-        const fixtureKey = typeof raw.fixtureKey === 'string' ? raw.fixtureKey : path.basename(file, '.json')
-        profiles.push(importOflFixture(raw, { manufacturerKey, manufacturer: manufacturers[manufacturerKey]?.name, fixtureKey, preserveSource: false }))
-      } catch { skipped++ }
-    }
+    const { profiles } = loadOflFolder(bundled)
+    fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
+    return profiles
+  } catch { return [] }
+})
+ipcMain.handle('ofl-library:import', async () => {
+  const selection = await dialog.showOpenDialog(mainWindow!, { title: 'Choose the extracted OFL export folder', properties: ['openDirectory'] })
+  if (selection.canceled || !selection.filePaths[0]) return { success: false, canceled: true, profiles: [] }
+  try {
+    const { profiles, skipped } = loadOflFolder(selection.filePaths[0])
     fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
     return { success: true, canceled: false, profiles, imported: profiles.length, skipped }
   } catch (error) { return { success: false, canceled: false, profiles: [], error: error instanceof Error ? error.message : String(error) } }

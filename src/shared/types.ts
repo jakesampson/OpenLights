@@ -24,6 +24,8 @@ export interface FixtureDef {
   name: string
   /** Short name (≤4 chars) shown in the Preview; the full name stays for lists and panels (Guide p.30). */
   shortName?: string
+  /** External reference, LightKey's "Ext. reference" field on the Patching tab of the patch dialog. */
+  extReference?: string
   /** Count > 1: that many Preview icons of this fixture, sharing one DMX address and properties (Guide p.30) — but each icon is its own placeable instance with its own position (see previewPositions). */
   count?: number
   /** Chosen LED count for a flexible strip/matrix mode (Guide p.29, FLEX); undefined means the mode default. */
@@ -49,6 +51,19 @@ export interface CueDef {
   fans?: FanDef[]
   id: string
   name: string
+  /** Presets this cue is built from, in the order they apply — where two
+   *  presets define the same fixture property, the later one wins
+   *  (LightKey Guide ch.11, "Edit cue contents", p.199). Editing a preset
+   *  updates every cue that references it: values are resolved by
+   *  reference at read time (see shared/cueResolution.ts), never copied. */
+  presetIds?: string[]
+  /** Sequences that run while this cue is active. */
+  sequenceIds?: string[]
+  /** Ad-hoc properties — the cue's own values (LightKey's "Ad hoc
+   *  properties" item, Guide ch.11 p.201): fixture properties with no
+   *  preset, or properties the operator set on the cue itself. Applied
+   *  last when the cue resolves, so they win over any preset. The Design
+   *  panel, fanning and colour writes all target this layer. */
   fixtureValues: Record<string, Record<string, number>> // fixtureId -> attribute -> value (0-255)
   fadeMs: number
   blackout?: boolean
