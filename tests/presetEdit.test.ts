@@ -169,6 +169,9 @@ describe('OpenLights fix batch — cues, palette drag, in-place preset edit', ()
     // App shows the LightKey-style pill in the top bar.
     expect(app).toContain('editingPresetId')
     expect(app).toContain('bg-yellow-400')
-    expect(app).toContain('Cancel preset edit')
+    // The "Cancel preset edit" Esc row still exists — in the Shortcuts
+    // panel builder (lib/shortcuts.ts), not in App.tsx any more.
+    const shortcuts = readFileSync(resolve(root, 'src/renderer/src/lib/shortcuts.ts'), 'utf8')
+    expect(shortcuts).toContain('Cancel preset edit')
   })
 })

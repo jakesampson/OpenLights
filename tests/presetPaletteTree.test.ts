@@ -100,11 +100,15 @@ describe('Preset Palette — LightKey combined tree', () => {
       'New group'
     ]) expect(panel).toContain(text)
     expect(panel).toContain('stopPropagation')
-    // The shortcut names are shown in the Shortcuts panel (App.tsx).
-    expect(app).toContain('Select presets')
-    expect(app).toContain('Shift+Cmd+N')
-    expect(app).toContain('Shift+Cmd+E')
-    expect(app).toContain('Edit preset')
+    // The shortcut names are shown in the Shortcuts panel, whose rows
+    // live in lib/shortcuts.ts (PALETTE_SHORTCUTS) now — App renders
+    // buildShortcutsList, which includes them.
+    const shortcuts = readFileSync(resolve(root, 'src/renderer/src/lib/shortcuts.ts'), 'utf8')
+    expect(shortcuts).toContain('Select presets')
+    expect(shortcuts).toContain('Shift+Cmd+N')
+    expect(shortcuts).toContain('Shift+Cmd+E')
+    expect(shortcuts).toContain('Edit preset')
+    expect(app).toContain('buildShortcutsList')
   })
 
   it('renames the sidebar "Preset Palette" and moves fixture groups to Patch', () => {

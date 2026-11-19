@@ -35,12 +35,22 @@ function attributeLabel(attribute: string) {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
 }
 
+// A beam owns the colour attributes (bare or per-beam numbered, e.g.
+// `red`, `red2`); every other attribute belongs to the fixture, so with
+// a beam selected those still read from — and write to — the fixture.
+// Otherwise the Dimmer reads 0 with a beam selected and its drags go
+// nowhere (Jake, 20 Nov 2026).
+const COLOUR_ATTRIBUTE_BASES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']
+function isColourAttribute(attribute: string) {
+  return COLOUR_ATTRIBUTE_BASES.some((base) => attribute === base || (attribute.startsWith(base) && /^\d+$/.test(attribute.slice(base.length))))
+}
+
 // The selected Design control (Jake, 19 Nov 2026): the blue #0A84FF
 // border marks the one control the shortcuts act on, so you can see
 // which value the arrow keys will adjust. Clicking a control selects
 // it; clicking spare space in the panel clears it. The wheel is one
 // control ('colour' — the whole card); each fader is its own.
-type SelectedDesignControl = 'colour' | 'dimmer' | 'shutter' | 'autoProgram' | 'autoProgramSpeed' | `slider:${string}` | `channel:${string}`
+type SelectedDesignControl = 'colour' | 'dimmer' | 'shutter' | 'autoProgram' | 'autoProgramSpeed' | `slider:${string}` | `channel:${string}` | `beam1:${string}`
 
 // The colour card's active property — the last colour property the
 // user adjusted (LightKey's card header, Jake's LightKey screenshots
@@ -141,6 +151,7 @@ export function DesignTab() {
     selectedFixtureIds,
     selectedBeams,
     updateSelectedBeamValues,
+    updateBeamValues,
     updateSelectedFixtures,
     setSelectedColor,
     setSelectedBaseColor,
@@ -194,7 +205,7 @@ export function DesignTab() {
   const canEdit = Boolean(show && selectedFixtures.length > 0)
   const dimmerSupported = commonAttributes.includes('intensity')
   const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
-  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? fixtureAttr(b.fixtureId, key, 0) : 0) }, 0) / selectedBeams.length) :
+  const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? fixtureAttr(b.fixtureId, key, 0) : !isColourAttribute(attribute) && f && fixtureAttributes(f).includes(attribute) ? fixtureAttr(b.fixtureId, attribute, 0) : 0) }, 0) / selectedBeams.length) :
     selectedFixtures.length > 0
       ? Math.round(
           selectedFixtures.reduce(
@@ -366,6 +377,34 @@ export function DesignTab() {
     ? channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute) && !cardAttributes.has(attribute))
     : channelAttributes.filter((attribute) => !cardAttributes.has(attribute))
   const channelByAttribute = new Map(availableProperties(selectedFixtures).map((c) => [c.attribute, c]))
+
+  // Beam 1's own RGB sliders (Jake, 20 Nov 2026): the linked wheel drives
+  // every beam, and beams 2–4 already have per-beam sliders — their
+  // `red2`/`red3`/`red4` keys survive the wheel's fan-out — but beam 1's
+  // bare `red`/`green`/`blue` are the wheel's own keys, so beam 1 had no
+  // way to be set on its own: using the wheel for beam 1 re-drove all
+  // the others. On a multipart fixture beam 1 gets its own sliders too,
+  // reading and writing only its first cell through the beam path (never
+  // the fanning whole-fixture write). A single-beam fixture is unchanged:
+  // the wheel already is its beam 1. CMY fixtures get Cyan 1 / Magenta 1
+  // / Yellow 1 the same way.
+  const isMultipart = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixtureBeams(fixture).length >= 2)
+  const beam1IsCmy = isMultipart && selectedFixtures.every((fixture) => 'cyan' in (fixtureBeams(fixture)[0]?.properties ?? {}))
+  const beam1Attributes = isMultipart
+    ? (beam1IsCmy ? ['cyan', 'magenta', 'yellow'] : ['red', 'green', 'blue']).filter((attribute) => selectedFixtures.every((fixture) => { const properties = fixtureBeams(fixture)[0]?.properties; return properties && attribute in properties }))
+    : []
+  // Beam 1's channel for an attribute, read across the selection (the
+  // bare key is beam 1's channel — `red`, not `red2`).
+  const beam1ValueFor = (attribute: string) => selectedFixtures.length > 0
+    ? Math.round(selectedFixtures.reduce((total, fixture) => { const key = fixtureBeams(fixture)[0]?.properties[attribute]; return total + (key ? fixtureAttr(fixture.id, key, 0) : 0) }, 0) / selectedFixtures.length)
+    : 0
+  const writeBeam1 = (attribute: string, next: number) => {
+    if (editingPreset) {
+      updateEditingPresetValues({ [attribute]: next }, selectedFixtures.map((fixture) => ({ fixtureId: fixture.id, beamId: fixtureBeams(fixture)[0].id })))
+      return
+    }
+    for (const fixture of selectedFixtures) updateBeamValues(fixture.id, fixtureBeams(fixture)[0].id, { [attribute]: next })
+  }
 
   // The cue/preset value with no fixture-default fallback: an unset
   // property is undefined, not the channel default. The Auto Program
@@ -1035,12 +1074,42 @@ export function DesignTab() {
             faders), scrolling horizontally when there are many — they no
             longer stretch into the wide Red / Green / Blue panels. */}
         <div className="flex h-full min-w-0 flex-1 gap-1 overflow-x-auto">
-          {faderAttributes.length === 0 ? (
+          {beam1Attributes.length === 0 && faderAttributes.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-[10px] text-dim">
               {selectedFixtures.length > 0 ? 'No additional common channels' : 'Select fixtures in the preview to access controls'}
             </div>
           ) : (
-            faderAttributes.map((attribute) => {
+            <>
+            {beam1Attributes.map((attribute) => {
+              const value = activeCue ? beam1ValueFor(attribute) : 0
+              const channel = channelByAttribute.get(attribute)
+              return (
+                <div
+                  key={`beam1-${attribute}`}
+                  data-testid={`beam1-${attribute}`}
+                  className="chan h-full min-w-7"
+                  onPointerDown={(event) => { event.stopPropagation(); setSelectedControl(`beam1:${attribute}`) }}
+                  onFocus={(event) => { event.stopPropagation(); setSelectedControl(`beam1:${attribute}`) }}
+                >
+                  <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
+                    {`${attributeLabel(attribute)} 1`}
+                  </span>
+                  <FillFader
+                    value={value}
+                    onChange={(next) => writeBeam1(attribute, next)}
+                    label={`${attributeLabel(attribute)} 1 for selected fixtures`}
+                    fillColor={channelFillColor(attribute)}
+                    disabled={!canEdit}
+                    trackClassName="design-fill-track"
+                    selected={selectedControl === `beam1:${attribute}`}
+                  />
+                  <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
+                    {value}
+                  </span>
+                </div>
+              )
+            })}
+            {faderAttributes.map((attribute) => {
               const value = activeCue ? valueFor(attribute) : 0
               const fan = fanFor(attribute)
               // Only slider properties are fannable (Guide §8, p.118:
@@ -1086,7 +1155,8 @@ export function DesignTab() {
                   )}
                 </div>
               )
-            })
+            })}
+            </>
           )}
         </div>
       </div>

@@ -166,17 +166,14 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     return () => window.removeEventListener('openlights-open-fan-hud', handler)
   }, [designMode, locked, show, selectedFixtureIds])
   const commitFan = (next: FanDef) => {
-    // saveFan is a no-op with no active cue (and addCue does not activate
-    // the cue it creates), so start a cue and activate it first — the same
-    // "editing starts a new cue" the Design panel promises.
+    // saveFan is a no-op with no active cue, so make sure one exists and
+    // is active first — ensureActiveCue creates AND activates in one
+    // update. The old two-step addCue() + activateCue() repeated the
+    // pre-98cd019 orphan bug: addCue does not activate, so a second
+    // writer could mint another cue before the activation landed.
     const committed = { ...next, id: next.id || crypto.randomUUID() }
     setFanDraft(committed)
-    const state = useShowStore.getState()
-    if (!state.activeCueId) {
-      state.addCue()
-      const created = useShowStore.getState().cues[useShowStore.getState().cues.length - 1]
-      if (created) useShowStore.getState().activateCue(created.id)
-    }
+    useShowStore.getState().ensureActiveCue()
     const isNew = !useShowStore.getState().cues.find((c) => c.id === useShowStore.getState().activeCueId)?.fans?.some((f) => f.id === committed.id)
     useShowStore.getState().saveFan(committed)
     const pending = pendingAlsoFan.current
@@ -193,10 +190,13 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   }
   // Preview edit mode is owned by the header Edit toggle (store
   // previewEditing, LightKey Guide p.53) — this component only reads it.
-  // Leaving Design or locking the project exits edit mode, mirroring how
-  // the Fanning HUD closes in the same cases.
+  // Locking the project exits edit mode, mirroring how the Fanning HUD
+  // closes. Leaving Design does NOT exit it any more: the header Edit
+  // button is Preview-only and must keep working in the Live tab (Jake,
+  // 20 Nov 2026) — the old auto-clear undid every header toggle made
+  // while in Live.
   const editing = previewEditing
-  useEffect(() => { if (locked || !designMode) setPreviewEditing(false) }, [locked, designMode, setPreviewEditing])
+  useEffect(() => { if (locked) setPreviewEditing(false) }, [locked, setPreviewEditing])
   const [outputChannels, setOutputChannels] = useState<number[]>([])
   useEffect(() => {
     let alive = true

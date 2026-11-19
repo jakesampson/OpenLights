@@ -29,16 +29,18 @@ describe('preview edit toggle (LightKey Guide p.53)', () => {
     expect(s().previewEditing).toBe(false)
   })
 
-  it('makes the header Edit button the toggle, labelled Edit / Done', () => {
-    // The toggle follows the CURRENT view (Jake, 19 Nov 2026): Design
-    // toggles preview editing, Live toggles live page editing — LightKey
-    // does not care which view the Design/Live switch is on.
-    expect(appSource).toContain("aria-pressed={tab === 'Design' ? previewEditing : liveEditing}")
-    expect(appSource).toContain('onClick={toggleCurrentViewEditing}')
-    expect(appSource).toContain("{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}")
+  it('makes the header Edit button the Preview-only toggle, labelled Edit / Done', () => {
+    // The header Edit button toggles Preview editing only (Jake,
+    // 20 Nov 2026): Live page editing has its own Edit button in the
+    // Live panel. The old context-sensitive handler flipped whichever
+    // mode matched the current tab, so each button flipped both.
+    expect(appSource).toContain('aria-pressed={previewEditing}')
+    expect(appSource).toContain('onClick={togglePreviewEditing}')
+    expect(appSource).toContain("{previewEditing ? 'Done' : 'Edit'}")
     expect(appSource).toContain('disabled={locked}')
     expect(appSource).not.toContain("disabled={locked || tab !== 'Design'}")
-    expect(appSource).toContain('setLiveEditing(!state.liveEditing)')
+    expect(appSource).not.toContain('toggleCurrentViewEditing')
+    expect(appSource).not.toContain('setLiveEditing(!state.liveEditing)')
     expect(appSource).not.toContain('ref={editMenuRef}')
     expect(appSource).not.toContain('Undo · Ctrl+Z')
   })
@@ -51,14 +53,33 @@ describe('preview edit toggle (LightKey Guide p.53)', () => {
     expect(matchShortcut({ key: 'j', metaKey: true }, { tagName: 'DIV' })?.command).toBe('editPreview')
     expect(matchShortcut({ key: 'j' }, { tagName: 'DIV' })).toBeUndefined()
     expect(appSource).toContain("command === 'editPreview'")
-    // Cmd-J toggles the current view's edit mode, not just Design's.
-    expect(appSource).toContain("command === 'editPreview') toggleCurrentViewEditing()")
+    // Cmd-J toggles Preview editing only — never Live editing.
+    expect(appSource).toContain("command === 'editPreview') togglePreviewEditing()")
+    expect(appSource).not.toContain('toggleCurrentViewEditing')
   })
 
   it('paints the header LightKey’s grey, sampled from Jake’s screenshot', () => {
     expect(styles).toContain('background: #444345')
     // Only the top bar: no other background rule uses the sampled grey.
     expect(styles.match(/#444345/g)).toHaveLength(1)
+  })
+  it('keeps the two Edit buttons independent (Jake, 20 Nov 2026)', () => {
+    // The header button writes previewEditing only; the Live panel's own
+    // toggleEditing writes liveEditing only. Neither file may reference
+    // the other's setter, and the store flags stay independent.
+    expect(appSource).not.toContain('setLiveEditing')
+    const liveSource = readFileSync('src/renderer/src/components/LiveWorkspace.tsx', 'utf8')
+    expect(liveSource).not.toContain('setPreviewEditing')
+    expect(liveSource).toContain('setLiveEditing(true)')
+    expect(liveSource).toContain('setLiveEditing(false)')
+    const s = () => useShowStore.getState()
+    s().setPreviewEditing(true)
+    expect(s().liveEditing).toBe(false)
+    s().setLiveEditing(true)
+    expect(s().previewEditing).toBe(true)
+    s().setPreviewEditing(false)
+    expect(s().liveEditing).toBe(true)
+    s().setLiveEditing(false)
   })
 })
 
@@ -68,10 +89,14 @@ describe('preview toolbar after the toggle move', () => {
     expect(previewSource).not.toContain("'Done' : 'Edit layout'")
     expect(previewSource).not.toContain('>Fan…')
     expect(previewSource).not.toContain('const [editing, setEditing]')
-    // Edit state comes from the store now, and leaving Design or locking
-    // exits edit mode.
+    // Edit state comes from the store now, and locking exits edit mode.
+    // Leaving Design does NOT exit it: the header Edit button is
+    // Preview-only and must keep working in the Live tab (Jake,
+    // 20 Nov 2026) — the old auto-clear undid every header toggle
+    // made while in Live.
     expect(previewSource).toContain('const editing = previewEditing')
-    expect(previewSource).toContain('if (locked || !designMode) setPreviewEditing(false)')
+    expect(previewSource).toContain('if (locked) setPreviewEditing(false)')
+    expect(previewSource).not.toContain('if (locked || !designMode) setPreviewEditing(false)')
     // The zoom cluster and the Preview label stay.
     expect(previewSource).toContain('Zoom out preview')
     expect(previewSource).toContain('>Preview</span>')

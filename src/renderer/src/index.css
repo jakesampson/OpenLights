@@ -4,6 +4,7 @@
 
 /* Consistent low-light interface colours */
 :root {
+  color-scheme: dark;
   --bg: #2a1233;
   --panel: #3a1b47;
   --panel2: #47235a;
@@ -233,6 +234,16 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 }
 .header-look-field > span { color: var(--text); font-size: 18px; }
 .header-look-field select { min-width: 0; flex: 1; appearance: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; }
+/* Native <select> popups are an OS surface outside the DOM: on Windows
+   Chromium paints the popup white while the option text inherits the
+   select's white colour, so every row is unreadable (Jake, 20 Nov 2026:
+   the Active-cue dropdown showed ~200 blank white rows with one
+   highlighted row legible). Style the options explicitly — dark surface,
+   white text, matching the in-DOM header menus — on every native select
+   in the app, not just this one. The <meta color-scheme> hint alone did
+   not darken the popup on Jake's Windows machine. */
+select option { background: #555658; color: #fff; }
+select optgroup { background: #555658; color: #fff; }
 
 .lighting-toolbar { display: contents; -webkit-app-region: no-drag; }
 .lighting-toolbar > .header-icon:first-child { order: 2; }

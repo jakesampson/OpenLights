@@ -134,8 +134,12 @@ describe('Live Edit — LightKey layout', () => {
   })
 
   it('shows LightKey edit shortcuts (Nudge / Clear selection) while editing', () => {
-    expect(app).toContain('Nudge')
-    expect(app).toContain('Clear selection')
+    // The rows live in lib/shortcuts.ts (buildShortcutsList) now — App
+    // renders that builder's list — and only while editing a Live page.
+    const shortcuts = readFileSync(resolve(root, 'src/renderer/src/lib/shortcuts.ts'), 'utf8')
+    expect(shortcuts).toContain('Nudge')
+    expect(shortcuts).toContain('Clear selection')
+    expect(app).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })')
     expect(workspace).toContain('moveSelectedPageObjects')
     expect(workspace).toContain('stopImmediatePropagation')
   })

@@ -154,6 +154,10 @@ interface ShowState {
   selectedBeams: { fixtureId: string; beamId: string }[]
   selectFixtureBeam: (fixtureId: string, beamId: string, additive?: boolean) => void
   updateSelectedBeamValues: (values: Record<string, number>, manual?: boolean) => void
+  /** Write values to one explicit beam of one fixture (beam 1's sliders):
+   * the same beam mapping as updateSelectedBeamValues, without needing
+   * that beam to be the current selection. */
+  updateBeamValues: (fixtureId: string, beamId: string, values: Record<string, number>) => void
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
@@ -271,7 +275,7 @@ interface ShowState {
   startEditingPreset: (id: string) => void
   saveEditingPreset: () => void
   cancelEditingPreset: () => void
-  updateEditingPresetValues: (values: Record<string, number>) => void
+  updateEditingPresetValues: (values: Record<string, number>, beams?: { fixtureId: string; beamId: string }[]) => void
   applyPaletteDrop: (drag: PaletteDragItem, targetGroupId: string | null, before?: { kind: 'preset' | 'sequence'; id: string } | null) => void
   applyPresetsToOverrides: (ids: string[], selectedOnly?: boolean) => void
   addOverridesToPresets: (ids: string[], selectedOnly?: boolean) => void
@@ -367,6 +371,53 @@ interface ShowState {
 }
 
 const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)))
+
+// Colour attributes belong to a beam (cell) of a multipart fixture, never
+// to the fixture as a whole: a colour write with a beam selected must only
+// move that beam. Every other fixture-level attribute (intensity, pan,
+// tilt, shutter, strobe, program, speed, …) is a property of the fixture
+// itself, so it passes through a beam write instead of being dropped.
+const COLOUR_ATTRIBUTE_BASES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']
+function isBeamColourAttribute(attribute: string) {
+  return COLOUR_ATTRIBUTE_BASES.some((base) => attribute === base || (attribute.startsWith(base) && /^\d+$/.test(attribute.slice(base.length))))
+}
+
+/**
+ * Map a per-beam write onto cue channel keys for one beam. Colour
+ * attributes resolve through the beam's properties (beam 1's `red` is the
+ * bare `red` channel, beam 2's is `red2`); fixture-level, non-colour
+ * attributes (intensity, pan/tilt, shutter, …) pass through under their
+ * own name — dropping them silently left e.g. the Dimmer dead whenever a
+ * beam was selected (Jake, 20 Nov 2026: colour set, Dimmer full, nothing
+ * came on). A colour attribute the selected beam does not own is dropped:
+ * writing it would move a different beam.
+ */
+function beamValuePatch(fixture: FixtureDef, beam: { properties: Record<string, string> } | undefined, values: Record<string, number>): Record<string, number> {
+  const patch: Record<string, number> = {}
+  const attrs = fixtureAttributes(fixture)
+  for (const [attribute, value] of Object.entries(values)) {
+    if (!Number.isFinite(value)) continue
+    const channel = beam?.properties[attribute]
+    if (channel) { patch[channel] = clamp(value); continue }
+    if (!isBeamColourAttribute(attribute) && attrs.includes(attribute)) patch[attribute] = clamp(value)
+  }
+  return patch
+}
+
+// Cue auto-names number from the highest existing "Cue N" (never below
+// the cue count), so a gap in the numbering does not mint a duplicate
+// name — after the 19 Nov orphan run the header field showed "Cue 208",
+// and length-based numbering would have started reissuing low numbers
+// alongside the orphans. (A deleted cue's number can still be reissued:
+// there is no persistent counter yet, and no UI deletes cues today.)
+function nextCueNumber(cues: CueDef[]): number {
+  let max = cues.length
+  for (const cue of cues) {
+    const match = /^Cue (\d+)$/.exec(cue.name)
+    if (match) max = Math.max(max, Number(match[1]))
+  }
+  return max + 1
+}
 
 /** Momentary flash: remembers the look to return to on release. */
 let flashState: { patch: Record<number, number>; activeCueId: string | null } | null = null
@@ -737,16 +788,21 @@ const actions: ShowState = {
     const state = get(), previous = state.undoStack.at(-1)
     if (!previous || !state.show) return
     const next = structuredClone(previous)
-    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
-    const cue = next.cues.find((item) => item.id === state.activeCueId)
+    // Restoring an older cue list can drop the cue the active id points
+    // at — a dangling id makes every later wheel write silently drop
+    // (Jake, 20 Nov 2026), so the id is cleared unless the cue survives.
+    const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
+    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
+    const cue = next.cues.find((item) => item.id === activeCueId)
     if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
   },
   redo: () => {
     const state = get(), following = state.redoStack.at(-1)
     if (!following || !state.show) return
     const next = structuredClone(following)
-    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [] })
-    const cue = next.cues.find((item) => item.id === state.activeCueId)
+    const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
+    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
+    const cue = next.cues.find((item) => item.id === activeCueId)
     if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
   },
   show: defaultShow,
@@ -1297,8 +1353,9 @@ const actions: ShowState = {
     const state = get(), patch: Record<string, Record<string, number>> = {}
     for (const selected of state.selectedBeams) {
       const fixture = state.show?.fixtures.find((f) => f.id === selected.fixtureId), beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === selected.beamId)
-      if (!beam) continue
-      for (const [attribute, value] of Object.entries(values)) if (beam.properties[attribute] && Number.isFinite(value)) patch[selected.fixtureId] = { ...patch[selected.fixtureId], [beam.properties[attribute]]: clamp(value) }
+      if (!fixture || !beam) continue
+      const beamPatch = beamValuePatch(fixture, beam, values)
+      if (Object.keys(beamPatch).length) patch[selected.fixtureId] = { ...patch[selected.fixtureId], ...beamPatch }
     }
     if (manual) { set({ manualOverrides: Object.fromEntries([...new Set([...Object.keys(state.manualOverrides), ...Object.keys(patch)])].map((id) => [id, { ...state.manualOverrides[id], ...patch[id] }])) }); return }
     if (!state.activeCueId) get().ensureActiveCue()
@@ -1307,6 +1364,18 @@ const actions: ShowState = {
     const fixtureValues = { ...cue.fixtureValues }
     for (const [id, attributes] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...attributes }
     get().updateCue(cue.id, { fixtureValues })
+  },
+
+  updateBeamValues: (fixtureId, beamId, values) => {
+    const state = get()
+    const fixture = state.show?.fixtures.find((f) => f.id === fixtureId), beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === beamId)
+    if (!fixture || !beam) return
+    const patch = beamValuePatch(fixture, beam, values)
+    if (!Object.keys(patch).length) return
+    if (!state.activeCueId) get().ensureActiveCue()
+    const cue = get().cues.find((s) => s.id === get().activeCueId)
+    if (!cue) return
+    get().updateCue(cue.id, { fixtureValues: { ...cue.fixtureValues, [fixtureId]: { ...cue.fixtureValues[fixtureId], ...patch } } })
   },
 
   groupSelectedFixtures: (name) => set((state) => {
@@ -1549,26 +1618,25 @@ const actions: ShowState = {
     get().updatePresetContents(snapshot.preset.id, snapshot.preset.fixtureValues)
     set({ editingPresetId: null, activePresetIds: snapshot.activePresetIds, selectedFixtureIds: snapshot.selectedFixtureIds })
   },
-  updateEditingPresetValues: (values) => set((state) => {
+  updateEditingPresetValues: (values, beams) => set((state) => {
     const preset = state.presets.find((p) => p.id === state.editingPresetId)
     if (!preset) return state
     const fixtureValues = structuredClone(preset.fixtureValues)
     const write = (fixtureId: string, patch: Record<string, number>) => {
       if (Object.keys(patch).length) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
     }
-    if (state.selectedBeams.length) {
+    // An explicit beam list (beam 1's sliders) targets those beams even
+    // when they are not the current selection; otherwise the selected
+    // beams, if any, decide the mapping.
+    const targetBeams = beams ?? state.selectedBeams
+    if (targetBeams.length) {
       // Beam values arrive keyed by beam property; map them to channel
       // attributes the same way updateSelectedBeamValues does.
-      for (const selected of state.selectedBeams) {
+      for (const selected of targetBeams) {
         const fixture = state.show?.fixtures.find((f) => f.id === selected.fixtureId)
         const beam = fixture && fixtureMode(fixture)?.beams?.find((b) => b.id === selected.beamId)
-        if (!beam) continue
-        const patch: Record<string, number> = {}
-        for (const [attribute, value] of Object.entries(values)) {
-          const channel = beam.properties[attribute]
-          if (channel && Number.isFinite(value)) patch[channel] = clamp(value)
-        }
-        write(selected.fixtureId, patch)
+        if (!fixture || !beam) continue
+        write(selected.fixtureId, beamValuePatch(fixture, beam, values))
       }
     } else {
       const patch = Object.fromEntries(Object.entries(values).filter(([, value]) => Number.isFinite(value)).map(([key, value]) => [key, clamp(value)]))
@@ -1632,7 +1700,7 @@ const actions: ShowState = {
       for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
       const newCue: CueDef = {
         id: crypto.randomUUID(),
-        name: `Cue ${state.cues.length + 1}`,
+        name: `Cue ${nextCueNumber(state.cues)}`,
         presetIds: [],
         sequenceIds: [],
         fixtureValues,
@@ -1647,17 +1715,20 @@ const actions: ShowState = {
   // updateSelectedFixtures uses (it builds the cue inline and sets
   // activeCueId together). Calling addCue() here would repeat the old
   // bug: the cue would exist but stay inactive and the write would be
-  // dropped by the lookup that follows.
+  // dropped by the lookup that follows. A truthy id is not enough: undo
+  // / redo can restore a cue list that no longer contains the active cue,
+  // leaving a dangling id that every writer would then silently drop
+  // (Jake, 20 Nov 2026) — so the cue must exist, not just the id.
   ensureActiveCue: () => {
-    if (get().activeCueId) return
+    if (get().activeCueId && get().cues.some((s) => s.id === get().activeCueId)) return
     set((state) => {
-      if (state.activeCueId) return state
+      if (state.activeCueId && state.cues.some((s) => s.id === state.activeCueId)) return state
       const fixtures = state.show?.fixtures ?? []
       const fixtureValues: CueDef['fixtureValues'] = {}
       for (const fixture of fixtures) fixtureValues[fixture.id] = defaultFixtureValues(fixture)
       const newCue: CueDef = {
         id: crypto.randomUUID(),
-        name: `Cue ${state.cues.length + 1}`,
+        name: `Cue ${nextCueNumber(state.cues)}`,
         presetIds: [],
         sequenceIds: [],
         fixtureValues,
@@ -1712,7 +1783,7 @@ const actions: ShowState = {
       if (Object.keys(patch).length === 0) return state
 
       const activeCue: CueDef = existingCue ?? {
-        id: crypto.randomUUID(), name: `Cue ${state.cues.length + 1}`, fadeMs: 1000,
+        id: crypto.randomUUID(), name: `Cue ${nextCueNumber(state.cues)}`, fadeMs: 1000,
         presetIds: [], sequenceIds: [],
         fixtureValues: Object.fromEntries(state.show.fixtures.map((fixture) => [fixture.id, defaultFixtureValues(fixture)]))
       }
@@ -2240,7 +2311,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

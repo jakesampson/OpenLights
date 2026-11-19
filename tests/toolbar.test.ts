@@ -48,9 +48,14 @@ describe('toolbar dispatch', () => {
     // the native app menu and on Ctrl+Z / Ctrl+Y instead.
     expect(app).not.toContain('ref={editMenuRef}')
     expect(app).not.toContain('Undo · Ctrl+Z')
-    expect(app).toContain("aria-pressed={tab === 'Design' ? previewEditing : liveEditing}")
-    expect(app).toContain('toggleCurrentViewEditing')
-    expect(app).toContain("{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}")
+    expect(app).toContain("aria-pressed={previewEditing}")
+    expect(app).toContain('togglePreviewEditing')
+    expect(app).toContain("{previewEditing ? 'Done' : 'Edit'}")
+    // Native <select> popups are an OS surface outside the DOM: on
+    // Windows Chromium painted the Active-cue popup white while the
+    // option text inherited the select's white colour, so every row was
+    // unreadable (Jake, 20 Nov 2026). Options are styled explicitly now.
+    expect(styles).toContain('select option { background: #555658; color: #fff; }')
     expect(app).toContain('ref={settingsMenuRef}')
     expect(app).toContain("window.addEventListener('pointerdown', closeHeaderMenus)")
     expect(app).toContain("window.addEventListener('keydown', closeHeaderMenusOnEscape)")

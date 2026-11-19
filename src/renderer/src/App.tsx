@@ -7,7 +7,7 @@ import { ProjectBar } from './components/ProjectBar'
 import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
 import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 import { ProjectSearch } from './components/ProjectSearch'
-import { SHORTCUTS, matchShortcut } from './lib/shortcuts'
+import { SHORTCUTS, buildShortcutsList, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
@@ -61,8 +61,6 @@ export default function App() {
     freeze,
     locked,
     liveEditing,
-    setLiveEditing,
-    clearPageObjectSelection,
     previewEditing,
     setPreviewEditing,
     editingPresetId,
@@ -168,6 +166,10 @@ export default function App() {
   }, [show?.preferences?.theme])
 
   const previousLivePage = useRef<string | null>(null)
+  // The Live levels the last effect run saw, per control id — so a toggle
+  // on the same page can fade over the page fade (Bug 3, Jake 20 Nov 2026)
+  // while fader drags and flash presses stay immediate.
+  const previousOutputLevels = useRef<Record<string, number>>({})
   useEffect(() => {
     localStorage.setItem('openlights.adaptiveBackground', String(adaptiveBackground))
     const root = document.documentElement
@@ -244,8 +246,26 @@ export default function App() {
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
     const activePage = show?.livePages?.find((page) => page.id === activeLivePageId)
-    const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? 0)
-    configureLiveOutput(patch, changed ? pageFade : 0)
+    // The page fade falls back to the project's Page fade preference when
+    // the page has no per-page value (Jake, 20 Nov 2026: a 10 s page fade
+    // set in Manage Live Pages was ignored — the global default was never
+    // consulted, so pages without an explicit value faded over 0 ms).
+    const pageFade = liveFadeMs(activePage, outputLevels, activePage?.fadeMs ?? show?.preferences?.pageFadeMs ?? 500)
+    // A toggle on the same page fades over the page fade too — the old
+    // code only faded on a page switch, so switching cues on one page
+    // always swapped instantly whatever the fade time was. Faders and
+    // flash buttons stay immediate: a fader drag would otherwise restart
+    // a 10 s fade on every input, and a flash must follow its press and
+    // release. Cuelist Go/Back deliberately stay on the step's own fadeMs.
+    const previousLevels = previousOutputLevels.current
+    previousOutputLevels.current = { ...outputLevels }
+    const liveControls = new Map((show?.livePages ?? []).flatMap((page) => page.controls).map((control) => [control.id, control]))
+    const liveChanged = [...Object.keys(outputLevels), ...Object.keys(previousLevels)].some((id) => {
+      const control = liveControls.get(id)
+      if (!control || control.type !== 'toggle') return false
+      return (previousLevels[id] ?? 0) !== (outputLevels[id] ?? 0)
+    })
+    configureLiveOutput(patch, changed || liveChanged ? pageFade : 0)
   }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
 
   useEffect(() => {
@@ -270,19 +290,16 @@ export default function App() {
     toggleBlackout()
   }
 
-  // The header Edit toggle works in both views (Jake, 19 Nov 2026 — in
-  // LightKey it does not matter whether the Design/Live switch is on
-  // Design or Live): in Design it toggles Preview editing (Guide p.53,
-  // "Edit the Preview"), in Live it toggles Live page editing (Guide
-  // ch.11, "Edit Live View"). Disabled only while locked.
-  const toggleCurrentViewEditing = () => {
+  // The header Edit button toggles Preview editing only (LightKey Guide
+  // p.53, "Edit the Preview"). Live page editing has its own Edit button
+  // in the Live panel (Guide ch.11, "Edit Live View", LiveWorkspace's
+  // toggleEditing). The two used to share one context-sensitive handler
+  // that flipped whichever mode matched the current tab, so each button
+  // flipped both modes (Jake, 20 Nov 2026). Disabled only while locked.
+  const togglePreviewEditing = () => {
     const state = useShowStore.getState()
     if (state.locked) return
-    if (tab === 'Design') state.setPreviewEditing(!state.previewEditing)
-    else {
-      state.clearPageObjectSelection()
-      state.setLiveEditing(!state.liveEditing)
-    }
+    state.setPreviewEditing(!state.previewEditing)
   }
 
   useEffect(() => {
@@ -296,7 +313,7 @@ export default function App() {
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
       else if (command === 'design') { if (!state.locked) setTab('Design') }
       else if (command === 'live') setTab('Live')
-      else if (command === 'editPreview') toggleCurrentViewEditing()
+      else if (command === 'editPreview') togglePreviewEditing()
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
       else if (command === 'blackout') state.toggleBlackout()
@@ -322,37 +339,11 @@ export default function App() {
     if (binding) window.dispatchEvent(new KeyboardEvent('keydown', { key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }))
   }), [])
 
-  // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots): arrows
-  // select presets, esc clears, Return renames, Cmd/Ctrl+N new preset,
-  // Shift+Cmd/Ctrl+N new group, Shift+Cmd/Ctrl+E edit preset. They are
-  // active only while the palette tree has focus — Cmd/Ctrl+N is still
-  // "New project" elsewhere (see GroupsPresetsPanel).
-  const paletteShortcuts = [
-    { key: '↑ ↓', label: 'Select presets' },
-    { key: 'esc', label: 'Clear selection' },
-    { key: 'Return', label: 'Rename' },
-    { key: 'Cmd+N', label: 'New preset' },
-    { key: 'Shift+Cmd+N', label: 'New group' },
-    { key: 'Shift+Cmd+E', label: 'Edit preset' }
-  ]
-  const shortcuts = [
-    // While a preset is open for editing, Esc cancels it (the top bar
-    // has Save / Cancel too). The palette's own Esc handler stops
-    // propagation while the tree has focus.
-    ...(editingPresetId ? [{ key: 'esc', label: 'Cancel preset edit' }] : []),
-    ...(tab === 'Live' && liveEditing
-      // LightKey edit shortcuts (Guide ch.11): nudge the selection with the
-      // arrow keys, Esc clears it. Undo / Redo stay available; the zoom
-      // shortcuts do not apply while editing a Live page.
-      ? [
-        { key: '↑ ← ↓ →', label: 'Nudge' },
-        { key: 'esc', label: 'Clear selection' },
-        { key: 'Ctrl+Z', label: 'Undo' },
-        { key: 'Ctrl+Y', label: 'Redo' }
-      ]
-      : SHORTCUTS.map((item) => item.command === 'editPreview' && tab === 'Live' ? { ...item, label: 'Edit live page' } : item)),
-    ...paletteShortcuts
-  ]
+  // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots) live in
+  // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
+  // one contextual list per state — see that file for why the Live-edit
+  // rows are never concatenated with the palette rows.
+  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })
   const closeToolPanel = () => setToolPanel(null)
   // The Design workspace (Preview + side panel + bottom panel) renders
   // either under the header in the normal flow, or inside the setup wizard
@@ -423,7 +414,7 @@ export default function App() {
           <div className="flex-1 min-h-0 overflow-y-auto pr-1">
             {shortcuts.map((s) => (
               <div
-                key={s.key + s.label}
+                key={`${s.section}:${s.key}:${s.label}`}
                 className="flex items-center justify-between gap-2 px-1 py-1 text-xs border-b border-line/40 last:border-0"
               >
                 <kbd className="rounded bg-panel2 border border-line px-1.5 py-0.5 text-zinc-300 shrink-0">
@@ -495,27 +486,25 @@ export default function App() {
               target.scrollIntoView({ block: 'center', behavior: 'smooth' }); target.tabIndex = -1; target.focus({ preventScroll: true })
             })
           }} />
-          {/* Header Edit toggles edit mode for the CURRENT view (LightKey
-              Guide p.53, "Edit the Preview": click Edit in the toolbar to
-              enter edit mode, click Done to exit; Guide ch.11 for Live
-              page editing). In Design it toggles Preview editing, in Live
-              it toggles Live page editing — LightKey does not care which
-              view the Design/Live switch is on (Jake, 19 Nov 2026). It
-              takes over the old "Edit layout" button that hovered on the
-              Preview — the Preview toolbar no longer carries its own edit
-              toggle. Undo/Redo used to live in a dropdown on this button;
-              they stay available from the native app menu (Edit >
-              Undo/Redo) and Ctrl+Z / Ctrl+Y. The toggle is disabled only
-              while the project is locked. */}
+          {/* Header Edit toggles Preview editing only (LightKey Guide p.53,
+              "Edit the Preview": click Edit in the toolbar to enter edit
+              mode, click Done to exit). Live page editing has its own Edit
+              button in the Live panel (Guide ch.11) — this button never
+              touches it (Jake, 20 Nov 2026). It takes over the old "Edit
+              layout" button that hovered on the Preview — the Preview
+              toolbar no longer carries its own edit toggle. Undo/Redo used
+              to live in a dropdown on this button; they stay available from
+              the native app menu (Edit > Undo/Redo) and Ctrl+Z / Ctrl+Y.
+              The toggle is disabled only while the project is locked. */}
           <button
             type="button"
-            className={`btn-theme ${(tab === 'Design' ? previewEditing : liveEditing) ? 'on' : ''}`}
-            aria-pressed={tab === 'Design' ? previewEditing : liveEditing}
-            aria-label={tab === 'Design' ? 'Edit preview' : 'Edit live page'}
-            title={tab === 'Design' ? 'Edit preview (LightKey Guide p.53)' : 'Edit live page (LightKey Guide ch.11)'}
+            className={`btn-theme ${previewEditing ? 'on' : ''}`}
+            aria-pressed={previewEditing}
+            aria-label="Edit preview"
+            title="Edit preview (LightKey Guide p.53)"
             disabled={locked}
-            onClick={toggleCurrentViewEditing}
-          >{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}</button>
+            onClick={togglePreviewEditing}
+          >{previewEditing ? 'Done' : 'Edit'}</button>
           <button
             type="button"
             className="lightkey-action header-patch-button"
