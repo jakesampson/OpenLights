@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
+import { modeChannelOffset } from '@shared/fixtureProfiles'
 import { exportOflFixture, oflFilename } from '@shared/oflFixtureFormat'
 import { fixtureWidth, placementError } from '../lib/patch'
 import { useShowStore } from '../stores/showStore'
 import { FixtureGroups } from './FixtureGroups'
+import { PatchDialog } from './PatchDialog'
 
 const PATCH_MIME = 'application/x-openlights-fixture-profile'
 interface DragProfile { kind: 'profile'; profileId: string; modeId: string }
@@ -38,6 +40,7 @@ export function PatchPanel() {
   const [patchNotice, setPatchNotice] = useState('')
   const [selectedFixtureId, setSelectedFixtureId] = useState<string | null>(null)
   const [groupsOpen, setGroupsOpen] = useState(false)
+  const [patchDialog, setPatchDialog] = useState<{ profile: FixtureProfile; modeId: string; start: number } | null>(null)
 
   useEffect(() => {
     let active = true
@@ -57,7 +60,9 @@ export function PatchPanel() {
       const profile = fixtureProfile(fixture, library)
       const mode = profile ? modeFor(profile, fixture.modeId) : undefined
       for (let offset = 0; offset < fixture.channels; offset++) {
-        const channel = mode?.channels.find((item) => item.number === offset)
+        // The channel at this DMX offset, after the flexible-LED remap
+        // (globals slide down behind a reduced LED block).
+        const channel = mode?.channels.find((item) => modeChannelOffset(mode, item.number, fixture.ledCount) === offset)
         result.set(fixture.channelStart + offset, { fixture, offset, label: channel?.attribute ?? `Channel ${offset + 1}` })
       }
     }
@@ -121,18 +126,22 @@ export function PatchPanel() {
     const dragged = resolvedDrag(event)
     if (!dragged) return
     event.preventDefault()
-    const ignoreId = dragged.payload.kind === 'fixture' ? dragged.payload.fixtureId : undefined
-    const error = placementError(fixtures, start, dragged.width, ignoreId)
     setDragRange(null)
     setDragging(null)
-    if (error) { setPatchError(error); return }
-    try {
-      if (dragged.payload.kind === 'fixture') {
+    if (dragged.payload.kind === 'fixture') {
+      const error = placementError(fixtures, start, dragged.width, dragged.payload.fixtureId)
+      if (error) { setPatchError(error); return }
+      try {
         useShowStore.getState().updateFixture(dragged.payload.fixtureId, { channelStart: start })
         setSelectedFixtureId(dragged.payload.fixtureId)
-      } else if (dragged.profile) useShowStore.getState().addProfileFixtures(dragged.profile, { quantity: 1, start, modeId: dragged.payload.modeId, universe: 1 })
-      setPatchError('')
-    } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+        setPatchError('')
+      } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+      return
+    }
+    // Dragging a profile opens the patch options dialog (LightKey Guide
+    // pp.29–30) instead of patching immediately — the dialog validates
+    // the address live and lets the user correct it there.
+    if (dragged.profile) setPatchDialog({ profile: dragged.profile, modeId: dragged.payload.modeId, start })
   }
 
   const occupiedCount = occupied.size
@@ -203,5 +212,6 @@ export function PatchPanel() {
       <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a model to add it, or drag a patched fixture to a new starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
     </div>
     {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
+    {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} />}
   </section>
 }

@@ -1,9 +1,11 @@
 import type { FixtureDef, FixtureProfile } from '@shared/types'
-export interface PatchOptions { modeId?: string; quantity: number; start: number; name?: string; group?: string; universe?: number }
+import { modeFootprint } from '@shared/fixtureProfiles'
+import { incrementShortName, normalizeShortName, proposeShortName, shortNameAt } from '@shared/shortNames'
+export interface PatchOptions { modeId?: string; quantity: number; start: number; name?: string; group?: string; universe?: number; shortName?: string; count?: number; ledCount?: number }
 export interface PatchConflict { fixtureIds: string[]; type: 'overlap' | 'out-of-range'; channels: number[] }
-export function fixtureWidth(profile: FixtureProfile, modeId?: string): number {
+export function fixtureWidth(profile: FixtureProfile, modeId?: string, ledCount?: number): number {
   const mode = profile.modes.find((item) => item.id === modeId) ?? profile.modes[0]
-  return mode?.channels.length ? Math.max(...mode.channels.map((channel) => channel.number)) + 1 : 0
+  return mode ? modeFootprint(mode, ledCount) : 0
 }
 export function placementError(fixtures: FixtureDef[], start: number, width: number, ignoreFixtureId?: string): string | null {
   if (!Number.isInteger(start) || !Number.isInteger(width) || start < 1 || width < 1 || start + width - 1 > 512) return 'The fixture does not fit within channels 1–512'
@@ -26,15 +28,36 @@ export function allocateFixtures(existing: FixtureDef[], profile: FixtureProfile
   const mode = profile.modes.find((m) => m.id === options.modeId) ?? profile.modes[0]
   if (!mode || !mode.channels.length) throw new Error('Choose a fixture mode')
   if (options.universe && options.universe !== 1) throw new Error('USB output supports universe 1')
-  const quantity = options.quantity, width = fixtureWidth(profile, mode.id)
+  const quantity = options.quantity, width = fixtureWidth(profile, mode.id, options.ledCount)
+  const count = Math.max(1, Math.floor(options.count ?? 1))
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 512 || !Number.isInteger(options.start) || options.start < 1 || options.start > 512) throw new Error('Choose a valid quantity and DMX start address')
+  if (options.ledCount !== undefined && mode.flexibleLeds) {
+    const { minLeds = 1, maxLeds } = mode.flexibleLeds
+    if (!Number.isInteger(options.ledCount) || options.ledCount < minLeds || options.ledCount > maxLeds) throw new Error(`Choose ${minLeds}–${maxLeds} LEDs`)
+  }
   const used = new Set(existing.flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)))
   const fixtures: FixtureDef[] = []
+  // Short names (Guide p.30): the first fixture takes the given name (or
+  // the type-based proposal when none is given); a batch increments it
+  // from there (MH6 → MH6..MH9). A name already in use is skipped so two
+  // fixtures never share a short name in one show.
+  const usedShortNames = new Set(existing.map((f) => f.shortName).filter((s): s is string => Boolean(s)).map((s) => s.trim().toUpperCase()))
+  const firstShort = normalizeShortName(options.shortName) ?? proposeShortName(usedShortNames, profile.legacyType)
+  const shortFor = (index: number): string => {
+    let candidate = shortNameAt(firstShort, index, quantity)
+    let guard = 0
+    while (usedShortNames.has(candidate.toUpperCase()) && guard < 100) {
+      candidate = incrementShortName(candidate) ?? `${candidate}${index + 1}`
+      guard++
+    }
+    usedShortNames.add(candidate.toUpperCase())
+    return candidate
+  }
   let start = options.start
   for (let index = 0; index < quantity; index++) {
     while (start + width - 1 <= 512 && Array.from({ length: width }, (_, i) => start + i).some((c) => used.has(c))) start++
     if (start + width - 1 > 512) throw new Error('Not enough free DMX channels for this batch')
-    fixtures.push({ id: crypto.randomUUID(), name: `${options.name?.trim() || profile.name}${quantity > 1 ? ` ${index + 1}` : ''}`, group: options.group?.trim() || 'Ungrouped', type: profile.legacyType, channelStart: start, channels: width, universe: 1, inStorage: true, profileId: profile.id, modeId: mode.id, profile: structuredClone(profile) })
+    fixtures.push({ id: crypto.randomUUID(), name: `${options.name?.trim() || profile.name}${quantity > 1 ? ` ${index + 1}` : ''}`, shortName: shortFor(index), ...(count > 1 ? { count } : {}), ...(mode.flexibleLeds && options.ledCount !== undefined && options.ledCount !== mode.flexibleLeds.defaultLeds ? { ledCount: options.ledCount } : {}), group: options.group?.trim() || 'Ungrouped', type: profile.legacyType, channelStart: start, channels: width, universe: 1, inStorage: true, profileId: profile.id, modeId: mode.id, profile: structuredClone(profile) })
     for (let i = 0; i < width; i++) used.add(start + i)
     start += width
   }

@@ -1,8 +1,9 @@
 /** Missing versions are legacy version 0. */
-export const CURRENT_SCHEMA_VERSION = 2
+export const CURRENT_SCHEMA_VERSION = 3
 import { BUILTIN_PROFILES } from './fixtureProfiles'
+import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
-import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
+import type { FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
@@ -83,7 +84,11 @@ const steps: Record<number, (source: Document) => Document> = {
       }
     }
     return doc
-  }
+  },
+  // 19 Nov 2026: fixtures carry a short name (≤4 chars) for the Preview
+  // (LightKey Guide p.30). The names themselves are filled in the additive
+  // defaults below, so this step only bumps the version.
+  2: (source) => ({ ...source, schemaVersion: 3 })
 }
 
 /** Non-destructive version steps. Future documents retain their version and unknown fields. */
@@ -128,7 +133,13 @@ export function migrateShow(raw: unknown): ShowDef {
   doc.layout = { preview: true, palette: true, inspector: true, ...record(doc.layout) }
   doc.preferences = { defaultFadeMs: 1000, pageFadeMs: 500, theme: 'dark', dmxProtocol: 'open-dmx-usb', ...record(doc.preferences) }
   if (!Array.isArray(doc.stageObjects)) doc.stageObjects = (Array.isArray(doc.previewTrusses) ? doc.previewTrusses : []).map((raw) => { const truss = record(raw); return { ...truss, kind: 'truss', trussShape: truss.shape, fill: 'none', opacity: 1 } })
-  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ?? profile, inStorage: fixture.inStorage === true, previewBeam: { direction: 'auto', ...record(fixture.previewBeam) }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0 } })
+  // Short names (LightKey Guide p.30): fixtures stored before schema v3
+  // have none, so derive them from the fixture type (MH/P/…) with the
+  // first free number per base, in fixture order. Stored names are kept
+  // exactly as they are; this only fills blanks, so it is idempotent.
+  const usedShortNames = new Set<string>()
+  for (const raw of doc.fixtures as unknown[]) { const name = record(raw).shortName; if (typeof name === 'string' && name.trim()) usedShortNames.add(name.trim().toUpperCase()) }
+  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ?? profile, inStorage: fixture.inStorage === true, previewBeam: { direction: 'auto', ...record(fixture.previewBeam) }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
   if (!Array.isArray(doc.fixtureGroups)) {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))

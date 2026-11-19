@@ -23,19 +23,24 @@ export function FanGlyph({ size = 14 }: { size?: number }) {
   )
 }
 
-export function FanMenuButton({ label, items, disabled = false }: {
+export function FanMenuButton({ label, items, disabled = false, title }: {
   /** The property's label, e.g. "Dimmer" — the menu offers "Add Dimmer Fanning…". */
   label: string
   items: { label: string; onSelect: () => void }[]
   disabled?: boolean
+  /** Menu button label; defaults to `Add ${label} fanning`. The Colour
+      menu also offers the LightKey default-value actions (Guide p.114),
+      so it uses "Colour options". */
+  title?: string
 }) {
   const [open, setOpen] = useState(false)
+  const buttonTitle = title ?? `Add ${label} fanning`
   return (
     <span className="relative inline-flex">
       <button
         type="button"
-        title={`Add ${label} fanning`}
-        aria-label={`Add ${label} fanning`}
+        title={buttonTitle}
+        aria-label={buttonTitle}
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}

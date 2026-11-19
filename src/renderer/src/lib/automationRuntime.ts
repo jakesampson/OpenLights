@@ -72,6 +72,31 @@ export function computeCueChannels(
       if (offset === undefined || typeof value !== 'number' || Number.isNaN(value)) continue
       channels[fixture.channelStart + offset] = scaleAttribute(attr, value, master)
     }
+
+    // A fixture with no dimmer channel still has a working Dimmer in
+    // LightKey (verified 19 Nov 2026, Jake's RGBAW fixture): the
+    // dimmer is virtual — it scales all the fixture's LED values like
+    // a master / DCA fader. Fixtures with a dimmer channel dim in
+    // hardware and are untouched. The scaling applies to the values
+    // this call wrote — the cue's values and, with zeroMissing, the
+    // default fill — so a blue default at half dimmer comes out at
+    // half. A colour defined by a higher layer is not scaled by a
+    // lower layer's dimmer (known limitation, see NOTES.md).
+    const virtualDimmer = map['intensity'] === undefined ? attrs.intensity : undefined
+    if (typeof virtualDimmer === 'number' && !Number.isNaN(virtualDimmer)) {
+      for (const attr of DIMMER_ATTRIBUTES) {
+        if (attr === 'intensity') continue
+        const offset = map[attr]
+        if (offset === undefined) continue
+        const channel = fixture.channelStart + offset
+        // Only scale channels this call actually wrote — with
+        // zeroMissing off, a cue that sets only the dimmer must not
+        // invent zeroed colour channels (they would sit above the
+        // defaults layer and black the fixture out).
+        if (!(channel in channels)) continue
+        channels[channel] = clamp(Math.round(channels[channel] * clamp(virtualDimmer) / 255))
+      }
+    }
   }
 
   return channels

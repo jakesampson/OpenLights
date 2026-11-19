@@ -110,10 +110,8 @@ describe('arcRelAngle — pointer angles clamp to the nearer arc end', () => {
 describe('ColorWheelControl — pointer interaction', () => {
   const props = {
     hsv: { h: 0, s: 100, v: 100 },
-    extraChannels: [],
     centreHex: '#ff0000',
     onHsvChange: vi.fn(),
-    onExtraChange: vi.fn(),
     onCentrePick: vi.fn()
   }
 

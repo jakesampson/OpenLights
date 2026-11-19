@@ -200,20 +200,39 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       const descriptor = descriptors.get(String(channelKey))
       const definition = descriptor?.definition ?? {}
       const label = descriptor?.byte ? `${definition.name ?? descriptor.key} fine ${descriptor.byte}` : String(definition.name ?? descriptor?.key ?? channelKey)
+      const type = propertyType(definition, descriptor?.key ?? String(channelKey))
       return {
         number,
         attribute: uniqueAttribute(label, used),
-        propertyType: propertyType(definition, descriptor?.key ?? String(channelKey)),
+        propertyType: type,
         control: channelControl(definition),
         slots: channelSlots(definition),
         min: 0,
         max: 255,
-        defaultValue: dmxByte(definition.defaultValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 0),
+        defaultValue: defaultChannelValue(definition, descriptor, type),
         highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 255)
       }
     })
     const name = typeof mode.name === 'string' ? mode.name : `Mode ${modeIndex + 1}`
-    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels }
+    // Flexible LED strip/matrix (LightKey Guide p.29, FLEX): a mode whose
+    // first channel block is a matrix insert (pixel-major order) has its
+    // LED channels first and the remaining channels after them, so the
+    // fixture can be patched with fewer LEDs and the footprint shrinks.
+    // A per-channel insert or an insert that is not first has no such
+    // layout, so the LED count stays fixed for those modes.
+    const rawChannels = Array.isArray(mode.channels) ? mode.channels : []
+    const inserts = rawChannels.map((channel, index) => ({ insert: record(channel), index })).filter(({ insert }) => insert.insert === 'matrixChannels' && Array.isArray(insert.templateChannels))
+    const flexibleLeds = (() => {
+      if (inserts.length !== 1 || inserts[0].index !== 0) return undefined
+      const insert = inserts[0].insert
+      if (insert.channelOrder === 'perChannel') return undefined
+      const templateCount = (insert.templateChannels as unknown[]).length
+      const pixels = repeatKeys(fixture, insert.repeatFor)
+      if (templateCount < 1 || pixels.length < 2) return undefined
+      if (expandedChannels.length - pixels.length * templateCount < 0) return undefined
+      return { channelsPerLed: templateCount, maxLeds: pixels.length, defaultLeds: pixels.length, minLeds: 1 }
+    })()
+    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}) }
   })
 
   const name = typeof fixture.name === 'string' && fixture.name.trim() ? fixture.name : 'OFL fixture'
@@ -232,6 +251,24 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
 
 function colorName(attribute: string): string | undefined {
   return ['Red', 'Green', 'Blue', 'White', 'Amber', 'UV', 'Cyan', 'Magenta', 'Yellow'].find((name) => attribute.toLowerCase().includes(name.toLowerCase()))
+}
+
+/**
+ * A channel's default value: the OFL definition's own default wins when
+ * it sets one. When it sets none, LightKey's default colour is blue
+ * (Guide p.85) — a blue-component colour channel (Blue, Cyan, Magenta)
+ * defaults to full (255) on its coarse byte, the other colour components
+ * to 0 — and the dimmer defaults to full (255) too, so a fixture added
+ * for the first time starts at 100% (Jake, 19 Nov 2026 — Piece 13, the
+ * same as the virtual dimmer). Fine bytes default to 0.
+ */
+function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined, type: FixtureChannel['propertyType']): number {
+  const byte = descriptor?.byte ?? 0
+  const value = dmxByte(definition.defaultValue, definition.dmxValueResolution, byte, 0)
+  if (definition.defaultValue != null || byte !== 0) return value
+  if (type === 'intensity') return 255
+  const color = colorName(descriptor?.key ?? '')
+  return color === 'Blue' || color === 'Cyan' || color === 'Magenta' ? 255 : value
 }
 
 function oflCapability(channel: FixtureChannel): JsonRecord {

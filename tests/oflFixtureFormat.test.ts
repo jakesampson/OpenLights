@@ -31,6 +31,47 @@ describe('Open Fixture Library format', () => {
     expect(profile.ofl?.source).toEqual(oflFixture)
   })
 
+  it('defaults an undefined colour to blue unless the definition sets one (Guide p.85)', () => {
+    const colourFixture = {
+      ...oflFixture,
+      fixtureKey: 'colour-test',
+      name: 'Colour Test',
+      categories: ['Color Changer'],
+      availableChannels: {
+        Red: { capability: { type: 'ColorIntensity', color: 'Red' } },
+        Green: { capability: { type: 'ColorIntensity', color: 'Green' } },
+        Blue: { capability: { type: 'ColorIntensity', color: 'Blue' } },
+        Cyan: { capability: { type: 'ColorIntensity', color: 'Cyan' } },
+        Magenta: { capability: { type: 'ColorIntensity', color: 'Magenta' } },
+        Yellow: { capability: { type: 'ColorIntensity', color: 'Yellow' } },
+        'Blue (forced off)': { defaultValue: 0, capability: { type: 'ColorIntensity', color: 'Blue' } }
+      },
+      modes: [{ name: 'Colour', shortName: '7ch', channels: ['Red', 'Green', 'Blue', 'Cyan', 'Magenta', 'Yellow', 'Blue (forced off)'] }]
+    }
+    const profile = importOflFixture(colourFixture, { manufacturer: 'Sample Brand' })
+    expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
+      ['Red', 0], ['Green', 0], ['Blue', 255], ['Cyan', 255], ['Magenta', 255], ['Yellow', 0], ['Blue (forced off)', 0]
+    ])
+  })
+
+  it('defaults an undefined dimmer to full unless the definition sets one (Piece 13)', () => {
+    const dimmerFixture = {
+      ...oflFixture,
+      fixtureKey: 'dimmer-test',
+      name: 'Dimmer Test',
+      categories: ['Dimmer'],
+      availableChannels: {
+        Dimmer: { capability: { type: 'Intensity' } },
+        'Dimmer (forced off)': { defaultValue: 0, capability: { type: 'Intensity' } }
+      },
+      modes: [{ name: 'Dimmer', shortName: '2ch', channels: ['Dimmer', 'Dimmer (forced off)'] }]
+    }
+    const profile = importOflFixture(dimmerFixture, { manufacturer: 'Sample Brand' })
+    expect(profile.modes[0].channels.map((channel) => [channel.attribute, channel.defaultValue])).toEqual([
+      ['Dimmer', 255], ['Dimmer (forced off)', 0]
+    ])
+  })
+
   it('auto-detects OFL JSON and supports compact bulk-library conversion', () => {
     expect(importProfile(JSON.stringify(oflFixture), { manufacturer: 'Sample Brand' }).name).toBe('Sample Move')
     expect(importOflFixture(oflFixture, { preserveSource: false }).ofl?.source).toBeUndefined()
@@ -54,6 +95,9 @@ describe('Open Fixture Library format', () => {
       'Red (1, 1, 1)', 'Green (1, 1, 1)', 'Red (2, 1, 1)', 'Green (2, 1, 1)'
     ])
     expect(profile.legacyType).toBe('pixel-bar-17ch')
+    // A matrix mode whose insert is first and pixel-major is flexible: the
+    // LED count can be chosen at patch time and the footprint shrinks.
+    expect(profile.modes[0].flexibleLeds).toEqual({ channelsPerLed: 2, maxLeds: 2, defaultLeds: 2, minLeds: 1 })
   })
 
   it('exports native OpenLights profiles as OFL JSON without mutating them', () => {

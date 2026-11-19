@@ -5,7 +5,7 @@ import { resizeFixtureIcon, rotateFixtureIcon } from '../lib/fixtureGeometry'
 import { marqueeSelection } from '../lib/previewSelection'
 import { fitPreview, type Bounds } from '../lib/previewViewport'
 import { moveTruss, resizeTruss, rotateTruss, snapFixtureToTruss, snapTrussEndpoints } from '../lib/trussGeometry'
-import { fixtureMode } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { orderedFanFixtures } from '../lib/fanning'
 import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
 import { fixtureValuesToHex } from '../lib/colorMix'
@@ -13,10 +13,14 @@ import { StageObjectLayer } from './StageObjects'
 import { FanningHud } from './FanningHud'
 import { useShowStore } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
+import { instanceKey, instancePositions } from '../lib/previewLayout'
 import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
 interface FixtureView extends FixtureDef {
+  /** Count instance index (0 for a single fixture); `key` is `${id}:${instance}`. */
+  instance: number
+  key: string
   pos: Pos
   intensity: number
   color: string
@@ -79,7 +83,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId } = useShowStore()
+  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -191,7 +195,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const [viewCentre, setViewCentre] = useState({ x: 400, y: 170 })
   const [dragPositions, setDragPositions] = useState<Record<string, Pos> | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const dragRef = useRef<{ start: Pos; originals: Record<string, Pos>; positions: Record<string, Pos> } | null>(null)
+  const dragRef = useRef<{ start: Pos; originals: Record<string, Pos>; positions: Record<string, Pos>; fixtureIds: string[] } | null>(null)
   // Canvas pan (LightKey Guide p.53: Space+drag pans the Preview; "when
   // the Preview is enlarged you can scroll to move the visible area").
   // A pan starts from a blank drag in non-edit mode (no marquee there)
@@ -292,32 +296,57 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const activeCue = activeCueId ? cues.find((s) => s.id === activeCueId) : null
 
   const fixtureViews = useMemo((): FixtureView[] => {
-    const count = fixtures.length || 8 // demo rig when nothing patched
-    const positions = fixturePositions(count)
-
-    return positions.map((pos, i) => {
-      if (fixtures.length > 0) {
-        const f = fixtures[i]
-        const values = previewFixtureValues(f, outputChannels, activeCue?.fixtureValues[f.id])
-        return {
-          ...f,
-          pos: dragPositions?.[f.id] ?? f.previewPosition ?? pos,
-          intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
-          color: fixtureColor(values, f.type === 'dimmer')
-        }
-      }
-      return {
+    if (fixtures.length === 0) {
+      // Demo rig when nothing patched.
+      return fixturePositions(8).map((pos, i) => ({
         id: `demo-${i}`,
         name: `Demo Light ${i + 1}`,
         type: i < 4 ? 'par' : 'moving-head',
         channelStart: i + 1,
         channels: 4,
+        instance: 0,
+        key: `demo-${i}:0`,
         pos: { x: pos.x, y: pos.y },
         intensity: 170,
         color: '#c24bd6'
+      }))
+    }
+    // One view per Count instance: each instance is its own placeable
+    // icon on the canvas (LightKey Guide p.30 — "multiple instances of
+    // the fixture in the Preview"), with its own stored position. A
+    // fixture with no stored position at all falls back to the demo-arc
+    // layout, fanned like Piece 1 did, so old shows do not jump.
+    const arc = fixturePositions(fixtures.length)
+    const views: FixtureView[] = []
+    fixtures.forEach((f, fixtureIndex) => {
+      const values = previewFixtureValues(f, outputChannels, activeCue?.fixtureValues[f.id])
+      const stored = instancePositions(f)
+      const count = f.count ?? 1
+      for (let instance = 0; instance < count; instance++) {
+        const fallback = arc[fixtureIndex] ? { x: arc[fixtureIndex].x + instance * 28, y: arc[fixtureIndex].y } : { x: 400, y: 170 }
+        views.push({
+          ...f,
+          instance,
+          key: instanceKey(f.id, instance),
+          pos: dragPositions?.[instanceKey(f.id, instance)] ?? stored[instance] ?? fallback,
+          intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
+          color: fixtureColor(values, f.type === 'dimmer')
+        })
       }
     })
+    return views
   }, [fixtures, activeCue, dragPositions, outputChannels])
+
+  // Newly patched fixtures appear with a short fade/scale-in when they
+  // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a
+  // LightKey behaviour, so it stays at 300ms). The marker is set by
+  // addProfileFixtures and survives while the user is still on the Patch
+  // view, so the animation plays when they come back to the Preview.
+  useEffect(() => {
+    if (!newFixtureIds.length) return
+    const timer = window.setTimeout(clearNewFixtureIds, 450)
+    return () => window.clearTimeout(timer)
+  }, [newFixtureIds, clearNewFixtureIds])
 
   const trusses = show?.previewTrusses ?? []
   // Blue dots (Guide p.121) while the Fanning HUD is open: the fixtures
@@ -368,7 +397,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [editing, selectedTruss, trusses, setPreviewTrusses])
   const align = (mode: AlignMode) => {
-    const selected = fixtureViews.filter((f) => selectedFixtureIds.includes(f.id)).map((f) => ({ id: f.id, x: f.pos.x, y: f.pos.y, width: 20, height: 20 }))
+    // Align works on instance positions: every icon of a selected fixture
+    // is aligned, and the result is committed per instance.
+    const selected = fixtureViews.filter((f) => selectedFixtureIds.includes(f.id)).map((f) => ({ id: f.key, x: f.pos.x, y: f.pos.y, width: 20, height: 20 }))
     for (const truss of trusses.filter((t) => selectedLayoutTrussIds.includes(t.id) || t.id === selectedPreviewTrussId)) {
       const angle = truss.rotation * Math.PI / 180, height = truss.shape === 'u' ? truss.height : 8
       selected.push({ id: truss.id, x: truss.x, y: truss.y, width: Math.abs(truss.width * Math.cos(angle)) + Math.abs(height * Math.sin(angle)), height: Math.abs(truss.width * Math.sin(angle)) + Math.abs(height * Math.cos(angle)) })
@@ -376,7 +407,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     if (selected.length < 2) return
     const output = alignObjects(selected, mode), state = useShowStore.getState()
     state.beginHistoryGroup()
-    setFixturePositions(Object.fromEntries(Object.entries(output).filter(([id]) => fixtures.some((f) => f.id === id))))
+    setFixtureInstancePositions(Object.fromEntries(Object.entries(output).filter(([id]) => fixtureViews.some((f) => f.key === id))))
     setPreviewTrusses(trusses.map((t) => output[t.id] ? { ...t, ...output[t.id] } : t))
     state.endHistoryGroup()
   }
@@ -424,7 +455,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-fixture'), point = pointAt(event); if (point && storedFixtures.some((f) => f.id === id)) { event.preventDefault(); setFixturePositions({ [id]: point }); selectFixtures([id]) } }}
         viewBox={`${viewCentre.x - 400 / zoom} ${viewCentre.y - 170 / zoom} ${800 / zoom} ${340 / zoom}`}
         onPointerMove={(event) => { if (fixtureHandleRef.current) { const d = fixtureHandleRef.current, point = pointAt(event); if (point) useShowStore.getState().updateFixture(d.fixture.id, d.mode === 'resize' ? { iconSize: resizeFixtureIcon(d.fixture, d.centre, d.start, point) } : { rotation: rotateFixtureIcon(d.fixture, d.centre, d.start, point) }); return } if (marquee) { const point = pointAt(event); if (point) setMarquee({ ...marquee, current: point }); return } if (trussDragRef.current) { const point = pointAt(event); if (point) { const drag = trussDragRef.current; const next = drag.mode === 'move' ? moveTruss(drag.original, drag.start, point) : drag.mode === 'rotate' ? rotateTruss(drag.original, drag.start, point) : resizeTruss(drag.original, drag.start, point); drag.current = drag.mode === 'rotate' ? next : snapTrussEndpoints(next, trusses); setTrussDraft(drag.current) } return } if (panRef.current) { const pan = panRef.current; const rect = svgRef.current?.getBoundingClientRect(); if (rect) { const scale = (800 / zoom) / rect.width; if (Math.abs(event.clientX - pan.startClient.x) > 3 || Math.abs(event.clientY - pan.startClient.y) > 3) pan.moved = true; setViewCentre({ x: pan.startCentre.x - (event.clientX - pan.startClient.x) * scale, y: pan.startCentre.y - (event.clientY - pan.startClient.y) * scale }) } return } if (!dragRef.current) return; const position = pointAt(event); if (position) { const drag = dragRef.current; const dx = position.x - drag.start.x, dy = position.y - drag.start.y; const positions = Object.fromEntries(Object.entries(drag.originals).map(([id, original]) => [id, { x: clamp(original.x + dx, 0, 800), y: clamp(original.y + dy, 0, 340) }])); drag.positions = positions; setDragPositions(positions) } }}
-        onPointerUp={(event) => { if (fixtureHandleRef.current) { fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (marquee) { const ids = marqueeSelection([...fixtureViews.map((f) => ({ id: f.id, x: f.pos.x, y: f.pos.y, width: 20, height: 20 })), ...trusses.map((t) => ({ ...t, height: t.shape === 'u' ? t.height : 8 }))], marquee.start, pointAt(event) ?? marquee.current); const fixtures = ids.filter((id) => fixtureViews.some((f) => f.id === id)); selectFixtures(marquee.additive ? [...new Set([...selectedFixtureIds, ...fixtures])] : fixtures); const selected = ids.filter((id) => trusses.some((t) => t.id === id)); setSelectedLayoutTrussIds(marquee.additive ? [...new Set([...selectedLayoutTrussIds, ...selected])] : selected); setSelectedPreviewTrussId(selected[0] ?? null); setMarquee(null); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (panRef.current) { const pan = panRef.current; panRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); if (!pan.moved && !editing) selectFixtures([]); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); const tray = document.getElementById('fixture-storage-tray')?.getBoundingClientRect(); if (tray && event.clientX >= tray.left && event.clientX <= tray.right && event.clientY >= tray.top && event.clientY <= tray.bottom) { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of Object.keys(drag.positions)) state.updateFixture(id, { inStorage: true }); state.endHistoryGroup(); selectFixtures([]); return } setFixturePositions(Object.fromEntries(Object.entries(drag.positions).map(([id, position]) => [id, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+        onPointerUp={(event) => { if (fixtureHandleRef.current) { fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (marquee) { const ids = marqueeSelection([...fixtureViews.map((f) => ({ id: f.key, x: f.pos.x, y: f.pos.y, width: 20, height: 20 })), ...trusses.map((t) => ({ ...t, height: t.shape === 'u' ? t.height : 8 }))], marquee.start, pointAt(event) ?? marquee.current); const fixtures = [...new Set(ids.map((id) => fixtureViews.find((f) => f.key === id)?.id).filter((id): id is string => Boolean(id)))]; selectFixtures(marquee.additive ? [...new Set([...selectedFixtureIds, ...fixtures])] : fixtures); const selected = ids.filter((id) => trusses.some((t) => t.id === id)); setSelectedLayoutTrussIds(marquee.additive ? [...new Set([...selectedLayoutTrussIds, ...selected])] : selected); setSelectedPreviewTrussId(selected[0] ?? null); setMarquee(null); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (panRef.current) { const pan = panRef.current; panRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); if (!pan.moved && !editing) selectFixtures([]); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); const tray = document.getElementById('fixture-storage-tray')?.getBoundingClientRect(); if (tray && event.clientX >= tray.left && event.clientX <= tray.right && event.clientY >= tray.top && event.clientY <= tray.bottom) { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of drag.fixtureIds) state.updateFixture(id, { inStorage: true }); state.endHistoryGroup(); selectFixtures([]); return } setFixtureInstancePositions(Object.fromEntries(Object.entries(drag.positions).map(([key, position]) => [key, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
         onPointerCancel={() => { if (fixtureHandleRef.current) { const f = fixtureHandleRef.current.fixture; useShowStore.getState().updateFixture(f.id, { iconSize: f.iconSize, rotation: f.rotation }); fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup() } setMarquee(null); panRef.current = null; dragRef.current = null; setDragPositions(null); trussDragRef.current = null; setTrussDraft(null) }}
         preserveAspectRatio="xMidYMid meet"
       >
@@ -490,7 +521,11 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         </g>})}
 
         <StageObjectLayer editing={editing} selectedId={selectedStageObjectId} select={(id) => { setSelectedStageObjectId(id); setSelectedPreviewTrussId(null); selectFixtures([]) }} />
-        {/* Beams */}
+        {/* Beams — one icon per Count instance (Guide p.30), each with
+            its own stored position and draggable on its own. Dragging
+            one instance moves only it, plus the icons of any other
+            selected fixtures (which move as a group by the same delta);
+            the dragged fixture's other instances stay put. */}
         {fixtureViews.map((f) => {
           const x = f.pos.x
           const y = f.pos.y
@@ -504,14 +539,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
             <g
-              key={f.id}
+              key={f.key}
               data-context-menu="fixture"
               role={selectable ? 'button' : undefined}
               tabIndex={selectable ? 0 : undefined}
               aria-label={selectable ? f.name : undefined}
               aria-pressed={selectable ? selected : undefined}
+              className={newFixtureIds.includes(f.id) ? 'fixture-appear' : undefined}
               style={selectable ? { cursor: editing ? 'grab' : 'pointer', touchAction: 'none' } : undefined}
-              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const ids = selectedFixtureIds.includes(f.id) ? selectedFixtureIds : [f.id]; if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((fixture) => ids.includes(fixture.id)).map((fixture) => [fixture.id, fixture.pos])); dragRef.current = { start: position, originals, positions: originals }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
+              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const ids = selectedFixtureIds.includes(f.id) ? selectedFixtureIds : [f.id]; if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((view) => view.key === f.key || (ids.includes(view.id) && view.id !== f.id)).map((view) => [view.key, view.pos])); dragRef.current = { start: position, originals, positions: originals, fixtureIds: ids }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
               onClick={
                 selectable
                   ? (event) => {
@@ -542,7 +578,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   strokeWidth="1"
                 />
               )}
-              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.name}</text>}
+              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2">{f.shortName ?? f.name}</text>}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
               <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
@@ -574,8 +610,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 pointerEvents="all"
                 aria-hidden="true"
               />
-              {(fixtureMode(f)?.beams ?? []).map((beam, index) => <rect key={beam.id} x={x + (index - 1.5) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
-              {editing && selected && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
+              {fixtureBeams(f).map((beam, index) => <rect key={beam.id} x={x + (index - 1.5) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )
         })}

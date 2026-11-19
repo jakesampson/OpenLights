@@ -78,7 +78,9 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
   it('still wires Dimmer and channels to the same store updates', () => {
     expect(design).toContain("onChange={(next) => updateValues({ intensity: next })}")
     expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
-    expect(design).toContain('disabled={!canEdit || !dimmerSupported}')
+    // The Dimmer fader is available for a fixture with a dimmer channel
+    // and for a virtual-dimmer fixture (colour, no dimmer channel).
+    expect(design).toContain('disabled={!canEdit || !dimmerAvailable}')
     expect(design).toContain('disabled={!canEdit}')
   })
 
@@ -87,7 +89,7 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
     // The wheel is LightKey's round control now (outer hue ring, inner
     // arcs) — the native colour input + marker are gone.
     expect(design).toContain('<ColorWheelControl')
-    expect(design).toContain('rgbToHsv(colorValues)')
+    expect(design).toContain('rgbToHsv(baseColorValues)')
     expect(design).not.toContain('className="wheel-input"')
     expect(design).not.toContain('colorWheelPosition')
   })

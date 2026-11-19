@@ -16,6 +16,27 @@ describe('show schema version', () => {
   })
 })
 
+describe('short names (schema v3, LightKey Guide p.30)', () => {
+  it('derives short names for fixtures stored without one and keeps stored names', () => {
+    const raw = {
+      schemaVersion: 2,
+      id: 'old', name: 'Old show', createdAt: 0, updatedAt: 0,
+      fixtures: [
+        { id: 'f1', name: 'Warm Wash Front', type: 'par', channelStart: 1, channels: 4 },
+        { id: 'f2', name: 'Blue Fill Back', type: 'led-wash', channelStart: 5, channels: 7 },
+        { id: 'f3', name: 'Center Moving Head', type: 'moving-head', channelStart: 12, channels: 8 },
+        { id: 'f4', name: 'Custom', type: 'moving-head', channelStart: 20, channels: 8, shortName: 'SPOT' }
+      ],
+      cues: [], automations: []
+    }
+    const show = migrateShow(raw)
+    expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(show.fixtures.map((f) => f.shortName)).toEqual(['P1', 'W1', 'MH1', 'SPOT'])
+    // Idempotent: a second migration keeps the same names.
+    expect(migrateShow(JSON.parse(JSON.stringify(show))).fixtures.map((f) => f.shortName)).toEqual(['P1', 'W1', 'MH1', 'SPOT'])
+  })
+})
+
 describe('MIDI mapping migration', () => {
   it('adds trigger semantics without removing legacy mapping fields', () => {
     const raw = { ...useShowStore.getState().show!, midiMappings: [
@@ -70,7 +91,7 @@ describe('scene to cue migration (schema v2, LightKey language)', () => {
 
   it('renames stored looks to cues and every reference, losing nothing', () => {
     const show: any = migrateShow(legacyV1Show())
-    expect(show.schemaVersion).toBe(2)
+    expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(show.scenes).toBeUndefined()
     expect(show.cues).toHaveLength(1)
     expect(show.cues[0]).toMatchObject({ id: 's1', name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } })
