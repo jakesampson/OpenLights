@@ -122,19 +122,21 @@ function createWindow() {
     // screenshots: the reserved left space sat empty), so the only close
     // path was the renderer's own purple buttons. hiddenInset is the
     // canonical frameless-window option for traffic lights.
-    // trafficLightPosition centres the 12px lights in the 61px header
-    // ((61 - 12) / 2 = 24) and starts them at the standard 20px inset;
+    // trafficLightPosition centres the 12px lights in the 50px header
+    // ((50 - 12) / 2 = 19) and starts them at the standard 20px inset;
     // the header's .top-bar-mac spacing (patch icon at 80px, title at
     // 104px) already clears lights ending at ~72px, so no CSS change
     // was needed. Windows/Linux keep the native caption buttons via
     // the title bar overlay, restyled to the header itself: LightKey
-    // grey #444345 with #d2d2d2 glyphs, at the header's exact 61px
-    // height (min-height 50 + 5px padding top/bottom + 1px border) —
-    // the old overlay was purple at 72px, taller than the
-    // header, which is the block in Jake's screenshot (image-7.png).
+    // grey #444345 with #d2d2d2 glyphs, at the header's exact 50px
+    // height. The app uses box-sizing: border-box (index.css), so the
+    // header's min-height 50 already includes its 5px padding and 1px
+    // border — the earlier 61px (50 + 5 + 5 + 1) double-counted them
+    // and the overlay stuck out ~11px below the header into the preset
+    // palette (Jake, 19 Nov 2026, screenshot image-8.png).
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
-    trafficLightPosition: process.platform === 'darwin' ? { x: 20, y: 24 } : undefined,
-    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#444345', symbolColor: '#d2d2d2', height: 61 }
+    trafficLightPosition: process.platform === 'darwin' ? { x: 20, y: 19 } : undefined,
+    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#444345', symbolColor: '#d2d2d2', height: 50 }
   })
   const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
     label: group.label,

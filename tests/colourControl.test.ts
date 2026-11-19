@@ -56,8 +56,12 @@ describe('ColorWheelControl — LightKey’s round control', () => {
   })
 
   it('is draggable on the hue ring and on each inner arc', () => {
-    expect(wheel).toContain("activeZone.current = { type: 'hue' }")
-    expect(wheel).toContain("activeZone.current = { type: 'arc', index }")
+    // The zone is computed once on pointerdown (hue ring vs arc) and
+    // stored in the ref (and in dragZone state, for the marker/popup).
+    expect(wheel).toContain("const zone: { type: 'hue' } | { type: 'arc'; index: number }")
+    expect(wheel).toContain("? { type: 'hue' }")
+    expect(wheel).toContain("{ type: 'arc', index:")
+    expect(wheel).toContain('activeZone.current = zone')
     expect(wheel).toContain('onHsvChange({ h: Math.round(point.angle)')
     expect(wheel).toContain('onExtraChange(arc.attribute, Math.round(fraction * 255))')
   })
@@ -68,8 +72,11 @@ describe('DesignTab — the wheel is the colour control', () => {
     expect(design).toContain('<ColorWheelControl')
     expect(design).toContain('hsv={hsv}')
     expect(design).toContain('rgbToHsv(colorValues)')
-    expect(design).toContain('onHsvChange={(next) => setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))}')
-    expect(design).toContain('onCentrePick={(hex) => setColor(hex)}')
+    // The wheel's own hue/sat are preserved independently of brightness
+    // (displayHsv) — the handler records them before writing the colour.
+    expect(design).toContain('setPreservedHsv({ h: next.h, s: next.s })')
+    expect(design).toContain('setColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
+    expect(design).toContain('onCentrePick={(hex) => {')
   })
 
   it('shows inner arcs only for additional colour channels the fixtures have', () => {

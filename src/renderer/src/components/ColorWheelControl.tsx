@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useDragEnd } from './useDragEnd'
 
 const CX = 110, CY = 110
@@ -66,6 +66,13 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
   const wrapRef = useRef<HTMLDivElement>(null)
   const drag = useDragEnd()
   const activeZone = useRef<{ type: 'hue' } | { type: 'arc'; index: number } | null>(null)
+  // The zone being dragged, as state so the render can hide its marker
+  // and show the value popup — the ref above is what the handlers read.
+  const [dragZone, setDragZone] = useState<{ type: 'hue' } | { type: 'arc'; index: number } | null>(null)
+  // Small `Label: value` popup above the pointer while dragging (and on
+  // hover over a draggable zone). pointer-events: none, so it can never
+  // intercept input or cover the wheel's hit area (Jake, 19 Nov 2026).
+  const [tooltip, setTooltip] = useState<{ x: number; y: number; text: string } | null>(null)
 
   const arcs: InnerArc[] = [
     { key: 'saturation', label: 'Saturation', kind: 'saturation', fraction: hsv.s / 100, maxColor: `hsl(${hsv.h}, 100%, 50%)`, minColor: `hsl(${hsv.h}, 0%, 50%)` },
@@ -103,7 +110,28 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
     else if (arc.attribute) onExtraChange(arc.attribute, Math.round(fraction * 255))
   }
 
-  const endDrag = () => { drag.end(); activeZone.current = null }
+  const endDrag = () => { drag.end(); activeZone.current = null; setDragZone(null); setTooltip(null) }
+
+  // The popup for a pointer position: which zone it is over and that
+  // zone's live value, as `Label: value` — Hue in degrees, Saturation /
+  // Brightness in percent, extra channels 0–255. Null off the wheel
+  // (centre disc, ticks, outside) so nothing shows there.
+  const tooltipFor = (event: React.PointerEvent) => {
+    const rect = wrapRef.current?.getBoundingClientRect()
+    const point = pointAt(event)
+    if (!rect || !point || point.r <= 32 || point.r > 116) return null
+    const x = Math.max(28, Math.min(122, event.clientX - rect.left))
+    const y = event.clientY - rect.top
+    if (point.r >= 76) return { x, y, text: `Hue: ${Math.round(point.angle)}` }
+    const index = Math.min(arcs.length - 1, Math.floor(((point.angle - 180 + 360) % 360) / span))
+    const arc = arcs[index]
+    if (!arc) return null
+    const start = arcStart(index)
+    const rel = Math.max(0, Math.min(span, (point.angle - start + 360) % 360))
+    const fraction = 1 - rel / span
+    const value = arc.kind === 'channel' ? Math.round(fraction * 255) : Math.round(fraction * 100)
+    return { x, y, text: `${arc.label}: ${value}` }
+  }
 
   const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (disabled) return
@@ -114,19 +142,22 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
     if (point.r <= 32 || point.r > 116) return
     drag.begin()
     event.currentTarget.setPointerCapture(event.pointerId)
-    if (point.r >= 76) activeZone.current = { type: 'hue' }
-    else {
-      const index = Math.min(arcs.length - 1, Math.floor(((point.angle - 180 + 360) % 360) / span))
-      activeZone.current = { type: 'arc', index }
-    }
+    const zone: { type: 'hue' } | { type: 'arc'; index: number } = point.r >= 76
+      ? { type: 'hue' }
+      : { type: 'arc', index: Math.min(arcs.length - 1, Math.floor(((point.angle - 180 + 360) % 360) / span)) }
+    activeZone.current = zone
+    setDragZone(zone)
+    setTooltip(tooltipFor(event))
     applyAt(event)
   }
 
   const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
     // A move with no button held means the release was missed (released
     // outside the window) — end the drag instead of re-engaging it.
-    if (event.buttons === 0) { endDrag(); return }
-    if (drag.isActive()) applyAt(event)
+    // The pointer is then just hovering, so show the hovered zone's
+    // value instead of the drag popup.
+    if (event.buttons === 0) { endDrag(); setTooltip(tooltipFor(event)); return }
+    if (drag.isActive()) { applyAt(event); setTooltip(tooltipFor(event)) }
   }
 
   const onKeyDownHue = (event: React.KeyboardEvent) => {
@@ -172,6 +203,7 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onLostPointerCapture={endDrag}
+      onPointerLeave={() => { if (!drag.isActive()) setTooltip(null) }}
       onKeyDown={onKeyDownHue}
     >
       <svg viewBox="0 0 220 220" width="100%" height="100%">
@@ -201,9 +233,16 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
           const apex = polar(117, deg), left = polar(106, deg - 2.5), right = polar(106, deg + 2.5)
           return <polygon key={deg} points={`${apex.x},${apex.y} ${left.x},${left.y} ${right.x},${right.y}`} fill={`hsl(${deg}, 100%, 50%)`} />
         })}
-        {/* Current hue marker: a white bar on the ring. */}
-        <line x1={polar(77, hsv.h).x} y1={polar(77, hsv.h).y} x2={polar(97, hsv.h).x} y2={polar(97, hsv.h).y} stroke="#000" strokeWidth={5} strokeLinecap="round" />
-        <line x1={polar(77, hsv.h).x} y1={polar(77, hsv.h).y} x2={polar(97, hsv.h).x} y2={polar(97, hsv.h).y} stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+        {/* Current hue marker: a white bar on the ring. Hidden while the
+            hue ring itself is being dragged — the `Label: value` popup
+            above the pointer shows the value instead (Jake, 19 Nov 2026:
+            no white border highlighting the dragged segment). */}
+        {dragZone?.type !== 'hue' && (
+          <>
+            <line x1={polar(77, hsv.h).x} y1={polar(77, hsv.h).y} x2={polar(97, hsv.h).x} y2={polar(97, hsv.h).y} stroke="#000" strokeWidth={5} strokeLinecap="round" />
+            <line x1={polar(77, hsv.h).x} y1={polar(77, hsv.h).y} x2={polar(97, hsv.h).x} y2={polar(97, hsv.h).y} stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+          </>
+        )}
         {/* Inner arcs: saturation, brightness, then one per extra channel. */}
         {arcs.map((arc, i) => {
           const start = arcStart(i)
@@ -231,8 +270,14 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
                 const a = polar(major ? 67 : 69, deg), b = polar(72, deg)
                 return <line key={deg} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(0,0,0,0.45)" strokeWidth={major ? 1.5 : 1} />
               })}
-              <line x1={polar(36, markerAngle).x} y1={polar(36, markerAngle).y} x2={polar(72, markerAngle).x} y2={polar(72, markerAngle).y} stroke="#000" strokeWidth={5} strokeLinecap="round" />
-              <line x1={polar(36, markerAngle).x} y1={polar(36, markerAngle).y} x2={polar(72, markerAngle).x} y2={polar(72, markerAngle).y} stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+              {/* Value marker for this arc — hidden while this arc is
+                  being dragged; the popup shows the value instead. */}
+              {!(dragZone?.type === 'arc' && dragZone.index === i) && (
+                <>
+                  <line x1={polar(36, markerAngle).x} y1={polar(36, markerAngle).y} x2={polar(72, markerAngle).x} y2={polar(72, markerAngle).y} stroke="#000" strokeWidth={5} strokeLinecap="round" />
+                  <line x1={polar(36, markerAngle).x} y1={polar(36, markerAngle).y} x2={polar(72, markerAngle).x} y2={polar(72, markerAngle).y} stroke="#fff" strokeWidth={2.5} strokeLinecap="round" />
+                </>
+              )}
             </g>
           )
         })}
@@ -248,6 +293,14 @@ export function ColorWheelControl({ hsv, extraChannels, centreHex, disabled = fa
         onChange={(event) => onCentrePick(event.target.value)}
         style={{ position: 'absolute', left: '50%', top: '50%', width: '29%', height: '29%', transform: 'translate(-50%, -50%)', opacity: 0, cursor: disabled ? 'not-allowed' : 'pointer' }}
       />
+      {/* Value popup above the pointer while dragging (or hovering a
+          draggable zone): `Label: value`. pointer-events: none, so it
+          can never intercept input or cover the wheel's hit area. */}
+      {tooltip && (
+        <div className="color-wheel-tooltip" aria-hidden="true" style={{ left: tooltip.x, top: tooltip.y }}>
+          {tooltip.text}
+        </div>
+      )}
     </div>
   )
 }

@@ -4,9 +4,12 @@
 // so macOS draws the native traffic lights at the top-left of the grey
 // header; on Windows/Linux the native caption buttons come from the
 // title bar overlay, restyled to the header itself. The old overlay
-// was purple #3a1b47 at 72px — taller than the 61px header, which is
-// the awkward block in Jake's screenshot. Source/wiring assertions
-// (no DOM renderer), in the repo's style.
+// was purple #3a1b47 at 72px — taller than the 50px header, which is
+// the awkward block in Jake's screenshot. (An earlier 61px overlay
+// had the same fault: under border-box the header's min-height 50
+// already includes its padding and border, so 61 stuck out ~11px —
+// Jake, 19 Nov 2026, screenshot image-8.png.) Source/wiring
+// assertions (no DOM renderer), in the repo's style.
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 
@@ -18,8 +21,10 @@ const preload = readFileSync('src/preload/index.ts', 'utf8')
 describe('macOS gets native traffic lights', () => {
   it('uses hiddenInset on darwin, with the lights centred in the header', () => {
     expect(main).toContain("titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden'")
-    // 12px lights, vertically centred in the 61px header ((61 - 12) / 2).
-    expect(main).toContain("{ x: 20, y: 24 }")
+    // 12px lights, vertically centred in the 50px header ((50 - 12) / 2).
+    // The header is 50px, not 61: the app uses border-box, so min-height
+    // 50 already includes its padding and border (see below).
+    expect(main).toContain("{ x: 20, y: 19 }")
     // The header's .top-bar-mac spacing (patch icon at 80px, title at
     // 104px) already clears lights ending at ~72px.
     expect(css).toContain('.top-bar-mac .header-patch-button {')
@@ -30,12 +35,15 @@ describe('macOS gets native traffic lights', () => {
 describe('Windows/Linux caption buttons match the header', () => {
   it('restyles the title bar overlay to the header grey at header height', () => {
     // Header grey #444345, header icon grey #d2d2d2, and the header's
-    // exact rendered height: min-height 50 + 5px padding top/bottom +
-    // 1px border = 61px, so the overlay strip is flush with the header
-    // and nothing sticks out below it.
-    expect(main).toContain("{ color: '#444345', symbolColor: '#d2d2d2', height: 61 }")
+    // exact rendered height: min-height 50 under box-sizing:
+    // border-box, so padding and border are already inside the 50px —
+    // the earlier 61px (50 + 5 + 5 + 1) double-counted them and the
+    // overlay stuck out ~11px below the header (Jake, 19 Nov 2026,
+    // screenshot image-8.png).
+    expect(main).toContain("{ color: '#444345', symbolColor: '#d2d2d2', height: 50 }")
     expect(main).not.toContain('#3a1b47')
     expect(main).not.toContain('height: 72')
+    expect(main).not.toContain('height: 61')
   })
 })
 

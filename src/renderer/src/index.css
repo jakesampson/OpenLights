@@ -808,6 +808,24 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   outline-offset: 1px;
 }
 
+/* Colour wheel value popup: the small `Label: value` pill above the
+   pointer while dragging (or hovering a draggable zone). pointer-events:
+   none, so it can never intercept input or cover the wheel's hit area.
+   Positioned by the component (left/top inline, above the cursor). */
+.color-wheel-tooltip {
+  position: absolute;
+  z-index: 2;
+  padding: 4px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.85);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 10px));
+}
+
 /* Live Edit button properties popup: slides in from the right over the
    canvas (Jake, 18 Nov 2026). The popup scrolls on its own; the canvas
    behind it does not move. */
