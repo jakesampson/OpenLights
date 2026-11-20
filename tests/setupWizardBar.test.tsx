@@ -7,7 +7,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
-import { SetupWizard } from '../src/renderer/src/components/SetupWizard'
+import { SetupWizard, type WizardStep } from '../src/renderer/src/components/SetupWizard'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -15,8 +15,8 @@ import { useShowStore } from '../src/renderer/src/stores/showStore'
 let container: HTMLDivElement | undefined
 let rootNode: Root | undefined
 
-function renderWizard(isMac: boolean) {
-  act(() => { useShowStore.setState({ setupWizardStep: 'dmx' }) })
+function renderWizard(isMac: boolean, step: WizardStep = 'dmx') {
+  act(() => { useShowStore.setState({ setupWizardStep: step }) })
   const el = document.createElement('div')
   document.body.appendChild(el)
   container = el
@@ -64,6 +64,8 @@ describe('setup wizard bar', () => {
     // 20 Nov 2026 (Jake): the right-aligned Back / Next / × sat under the
     // native Windows caption buttons, which was confusing — the nav group
     // is centred across the bar instead, and × is a labelled Cancel.
+    // The bar is a 3-column grid (1fr auto 1fr) with the nav as the centre
+    // column, so it is exactly centred without overlaying the title block.
     for (const isMac of [false, true]) {
       renderWizard(isMac)
       const labels = [...(container?.querySelectorAll('button') ?? [])].map((b) => b.textContent)
@@ -72,9 +74,35 @@ describe('setup wizard bar', () => {
       const cancel = [...(container?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Cancel')
       expect(cancel?.getAttribute('aria-label')).toBe('Cancel setup wizard')
       const group = cancel?.parentElement
-      expect(group?.className).toContain('absolute')
-      expect(group?.className).toContain('left-1/2')
-      expect(group?.className).toContain('-translate-x-1/2')
+      expect(group?.className).not.toContain('absolute')
+      expect(group?.className).toContain('justify-self-center')
+      const bar = group?.parentElement
+      expect(bar?.className).toContain('grid-cols-[1fr_auto_1fr]')
+      act(() => { rootNode?.unmount() })
+      rootNode = undefined
+      container?.remove()
+      container = undefined
+    }
+  })
+
+  it('the subtitle wraps in its own grid column and never sits under the nav, on every step', () => {
+    // 20 Nov 2026 (Jake, screenshot): step 3's subtitle ran underneath the
+    // centred Back / Next / Cancel buttons. The title block lives in the
+    // grid's left column and the nav in the centre column, so the two can
+    // never overlap — and the subtitle wraps (2 lines max) instead of
+    // truncating to a single line that ran under the buttons.
+    const steps: WizardStep[] = ['dmx', 'patch', 'preview', 'groups', 'directions', 'done']
+    for (const step of steps) {
+      renderWizard(false, step)
+      const description = container?.querySelector('.line-clamp-2')
+      expect(description).not.toBeNull()
+      expect(description?.className).not.toContain('truncate')
+      expect(description?.textContent?.length).toBeGreaterThan(0)
+      const nav = [...(container?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Cancel')
+      // The nav group and the title block are siblings in different grid
+      // columns — the nav is not an overlay on top of the title block.
+      expect(nav?.parentElement).not.toBe(description?.parentElement?.parentElement)
+      expect(nav?.parentElement?.parentElement).toBe(description?.closest('.grid'))
       act(() => { rootNode?.unmount() })
       rootNode = undefined
       container?.remove()
