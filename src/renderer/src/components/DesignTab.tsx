@@ -627,7 +627,14 @@ export function DesignTab() {
           presetIds/sequenceIds) — but there is now no UI anywhere to add
           a preset/sequence to a cue, remove one, or see what a cue
           contains; see NOTES.md. */}
-      <div className="flex min-h-0 flex-1 items-stretch gap-3">
+      {/* The row carries 4px of left padding (Jake, 20 Nov 2026): the
+          Dimmer column sits first, flush against the left edge of this
+          overflow-hidden panel, and a selected fader's outset blue
+          outline extends 2px past the track on every side — without
+          this padding the outline's whole left segment was clipped off
+          by the panel edge while the other three sides rendered. The
+          4px leaves the ring 2px clear of the edge. */}
+      <div className="flex min-h-0 flex-1 items-stretch gap-3 pl-1">
         {/* Dimmer: the shared FillFader — the same LightKey-style solid
             fill bar as the Master fader (lavender fill), not a thin line
             with a round knob. Clicking (or tabbing into) the column

@@ -9,11 +9,22 @@
 // empty strip on the right.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+
+const css = readFileSync(resolve(__dirname, '..', 'src/renderer/src/index.css'), 'utf8')
+const designTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/DesignTab.tsx'), 'utf8')
+
+function cssRule(selector: string) {
+  const start = css.indexOf(`${selector} {`)
+  if (start < 0) throw new Error(`no CSS rule for ${selector}`)
+  return css.slice(start, css.indexOf('}', start))
+}
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -199,5 +210,35 @@ describe('colour card sizes to its contents', () => {
     // The card itself carries no fixed width — its width comes from
     // its contents (the wheel, plus the sliders when present).
     expect(colourCard()?.className).not.toMatch(/\bw-\d/)
+  })
+})
+
+describe('selection border is outset and has room at the panel edge', () => {
+  it('the selected fader ring sits outside the track (Jake, 20 Nov 2026)', () => {
+    // The ring is an OUTSET outline (offset 0): an inset ring was
+    // tried and reverted the same day, because the fill paints over
+    // it wherever the fill reaches — at a high Dimmer the ring
+    // vanished on the sides and bottom. Outset, the fill (clipped
+    // to the track box) can never cover it. The colour and meaning
+    // are unchanged: still 2px solid #0A84FF.
+    const rule = cssRule('.design-fill-track.design-fader-selected')
+    expect(rule).toContain('outline: 2px solid #0A84FF')
+    expect(rule).toContain('outline-offset: 0')
+    expect(rule).not.toContain('outline-offset: -')
+  })
+
+  it('the Design row leaves room for the ring at the panel edge', () => {
+    // The Dimmer column sits first, flush against the left edge of
+    // the overflow-hidden Design inspector — without this padding
+    // the outset ring's whole left segment was clipped off by the
+    // panel edge while the other three sides rendered. The 4px
+    // leaves the 2px ring 2px clear of the edge.
+    expect(designTab).toContain('flex min-h-0 flex-1 items-stretch gap-3 pl-1')
+  })
+
+  it('the design track focus ring is outset too', () => {
+    const rule = cssRule('.design-fill-track:focus-visible')
+    expect(rule).toContain('outline: 2px solid var(--accent)')
+    expect(rule).not.toContain('outline-offset: -')
   })
 })

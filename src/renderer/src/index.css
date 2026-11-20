@@ -832,7 +832,15 @@ select optgroup { background: #555658; color: #fff; }
 /* Selected Design control (Jake, 19 Nov 2026): the blue #0A84FF border
    marking the control the shortcuts act on — the same blue as the
    colour card's selected border. An outline, not a border, so it never
-   shifts the track's layout. It sits after the :focus-visible rule so
+   shifts the track's layout, and OUTSET (offset 0) so it sits outside
+   the track — the fill must never cover it. (An inset ring was tried
+   20 Nov 2026 and reverted the same day: the lavender fill paints
+   over it wherever the fill reaches, so at a high Dimmer the ring
+   vanished on the sides and bottom. The ring's room comes from the
+   Design row's left padding instead — the Dimmer column sits flush
+   against the left edge of the overflow-hidden inspector, and without
+   that padding the outset ring's whole left segment was clipped off,
+   Jake, 20 Nov 2026.) It sits after the :focus-visible rule so
    selection wins over the focus ring when a selected fader is focused. */
 .design-fill-track.design-fader-selected {
   outline: 2px solid #0A84FF;
