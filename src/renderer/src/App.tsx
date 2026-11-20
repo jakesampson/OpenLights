@@ -521,11 +521,18 @@ export default function App() {
         // image-24.png: the Project Browser showed the GUI ghosted behind
         // it after a drag, although the utility compiles opaque — the
         // colour-mix utility is one silent failure away from translucent,
-        // and a full-screen scrim must not depend on it). The modal is
-        // also a hard event boundary: `select-none` + no-drag + pointer
-        // events stop here, so a drag on the modal can neither select
-        // text nor reach anything behind it.
-        <div className="modal-scrim fixed inset-0 z-[70] flex select-none flex-col" role="dialog" aria-modal="true" aria-label="Setup wizard" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
+        // and a full-screen scrim must not depend on it). The modal stays
+        // opaque and no-drag (`.modal-scrim`) with `select-none` so a drag
+        // on it can neither select text nor move the window — but it must
+        // NOT be a hard event boundary: the PatchPanel's drag-to-patch and
+        // footer buttons live inside this modal, and the 335e34b hardening
+        // (`onDragStart` preventDefault + `onPointerDown`
+        // stopPropagation on this root) cancelled every drag starting in
+        // the wizard and was reported as dead Duplicate / + Custom
+        // buttons too (Jake, 20 Nov 2026, image-ecf244b1.png). That
+        // hardening lives on the WelcomeScreen only, which has no
+        // draggable children.
+        <div className="modal-scrim fixed inset-0 z-[70] flex select-none flex-col" role="dialog" aria-modal="true" aria-label="Setup wizard" style={{ backgroundColor: 'var(--bg)' }}>
           <SetupWizard isMac={isMac} />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {setupWizardStep === 'dmx' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDmxStep /></div>

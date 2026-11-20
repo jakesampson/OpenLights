@@ -158,4 +158,54 @@ describe('Setup wizard modal (full-window, over the whole GUI)', () => {
     expect(state().welcomeOpen).toBe(true)
     expect(wizardDialog()).toBeNull()
   })
+
+  it('a drag starting on a fixture model in the wizard is not cancelled', async () => {
+    // 20 Nov 2026, Jake's screenshot image-ecf244b1.png: in the wizard's
+    // Fixture Patching step no fixture profile could be dragged onto the
+    // universe at all. The 335e34b hardening put an `onDragStart`
+    // preventDefault on the wizard modal root, and dragstart bubbles — so
+    // every drag starting inside the wizard was cancelled at the root.
+    // The hardening lives on the WelcomeScreen only now; a dragstart
+    // dispatched on a model tile inside the wizard must not be cancelled.
+    const state = () => useShowStore.getState()
+    state().startSetupWizard()
+    state().setSetupWizardStep('patch')
+    renderInRoot(<App />)
+    await act(async () => {})
+    const dialog = wizardDialog()
+    expect(dialog).not.toBeNull()
+    const tile = dialog!.querySelector('[aria-label="Fixture models"] button[draggable]') as HTMLElement | null
+    expect(tile).not.toBeNull()
+    // A bare Event has no dataTransfer, and the tile's own drag handler
+    // (dragProfile) calls setData on it — give the event a stub so the
+    // handler runs fully instead of throwing mid-drag. (This jsdom has no
+    // DragEvent constructor, so a plain Event carries the stub.)
+    const event = new Event('dragstart', { bubbles: true, cancelable: true })
+    Object.defineProperty(event, 'dataTransfer', { value: { setData: () => {}, getData: () => '', setDragImage: () => {}, effectAllowed: 'copy', dropEffect: 'copy', files: [], items: [], types: [] } })
+    act(() => { tile?.dispatchEvent(event) })
+    expect(event.defaultPrevented).toBe(false)
+  })
+
+  it('pointer events inside the wizard are not stopped at the modal', async () => {
+    // Same hardening, same report: the modal root also stopped
+    // pointerdown propagation. Events inside the wizard must be free to
+    // reach the rest of the app — only the WelcomeScreen stays a hard
+    // boundary (it has no draggable children).
+    const state = () => useShowStore.getState()
+    state().startSetupWizard()
+    state().setSetupWizardStep('patch')
+    renderInRoot(<App />)
+    await act(async () => {})
+    const dialog = wizardDialog()
+    expect(dialog).not.toBeNull()
+    let heard = false
+    const listener = () => { heard = true }
+    window.addEventListener('pointerdown', listener)
+    try {
+      act(() => { dialog?.dispatchEvent(new Event('pointerdown', { bubbles: true, cancelable: true })) })
+      expect(heard).toBe(true)
+    } finally {
+      window.removeEventListener('pointerdown', listener)
+    }
+  })
 })

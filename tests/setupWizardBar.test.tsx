@@ -59,4 +59,34 @@ describe('setup wizard bar', () => {
       container = undefined
     }
   })
+
+  it('shows a labelled Cancel instead of the × close button, centred at the top', () => {
+    // 20 Nov 2026 (Jake): the right-aligned Back / Next / × sat under the
+    // native Windows caption buttons, which was confusing — the nav group
+    // is centred across the bar instead, and × is a labelled Cancel.
+    for (const isMac of [false, true]) {
+      renderWizard(isMac)
+      const labels = [...(container?.querySelectorAll('button') ?? [])].map((b) => b.textContent)
+      expect(labels).toContain('Cancel')
+      expect(labels).not.toContain('×')
+      const cancel = [...(container?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Cancel')
+      expect(cancel?.getAttribute('aria-label')).toBe('Cancel setup wizard')
+      const group = cancel?.parentElement
+      expect(group?.className).toContain('absolute')
+      expect(group?.className).toContain('left-1/2')
+      expect(group?.className).toContain('-translate-x-1/2')
+      act(() => { rootNode?.unmount() })
+      rootNode = undefined
+      container?.remove()
+      container = undefined
+    }
+  })
+
+  it('Cancel exits the wizard', () => {
+    renderWizard(false)
+    const cancel = [...(container?.querySelectorAll('button') ?? [])].find((b) => b.textContent === 'Cancel')
+    expect(cancel).not.toBeUndefined()
+    act(() => { cancel?.click() })
+    expect(useShowStore.getState().setupWizardStep).toBeNull()
+  })
 })

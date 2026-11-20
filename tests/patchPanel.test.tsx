@@ -165,6 +165,33 @@ describe('PatchPanel fixture library', () => {
     expect(stored.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
   })
 
+  it('duplicates a built-in generic as a custom fixture', async () => {
+    // 20 Nov 2026, Jake's screenshot image-ecf244b1.png: with no OFL
+    // library uploaded every visible profile is a built-in, and Duplicate
+    // was disabled for all of them — it looked clickable (no dimmed
+    // styling) but did nothing. Built-ins duplicate locally into this
+    // show as a custom copy, the same as an OFL duplicate.
+    const base = useShowStore.getState().show
+    if (!base) throw new Error('store has no default show')
+    act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
+    renderInRoot(<PatchPanel />)
+    await act(async () => {})
+    const models = container?.querySelector('[aria-label="Fixture models"]')
+    const brands = container?.querySelector('[aria-label="Fixture brands"]')
+    const duplicateButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Duplicate')
+    expect(duplicateButton?.hasAttribute('disabled')).toBe(false)
+    act(() => { duplicateButton?.click() })
+    await act(async () => {})
+    const userFixturesButton = [...(brands?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'User Fixtures')
+    expect(userFixturesButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(models?.querySelectorAll('button')).toHaveLength(1)
+    expect(container?.textContent).toContain('Generic PAR (RGB) copy')
+    expect(container?.textContent).toContain('Custom')
+    expect(container?.textContent).toContain('OFL zip uploads will never update it')
+    const saved = useShowStore.getState().show?.fixtureProfiles ?? []
+    expect(saved.some((p) => p.name === 'Generic PAR (RGB) copy' && p.custom === true && p.id.startsWith('custom:'))).toBe(true)
+  })
+
   it("'+ Custom' creates a custom fixture listed under User Fixtures", async () => {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')

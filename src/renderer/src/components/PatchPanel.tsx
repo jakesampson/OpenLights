@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { modeChannelOffset } from '@shared/fixtureProfiles'
+import { duplicateProfileAsCustom } from '@shared/oflFixtureFormat'
 import { filterProfiles } from '../lib/filterProfiles'
 import { fixtureWidth, placementError } from '../lib/patch'
 import { useShowStore } from '../stores/showStore'
@@ -199,21 +200,36 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
   }
 
   // Duplicate the selected library record into the user's own fixture:
-  // tagged custom, so no zip upload ever updates it. Only library
-  // records (OFL + customs) can be duplicated here — built-ins are
-  // duplicated from the profile editor instead. The brands column
-  // switches to User Fixtures and selects the copy, so the result is
-  // visible immediately (Jake, 20 Nov 2026 — Duplicate used to give no
-  // visible feedback at all).
+  // tagged custom, so no zip upload ever updates it. OFL library records
+  // duplicate through the main process (the global library DB); built-ins
+  // and show-stored profiles duplicate locally into this show instead.
+  // The button used to be disabled for anything but an OFL record, so
+  // with no OFL library uploaded — every visible profile a built-in — it
+  // was dead in the wizard, and a disabled button with no dimmed styling
+  // looks clickable but does nothing (Jake, 20 Nov 2026,
+  // image-ecf244b1.png). The brands column switches to User Fixtures and
+  // selects the copy, so the result is visible immediately (Jake, 20 Nov
+  // 2026 — Duplicate used to give no visible feedback at all).
   const duplicateSelectedProfile = async () => {
-    if (!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)) return
+    if (!selectedProfile) return
+    if (oflProfiles.some((profile) => profile.id === selectedProfile.id)) {
+      try {
+        const result = await window.electronAPI.duplicateOflProfile(selectedProfile.id)
+        if (!result.success) throw new Error(result.error ?? 'Could not duplicate the fixture')
+        const profiles = Array.isArray(result.profiles) ? result.profiles : []
+        setOflProfiles(profiles)
+        useShowStore.getState().setOflProfiles(profiles)
+        if (result.profile) { setManufacturer(USER_FIXTURES); chooseProfile(result.profile) }
+        setPatchError('')
+        setPatchNotice('Duplicated as a custom fixture — OFL zip uploads will never update it')
+      } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
+      return
+    }
     try {
-      const result = await window.electronAPI.duplicateOflProfile(selectedProfile.id)
-      if (!result.success) throw new Error(result.error ?? 'Could not duplicate the fixture')
-      const profiles = Array.isArray(result.profiles) ? result.profiles : []
-      setOflProfiles(profiles)
-      useShowStore.getState().setOflProfiles(profiles)
-      if (result.profile) { setManufacturer(USER_FIXTURES); chooseProfile(result.profile) }
+      const copy = duplicateProfileAsCustom(selectedProfile)
+      useShowStore.getState().saveFixtureProfile(copy)
+      setManufacturer(USER_FIXTURES)
+      chooseProfile(copy)
       setPatchError('')
       setPatchNotice('Duplicated as a custom fixture — OFL zip uploads will never update it')
     } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
@@ -238,7 +254,7 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
       </div>
       {/* Jake, 20 Nov 2026: five equal buttons, no wrapping, no model
           count — the footer is actions only, all the same size. */}
-      <footer className="flex items-center gap-1 border-t border-line px-3 py-2"><button type="button" className="btn-theme patch-footer-btn" onClick={() => void importOflLibraryZip()}>Import</button><button type="button" className="btn-theme patch-footer-btn" disabled={!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)} onClick={() => void duplicateSelectedProfile()}>Duplicate</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorProfileId(null); setEditorCreateCustom(true); setEditorOpen(true) }}>+ Custom</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorCreateCustom(false); setEditorOpen(true) }}>Profile editor</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+      <footer className="flex items-center gap-1 border-t border-line px-3 py-2"><button type="button" className="btn-theme patch-footer-btn" onClick={() => void importOflLibraryZip()}>Import</button><button type="button" className="btn-theme patch-footer-btn" disabled={!selectedProfile} onClick={() => void duplicateSelectedProfile()}>Duplicate</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorProfileId(null); setEditorCreateCustom(true); setEditorOpen(true) }}>+ Custom</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorCreateCustom(false); setEditorOpen(true) }}>Profile editor</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
     </aside>
 
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">

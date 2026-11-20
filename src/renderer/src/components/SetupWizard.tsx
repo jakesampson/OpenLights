@@ -1,14 +1,21 @@
 // Setup wizard chrome (Piece 5, Guide ch.4 pp.26–37; video 03:31–09:45).
 // The bar of the full-window modal in App.tsx: step dots, the step title
-// and description, the step's actions, and Back / Next. The modal owns the
-// stacking (fixed inset-0, z-[70], solid bg-bg) — the bar no longer needs
-// its own z-index, and the Patch panel renders inside the modal, so no
+// and description, the step's actions, and Back / Next / Cancel. The modal
+// owns the stacking (fixed inset-0, z-[70], solid bg-bg) — the bar no longer
+// needs its own z-index, and the Patch panel renders inside the modal, so no
 // overlay can sit over the bar and swallow clicks on Back / Next (the
 // patch-step bug, 19 Nov 2026). There is no Skip button in LightKey —
-// every guide step ends with "click Next" — so this bar has Back / Next
-// only. Back from DMX Output returns to the Project Browser (the guide's
+// every guide step ends with "click Next" — so this bar has Back / Next /
+// Cancel only. Back from DMX Output returns to the Project Browser (the guide's
 // Step 1); closing the wizard exits to the Design view with the project
 // as-is and does not resume.
+// The nav group is centred across the top of the bar (Jake, 20 Nov 2026):
+// right-aligned it sat under the native Windows caption buttons, which was
+// confusing — centred it is clear of them, and the × is a labelled Cancel
+// instead. The Windows right padding stays: it keeps the step actions on
+// the groups/directions steps clear of the caption buttons, and the centred
+// group is positioned against the bar's padding box, so it stays centred on
+// the window.
 
 import { useState } from 'react'
 import { useShowStore } from '../stores/showStore'
@@ -44,7 +51,7 @@ export function SetupWizard({ isMac }: { isMac: boolean }) {
 
   return (
     <div className="shrink-0 border-b border-line bg-panel shadow-lg">
-      <div className={`flex items-center gap-3 px-4 py-2 ${isMac ? 'wizard-bar-mac' : 'wizard-bar-windows'}`}>
+      <div className={`relative flex items-center gap-3 px-4 py-2 ${isMac ? 'wizard-bar-mac' : 'wizard-bar-windows'}`}>
         <div className="flex items-center gap-1" aria-label={`Step ${index + 1} of ${WIZARD_STEPS.length}: ${current.title}`}>
           {WIZARD_STEPS.map((s, i) => (
             <span key={s.id} className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${i === index ? 'bg-accent text-black' : i < index ? 'bg-panel2 text-text' : 'bg-panel2 text-dim'}`} aria-current={i === index ? 'step' : undefined}>{i + 1}</span>
@@ -68,10 +75,10 @@ export function SetupWizard({ isMac }: { isMac: boolean }) {
           </div>
         )}
 
-        <div className="flex items-center gap-2">
+        <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2">
           <button type="button" className="btn-theme text-xs" onClick={back}>Back</button>
           <button type="button" className="rounded bg-accent px-3 py-1.5 text-xs font-semibold text-black" onClick={next}>{isLast ? 'Go!' : 'Next'}</button>
-          <button type="button" className="btn-theme" onClick={() => useShowStore.getState().exitSetupWizard()} aria-label="Close setup wizard" title="Close setup wizard">×</button>
+          <button type="button" className="btn-theme text-xs" onClick={() => useShowStore.getState().exitSetupWizard()} aria-label="Cancel setup wizard" title="Cancel setup wizard">Cancel</button>
         </div>
       </div>
       {step === 'directions' && learnMore && (
