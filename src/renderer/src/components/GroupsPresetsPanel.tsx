@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
-import { findRelatedCues, findRelatedCuesForSequence } from '../lib/presetPalette'
+import { findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '../lib/presetPalette'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
 import type { PresetCategory, PresetGroup } from '@shared/types'
 
@@ -110,13 +110,24 @@ export function GroupsPresetsPanel() {
   const [composerName, setComposerName] = useState('')
   const [composerCategory, setComposerCategory] = useState<PresetCategory>('color')
   const [dragOverId, setDragOverId] = useState<string | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
+  // The header "…" menu and the right-click context menu used to share
+  // one ref, so after the first context menu unmounted React left the
+  // ref null (it is not re-assigned to the still-mounted header div)
+  // and outside-click-to-close stopped working for every menu after
+  // that. Each menu has its own ref now, and the outside-click handler
+  // checks the menu that is actually open.
+  const headerMenuRef = useRef<HTMLDivElement>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
+  const composerInputRef = useRef<HTMLInputElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!contextMenu && !headerMenu) return
     const close = (event: PointerEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) { setContextMenu(null); setHeaderMenu(false) }
+      const target = event.target as Node
+      if (contextMenu && contextMenuRef.current && !contextMenuRef.current.contains(target)) setContextMenu(null)
+      if (headerMenu && headerMenuRef.current && !headerMenuRef.current.contains(target)) setHeaderMenu(false)
     }
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
@@ -133,6 +144,19 @@ export function GroupsPresetsPanel() {
     window.addEventListener('openlights-preset-palette-context', open)
     return () => window.removeEventListener('openlights-preset-palette-context', open)
   }, [])
+
+  // Focus the composer / rename input synchronously when it opens (19 Nov
+  // 2026, Jake: right-click → New Preset sometimes left the name box
+  // unfocused so typing went nowhere). `autoFocus` is queued by the browser
+  // as a separate task, so a fast keystroke after the click could land
+  // before focus arrived; useLayoutEffect runs in the same commit, before
+  // paint and before the next keystroke is processed.
+  useLayoutEffect(() => {
+    if (composer) composerInputRef.current?.focus()
+  }, [composer])
+  useLayoutEffect(() => {
+    if (renaming) renameInputRef.current?.focus()
+  }, [renaming])
 
   // --- "Show in Cue" (LightKey Guide p.144) --------------------------------
   // The cues containing the right-clicked preset or sequence, for the
@@ -440,7 +464,7 @@ export function GroupsPresetsPanel() {
 
   const renameInput = (item: PaletteItem) => (
     <input
-      autoFocus
+      ref={renameInputRef}
       aria-label={`Rename ${item.kind}`}
       value={renameValue}
       onChange={(event) => setRenameValue(event.target.value)}
@@ -590,7 +614,7 @@ export function GroupsPresetsPanel() {
     }}>
       <div className="flex gap-1 px-1 pb-2">
         <input type="search" aria-label="Search palette" placeholder="Search palette" value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-bg/50 px-2 py-1 text-xs text-text placeholder:text-dim" />
-        <div className="relative" ref={menuRef}>
+        <div className="relative" ref={headerMenuRef}>
           <button type="button" aria-label="Preset palette menu" title="Preset palette menu" aria-expanded={headerMenu} className="rounded border border-line bg-panel2 px-2 py-1 text-sm text-text" onClick={(event) => { event.stopPropagation(); setHeaderMenu((open) => !open); setContextMenu(null) }}>⋯</button>
           {headerMenu && (
             <div role="menu" aria-label="Preset palette menu" className="absolute right-0 top-full z-[300] mt-1 min-w-52 rounded border border-line bg-panel p-1 shadow-xl">
@@ -616,7 +640,7 @@ export function GroupsPresetsPanel() {
       )}
       {composer && (
         <div className="mx-1 flex flex-wrap items-center gap-1 rounded border border-line bg-panel2 p-2">
-          <input autoFocus aria-label={composer.type === 'group' ? 'New group name' : composer.type === 'sequence' ? 'New sequence name' : 'New preset name'} placeholder={composer.type === 'group' ? 'Group name' : composer.type === 'sequence' ? 'Sequence name' : 'Preset name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
+          <input ref={composerInputRef} aria-label={composer.type === 'group' ? 'New group name' : composer.type === 'sequence' ? 'New sequence name' : 'New preset name'} placeholder={composer.type === 'group' ? 'Group name' : composer.type === 'sequence' ? 'Sequence name' : 'Preset name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
           {(composer.type === 'preset' || composer.type === 'preset-snapshot') && (
             <select aria-label="Preset category" value={composerCategory} onChange={(event) => setComposerCategory(event.target.value as PresetCategory)} className="rounded bg-bg px-1 py-1 text-xs">
               {CATEGORY_LABELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
@@ -666,7 +690,7 @@ export function GroupsPresetsPanel() {
       )}
       {contextMenu && <PaletteContextMenu
         x={contextMenu.x} y={contextMenu.y} target={contextMenu.target}
-        menuRef={menuRef}
+        contextMenuRef={contextMenuRef}
         hasSelection={selected.length > 0}
         relatedCues={relatedCues}
         onShowInCue={(cue) => {
@@ -679,6 +703,39 @@ export function GroupsPresetsPanel() {
         onAction={(action) => {
           const target = contextMenu.target
           setContextMenu(null)
+          if (action === 'select-unused') {
+            // "Select Unused Items" (Guide ch.9, p.144): with a selection,
+            // search within it (a group searches its contents, including
+            // nested groups); with none, search the whole palette.
+            if (!show) return
+            const presetIds = new Set<string>()
+            const sequenceIds = new Set<string>()
+            const addGroup = (groupId: string) => {
+              const group = groups.find((g) => g.id === groupId)
+              if (!group) return
+              for (const id of group.presetIds) presetIds.add(id)
+              for (const id of group.sequenceIds ?? []) sequenceIds.add(id)
+              for (const child of groups.filter((g) => g.parentId === groupId)) addGroup(child.id)
+            }
+            if (selected.length === 0) {
+              for (const p of presets) presetIds.add(p.id)
+              for (const s of sequences) sequenceIds.add(s.id)
+            } else {
+              for (const item of selected) {
+                if (item.kind === 'preset') presetIds.add(item.id)
+                else if (item.kind === 'sequence') sequenceIds.add(item.id)
+                else if (item.kind === 'group') addGroup(item.id)
+              }
+            }
+            const unused = findUnusedItems(show, { presetIds: [...presetIds], sequenceIds: [...sequenceIds] })
+            setSelected([
+              ...unused.presets.map((p): PaletteItem => ({ kind: 'preset', id: p.id })),
+              ...unused.sequences.map((s): PaletteItem => ({ kind: 'sequence', id: s.id }))
+            ])
+            const total = unused.presets.length + unused.sequences.length
+            setPaletteNote(total === 0 ? 'No unused items in the search scope.' : `Selected ${total} unused item${total === 1 ? '' : 's'}.`)
+            return
+          }
           if (action === 'new-preset') setComposer({ type: 'preset', parentGroupId: target?.kind === 'group' ? target.id : undefined })
           else if (action === 'new-preset-snapshot') setComposer({ type: 'preset-snapshot', parentGroupId: target?.kind === 'group' ? target.id : undefined })
           else if (action === 'new-group') setComposer({ type: 'group', parentGroupId: target?.kind === 'group' ? target.id : undefined })
@@ -716,6 +773,7 @@ export function GroupsPresetsPanel() {
 
 type PaletteMenuAction =
   | 'show-properties' | 'apply' | 'edit' | 'add-overrides' | 'rename' | 'duplicate' | 'delete'
+  | 'select-unused'
   | 'new-preset' | 'new-preset-snapshot' | 'new-group' | 'new-group-from-selection'
   | 'new-sequence' | 'new-sequence-from-selection'
 
@@ -728,9 +786,9 @@ type PaletteMenuAction =
 // Two LightKey items are NOT here: "External Control" — no such feature
 // exists in OpenLights — and group "Duplicate" — a preset can belong to
 // only one group, so a duplicated group could not share its members.
-function PaletteContextMenu({ x, y, target, menuRef, hasSelection, relatedCues, onShowInCue, onClose, onAction }: {
+function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relatedCues, onShowInCue, onClose, onAction }: {
   x: number; y: number; target: PaletteItem | null
-  menuRef: { current: HTMLDivElement | null }
+  contextMenuRef: { current: HTMLDivElement | null }
   hasSelection: boolean
   relatedCues: { pageId: string; pageName: string; controlId: string; controlName: string }[]
   onShowInCue: (cue: { pageId: string; pageName: string; controlId: string; controlName: string }) => void
@@ -746,7 +804,7 @@ function PaletteContextMenu({ x, y, target, menuRef, hasSelection, relatedCues, 
       onClick={() => onAction(action)}>{label}</button>
   )
   return (
-    <div ref={menuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: x, top: y }}>
+    <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: x, top: y }}>
       {target && <>
         {item('show-properties', 'Show Properties')}
         {item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
@@ -781,6 +839,9 @@ function PaletteContextMenu({ x, y, target, menuRef, hasSelection, relatedCues, 
         {item('delete', 'Delete')}
         <div className="my-1 border-t border-line" />
       </>}
+      {/* "Select Unused Items" (Guide ch.9, p.144) — available on an item,
+          a group, or blank palette space (whole palette as the scope). */}
+      {item('select-unused', 'Select Unused Items')}
       {item('new-preset', 'New Preset')}
       {item('new-preset-snapshot', 'New Preset With Snapshot')}
       {item('new-group', 'New Group')}

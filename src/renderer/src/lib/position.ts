@@ -10,6 +10,25 @@ export function positionValues(x: number, y: number, supported: string[]): Recor
   }
   return result
 }
+
+/**
+ * Current pan/tilt as 0..1 fractions, for axis locking (Guide ch.8,
+ * p.93: hold Command to lock pan, Shift to lock tilt while dragging
+ * the position control). A missing value reads as centre (0.5); a
+ * 16-bit pair combines coarse + fine so the lock holds the exact angle.
+ */
+export function positionFractions(values: Record<string, number>, supported: string[]): { pan: number; tilt: number } {
+  const fraction = (attribute: 'pan' | 'tilt'): number => {
+    if (!supported.includes(attribute)) return 0.5
+    const coarse = values[attribute]
+    if (coarse === undefined) return 0.5
+    if (supported.includes(`${attribute}Fine`)) {
+      return (Math.max(0, Math.min(255, Math.round(coarse))) * 256 + Math.max(0, Math.min(255, values[`${attribute}Fine`] ?? 0))) / 65535
+    }
+    return Math.max(0, Math.min(255, Math.round(coarse))) / 255
+  }
+  return { pan: fraction('pan'), tilt: fraction('tilt') }
+}
 export function transformPosition(values: Record<string, number>, options?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }): Record<string, number> {
   if (!options) return values
   const result = { ...values }

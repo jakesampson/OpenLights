@@ -1,8 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, defaultFixtureValues } from '../src/renderer/src/stores/showStore'
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '../src/shared/migrations'
+import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
+import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
+import { composeOutput } from '../src/renderer/src/lib/outputModel'
 import { DEFAULT_OBJECT_STYLES, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '../src/shared/liveObjectDefaults'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('cancelAnimationFrame', vi.fn())
@@ -241,5 +244,201 @@ describe('live cue sequence migration (7.10)', () => {
     const once: any = migrateShow(sequenceShow())
     expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('stale built-in profile defaults (Piece 11, Jake 20 Nov 2026)', () => {
+  // A fixture patched before Piece 11 (19 Nov 2026) carries an inline
+  // profile snapshot whose colour defaults are the old ones — blue at 0,
+  // not 255 — because allocateFixtures stores a structuredClone of the
+  // profile at patch time and fixtureProfile() prefers that snapshot
+  // over the current library profile. The old project then shows no
+  // colour on the wheel and the Dimmer brings up black, until the wheel
+  // is touched and real values are written. A fixture patched after
+  // Piece 11 auto-goes blue. Loading must heal the snapshot: built-in
+  // profiles are immutable library data (saveFixtureProfile refuses a
+  // same-id edit), so any inline deviation from the library is
+  // staleness, never a user edit — custom / OFL profiles are untouched.
+  const staleBarProfile = () => {
+    const profile = structuredClone(BUILTIN_PROFILES.find((p) => p.id === 'pan-4x1x30-17ch')!)
+    // Pre-Piece-11 formula: pan/tilt centred, everything else 0.
+    for (const channel of profile.modes[0].channels) {
+      channel.defaultValue = channel.attribute === 'pan' || channel.attribute === 'tilt' ? 128 : 0
+    }
+    return profile
+  }
+  const staleBar = () => ({
+    id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch',
+    profileId: 'pan-4x1x30-17ch', modeId: 'default',
+    channelStart: 1, channels: 17, profile: staleBarProfile()
+  })
+
+  it('backfills the blue default from the current built-in profile', () => {
+    const show = migrateShow({ fixtures: [staleBar()], cues: [] })
+    const fixture = show.fixtures[0]
+    const defaults = defaultFixtureValues(fixture)
+    expect(defaults.blue).toBe(255)
+    expect(defaults.blue2).toBe(255)
+    expect(defaults.blue3).toBe(255)
+    expect(defaults.blue4).toBe(255)
+    expect(defaults.red).toBe(0)
+    expect(defaults.intensity).toBe(0)
+    // The defaults layer of the output carries the blue too, so the
+    // Dimmer brings up blue on the old fixture without touching the wheel.
+    const channels = computeCueChannels([fixture], { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, 255, true)
+    expect(channels[3]).toBe(255)
+    expect(channels[6]).toBe(255)
+    expect(channels[9]).toBe(255)
+    expect(channels[12]).toBe(255)
+    expect(channels[13]).toBe(0)
+  })
+
+  it('leaves a custom (non-built-in) profile exactly as stored', () => {
+    const custom = staleBarProfile()
+    custom.id = 'custom-bar'
+    custom.name = 'My edited bar'
+    const fixture = { ...staleBar(), profileId: 'custom-bar', profile: custom }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(0)
+    expect(show.fixtures[0].profile.name).toBe('My edited bar')
+  })
+
+  it('refreshes a custom profile from the library copy when the library copy was edited', () => {
+    // Customs are global and editable (Jake, 20 Nov 2026): the library
+    // copy is the definition, so a fixture patched from the old version
+    // picks up a rename and a changed default when the show loads or
+    // the library lands — the snapshot is refreshed wholesale, not just
+    // its defaults. A custom in no library is still left as stored
+    // (the test above): the library copy has to exist to refresh from.
+    const edited = staleBarProfile()
+    edited.id = 'custom-bar'
+    edited.custom = true
+    edited.name = 'My edited bar v2'
+    for (const channel of edited.modes[0].channels) {
+      if (channel.attribute === 'blue') channel.defaultValue = 255
+    }
+    const stored = staleBarProfile()
+    stored.id = 'custom-bar'
+    stored.custom = true
+    stored.name = 'My edited bar'
+    const fixture = { ...staleBar(), profileId: 'custom-bar', profile: stored }
+    const show = migrateShow({ fixtures: [fixture], cues: [] }, [edited])
+    expect(show.fixtures[0].profile.name).toBe('My edited bar v2')
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+    // The same refresh runs from the show's own stored profiles: a
+    // copy edited in the show is the library copy for that show.
+    const showWithStored = migrateShow({ fixtures: [fixture], fixtureProfiles: [edited], cues: [] })
+    expect(showWithStored.fixtures[0].profile.name).toBe('My edited bar v2')
+    expect(defaultFixtureValues(showWithStored.fixtures[0]).blue).toBe(255)
+  })
+
+  it('keeps an explicit per-fixture default ahead of the library one', () => {
+    const fixture = { ...staleBar(), defaultValues: { blue: 40 } }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(40)
+    expect(defaultFixtureValues(show.fixtures[0]).blue2).toBe(255)
+  })
+
+  it('is idempotent', () => {
+    const once: any = migrateShow({ fixtures: [staleBar()], cues: [] })
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('stale OFL / library profile defaults (Jake 20 Nov 2026, image-18)', () => {
+  // The built-in-only backfill above does not cover the fixtures Jake
+  // actually owns in "PRBC Default": the Rogue R3 Spots (and the EP4 bar)
+  // come from the OFL library — their profileIds are
+  // 'ofl:<manufacturer>:<fixture>' — so the migration skipped them and a
+  // Dimmer-only override still brought up black (blue default 0 in the
+  // stale inline snapshot). The wheel shows blue while the output is
+  // black because the wheel displays the preserved hue/saturation/
+  // brightness for a black fixture, not a real colour value — the output
+  // side is the wrong one, and healing the snapshot fixes it. The OFL
+  // library lives in the main process, so migrateShow takes it as a
+  // second argument; the renderer passes its cached copy (see
+  // oflMigrationStore.test.ts). The show's own fixtureProfiles and the
+  // legacyType fallback cover fixtures whose inline snapshot outlived
+  // their profileId.
+  const EP4_ATTRIBUTES = ['red', 'green', 'blue', 'red 2', 'green 2', 'blue 2', 'red 3', 'green 3', 'blue 3', 'red 4', 'green 4', 'blue 4', 'intensity', 'strobe', 'programs', 'program speed', 'curve select']
+  const oflEp4Profile = (blueDefault: number) => ({
+    id: 'ofl:event-lighting:ep4',
+    name: 'EP4',
+    manufacturer: 'Event Lighting',
+    legacyType: 'pixel-bar-17ch' as const,
+    modes: [{
+      id: '17ch',
+      name: '17ch',
+      channels: EP4_ATTRIBUTES.map((attribute, number) => ({
+        number, attribute,
+        propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue)/.test(attribute) ? 'color' as const : 'other' as const,
+        min: 0, max: 255,
+        defaultValue: /^blue/.test(attribute) ? blueDefault : 0,
+        highlightValue: /^(intensity|red|green|blue)/.test(attribute) ? 255 : 0
+      })),
+      beams: [1, 2, 3, 4].map((cell) => ({ id: `cell-${cell}`, name: `Cell ${cell}`, properties: { red: cell === 1 ? 'red' : `red ${cell}`, green: cell === 1 ? 'green' : `green ${cell}`, blue: cell === 1 ? 'blue' : `blue ${cell}` } }))
+    }]
+  })
+  const staleOflBar = () => ({
+    id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch',
+    profileId: 'ofl:event-lighting:ep4', modeId: '17ch',
+    channelStart: 1, channels: 17, profile: oflEp4Profile(0)
+  })
+
+  it('heals a stale OFL snapshot from the OFL library profiles', () => {
+    const show = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    const fixture = show.fixtures[0]
+    const defaults = defaultFixtureValues(fixture)
+    expect(defaults.blue).toBe(255)
+    expect(defaults['blue 2']).toBe(255)
+    expect(defaults['blue 3']).toBe(255)
+    expect(defaults['blue 4']).toBe(255)
+    expect(defaults.red).toBe(0)
+    expect(defaults.intensity).toBe(0)
+  })
+
+  it('brings up blue on a Dimmer-only override once healed', () => {
+    const show = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    const fixture = show.fixtures[0]
+    const frame = composeOutput({
+      defaults: computeCueChannels([fixture], { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, 255, true),
+      overrides: computeCueChannels([fixture], { id: 'overrides', name: 'Overrides', fadeMs: 0, fixtureValues: { bar: { intensity: 255 } } }, 255, false)
+    })
+    // The four blue channels (Ch3/6/9/12) and the Dimmer (Ch13) are up;
+    // red and green stay at 0 — the fixture lights blue, not white.
+    for (const channel of [3, 6, 9, 12, 13]) expect(frame[channel]).toBe(255)
+    for (const channel of [1, 2, 4, 5, 7, 8, 10, 11, 14]) expect(frame[channel]).toBe(0)
+  })
+
+  it('heals a snapshot whose profileId is gone, via its legacy type', () => {
+    const profile = structuredClone(BUILTIN_PROFILES.find((p) => p.id === 'pan-4x1x30-17ch')!)
+    for (const channel of profile.modes[0].channels) {
+      channel.defaultValue = channel.attribute === 'pan' || channel.attribute === 'tilt' ? 128 : 0
+    }
+    const fixture = { id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch', channelStart: 1, channels: 17, profile }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+  })
+
+  it('heals from the show’s own stored fixtureProfiles', () => {
+    const custom = oflEp4Profile(255)
+    custom.id = 'custom-bar'
+    custom.name = 'My edited bar'
+    const fixture = { ...staleOflBar(), profileId: 'custom-bar', profile: oflEp4Profile(0) }
+    fixture.profile.id = 'custom-bar'
+    const show = migrateShow({ fixtures: [fixture], cues: [], fixtureProfiles: [custom] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+  })
+
+  it('still leaves a custom profile in no library exactly as stored', () => {
+    const fixture = { ...staleOflBar(), profileId: 'custom-bar', profile: oflEp4Profile(0) }
+    fixture.profile.id = 'custom-bar'
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(0)
+  })
+
+  it('is idempotent with OFL profiles supplied', () => {
+    const once: any = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    expect(migrateShow(JSON.parse(JSON.stringify(once)), [oflEp4Profile(255)])).toEqual(once)
   })
 })

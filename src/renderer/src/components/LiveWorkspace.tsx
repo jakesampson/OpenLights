@@ -13,6 +13,7 @@ import {
 } from '../lib/livePageObjects'
 import { useShowStore } from '../stores/showStore'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
+import { editAdHocTarget } from '../lib/liveOverrideTargets'
 import { CueListEditor } from './CueListEditor'
 import { XfadeSlider } from './XfadeSlider'
 
@@ -55,7 +56,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
     editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
-    configureCuePriority, configureCueFrameStep,
+    configureCuePriority, configureCueFrameStep, addOverridesToCues, startEditingCueAdHoc,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, renamePageObject,
@@ -83,7 +84,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // LightKey-style context menu (Guide ch.11, p.176): right-click on the
   // canvas or a button in Edit mode. Each item wires to the existing store
   // actions the old bottom-strip buttons used.
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; at: { x: number; y: number } } | null>(null)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; at: { x: number; y: number }; alt: boolean } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!contextMenu) return
@@ -93,6 +94,21 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [contextMenu])
+
+  // Edit Ad Hoc Properties for a standalone button (Guide ch.11, p.201)
+  // opens its properties popup, where the captured ad-hoc values live.
+  useEffect(() => {
+    const open = () => {
+      const state = useShowStore.getState()
+      if (!state.liveEditing || state.locked) return
+      const ref = state.selectedPageObjects[0]
+      if (!ref || ref.type !== 'cue') return
+      const control = state.show?.livePages?.flatMap((p) => p.controls).find((c) => c.id === ref.id)
+      if (control && !control.cueId) setPopupOpen(true)
+    }
+    window.addEventListener('openlights-open-live-properties', open)
+    return () => window.removeEventListener('openlights-open-live-properties', open)
+  }, [])
 
   // The inspector follows a single selection; multiple selected objects are
   // handled entirely by the store's multi-object commands.
@@ -266,7 +282,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     event.preventDefault(); event.stopPropagation()
     const rect = pageCanvas.current?.getBoundingClientRect()
     const at = clampCanvasPoint(event.clientX - (rect?.left ?? 0), event.clientY - (rect?.top ?? 0))
-    setContextMenu({ x: event.clientX, y: event.clientY, at })
+    setContextMenu({ x: event.clientX, y: event.clientY, at, alt: event.altKey })
   }
   const cutSelected = () => {
     copySelectedPageObjects()
@@ -486,6 +502,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <label className="text-dim">Colour<input aria-label="Cue colour" type="color" value={selectedControl.appearance?.color ?? '#47235a'} className="ml-1" onChange={(event) => configureCueAppearance(selectedControl.id, { color: event.target.value })} /></label>
               <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.appearance?.releaseOthers === true} onChange={(event) => configureCueAppearance(selectedControl.id, { releaseOthers: event.target.checked })} /> Release other buttons</label>
+              <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.activateAtStartup === true} onChange={(event) => patchControl(selectedControl.id, { activateAtStartup: event.target.checked })} /> Activate at startup</label>
               <label className="text-dim">Frame action<select aria-label="Frame step action" value={selectedControl.frameStep ?? ''} onChange={(event) => configureCueFrameStep(selectedControl.id, event.target.value ? event.target.value as 'next' | 'previous' : undefined)} className="ml-1 rounded bg-bg p-1"><option value="">Normal cue</option><option value="next">Next button</option><option value="previous">Previous button</option></select></label>
               {(['intensity', 'speed', 'size'] as const).map((key) => <label key={key} className="capitalize text-dim">{key} %<input aria-label={`Cue ${key}`} type="number" min="0" max="200" value={selectedControl.modifiers?.[key] ?? 100} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCueModifiers(selectedControl.id, { [key]: Number(event.target.value) })} /></label>)}
               <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? 0} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
@@ -524,6 +541,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       <button type="button" role="menuitem" disabled={isClipboardEmpty(pageClipboard)} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { pastePageObjects(); setContextMenu(null) }}>Paste</button>
       <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { duplicateSelectedPageObjects(); setContextMenu(null) }}>Duplicate</button>
       <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { deleteSelectedPageObjects(); setContextMenu(null) }}>Delete</button>
+      <div className="my-1 border-t border-line" />
+      <button type="button" role="menuitem" disabled={!selectedPageObjects.some((r) => r.type === 'cue' || r.type === 'list') || !Object.keys(manualOverrides).length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addOverridesToCues(undefined, contextMenu.alt); setContextMenu(null) }}>{contextMenu.alt ? 'Add Overrides for Selected Fixtures' : 'Add Overrides'}</button>
+      <button type="button" role="menuitem" disabled={selectedPageObjects.length !== 1 || !(selectedPageObjects[0].type === 'cue' || selectedPageObjects[0].type === 'list')} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => {
+        const target = editAdHocTarget(useShowStore.getState())
+        if (target && 'cueId' in target) startEditingCueAdHoc(target.cueId)
+        else if (target && 'popup' in target) setPopupOpen(true)
+        setContextMenu(null)
+      }}>Edit Ad Hoc Properties</button>
       <div className="my-1 border-t border-line" />
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setContextMenu(null); toggleEditing() }}>✓ Edit Live View</button>
     </div>}

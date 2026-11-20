@@ -4,6 +4,7 @@
 
 /* Consistent low-light interface colours */
 :root {
+  color-scheme: dark;
   --bg: #2a1233;
   --panel: #3a1b47;
   --panel2: #47235a;
@@ -61,6 +62,18 @@ body {
   background: var(--accent);
   color: #111;
   border-color: var(--accent);
+}
+
+/* Patch library footer (Jake, 20 Nov 2026): the five footer buttons are
+   one row of equal buttons — same width, same height, labels never wrap.
+   They share the row evenly (flex-basis 0) once the model count is gone. */
+.patch-footer-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 2px;
+  font-size: 10px;
+  white-space: nowrap;
+  text-align: center;
 }
 
 button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
@@ -129,6 +142,29 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .patch-dialog-header-mac {
   padding-left: 184px;
+}
+
+/* Setup wizard bar (full-window modal): the native window controls sit
+   over the top of the window, so the bar must clear them — on Windows the
+   caption buttons occupy the top-right (~150px, mirroring .top-bar's
+   right padding), on macOS the traffic lights occupy the top-left
+   (~80px, mirroring .top-bar-mac). Without this the wizard's Back / Next
+   sit underneath the native controls (Jake, 20 Nov 2026, image-25.png). */
+.wizard-bar-windows {
+  padding-right: 150px;
+}
+
+.wizard-bar-mac {
+  padding-left: 80px;
+}
+
+/* Full-screen modal scrims (Project Browser, setup wizard): the scrim
+   covers the whole window, including the header's `-webkit-app-region:
+   drag` strip underneath — without this the drag rect eats clicks in
+   the top 50px regardless of z-index, and a drag starting on the scrim
+   would move the window instead of doing nothing. */
+.modal-scrim {
+  -webkit-app-region: no-drag;
 }
 
 .patch-dialog-header-mac > button {
@@ -231,8 +267,23 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   -webkit-app-region: no-drag;
   transform: translateX(7px);
 }
-.header-look-field > span { color: var(--text); font-size: 18px; }
-.header-look-field select { min-width: 0; flex: 1; appearance: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; }
+/* The Overrides field is a toggle, not a dropdown (Jake's LightKey
+   screenshots, 20 Nov 2026): it always reads "Overrides", and the
+   paintbrush beside it appears only while overrides exist. */
+.header-look-field .overrides-toggle { min-width: 0; flex: 1; display: flex; align-items: center; gap: 6px; appearance: none; border: 0; outline: 0; background: transparent; color: var(--text); font-size: 14px; font-weight: 600; text-align: left; padding: 0; cursor: pointer; }
+.header-look-field .overrides-toggle svg, .header-look-field .overrides-clear svg { flex: none; display: block; }
+.header-look-field .overrides-clear { flex: none; display: flex; align-items: center; justify-content: center; width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--text); padding: 0; cursor: pointer; }
+.header-look-field .overrides-clear:hover { background: rgb(255 255 255 / 0.12); }
+/* Native <select> popups are an OS surface outside the DOM: on Windows
+   Chromium paints the popup white while the option text inherits the
+   select's white colour, so every row is unreadable (Jake, 20 Nov 2026:
+   the Active-cue dropdown showed ~200 blank white rows with one
+   highlighted row legible). Style the options explicitly — dark surface,
+   white text, matching the in-DOM header menus — on every native select
+   in the app, not just this one. The <meta color-scheme> hint alone did
+   not darken the popup on Jake's Windows machine. */
+select option { background: #555658; color: #fff; }
+select optgroup { background: #555658; color: #fff; }
 
 .lighting-toolbar { display: contents; -webkit-app-region: no-drag; }
 .lighting-toolbar > .header-icon:first-child { order: 2; }
@@ -324,7 +375,7 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .top-bar .lightkey-action:hover, .top-bar .lightkey-action.on,
 .top-bar .project-search-button:hover, .top-bar .project-search.open .project-search-button { background: rgba(255, 255, 255, 0.14); color: #fff; }
 .top-bar .header-look-field { background: #555658; }
-.top-bar .header-look-field > span, .top-bar .header-look-field select { color: #fff; }
+.top-bar .header-look-field .overrides-toggle, .top-bar .header-look-field .overrides-clear { color: #fff; }
 .top-bar .project-search.open > input { background: #555658; border-color: #767678; color: #fff; }
 /* Header dropdown menus (property ···, effects wand, layout/settings):
    grey surfaces, white text; the selected item is macOS blue. */
@@ -392,7 +443,11 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 .header-lock-dialog > span[role="alert"] { color: #fca5a5; font-size: 12px; }
 .header-lock-dialog > div { display: flex; justify-content: flex-end; gap: 8px; }
 .header-lock-dialog button { min-width: 74px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel2); padding: 7px 12px; color: var(--text); }
-.header-lock-dialog button.primary { border-color: var(--accent); background: var(--accent); color: #111; font-weight: 600; }
+/* Lock dialog primary — the same macOS default blue as the header
+   Done button (#0A84FF, white text, #2b93ff hover), not the theme
+   accent purple it used to be. */
+.header-lock-dialog button.primary { border-color: #0a84ff; background: #0a84ff; color: #fff; font-weight: 600; }
+.header-lock-dialog button.primary:hover { background: #2b93ff; border-color: #2b93ff; }
 
 .window-title {
   -webkit-app-region: no-drag;
@@ -774,6 +829,24 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   outline: 2px solid var(--accent);
 }
 
+/* Selected Design control (Jake, 19 Nov 2026): the blue #0A84FF border
+   marking the control the shortcuts act on — the same blue as the
+   colour card's selected border. An outline, not a border, so it never
+   shifts the track's layout, and OUTSET (offset 0) so it sits outside
+   the track — the fill must never cover it. (An inset ring was tried
+   20 Nov 2026 and reverted the same day: the lavender fill paints
+   over it wherever the fill reaches, so at a high Dimmer the ring
+   vanished on the sides and bottom. The ring's room comes from the
+   Design row's left padding instead — the Dimmer column sits flush
+   against the left edge of the overflow-hidden inspector, and without
+   that padding the outset ring's whole left segment was clipped off,
+   Jake, 20 Nov 2026.) It sits after the :focus-visible rule so
+   selection wins over the focus ring when a selected fader is focused. */
+.design-fill-track.design-fader-selected {
+  outline: 2px solid #0A84FF;
+  outline-offset: 0;
+}
+
 .design-fill-track[aria-disabled="true"] {
   cursor: not-allowed;
 }
@@ -792,6 +865,35 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px;
+}
+
+/* Additional-colour sliders beside the colour wheel (LightKey, Jake's
+   screenshots 19 Nov 2026 — lightkey-colour-wheel-*.png): a 2×2 grid —
+   White top-left, UV top-right, Amber bottom-left, Lime bottom-right —
+   so a fixture with fewer than four shows its empty slot(s) instead of
+   collapsing the grid. Two 64px columns (one .chan each) and two equal
+   rows stretching the card body, so each track is half the wheel's
+   height: the 90px min-height floor the channel strip needs is lifted
+   here, or two stacked tracks could never fit the card. The empty slot
+   is a blank cell the size of a slider column — LightKey's fourth slot
+   is bare card background (sampled (67, 84, 110), the card colour
+   itself), so it carries no background of its own. */
+.additional-colour-grid {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(2, 64px);
+  grid-template-rows: 1fr 1fr;
+  gap: 6px;
+  min-height: 0;
+}
+
+.additional-colour-grid .design-fill-track {
+  min-height: 0;
+}
+
+.additional-colour-empty-slot {
+  min-height: 0;
+  min-width: 0;
 }
 
 /* Colour wheel (LightKey's round Color control): the hue ring and inner

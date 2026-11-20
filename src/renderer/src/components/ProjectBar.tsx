@@ -4,17 +4,19 @@ import type { ShowDef } from '@shared/types'
 import type { ShowMeta } from '../global'
 import { projectNameFromPath } from '../lib/projectName'
 import { hasUnsavedChanges, transitionDecision } from '../lib/projectLifecycle'
+import { newShowFromTemplate } from '../lib/templates'
+import { SaveTemplateDialog } from './SaveTemplateDialog'
 
 export function ProjectBar() {
   const { show, setShow } = useShowStore()
   const [shows, setShows] = useState<ShowMeta[]>([])
-  const [newName, setNewName] = useState('')
   const [renameName, setRenameName] = useState('')
   const allowCloseRef = useRef(false)
   const [currentPath, setCurrentPath] = useState<string | null>(null)
   const [status, setStatus] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [pendingTransition, setPendingTransition] = useState<(() => void) | null>(null)
+  const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const savedSnapshotRef = useRef<string>(JSON.stringify(useShowStore.getState().show))
   const saveRef = useRef<() => void>(() => undefined)
@@ -179,26 +181,61 @@ export function ProjectBar() {
     refreshList()
   }
 
+  // New Project (Piece 5, Guide p.26): the name dialog asks for the name —
+  // the project is created and named before the wizard starts. The dialog's
+  // Save dispatches `openlights-create-project`, handled below, because the
+  // save path and snapshot live here.
   const handleNew = () => {
-    const name = newName.trim() || `Show ${shows.length + 1}`
-    const blank: ShowDef = {
-      schemaVersion: 1,
-      id: crypto.randomUUID(),
-      name,
-      description: '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      fixtures: [],
-      cues: [],
-      automations: [],
-      midiMappings: []
-    }
-    setShow(blank)
-    savedSnapshotRef.current = ''
-    setCurrentPath(null)
-    setNewName('')
-    setStatus('New show')
+    const state = useShowStore.getState()
+    state.setNewProjectTemplate(null)
+    state.setNewProjectDialogOpen(true)
   }
+
+  useEffect(() => {
+    const onCreate = (event: Event) => {
+      const name = (event as CustomEvent<string>).detail
+      if (typeof name !== 'string' || !name.trim()) return
+      const state = useShowStore.getState()
+      const template = state.newProjectTemplate
+      state.setNewProjectDialogOpen(false)
+      state.setNewProjectTemplate(null)
+      state.setWelcomeOpen(false)
+      if (template) {
+        setShow(newShowFromTemplate(template, name.trim()))
+        savedSnapshotRef.current = ''
+        setCurrentPath(null)
+        setStatus('New show')
+        return
+      }
+      const blank: ShowDef = {
+        schemaVersion: 1,
+        id: crypto.randomUUID(),
+        name: name.trim(),
+        description: '',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        fixtures: [],
+        cues: [],
+        automations: [],
+        midiMappings: []
+      }
+      setShow(blank)
+      savedSnapshotRef.current = ''
+      setCurrentPath(null)
+      setStatus('New show')
+      state.startSetupWizard()
+    }
+    // The welcome screen's Recent Projects row reuses this load flow, so
+    // the unsaved-changes prompt still applies.
+    const onLoadShow = (event: Event) => {
+      const path = (event as CustomEvent<string>).detail
+      if (typeof path !== 'string' || !path) return
+      requestTransition(() => { void handleLoad(path) })
+    }
+    window.addEventListener('openlights-create-project', onCreate)
+    window.addEventListener('openlights-load-show', onLoadShow)
+    return () => { window.removeEventListener('openlights-create-project', onCreate); window.removeEventListener('openlights-load-show', onLoadShow) }
+  }, [])
 
   useEffect(() => {
     const onCommand = (event: Event) => {
@@ -211,7 +248,7 @@ export function ProjectBar() {
     }
     window.addEventListener('openlights-project-command', onCommand)
     return () => window.removeEventListener('openlights-project-command', onCommand)
-  }, [show, currentPath, newName])
+  }, [show, currentPath])
 
   if (useShowStore.getState().locked) return <button className="btn-theme text-xs" disabled>Project locked</button>
   // Persistent save state in the top bar (LightKey: an operator must see at a
@@ -251,16 +288,13 @@ export function ProjectBar() {
             <button onClick={handleSave} className="btn-theme on text-xs">Save</button>
             <button onClick={handleSaveAs} className="btn-theme text-xs">Save As</button><button onClick={() => requestTransition(() => { setShow(null); savedSnapshotRef.current = "null"; setCurrentPath(null); setStatus("Closed") })} className="btn-theme text-xs">Close</button>
             <button onClick={() => requestTransition(() => { void handleOpen() })} className="btn-theme text-xs">Open…</button>
+            <button onClick={() => setTemplateDialogOpen(true)} className="btn-theme text-xs" title="Save the current show as a template for new projects">Save as Template…</button>
           </div>
+          {templateDialogOpen && <SaveTemplateDialog onClose={() => setTemplateDialogOpen(false)} />}
 
           <div className="flex gap-1 mb-2">
-            <input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="New show name"
-              className="flex-1 rounded bg-panel2 border border-line px-2 py-1 text-xs text-white placeholder:text-dim"
-            />
-            <button onClick={() => requestTransition(handleNew)} className="btn-theme text-xs">New</button>
+            <button onClick={() => requestTransition(handleNew)} className="btn-theme text-xs">New Project</button>
+            <button onClick={() => { setOpen(false); useShowStore.getState().setWelcomeOpen(true) }} className="btn-theme text-xs">Project Browser…</button>
           </div>
 
           <div className="text-[10px] text-dim mb-2 truncate">

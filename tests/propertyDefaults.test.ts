@@ -13,27 +13,38 @@ describe('fixture property defaults', () => {
 
   it('defaults an undefined colour to blue (LightKey Guide p.85)', () => {
     // A fixture with no colour defined in the cue lights blue when its
-    // dimmer is open: RGB red 0 / green 0 / blue 255. A custom default
-    // wins over blue, and a colour defined in the cue wins over both.
+    // dimmer is open: RGB red 0 / green 0 / blue 255 — but the dimmer
+    // itself defaults to 0 (dark), so a fresh fixture is dark with blue
+    // underneath (Jake, 19 Nov 2026, reversing Piece 13). A custom
+    // default wins over blue, and a colour defined in the cue wins over
+    // both.
     const fixture: FixtureDef = { id: 'f', name: 'Head', type: 'moving-head', channels: 8, channelStart: 1 }
     const empty = { id: 's', name: 'Empty', fadeMs: 0, fixtureValues: {} }
     const defaults = computeCueChannels([fixture], empty, 255, true)
     expect([defaults[4], defaults[5], defaults[6]]).toEqual([0, 0, 255])
-    // The dimmer itself defaults to full (Piece 13): a fixture added
-    // for the first time starts at 100%.
-    expect(defaults[1]).toBe(255)
+    expect(defaults[1]).toBe(0)
     const custom: FixtureDef = { ...fixture, defaultValues: { red: 255, green: 128, blue: 0 } }
     expect(computeCueChannels([custom], empty, 255, true)).toMatchObject({ 4: 255, 5: 128, 6: 0 })
     const defined = { id: 's', name: 'Red', fadeMs: 0, fixtureValues: { f: { intensity: 255, red: 255, green: 0, blue: 0 } } }
     expect(computeCueChannels([fixture], defined, 255, true)).toMatchObject({ 4: 255, 5: 0, 6: 0 })
-    // A dimmer explicitly set to 0 stays dark — the default only
-    // applies when the dimmer is undefined.
+    // A dimmer explicitly set to 0 is dark, the same as the default —
+    // the default only ever opens the dimmer when it is set.
     const dark = { id: 's', name: 'Dark', fadeMs: 0, fixtureValues: { f: { intensity: 0, red: 255, green: 0, blue: 0 } } }
     expect(computeCueChannels([fixture], dark, 255, true)).toMatchObject({ 1: 0, 4: 255, 5: 0, 6: 0 })
     // A colour explicitly defined as black stays black — the default
     // only applies when the colour is undefined.
     const black = { id: 's', name: 'Black', fadeMs: 0, fixtureValues: { f: { intensity: 255, red: 0, green: 0, blue: 0 } } }
     expect(computeCueChannels([fixture], black, 255, true)).toMatchObject({ 4: 0, 5: 0, 6: 0 })
+  })
+
+  it('a fresh fixture is dark with blue underneath (real dimmer)', () => {
+    // Jake, 19 Nov 2026: the default colour stays blue, but the dimmer
+    // defaults to 0 — the intensity channel reads 0 while the blue
+    // channel still carries the default, so raising the dimmer brings
+    // up blue.
+    const fixture: FixtureDef = { id: 'f', name: 'PAR', type: 'par', channels: 4, channelStart: 1 }
+    const empty = { id: 's', name: 'Empty', fadeMs: 0, fixtureValues: {} }
+    expect(computeCueChannels([fixture], empty, 255, true)).toMatchObject({ 1: 0, 2: 0, 3: 0, 4: 255 })
   })
 
   it('defaults an undefined CMY colour to blue (cyan + magenta full)', () => {

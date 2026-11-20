@@ -42,10 +42,14 @@ describe('Fanning removed from the Design panel', () => {
   })
 })
 
-describe('fixture header has no separator', () => {
-  it('renders "1 fixture selected" with no rule underneath it', () => {
-    expect(design).toContain('fixture')
-    expect(design).toContain('selected')
+describe('fixture header strip is gone', () => {
+  it('no longer renders the selection title or the cue-contents strip', () => {
+    expect(design).not.toContain('aria-label="Cue contents"')
+    expect(design).not.toContain('aria-label="Add preset to cue"')
+    expect(design).not.toContain('aria-label="Add sequence to cue"')
+    expect(design).not.toContain('Select fixture(s) on stage')
+    expect(design).not.toContain('fixture${selectedFixtures.length')
+    expect(design).not.toContain('Editing preset “')
     expect(design).not.toContain('border-b border-line')
     expect(design).not.toContain('border-b')
   })
@@ -76,7 +80,12 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
   })
 
   it('still wires Dimmer and channels to the same store updates', () => {
-    expect(design).toContain("onChange={(next) => updateValues({ intensity: next })}")
+    // The Dimmer writes intensity through updateValues — plus the
+    // guide's auto-open (Guide p.98): a non-zero Dimmer opens a closed
+    // shutter, so the onChange is a block now, not a one-liner (batch 4,
+    // 19 Nov 2026).
+    expect(design).toContain('updateValues({ intensity: next })')
+    expect(design).toContain("updateValues({ intensity: next, [shutterChannel.attribute]: open })")
     expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
     // The Dimmer fader is available for a fixture with a dimmer channel
     // and for a virtual-dimmer fixture (colour, no dimmer channel).
@@ -110,8 +119,8 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
     // channel values all go through valueFor, which rounds — so no
     // other raw float can be rendered into the panel.
     expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
-    expect(design).toContain("Pan {activeCue ? valueFor('pan') : 0} · Tilt {activeCue ? valueFor('tilt') : 0}")
-    expect(design).toContain('const value = activeCue ? valueFor(attribute) : 0')
+    expect(design).toContain("Pan {valueFor('pan')} · Tilt {valueFor('tilt')}")
+    expect(design).toContain('const value = valueFor(attribute)')
     expect(design).toContain('Math.round(')
   })
 

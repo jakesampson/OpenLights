@@ -30,14 +30,16 @@ const LEGACY_CHANNELS: Record<string, Record<string, number>> = {
 }
 
 export const BUILTIN_PROFILES: FixtureProfile[] = [
-  // Channel defaults (LightKey Guide pp.85, 114 — Pieces 11, 13): pan/tilt sit
-  // centred (128); the colour default is blue — the blue component full
-  // (blue, cyan, magenta at 255; red, green, yellow, white, amber, UV at
-  // 0) — so a fixture with no colour defined lights blue when its dimmer
-  // is open; and the dimmer itself defaults to full (255), so a fixture
-  // added for the first time starts at 100% (Jake, 19 Nov 2026 — the
-  // same as the virtual dimmer, which reads Full until set). Everything
-  // else defaults to 0 (off).
+  // Channel defaults (LightKey Guide pp.85, 114 — Pieces 11, 13, reversed
+  // 19 Nov 2026): pan/tilt sit centred (128); the colour default is blue
+  // — the blue component full (blue, cyan, magenta at 255; red, green,
+  // yellow, white, amber, UV at 0) — so a fixture with no colour defined
+  // lights blue when its dimmer is open; but the dimmer itself now
+  // defaults to 0 (dark), so a fixture added for the first time is dark
+  // with blue underneath and raising the dimmer brings up blue. This
+  // reverses Piece 13 (Jake's 19 Nov 2026 request that a dimmer start at
+  // 100%) — Jake changed his mind the same day: dark by default, like
+  // LightKey's fresh fixture. Everything else defaults to 0 (off).
   { id: 'par-rgb', name: 'Generic PAR (RGB)', type: 'par' as FixtureType },
   { id: 'wash-rgbaw', name: 'LED Wash (RGBAW+UV)', type: 'led-wash' as FixtureType },
   { id: 'head-8ch', name: 'Moving Head (8ch)', type: 'moving-head' as FixtureType },
@@ -46,7 +48,7 @@ export const BUILTIN_PROFILES: FixtureProfile[] = [
   { id: 'pan-4x1x30-17ch', name: 'PAN 4x1x30 (17ch)', type: 'pixel-bar-17ch' as FixtureType },
   { id: 'simger-q12bt-rgba-4ch', name: 'Simger Q12BT (RGBA 4ch)', type: 'rgba-4ch' as FixtureType },
   { id: 'corepar-q120-rgbw-4ch', name: 'COREpar Q120 ILS (RGBW 4ch)', type: 'rgbw-4ch' as FixtureType },
-].map((preset) => ({ id: preset.id, name: preset.name, manufacturer: 'Generic', legacyType: preset.type, modes: [{ id: 'default', name: 'Default mode', channels: Object.entries(LEGACY_CHANNELS[preset.type]).map(([attribute, number]) => ({ number, attribute, propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue|white|amber|uv)/.test(attribute) ? 'color' as const : attribute === 'pan' || attribute === 'tilt' ? 'position' as const : 'other' as const, min: 0, max: 255, defaultValue: attribute === 'pan' || attribute === 'tilt' ? 128 : attribute === 'intensity' || /^(blue|cyan|magenta)\d*$/.test(attribute) ? 255 : 0, highlightValue: /^(intensity|red|green|blue|white|amber|uv)/.test(attribute) ? 255 : attribute === 'pan' || attribute === 'tilt' ? 128 : 0 })) }] }))
+].map((preset) => ({ id: preset.id, name: preset.name, manufacturer: 'Generic', legacyType: preset.type, modes: [{ id: 'default', name: 'Default mode', channels: Object.entries(LEGACY_CHANNELS[preset.type]).map(([attribute, number]) => ({ number, attribute, propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue|white|amber|uv)/.test(attribute) ? 'color' as const : attribute === 'pan' || attribute === 'tilt' ? 'position' as const : 'other' as const, min: 0, max: 255, defaultValue: attribute === 'pan' || attribute === 'tilt' ? 128 : /^(blue|cyan|magenta)\d*$/.test(attribute) ? 255 : 0, highlightValue: /^(intensity|red|green|blue|white|amber|uv)/.test(attribute) ? 255 : attribute === 'pan' || attribute === 'tilt' ? 128 : 0 })) }] }))
 
 const pixel = BUILTIN_PROFILES.find((p) => p.legacyType === 'pixel-bar-17ch')!
 pixel.modes[0].beams = Array.from({ length: 4 }, (_, index) => ({ id: `cell-${index + 1}`, name: `Cell ${index + 1}`, properties: Object.fromEntries(['red', 'green', 'blue'].map((attribute) => [attribute, `${attribute}${index === 0 ? '' : index + 1}`])) }))
@@ -98,6 +100,37 @@ export function fixtureBeams(fixture: FixtureDef): NonNullable<FixtureProfile['m
   const flexible = mode?.flexibleLeds
   if (!flexible) return beams
   return beams.slice(0, ledCountFor(mode, fixture.ledCount))
+}
+
+/** Colour attributes a whole-fixture colour write covers (LightKey
+ *  Guide p.85: the base colour plus the separate White / Amber / UV /
+ *  Lime LEDs). */
+const COLOUR_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime'] as const
+
+/**
+ * Fan a bare colour patch out to every beam of a multipart fixture —
+ * the linked-wheel rule (Jake, 19 Nov 2026) applied to any colour
+ * write: a whole-fixture colour is the fixture's colour, so `red`
+ * lands on every cell's red channel ("red 2" in OFL profiles, "red2"
+ * in built-ins), and likewise White / Amber / UV / Lime and CMY.
+ * Only keys the patch does not already carry are filled, so an
+ * explicit per-beam value still wins, and a patch that already
+ * names a beam's channel is left alone. A single-cell fixture, or a
+ * patch with no colour keys, comes back unchanged.
+ */
+export function fanColourToBeams(fixture: FixtureDef, values: Record<string, number>): Record<string, number> {
+  const beams = fixtureBeams(fixture)
+  if (beams.length < 2) return { ...values }
+  const result = { ...values }
+  for (const beam of beams) {
+    for (const name of COLOUR_ATTRIBUTES) {
+      const channel = beam.properties[name]
+      if (!channel || channel in result) continue
+      const base = values[name]
+      if (typeof base === 'number' && Number.isFinite(base)) result[channel] = Math.max(0, Math.min(255, Math.round(base)))
+    }
+  }
+  return result
 }
 
 export function fixtureChannelMap(fixture: FixtureDef): Record<string, number> {

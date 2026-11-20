@@ -1,5 +1,6 @@
 import type { FixtureDef, PresetDef, SequenceDef, SequenceStep } from '@shared/types'
 import { fixtureMode } from '@shared/fixtureProfiles'
+import { fanPresetFixtureValues } from '@shared/cueResolution'
 export function sequenceOrder(count: number, order: SequenceDef['order'], seed = 1): number[] {
   const result = Array.from({ length: count }, (_, i) => i)
   if (order === 'backward') return result.reverse()
@@ -33,10 +34,14 @@ export function sequencePosition(sequence: SequenceDef, elapsedMs: number, seed 
   }
   return { index: -1, nextIndex: -1, mix: 0, completed: true, remainingMs: 0, pass }
 }
-export function sequenceStepValues(step: SequenceStep | undefined, presets: PresetDef[]): Record<string, Record<string, number>> {
+export function sequenceStepValues(step: SequenceStep | undefined, presets: PresetDef[], fixtures: FixtureDef[] = []): Record<string, Record<string, number>> {
   const values: Record<string, Record<string, number>> = {}
   if (!step) return values
-  for (const id of step.presetIds) for (const [fixtureId, patch] of Object.entries(presets.find((p) => p.id === id)?.fixtureValues ?? {})) values[fixtureId] = { ...values[fixtureId], ...patch }
+  // A preset's colour is the fixture's colour (Jake, 19 Nov 2026):
+  // its bare colour fans out to every beam, like a cue's presets.
+  // The step's own values are the operator's explicit values and
+  // are never fanned.
+  for (const id of step.presetIds) for (const [fixtureId, patch] of Object.entries(fanPresetFixtureValues(presets.find((p) => p.id === id)?.fixtureValues ?? {}, fixtures))) values[fixtureId] = { ...values[fixtureId], ...patch }
   for (const [id, patch] of Object.entries(step.fixtureValues)) values[id] = { ...values[id], ...patch }
   return values
 }
@@ -45,7 +50,7 @@ const FINE_PAIRS: Record<string, string> = { pan: 'panFine', tilt: 'tiltFine' }
 const FINE_TO_COARSE: Record<string, string> = { panFine: 'pan', tiltFine: 'tilt' }
 
 export function sequenceValues(sequence: SequenceDef, presets: PresetDef[], fixtures: FixtureDef[], elapsedMs: number, seed = 1, bpm = 120): Record<string, Record<string, number>> {
-  const position = sequencePosition(sequence, elapsedMs, seed, bpm), from = sequenceStepValues(sequence.steps[position.index], presets), to = sequenceStepValues(sequence.steps[position.nextIndex], presets)
+  const position = sequencePosition(sequence, elapsedMs, seed, bpm), from = sequenceStepValues(sequence.steps[position.index], presets, fixtures), to = sequenceStepValues(sequence.steps[position.nextIndex], presets, fixtures)
   if (!position.mix) return from
   const values: Record<string, Record<string, number>> = {}
   for (const id of new Set([...Object.keys(from), ...Object.keys(to)])) {

@@ -6,7 +6,7 @@ describe('history shortcuts', () => {
     expect(new Set(signatures).size).toBe(signatures.length)
     for (const binding of SHORTCUTS) {
       expect(matchShortcut({ key: binding.code, ctrlKey: binding.ctrl, shiftKey: binding.shift, altKey: binding.alt }, null)?.command).toBe(binding.command)
-      expect(/^(undo|redo|save|saveAs|open|new|close|design|live|fullscreen|blackout|go|next|previous|escape|cue[1-9]|zoomIn|zoomOut|zoomFit|zoomSelection|editPreview)$/.test(binding.command)).toBe(true)
+      expect(/^(undo|redo|save|saveAs|open|new|close|design|live|fullscreen|blackout|highlight|beamDirection|group|go|next|previous|escape|cue[1-9]|zoomIn|zoomOut|zoomFit|zoomSelection|editPreview|showOverrides)$/.test(binding.command)).toBe(true)
     }
   })
   it('maps Windows undo and both redo bindings', () => {

@@ -11,14 +11,28 @@ const clampFader = (value: number) => Math.max(0, Math.min(255, Math.round(value
 // range input) so the fill can be drawn as a solid bar. Dragging sets the
 // value by pointer Y (top = 255); keyboard: arrows ±1 (Shift ±10),
 // PageUp/PageDown ±25, Home = 255, End = 0.
-export function FillFader({ value, onChange, label, fillColor, disabled = false, trackClassName = 'live-master-track', valueText }: {
+//
+// `selected` (Design tab only, Jake 19 Nov 2026): the blue #0A84FF border
+// marking the control the shortcuts act on. It is a prop, not focus, so
+// the Live master fader — which never passes it — keeps its own look.
+// `fillGradient` (additional-colour sliders only, Jake's LightKey
+// screenshots 19 Nov 2026 — lightkey-colour-wheel-*.png): the
+// track shows the value scale as a full-height gradient (full colour
+// at the top, black at the bottom), and the fill is a mask over the
+// unfilled top part, so the gradient visible at any height is exactly
+// the slice of the scale up to the current value — the colour at a
+// given height never depends on the value. Without it, the fill is
+// the old solid fillColor bar (Dimmer, Master, channel faders).
+export function FillFader({ value, onChange, label, fillColor, fillGradient, disabled = false, trackClassName = 'live-master-track', valueText, selected = false }: {
   value: number
   onChange: (value: number) => void
   label: string
   fillColor: string
+  fillGradient?: string
   disabled?: boolean
   trackClassName?: string
   valueText?: string
+  selected?: boolean
 }) {
   const trackRef = useRef<HTMLDivElement>(null)
   // A drag tracked only by a ref stays live when pointerup is missed
@@ -57,7 +71,8 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
       aria-valuenow={value}
       aria-valuetext={valueText ?? `${Math.round((value / 255) * 100)}%`}
       aria-disabled={disabled || undefined}
-      className={trackClassName}
+      className={`${trackClassName}${selected ? ' design-fader-selected' : ''}`}
+      style={fillGradient ? { background: fillGradient } : undefined}
       onPointerDown={(event) => { if (disabled) return; drag.begin(); event.currentTarget.setPointerCapture(event.pointerId); valueFromPointer(event.clientY) }}
       onPointerMove={(event) => { if (event.buttons === 0) { drag.end(); return } if (drag.isActive()) valueFromPointer(event.clientY) }}
       onPointerUp={() => drag.end()}
@@ -65,7 +80,15 @@ export function FillFader({ value, onChange, label, fillColor, disabled = false,
       onLostPointerCapture={() => drag.end()}
       onKeyDown={onKeyDown}
     >
-      <div className="live-master-fill" style={{ height: `${(value / 255) * 100}%`, backgroundColor: fillColor }} />
+      {fillGradient ? (
+        // The gradient is the track's background (full height); this
+        // mask covers the unfilled top in the track's normal
+        // background, so at 0 the slider reads dark and at full the
+        // whole gradient shows. A zero-height mask at full is harmless.
+        <div className="live-master-fill" aria-hidden="true" style={{ top: 0, bottom: 'auto', height: `${100 - (value / 255) * 100}%`, background: 'var(--bg)' }} />
+      ) : (
+        <div className="live-master-fill" style={{ height: `${(value / 255) * 100}%`, backgroundColor: fillColor }} />
+      )}
     </div>
   )
 }

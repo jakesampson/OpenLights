@@ -55,7 +55,7 @@ describe('DesignTab — every control carries its own fan affordance', () => {
     // Piece 11 (Guide p.114): the same Colour menu offers the
     // default-value actions — Set / Load / Reset Default.
     expect(design).toContain("label: 'Set as Default', onSelect: () => setColorDefault()")
-    expect(design).toContain("label: 'Load Default', onSelect: () => loadColorDefault()")
+    expect(design).toContain("label: 'Load Default', onSelect: () => { setActiveColorProperty(null); loadColorDefault() }")
     expect(design).toContain("label: 'Reset Default', onSelect: () => resetColorDefault()")
     expect(design).toContain('<FanMenuButton')
     expect(design).toContain("label: 'Add Pan Fanning…'")
@@ -71,10 +71,10 @@ describe('DesignTab — every control carries its own fan affordance', () => {
     expect(design).toContain('showFanButtons && !fan && isSlider')
   })
 
-  it('hides the fan buttons while editing a preset or with beams selected', () => {
-    // Fans are cue-level (fanning is hidden while editing a preset)
-    // and beams are not fanned (existing gap).
-    expect(design).toContain('const showFanButtons = !editingPreset && selectedBeams.length === 0')
+  it('hides the fan buttons while editing a preset, but shows them with beams selected', () => {
+    // Fans are cue-level (fanning is hidden while editing a preset);
+    // with beams selected the fan opens across those beams (Piece 7).
+    expect(design).toContain('const showFanButtons = !editingPreset')
   })
 
   it('replaces a fanned control with the icon and marks it with the blue dot', () => {
@@ -131,6 +131,6 @@ describe('FanningHud — colour fans', () => {
   it('edits colours per fixture instead of numbers for a colour fan', () => {
     expect(hud).toContain('<ColorField')
     expect(hud).toContain('setFanRowColor(draft, row.index, value, rows.length)')
-    expect(hud).toContain('Fixtures — set a {isColor ? \'colour\' : \'value\'} per fixture')
+    expect(hud).toContain("{draft.beams ? 'Beams' : 'Fixtures'} — set a {isColor ? 'colour' : 'value'} per {draft.beams ? 'beam' : 'fixture'}")
   })
 })

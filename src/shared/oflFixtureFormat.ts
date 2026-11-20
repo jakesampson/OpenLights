@@ -80,6 +80,14 @@ function channelSlots(channel: JsonRecord): FixtureChannel['slots'] {
       name: comment || type.replace(/([a-z])([A-Z])/g, '$1 $2'),
       from: dmxByte(range[0], channel.dmxValueResolution, 0, 0),
       to: dmxByte(range[1], channel.dmxValueResolution, 0, 255),
+      // The OFL capability type is the range's meaning: 'ShutterStrobe'
+      // ranges strobe, 'Effect' ranges are auto programs, 'NoFunction'
+      // is the off/no-program range, 'EffectSpeed' is a program speed.
+      // The name alone does not carry it (an EP4 "RGB colors switching"
+      // range is an auto program; a Spectra "Open" range is ShutterStrobe
+      // typed), so keep it on the slot for the Shutter/Strobe and Auto
+      // Program panels to read.
+      capabilityType: type,
       kind: /Rotation|Speed|Continuous/.test(type) ? 'spin' as const : 'slot' as const
     }
   })
@@ -173,6 +181,114 @@ export function isOflFixture(value: unknown): boolean {
   return typeof raw.$schema === 'string' && raw.$schema.includes('open-fixture-library') && Array.isArray(raw.modes)
 }
 
+/**
+ * Merge a freshly seeded OFL library with the cached one: the fresh
+ * profiles win for every id they carry (that is the refresh that heals
+ * stale cached defaults), and cached profiles the fresh seed does not
+ * know — a hand-imported definition, for example — are kept, never
+ * dropped. Used when the bundled library changes underneath a cache
+ * seeded from an older bundle (Q3, 20 Nov 2026).
+ *
+ * A custom-tagged cached record is never replaced, even when the fresh
+ * library carries the same id — the user's own fixture wins over the
+ * base record (Jake, 20 Nov 2026: an OFL zip upload never updates a
+ * custom fixture).
+ */
+export function mergeOflLibraries(fresh: FixtureProfile[], cached: FixtureProfile[]): FixtureProfile[] {
+  const customIds = new Set(cached.filter((p) => p.custom).map((p) => p.id))
+  const keptFresh = fresh.filter((p) => !customIds.has(p.id))
+  const keptFreshIds = new Set(keptFresh.map((p) => p.id))
+  return [...keptFresh, ...cached.filter((p) => !keptFreshIds.has(p.id))]
+}
+
+/**
+ * Mint a profile as the user's own fixture (Jake, 20 Nov 2026 — all
+ * duplicates and Build Your Own fixtures are GLOBAL: they live in the
+ * library database, not in one show): a fresh `custom:` id, tagged
+ * custom, and the OFL identity stripped — it is no longer an OFL
+ * record, so a zip upload never updates it and the heal never matches
+ * it as a base profile. The name is UNCHANGED: this is for saving an
+ * edited base record (or an imported JSON) under the name the user
+ * already gave it, not for duplicating.
+ */
+export function asNewCustom(profile: FixtureProfile): FixtureProfile {
+  const copy = structuredClone(profile)
+  copy.id = `custom:${slug(profile.name)}-${crypto.randomUUID().slice(0, 8)}`
+  copy.custom = true
+  delete copy.ofl
+  return copy
+}
+
+/**
+ * Duplicate an OFL record into the user's own fixture (Jake, 20 Nov
+ * 2026): a fresh `custom:` id, the name with " copy", tagged custom,
+ * and the OFL identity stripped — it is no longer an OFL record, so a
+ * zip upload never updates it and the heal never matches it as a base
+ * profile. The modes and channels are a deep copy, so editing the
+ * duplicate never touches the original.
+ */
+export function duplicateProfileAsCustom(profile: FixtureProfile): FixtureProfile {
+  const copy = asNewCustom(profile)
+  copy.name = `${profile.name} copy`
+  return copy
+}
+
+/**
+ * Store a custom fixture in the global library (Jake, 20 Nov 2026):
+ * insert it, or replace the custom record with the same id when the
+ * user edits it. A record with the same id that is NOT custom is a
+ * base library record — it is never overwritten; the caller must mint
+ * a fresh id (asNewCustom) instead. The saved copy is forced custom
+ * with its OFL identity stripped, whatever the caller passed in.
+ * Returns `{ profiles, profile }` on success, `{ error }` on refusal.
+ */
+export function upsertCustomProfile(library: FixtureProfile[], profile: FixtureProfile): { profiles: FixtureProfile[]; profile: FixtureProfile } | { error: string } {
+  const saved = structuredClone(profile)
+  saved.custom = true
+  delete saved.ofl
+  const clash = library.find((p) => p.id === saved.id)
+  if (clash && !clash.custom) return { error: `A library fixture already uses the id ${saved.id} — save it as a new custom fixture instead` }
+  if (clash) return { profiles: library.map((p) => (p.id === saved.id ? saved : p)), profile: saved }
+  return { profiles: [...library, saved], profile: saved }
+}
+
+/**
+ * Remove a custom fixture from the global library. A base library
+ * record is never deleted this way, and an unknown id is an error.
+ */
+export function deleteCustomProfile(library: FixtureProfile[], profileId: string): { profiles: FixtureProfile[] } | { error: string } {
+  const existing = library.find((p) => p.id === profileId)
+  if (!existing) return { error: 'Fixture not found in the library' }
+  if (!existing.custom) return { error: 'Only a custom fixture can be deleted from the library' }
+  return { profiles: library.filter((p) => p.id !== profileId) }
+}
+
+/**
+ * Whether a library meta source means the cache is the user's own
+ * library and must stand as-is: a zip they uploaded ('upload'), a
+ * folder they imported ('import'), or a library holding fixtures they
+ * created ('custom' — Jake, 20 Nov 2026, global customs). Anything
+ * else ('bundled', 'none', or no meta) is shipped/stale data.
+ */
+export function preservesUserLibrary(source: string | undefined): boolean {
+  return source === 'import' || source === 'upload' || source === 'custom'
+}
+
+/**
+ * Whether a cached OFL library must be dropped now the bundled
+ * fixtures/ folder no longer ships (Jake, 20 Nov 2026): a cache seeded
+ * from the bundle — meta 'bundled' from before the unbundling, or a
+ * cache from before the meta file existed — would keep serving stale
+ * bundle defaults (blue 0) forever once the folder is gone. A library
+ * the user uploaded themselves ('import' / 'upload') stands as-is: it
+ * is their library, not shipped data. An empty cache needs no clearing.
+ */
+export function shouldClearBundledOflCache(meta: { source: string } | null, cached: FixtureProfile[] | null): boolean {
+  if (!cached || !cached.length) return false
+  if (!meta) return true
+  return !preservesUserLibrary(meta.source)
+}
+
 export function importOflFixture(value: string | unknown, options: OflImportOptions = {}): FixtureProfile {
   const raw = typeof value === 'string' ? JSON.parse(value) : value
   if (!isOflFixture(raw)) throw new Error('This is not an Open Fixture Library fixture JSON file')
@@ -195,6 +311,10 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
     if (!Array.isArray(mode.channels) || !mode.channels.length) throw new Error('Every OFL mode must contain channels')
     const expandedChannels = expandModeChannels(fixture, mode.channels, descriptors)
     const used = new Set<string>()
+    // Pan/tilt ranges from the profile (Guide p.60), captured while the
+    // channels are built — a Pan/Tilt capability's angleStart/angleEnd.
+    let panRange: number | undefined
+    let tiltRange: number | undefined
     const channels: FixtureChannel[] = expandedChannels.map((channelKey, number) => {
       if (channelKey === null) return { number, attribute: uniqueAttribute(`Unused ${number + 1}`, used), propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }
       const descriptor = descriptors.get(String(channelKey))
@@ -210,6 +330,8 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       // one. Fine channels keep their "X fine N" names — they are
       // distinct channels.
       const attribute = descriptor?.byte ? label : canonicalAttribute(label, type)
+      if (!descriptor?.byte && attribute === 'pan' && panRange === undefined) panRange = capabilityAngleRange(definition)
+      if (!descriptor?.byte && attribute === 'tilt' && tiltRange === undefined) tiltRange = capabilityAngleRange(definition)
       return {
         number,
         attribute: uniqueAttribute(attribute, used),
@@ -219,7 +341,13 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
         min: 0,
         max: 255,
         defaultValue: defaultChannelValue(definition, descriptor, type),
-        highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, 255)
+        // A channel with no highlight value in its definition falls
+        // back to the built-in rule (fixtureProfiles.ts): intensity
+        // and colour channels light at full, pan/tilt sit centred,
+        // everything else off. The old fallback lit every channel at
+        // 255, so a moving head highlighted with its pan hard over
+        // instead of centred.
+        highlightValue: dmxByte(definition.highlightValue, definition.dmxValueResolution, descriptor?.byte ?? 0, type === 'position' ? 128 : type === 'intensity' || type === 'color' ? 255 : 0)
       }
     })
     const name = typeof mode.name === 'string' ? mode.name : `Mode ${modeIndex + 1}`
@@ -241,13 +369,30 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
       if (expandedChannels.length - pixels.length * templateCount < 0) return undefined
       return { channelsPerLed: templateCount, maxLeds: pixels.length, defaultLeds: pixels.length, minLeds: 1 }
     })()
-    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}) }
+    // Beams (cells, Piece 7): a mode whose colour channels repeat across
+    // pods — "Red 1…Red 4", "Quad LED 1 Red…Quad LED 5 Red" — is a
+    // multi-cell fixture. The normalised attributes carry the pod in
+    // their suffix ("red" = pod 1, "red 2" = pod 2), so grouping the
+    // colour channels by that suffix gives one beam per pod, with the
+    // beam's properties mapping the panel's colour names to the pod's
+    // channel attributes. A single pod is just the fixture itself and
+    // gets no beams. (Limitation: a mode with a global colour channel
+    // AND per-pod colours cannot be told apart — the global channel
+    // takes the pod-1 slot.)
+    const beams = deriveBeams(channels)
+    return { id: slug(typeof mode.shortName === 'string' ? mode.shortName : name), name, channels, ...(flexibleLeds ? { flexibleLeds } : {}), ...(beams ? { beams } : {}), ...(panRange !== undefined ? { panRange } : {}), ...(tiltRange !== undefined ? { tiltRange } : {}) }
   })
 
   const name = typeof fixture.name === 'string' && fixture.name.trim() ? fixture.name : 'OFL fixture'
-  const manufacturerKey = options.manufacturerKey ?? ''
+  // The file names its own manufacturer and fixture — use them when the
+  // caller does not supply keys. (Before this, a call without options
+  // minted ofl:open-fixture-library:<fixture> for every definition, an
+  // id no library profile ever carries, so a snapshot imported that way
+  // could never be matched — and healed — later. Q3, 20 Nov 2026.)
+  const fileManufacturerKey = typeof fixture.manufacturerKey === 'string' ? fixture.manufacturerKey : ''
+  const manufacturerKey = options.manufacturerKey ?? fileManufacturerKey
   const manufacturer = options.manufacturer ?? manufacturerFromSource(options.sourceName) ?? (manufacturerKey ? displayKey(manufacturerKey) : 'Open Fixture Library')
-  const fixtureKey = options.fixtureKey ?? slug(name)
+  const fixtureKey = options.fixtureKey ?? (typeof fixture.fixtureKey === 'string' ? fixture.fixtureKey : slug(name))
   return {
     id: `ofl:${slug(manufacturerKey || manufacturer)}:${slug(fixtureKey)}`,
     name,
@@ -269,6 +414,59 @@ function colorName(attribute: string): string | undefined {
  * in particular a "Pan/Tilt Speed" channel is not the pan position, and
  * a colour-wheel preset is not a colour mixer.
  */
+const BEAM_COLOURS = ['red', 'green', 'blue', 'white', 'amber', 'uv', 'cyan', 'magenta', 'yellow'] as const
+
+/**
+ * Derive a mode's beams (cells) from its normalised colour channels.
+ * The first pod's colours are bare ("red") and later pods carry their
+ * pod number ("red 2", or the built-in "red2" form) — grouping by that
+ * number gives one beam per pod. Returns undefined for a single pod:
+ * one addressable colour group is the fixture itself, not a cell.
+ */
+function deriveBeams(channels: FixtureChannel[]): FixtureProfile['modes'][number]['beams'] | undefined {
+  const pods = new Map<number, Record<string, string>>()
+  for (const channel of channels) {
+    if (channel.propertyType !== 'color') continue
+    const match = new RegExp(`^(${BEAM_COLOURS.join('|')})(?: ?(\\d+))?$`, 'i').exec(channel.attribute)
+    if (!match) continue
+    const pod = match[2] ? Number(match[2]) : 1
+    const entry = pods.get(pod) ?? {}
+    entry[match[1].toLowerCase()] = channel.attribute
+    pods.set(pod, entry)
+  }
+  if (pods.size < 2) return undefined
+  return [...pods.entries()].sort((a, b) => a[0] - b[0]).map(([pod, properties]) => ({ id: `cell-${pod}`, name: `Cell ${pod}`, properties }))
+}
+
+/** Angle in degrees from an OFL angle value ("540deg" or a number). */
+function parseAngle(value: unknown): number | undefined {
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined }
+  return undefined
+}
+
+/**
+ * Total sweep of a Pan/Tilt capability ("angleStart": "0deg",
+ * "angleEnd": "540deg") — the fixture profile's pan/tilt range (Guide
+ * p.60: "Lightkey needs to know a moving light's pan and tilt ranges
+ * to match its beam direction. This information is part of the fixture
+ * profile"). A channel's capability may be a single object or an entry
+ * in a capabilities array.
+ */
+function capabilityAngleRange(definition: JsonRecord): number | undefined {
+  const capabilities: unknown[] = []
+  if (Object.keys(record(definition.capability)).length) capabilities.push(definition.capability)
+  if (Array.isArray(definition.capabilities)) capabilities.push(...definition.capabilities)
+  for (const capability of capabilities) {
+    const cap = record(capability)
+    if (cap.type !== 'Pan' && cap.type !== 'Tilt') continue
+    const start = parseAngle(cap.angleStart)
+    const end = parseAngle(cap.angleEnd)
+    if (start !== undefined && end !== undefined && end > start) return end - start
+  }
+  return undefined
+}
+
 function canonicalAttribute(label: string, type: FixtureChannel['propertyType']): string {
   if (type === 'intensity') return 'intensity'
   if (type === 'color') {
@@ -287,15 +485,15 @@ function canonicalAttribute(label: string, type: FixtureChannel['propertyType'])
  * it sets one. When it sets none, LightKey's default colour is blue
  * (Guide p.85) — a blue-component colour channel (Blue, Cyan, Magenta)
  * defaults to full (255) on its coarse byte, the other colour components
- * to 0 — and the dimmer defaults to full (255) too, so a fixture added
- * for the first time starts at 100% (Jake, 19 Nov 2026 — Piece 13, the
- * same as the virtual dimmer). Fine bytes default to 0.
+ * to 0 — and the dimmer defaults to 0 (dark), so a fixture added for the
+ * first time is dark with blue underneath (Jake, 19 Nov 2026 — reversing
+ * Piece 13, which had the dimmer at full). Fine bytes default to 0.
  */
 function defaultChannelValue(definition: JsonRecord, descriptor: { key: string; byte: number } | undefined, type: FixtureChannel['propertyType']): number {
   const byte = descriptor?.byte ?? 0
   const value = dmxByte(definition.defaultValue, definition.dmxValueResolution, byte, 0)
   if (definition.defaultValue != null || byte !== 0) return value
-  if (type === 'intensity') return 255
+  if (type === 'intensity') return 0
   const color = colorName(descriptor?.key ?? '')
   return color === 'Blue' || color === 'Cyan' || color === 'Magenta' ? 255 : value
 }

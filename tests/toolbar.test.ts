@@ -24,7 +24,12 @@ describe('toolbar dispatch', () => {
     expect(toolbar).toContain("querySelectorAll<HTMLDetailsElement>('details[open]')")
     expect(toolbar).toContain("window.addEventListener('pointerdown', closeOutside)")
     expect(app.match(/<WorkspaceToolbar/g)).toHaveLength(1)
-    expect(app).toContain('aria-label="Active cue"')
+    expect(app).toContain('<OverridesField />')
+    // The header Overrides field is LightKey's real Overrides (Guide
+    // ch.11, p.116; Jake's LightKey screenshots 20 Nov 2026) — a toggle
+    // that shows the per-fixture override labels, not the old
+    // jump-to-any-cue picker.
+    expect(app).not.toContain('aria-label="Active cue"')
     expect(app).toContain('className="lightkey-action header-patch-button"')
     expect(app).not.toContain('src="./openlights-logo.png"')
     const projectBar = readFileSync('src/renderer/src/components/ProjectBar.tsx', 'utf8')
@@ -48,9 +53,14 @@ describe('toolbar dispatch', () => {
     // the native app menu and on Ctrl+Z / Ctrl+Y instead.
     expect(app).not.toContain('ref={editMenuRef}')
     expect(app).not.toContain('Undo · Ctrl+Z')
-    expect(app).toContain("aria-pressed={tab === 'Design' ? previewEditing : liveEditing}")
-    expect(app).toContain('toggleCurrentViewEditing')
-    expect(app).toContain("{(tab === 'Design' ? previewEditing : liveEditing) ? 'Done' : 'Edit'}")
+    expect(app).toContain("aria-pressed={previewEditing}")
+    expect(app).toContain('togglePreviewEditing')
+    expect(app).toContain("{previewEditing ? 'Done' : 'Edit'}")
+    // Native <select> popups are an OS surface outside the DOM: on
+    // Windows Chromium painted the Active-cue popup white while the
+    // option text inherited the select's white colour, so every row was
+    // unreadable (Jake, 20 Nov 2026). Options are styled explicitly now.
+    expect(styles).toContain('select option { background: #555658; color: #fff; }')
     expect(app).toContain('ref={settingsMenuRef}')
     expect(app).toContain("window.addEventListener('pointerdown', closeHeaderMenus)")
     expect(app).toContain("window.addEventListener('keydown', closeHeaderMenusOnEscape)")

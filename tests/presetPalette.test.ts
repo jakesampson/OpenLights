@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PresetDef, SequenceDef, ShowDef } from '../src/shared/types'
-import { filterPresets, filterSequences, findRelatedCues, findRelatedCuesForSequence } from '../src/renderer/src/lib/presetPalette'
+import { filterPresets, filterSequences, findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '../src/renderer/src/lib/presetPalette'
 
 describe('preset palette filter and related cues (6.12)', () => {
   const presets: PresetDef[] = [
@@ -82,5 +82,58 @@ describe('preset palette filter and related cues (6.12)', () => {
     expect(related[1]).toMatchObject({ pageName: 'Second', controlName: 'Cue 3' })
     expect(findRelatedCuesForSequence(show, 's2')).toHaveLength(1)
     expect(findRelatedCuesForSequence(show, 's99')).toHaveLength(0)
+  })
+})
+
+describe('find presets and sequences not contained in a cue (Guide ch.9, p.144)', () => {
+  const presets: PresetDef[] = [
+    { id: 'p-used-live', name: 'Used Live', category: 'color', fixtureValues: {} },
+    { id: 'p-used-cue', name: 'Used Cue', category: 'color', fixtureValues: {} },
+    { id: 'p-in-sequence', name: 'In Sequence', category: 'color', fixtureValues: {} },
+    { id: 'p-free', name: 'Free', category: 'color', fixtureValues: {} }
+  ]
+  const sequences: SequenceDef[] = [
+    { id: 's-used', name: 'Used Chase', order: 'forward', loop: true, timing: 'manual', stepsPerBeat: 1, steps: [{ id: 'st1', name: 'Step 1', fixtureValues: {}, presetIds: ['p-in-sequence'], fadeMs: 0, holdMs: 500 }] },
+    { id: 's-free', name: 'Free Chase', order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: 'st2', name: 'Step 1', fixtureValues: {}, presetIds: [], fadeMs: 0, holdMs: 500 }] }
+  ]
+  const show: ShowDef = {
+    id: 'show1', name: 'Test', createdAt: 0, updatedAt: 0,
+    fixtures: [],
+    cues: [{ id: 'cue1', name: 'Stored Cue', fadeMs: 0, fixtureValues: {}, presetIds: ['p-used-cue'] }],
+    automations: [],
+    presets,
+    sequences,
+    livePages: [
+      { id: 'page1', name: 'Main', controls: [
+        { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: ['p-used-live'], sequenceIds: ['s-used'], x: 0, y: 0 }
+      ] }
+    ]
+  }
+
+  it('selects only items no cue contains, across the whole palette', () => {
+    const unused = findUnusedItems(show)
+    expect(unused.presets.map((p) => p.id)).toEqual(['p-free'])
+    expect(unused.sequences.map((s) => s.id)).toEqual(['s-free'])
+  })
+
+  it('never selects a preset that lives inside a sequence, even an unused one', () => {
+    // p-in-sequence is inside s-used (which is in a cue), but the rule is
+    // scope-wide: presets within a sequence are not included at all.
+    expect(findUnusedItems(show).presets.map((p) => p.id)).not.toContain('p-in-sequence')
+    const onlySequence = findUnusedItems(show, { presetIds: ['p-in-sequence'], sequenceIds: [] })
+    expect(onlySequence.presets).toEqual([])
+  })
+
+  it('limits the search to the given scope', () => {
+    const unused = findUnusedItems(show, { presetIds: ['p-used-live', 'p-free'], sequenceIds: ['s-used'] })
+    expect(unused.presets.map((p) => p.id)).toEqual(['p-free'])
+    expect(unused.sequences).toEqual([])
+  })
+
+  it('returns everything unused when nothing is used', () => {
+    const empty: ShowDef = { ...show, cues: [], livePages: [] }
+    const unused = findUnusedItems(empty)
+    expect(unused.presets.map((p) => p.id)).toEqual(['p-used-live', 'p-used-cue', 'p-free'])
+    expect(unused.sequences.map((s) => s.id)).toEqual(['s-used', 's-free'])
   })
 })

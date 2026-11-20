@@ -23,7 +23,10 @@ declare global {
       toggleFullscreen: () => Promise<void>
       openLiveWindow: (pageId: string | null) => Promise<import('@shared/liveWindows').LiveWindowSpec>
       listOflProfiles: () => Promise<import('@shared/types').FixtureProfile[]>
-      importOflLibrary: () => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; imported?: number; skipped?: number }>
+      importOflLibraryZip: () => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; imported?: number; skipped?: number }>
+      duplicateOflProfile: (profileId: string) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; profile?: import('@shared/types').FixtureProfile }>
+      saveOflCustomProfile: (profile: import('@shared/types').FixtureProfile) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; profile?: import('@shared/types').FixtureProfile }>
+      deleteOflCustomProfile: (profileId: string) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[] }>
       publishLiveWindowState: (state: Record<string, unknown>) => void
       requestLiveWindowState: () => void
       liveWindowCommand: (command: string, args: unknown[]) => void
@@ -50,6 +53,7 @@ declare global {
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
       getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void
+      setTitleBarOverlay: (wizardOpen: boolean) => void
       closeWindow: () => void
       onMenuCommand: (callback: (command: string) => void) => () => void
       onAppQuitting: (callback: () => void) => () => void

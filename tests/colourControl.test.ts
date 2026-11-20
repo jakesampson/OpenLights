@@ -89,10 +89,10 @@ describe('DesignTab — the wheel is the colour control', () => {
     // Amber, or the arcs move each other (Jake, 19 Nov 2026: saturation
     // down pulled brightness down, hue to yellow drove Amber).
     expect(design).toContain('setWheelColor(rgbToHex(hsvToRgb(next.h, next.s, next.v)))')
-    expect(design).toContain('setSelectedBaseColor(rgb, false)')
+    expect(design).toContain('setSelectedBaseColor(rgb, writeManual)')
     // The centre picker still applies a whole colour via setColor.
     expect(design).toContain('onCentrePick={(hex) => {')
-    expect(design).toContain('setSelectedColor(rgb, false)')
+    expect(design).toContain('setSelectedColor(rgb, writeManual)')
   })
 
   it('defaults saturation and brightness to 100% for a black fixture', () => {
@@ -123,7 +123,11 @@ describe('DesignTab — the wheel is the colour control', () => {
     // wheel, and none for a fixture without them.
     expect(design).toContain("const ADDITIONAL_COLOUR_ATTRIBUTES = ['white', 'amber', 'uv', 'lime']")
     expect(design).toContain('commonAttributes.filter((a) => ADDITIONAL_COLOUR_ATTRIBUTES.includes(a))')
-    expect(design).toContain('additionalColourAttributes.map((attribute) => {')
+    // The sliders sit in the 2×2 grid (batch 5, 19 Nov 2026): one cell
+    // per LightKey slot, empty slots kept as blank cells.
+    expect(design).toContain('additionalColourSlots(additionalColourAttributes).map((slot, index) => {')
+    expect(design).toContain('data-testid="additional-colour-grid"')
+    expect(design).toContain('data-testid="additional-colour-empty-slot"')
     expect(design).toContain("onChange={(next) => updateValues({ [attribute]: next })}")
     // The wheel itself takes no extra channels any more.
     expect(design).not.toContain('extraChannels=')
@@ -139,7 +143,10 @@ describe('DesignTab — the wheel is the colour control', () => {
     // keeps its faders as the fallback.
     expect(design).toContain("const COLOUR_FADER_ATTRIBUTES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime']")
     expect(design).toContain('const faderAttributes = colorSupported')
-    expect(design).toContain('channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute))')
+    // The colour faders are excluded when the wheel is shown — and the
+    // Shutter/Strobe + Auto Program channels are excluded too, because
+    // they are cards now, not faders (batch 4, 19 Nov 2026).
+    expect(design).toContain('channelAttributes.filter((attribute) => !COLOUR_FADER_ATTRIBUTES.includes(attribute) && !cardAttributes.has(attribute))')
     expect(design).toContain('faderAttributes.map((attribute) => {')
     expect(design).not.toContain('className="wheel-input"')
   })

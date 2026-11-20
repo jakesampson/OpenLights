@@ -83,3 +83,44 @@ export function findRelatedCueLists(
   // is associated with a cue or cuelist.
   return []
 }
+
+/**
+ * Presets and sequences not contained in any cue (Guide ch.9, p.144,
+ * "Find presets and sequences not contained in a cue"). A preset is
+ * used when a Live cue button or a stored cue references it directly;
+ * a sequence is used when a cue references it. Presets that live inside
+ * a sequence step are never selected — the guide says "Presets within a
+ * sequence are not included" — even when that sequence is itself unused,
+ * so the selection can never strand a sequence's contents.
+ * `scope` limits the search to the given ids (a selection, or a group's
+ * contents); with no scope the whole palette is searched.
+ */
+export function findUnusedItems(
+  show: ShowDef,
+  scope?: { presetIds: string[]; sequenceIds: string[] } | null
+): { presets: PresetDef[]; sequences: SequenceDef[] } {
+  const usedPresets = new Set<string>()
+  const usedSequences = new Set<string>()
+  for (const page of show.livePages ?? []) {
+    for (const control of page.controls) {
+      for (const id of control.presetIds) usedPresets.add(id)
+      for (const id of control.sequenceIds ?? []) usedSequences.add(id)
+    }
+  }
+  for (const cue of show.cues ?? []) {
+    for (const id of cue.presetIds ?? []) usedPresets.add(id)
+    for (const id of cue.sequenceIds ?? []) usedSequences.add(id)
+  }
+  const inSequence = new Set<string>()
+  for (const sequence of show.sequences ?? []) {
+    for (const step of sequence.steps) for (const id of step.presetIds) inSequence.add(id)
+  }
+  const presetScope = scope ? new Set(scope.presetIds) : null
+  const sequenceScope = scope ? new Set(scope.sequenceIds) : null
+  return {
+    presets: (show.presets ?? []).filter((p) =>
+      (presetScope === null || presetScope.has(p.id)) && !usedPresets.has(p.id) && !inSequence.has(p.id)),
+    sequences: (show.sequences ?? []).filter((s) =>
+      (sequenceScope === null || sequenceScope.has(s.id)) && !usedSequences.has(s.id))
+  }
+}

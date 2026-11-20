@@ -9,8 +9,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
-import { DesignTab } from '../src/renderer/src/components/DesignTab'
+import { DesignTab, additionalColourSlots, additionalColourFillGradient } from '../src/renderer/src/components/DesignTab'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+import type { FixtureProfile } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -37,7 +38,7 @@ function keydown(el: HTMLElement, key: string) {
   act(() => { el.dispatchEvent(new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })) })
 }
 
-function setShow(fixture: { id: string; name: string; type: string; channelStart: number; channels: number }, values: Record<string, number>) {
+function setShow(fixture: { id: string; name: string; type: string; channelStart: number; channels: number; profile?: FixtureProfile; modeId?: string }, values: Record<string, number>) {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
   const show = {
@@ -47,12 +48,17 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { intensity: 255, ...values } }, fadeMs: 0 }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null })
+    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
   return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+}
+
+// A Design write defines an override (LightKey's real Overrides).
+function overrideValues(fixtureId: string) {
+  return useShowStore.getState().manualOverrides[fixtureId] ?? {}
 }
 
 beforeEach(() => {
@@ -71,6 +77,31 @@ afterEach(() => {
 
 const LED_WASH = { id: 'fx1', name: 'Test Wash', type: 'led-wash', channelStart: 1, channels: 7 }
 const RGB_PAR = { id: 'fx1', name: 'Test Par', type: 'par', channelStart: 1, channels: 4 }
+
+// A four-additional-colour fixture (White / Amber / UV / Lime): no
+// built-in profile has a lime channel, so this synthetic profile
+// carries one — the same shape as the Q5/4Bar profiles in
+// multipartColourSliders.test.tsx.
+const RGBWAL_PROFILE: FixtureProfile = {
+  id: 'test-rgbwal',
+  name: 'Test Wash (RGBWAL+UV)',
+  manufacturer: 'Test',
+  legacyType: 'led-wash',
+  modes: [{
+    id: 'default',
+    name: 'Default',
+    channels: ['intensity', 'red', 'green', 'blue', 'white', 'amber', 'uv', 'lime'].map((attribute, number) => ({
+      number,
+      attribute,
+      propertyType: (attribute === 'intensity' ? 'intensity' : 'color') as 'intensity' | 'color',
+      min: 0,
+      max: 255,
+      defaultValue: 0,
+      highlightValue: 255,
+    })),
+  }],
+}
+const RGBWAL = { id: 'fx1', name: 'Test Wash', type: 'led-wash', channelStart: 1, channels: 8, profile: RGBWAL_PROFILE, modeId: 'default' }
 
 describe('Additional-colour sliders beside the colour wheel', () => {
   it('shows White, Amber and UV sliders for an LED Wash, with the cue values', () => {
@@ -96,20 +127,20 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     expect(container?.querySelector('.color-wheel')).not.toBeNull()
   })
 
-  it('keyboard on a slider changes the fixture channel value in the cue', () => {
+  it('keyboard on a slider defines an override for the fixture channel', () => {
     setShow(LED_WASH, { red: 0, green: 0, blue: 0, white: 128, amber: 64, uv: 32 })
     renderInRoot(<DesignTab />)
     const white = slider('White')
     if (!white) throw new Error('no White slider')
     keydown(white, 'ArrowUp')
-    expect(cueValues('fx1').white).toBe(129)
+    expect(overrideValues('fx1').white).toBe(129)
     keydown(white, 'ArrowDown')
     keydown(white, 'ArrowDown')
-    expect(cueValues('fx1').white).toBe(127)
+    expect(overrideValues('fx1').white).toBe(127)
     const uv = slider('UV')
     if (!uv) throw new Error('no UV slider')
     keydown(uv, 'ArrowUp')
-    expect(cueValues('fx1').uv).toBe(33)
+    expect(overrideValues('fx1').uv).toBe(33)
     // The other channels are untouched.
     expect(cueValues('fx1').amber).toBe(64)
     expect(cueValues('fx1').red).toBe(0)
@@ -136,10 +167,12 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     renderInRoot(<DesignTab />)
     const white = slider('White')
     const wheel = container?.querySelector('.color-wheel')
-    if (!white || !wheel) throw new Error('missing slider or wheel')
-    // The slider and the wheel share a parent row inside the colour
+    const grid = container?.querySelector('[data-testid="additional-colour-grid"]')
+    if (!white || !wheel || !grid) throw new Error('missing slider, wheel or grid')
+    // The grid and the wheel share a parent row inside the colour
     // block — the slider is not a channel fader in the strip.
-    expect(white.parentElement?.parentElement).toBe(wheel.parentElement)
+    expect(grid.parentElement).toBe(wheel.parentElement?.parentElement)
+    expect(white.closest('[data-testid="additional-colour-grid"]')).toBe(grid)
     expect(white.closest('.chan')).not.toBeNull()
   })
 
@@ -189,7 +222,8 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     // writes the base colour only (255, 128, 128).
     expect(arcValue('Brightness')).toBe('100')
     expect(slider('White')?.getAttribute('aria-valuenow')).toBe('0')
-    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 128, blue: 128, white: 0, amber: 0, uv: 0 })
+    expect(overrideValues('fx1')).toMatchObject({ red: 255, green: 128, blue: 128 })
+    expect(overrideValues('fx1').white).toBeUndefined()
   })
 
   it('dragging the hue ring to yellow does not move Amber', () => {
@@ -208,6 +242,104 @@ describe('Additional-colour sliders beside the colour wheel', () => {
     keydown(hue() ?? hueEl, 'PageUp')
     expect(arcValue('Colour hue')).toBe('60')
     expect(slider('Amber')?.getAttribute('aria-valuenow')).toBe('0')
-    expect(cueValues('fx1')).toMatchObject({ red: 255, green: 255, blue: 0, white: 0, amber: 0, uv: 0 })
+    expect(overrideValues('fx1')).toMatchObject({ red: 255, green: 255, blue: 0 })
+    expect(overrideValues('fx1').amber).toBeUndefined()
+  })
+})
+
+describe('Additional-colour slider gradients and the 2×2 grid', () => {
+  // jsdom serialises the inline gradient's hex stops as rgb(), so the
+  // DOM assertions use the rgb form; the helper tests below assert the
+  // exact hex strings the component passes in.
+  it('each slider track shows its LightKey value gradient', () => {
+    setShow(LED_WASH, { red: 0, green: 0, blue: 0, white: 128, amber: 64, uv: 32 })
+    renderInRoot(<DesignTab />)
+    // The gradient is the track's own background (FillFader's
+    // fillGradient): full colour at the top, black at the bottom.
+    expect(slider('White')?.style.background).toBe('linear-gradient(to top, rgb(0, 0, 0), rgb(255, 255, 255))')
+    expect(slider('Amber')?.style.background).toBe('linear-gradient(to top, rgb(0, 0, 0), rgb(219, 172, 70))')
+    expect(slider('UV')?.style.background).toBe('linear-gradient(to top, rgb(0, 0, 0), rgb(23, 16, 160))')
+  })
+
+  it('the gradient fill still shows the value — the mask covers only the unfilled top', () => {
+    setShow(LED_WASH, { red: 0, green: 0, blue: 0, white: 128, amber: 64, uv: 32 })
+    renderInRoot(<DesignTab />)
+    const white = slider('White')
+    if (!white) throw new Error('no White slider')
+    const mask = white.querySelector('.live-master-fill') as HTMLElement | null
+    expect(mask).not.toBeNull()
+    // White is 128/255: the mask covers the top ~49.8% and the gradient
+    // shows below it — the colour at a given height never depends on
+    // the value. (jsdom rounds the serialised percent, so compare
+    // numerically, not as a string.)
+    expect(parseFloat(mask?.style.height ?? '')).toBeCloseTo(100 - (128 / 255) * 100, 3)
+    expect(mask?.style.background).toBe('var(--bg)')
+  })
+
+  it('the Lime slider gets the green gradient on a four-slider fixture', () => {
+    setShow(RGBWAL, { red: 0, green: 0, blue: 0, white: 0, amber: 0, uv: 0, lime: 200 })
+    renderInRoot(<DesignTab />)
+    expect(slider('Lime')).not.toBeNull()
+    expect(slider('Lime')?.style.background).toBe('linear-gradient(to top, rgb(0, 0, 0), rgb(132, 204, 22))')
+  })
+
+  it('a three-slider fixture shows one empty fourth slot in the 2×2 grid', () => {
+    setShow(LED_WASH, { red: 0, green: 0, blue: 0, white: 128, amber: 64, uv: 32 })
+    renderInRoot(<DesignTab />)
+    const grid = container?.querySelector('[data-testid="additional-colour-grid"]')
+    expect(grid).not.toBeNull()
+    const cells = Array.from(grid?.children ?? [])
+    expect(cells.length).toBe(4)
+    const empty = grid?.querySelectorAll('[data-testid="additional-colour-empty-slot"]') ?? []
+    expect(empty.length).toBe(1)
+    // The empty slot is the fourth (bottom-right) cell, and it is
+    // blank: no slider, no label, nothing to click.
+    expect(cells[3]).toBe(empty[0])
+    expect(empty[0]?.querySelector('[role="slider"]')).toBeNull()
+    expect(empty[0]?.textContent).toBe('')
+    // The three sliders sit in LightKey's slots: White top-left, UV
+    // top-right, Amber bottom-left.
+    const sliders = Array.from(grid?.querySelectorAll('[role="slider"]') ?? []).map((el) => el.getAttribute('aria-label'))
+    expect(sliders).toEqual(['White for selected fixtures', 'UV for selected fixtures', 'Amber for selected fixtures'])
+  })
+
+  it('a four-slider fixture has no empty slot, in LightKey slot order', () => {
+    setShow(RGBWAL, { red: 0, green: 0, blue: 0, white: 0, amber: 0, uv: 0, lime: 0 })
+    renderInRoot(<DesignTab />)
+    const grid = container?.querySelector('[data-testid="additional-colour-grid"]')
+    expect(grid).not.toBeNull()
+    expect(grid?.querySelectorAll('[data-testid="additional-colour-empty-slot"]').length).toBe(0)
+    expect(grid?.children.length).toBe(4)
+    const sliders = Array.from(grid?.querySelectorAll('[role="slider"]') ?? []).map((el) => el.getAttribute('aria-label'))
+    expect(sliders).toEqual([
+      'White for selected fixtures',
+      'UV for selected fixtures',
+      'Amber for selected fixtures',
+      'Lime for selected fixtures',
+    ])
+  })
+
+  it('no additional colours means no grid at all', () => {
+    setShow(RGB_PAR, { red: 0, green: 0, blue: 0 })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[data-testid="additional-colour-grid"]')).toBeNull()
+    expect(container?.querySelector('[data-testid="additional-colour-empty-slot"]')).toBeNull()
+  })
+})
+
+describe('additionalColourSlots / additionalColourFillGradient', () => {
+  it('slots keep LightKey positions and pad with empty slots', () => {
+    expect(additionalColourSlots(['white', 'amber', 'uv'])).toEqual(['white', 'uv', 'amber', null])
+    expect(additionalColourSlots(['white', 'amber', 'uv', 'lime'])).toEqual(['white', 'uv', 'amber', 'lime'])
+    expect(additionalColourSlots(['white'])).toEqual(['white', null, null, null])
+    expect(additionalColourSlots([])).toEqual([null, null, null, null])
+  })
+
+  it('gradients run full colour at the top to black at the bottom', () => {
+    expect(additionalColourFillGradient('white')).toBe('linear-gradient(to top, #000000, #ffffff)')
+    expect(additionalColourFillGradient('amber')).toBe('linear-gradient(to top, #000000, #dbac46)')
+    expect(additionalColourFillGradient('uv')).toBe('linear-gradient(to top, #000000, #1710a0)')
+    expect(additionalColourFillGradient('lime')).toBe('linear-gradient(to top, #000000, #84cc16)')
+    expect(additionalColourFillGradient('red')).toBeNull()
   })
 })

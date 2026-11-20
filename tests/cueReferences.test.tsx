@@ -110,8 +110,8 @@ describe('preset edits propagate to cues that reference them', () => {
     expect(channels()).toEqual([255, 200, 0, 0])
     useShowStore.getState().deletePreset('p1')
     // No ad-hoc values on the cue: the fixture defaults fill in — the
-    // generic LED defaults to intensity 255 and LightKey blue (Piece 11).
-    expect(channels()).toEqual([255, 0, 0, 255])
+    // generic LED defaults to intensity 0 (dark) and LightKey blue.
+    expect(channels()).toEqual([0, 0, 0, 255])
   })
 
   it('keeps the cue’s ad-hoc values winning over the preset', () => {
@@ -138,7 +138,7 @@ describe('Design panel through the reference model', () => {
       cues: [{ id: 'c1', name: 'Cue 1', presetIds: ['p1'], sequenceIds: [], fixtureValues: {}, fadeMs: 0 }]
     }
     act(() => {
-      useShowStore.setState({ show, cues: show.cues, presets: show.presets ?? [], selectedFixtureIds: ['led'], activeCueId: 'c1', editingPresetId: null })
+      useShowStore.setState({ show, cues: show.cues, presets: show.presets ?? [], selectedFixtureIds: ['led'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     })
     renderInRoot(<DesignTab />)
   }
@@ -149,20 +149,18 @@ describe('Design panel through the reference model', () => {
     expect(container?.textContent).toContain('100%')
   })
 
-  it('shows the cue’s contents and adds a preset from the panel', () => {
+  it('adds a preset to the cue through the store and the cue reads green', () => {
     renderWithCue()
-    expect(container?.textContent).toContain('Red')
-    expect(container?.textContent).toContain('Ad hoc: 0 properties')
-    const select = container?.querySelector('[aria-label="Add preset to cue"]') as HTMLSelectElement | null
-    if (!select) throw new Error('no add-preset select')
-    act(() => {
-      select.value = 'p2'
-      select.dispatchEvent(new window.Event('change', { bubbles: true }))
-    })
+    // The cue starts on the red preset: activate it and the output is red.
+    act(() => { useShowStore.getState().activateCue('c1') })
+    expect(channels()).toEqual([255, 200, 0, 0])
+    // The Design panel no longer has a cue-contents strip (removed
+    // 19 Nov 2026, Jake): adding a preset to a cue goes through the
+    // store's updateCue, and the cue's resolved look follows it.
+    act(() => { useShowStore.getState().updateCue('c1', { presetIds: ['p1', 'p2'] }) })
     const cue = useShowStore.getState().cues.find((c) => c.id === 'c1')
     expect(cue?.presetIds).toEqual(['p1', 'p2'])
-    expect(container?.textContent).toContain('Green')
     // The later preset wins: the cue now reads green.
-    expect(useShowStore.getState().cues.find((c) => c.id === 'c1')).toBeDefined()
+    expect(channels()).toEqual([255, 0, 200, 0])
   })
 })

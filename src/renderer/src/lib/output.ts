@@ -1,5 +1,6 @@
 import type { SequenceDef, PresetDef } from '@shared/types'
 import { sequenceValues } from './sequenceClock'
+import { applyHighlight } from './highlight'
 /**
  * Renderer-side DMX output. Keeps the base look (cues, cues, automation)
  * separate from the effects layer, so animated effects can be applied on top
@@ -10,6 +11,8 @@ import type { EffectDef, FixtureDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
 import { computeCueChannels } from './automationRuntime'
+import { applyCalibrationOutput } from './calibration'
+import { applyDimmerLimits } from './automationRuntime'
 
 let sequences: SequenceDef[] = []
 let sequencePresets: PresetDef[] = []
@@ -44,6 +47,8 @@ let presetSuppressed = false
 let previousPresetChannels = new Set<number>()
 let blind = false
 let blindFrame: Record<number, number> | null = null
+let highlight: { active: boolean; fixtureIds: Set<string> } = { active: false, fixtureIds: new Set() }
+let calibration: Record<number, number> = {}
 let lastOutput: Record<number, number> = {}
 let freeze = false
 let freezeFrame: Record<number, number> | null = null
@@ -105,6 +110,24 @@ function flush(now = performance.now()) {
     if (progress >= 1) thawFrom = null
   }
   previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
+  // Beam-direction calibration (Piece 4, Guide p.60): limits hold on
+  // output and a reversed yoke mirrors pan. Applied to the composed
+  // output so every source (cues, live, effects) is clamped the same way.
+  output = applyCalibrationOutput(output, runtime.fixtures)
+  // Dimmer limits (Guide p.62): remap the sent dimmer into
+  // [minDimmer, maxDimmer] at the output. Skipped under blackout, blind
+  // and freeze — blackout must stay zero, and blind/freeze hold frames
+  // were already limited when they were captured, so remapping them
+  // again would double-apply the limit.
+  if (!runtime.blackout && !blind && !freeze) output = applyDimmerLimits(output, runtime.fixtures)
+  // Highlight Mode is a view of the rig, not a held frame: it applies to
+  // the composed output, but never overrides blackout, blind or freeze.
+  if (highlight.active && !runtime.blackout && !blind && !freeze) output = applyHighlight(output, runtime.fixtures, highlight.fixtureIds)
+  // Calibration live output (Piece 4): while the Beam Direction dialog
+  // is open the calibrating fixtures move to the step's position,
+  // overriding the composed look — like Highlight, never under blackout,
+  // blind or freeze, and applied last so it wins for its channels.
+  if (Object.keys(calibration).length && !runtime.blackout && !blind && !freeze) output = { ...output, ...calibration }
   push(output)
 }
 
@@ -114,6 +137,28 @@ export function setBlindOutput(active: boolean) {
   if (active) blindFrame = { ...lastOutput }
   blind = active
   if (!active) blindFrame = null
+  flush()
+}
+
+/** Highlight Mode (Guide pp.32, 64): only the given fixtures light up —
+ *  the rest of the rig goes dark. Re-applied on every selection change
+ *  while active; turning it off re-sends the unmodified look, so the rig
+ *  returns to exactly what it was doing. */
+export function setHighlightOutput(active: boolean, fixtureIds: Iterable<string>) {
+  const ids = new Set(fixtureIds)
+  const same = highlight.active === active && highlight.fixtureIds.size === ids.size && [...ids].every((id) => highlight.fixtureIds.has(id))
+  if (same) return
+  highlight = { active, fixtureIds: ids }
+  flush()
+}
+
+/** Beam-direction calibration live output (Piece 4, Guide pp.58–60):
+ *  while the calibration dialog is open the calibrating fixtures move
+ *  to the current step's position (home, the rotation sweep, or the
+ *  centre of the pan/tilt ranges). Pass {} when the dialog closes so
+ *  the rig returns to exactly what it was doing. */
+export function setCalibrationOutput(patch: Record<number, number>) {
+  calibration = { ...patch }
   flush()
 }
 

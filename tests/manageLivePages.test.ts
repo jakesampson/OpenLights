@@ -51,7 +51,24 @@ describe('Live page menu (LightKey screenshot 8.54.48)', () => {
     const headerEnd = app.indexOf('</header>')
     const switchAt = app.indexOf('<ViewSwitch')
     expect(headerStart).toBeGreaterThan(-1)
-    expect(switchAt).toBeGreaterThan(headerEnd)
+    // No pill in the header itself.
+    expect(app.slice(headerStart, headerEnd)).not.toContain('<ViewSwitch')
+    // The switch lives in the hoisted `designWorkspace` tree (19 Nov 2026:
+    // the workspace renders under the header in the normal flow, and inside
+    // the setup wizard modal on its preview / groups / directions steps).
+    // It is defined there — and the workspace is used after the header in
+    // the normal flow, never inside it.
+    const workspaceAt = app.indexOf('const designWorkspace')
+    expect(workspaceAt).toBeGreaterThan(-1)
+    expect(switchAt).toBeGreaterThan(workspaceAt)
+    // Used twice: once inside the wizard modal (bare ternary branch, before
+    // the header in source) and once in the normal flow after the header.
+    const modalUse = app.indexOf(': designWorkspace}')
+    expect(modalUse).toBeGreaterThan(app.indexOf('aria-label="Setup wizard"'))
+    expect(modalUse).toBeLessThan(headerStart)
+    const uses = [...app.matchAll(/\{designWorkspace\}/g)].map((m) => m.index!)
+    expect(uses.length).toBe(1)
+    expect(uses[0]).toBeGreaterThan(headerEnd)
     // The switch renders inside the bottom-grid, in the pinned switch row
     // at the top of the bottom panel's first cell.
     const gridAt = app.indexOf('bottom-grid')

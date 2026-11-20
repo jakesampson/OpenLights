@@ -4,25 +4,20 @@ import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '@shared/types'
 
 export const FIXTURE_ATTRIBUTE_MAP: Record<string, Record<string, number>> = Object.fromEntries(BUILTIN_PROFILES.map((profile) => [profile.legacyType, Object.fromEntries(profile.modes[0].channels.map((c) => [c.attribute, c.number]))]))
 
-/** Attributes that respond to the master intensity fader. */
-const DIMMER_ATTRIBUTES = new Set([
-  'intensity',
-  'red',
-  'green',
-  'blue',
-  'white',
-  'amber',
-  'uv',
-  'red2',
-  'green2',
-  'blue2',
-  'red3',
-  'green3',
-  'blue3',
-  'red4',
-  'green4',
-  'blue4'
-])
+/**
+ * Attributes that respond to the master intensity fader — a fixture's
+ * LED channels (LightKey's virtual dimmer scales "all the fixture's
+ * LED values", verified 19 Nov 2026). Matched by base name with an
+ * optional pod number, so both spellings count: the built-in "red2"
+ * and the OFL "red 2" (the OFL import's uniqueAttribute puts a space
+ * before the pod number), any pod count, and every LED type — RGB,
+ * White / Amber / UV / Lime and CMY alike. Anything else (strobe,
+ * pan, function, a fine channel such as "red 2 fine") never scales.
+ */
+export function isDimmerAttribute(attr: string): boolean {
+  const match = /^(intensity|red|green|blue|white|amber|uv|lime|cyan|magenta|yellow) ?\d*$/.exec(attr.trim().toLowerCase())
+  return match !== null
+}
 
 /** List valid attributes for a fixture type, in channel order. */
 export function fixtureAttributes(fixture: FixtureDef | FixtureDef['type']): string[] {
@@ -33,10 +28,36 @@ export function fixtureAttributes(fixture: FixtureDef | FixtureDef['type']): str
 }
 
 function scaleAttribute(attr: string, value: number, master: number): number {
-  if (!DIMMER_ATTRIBUTES.has(attr)) return clamp(value)
+  if (!isDimmerAttribute(attr)) return clamp(value)
   return clamp((clamp(value) * clamp(master)) / 255)
 }
 export { scaleAttribute }
+
+/**
+ * Dimmer limits (LightKey Fixture Options, Guide p.62): remap a fixture's
+ * real dimmer channel so Off sends minDimmer and Full sends maxDimmer.
+ * Applied to the composed output frame, like calibration limits, so every
+ * source (cues, live, effects, sequences) is clamped the same way.
+ * Disabled fixtures stay at zero, and fixtures with no dimmer channel
+ * (virtual dimmer) are untouched — there is no dimmer value to remap.
+ */
+export function applyDimmerLimits(output: Record<number, number>, fixtures: FixtureDef[]): Record<number, number> {
+  const next = { ...output }
+  for (const fixture of fixtures) {
+    if (fixture.disabled) continue
+    const min = Math.max(0, Math.min(255, Math.round(fixture.minDimmer ?? 0)))
+    const max = Math.max(0, Math.min(255, Math.round(fixture.maxDimmer ?? 255)))
+    if (min <= 0 && max >= 255) continue
+    if (min >= max) continue
+    const offset = fixtureChannelMap(fixture)['intensity']
+    if (offset === undefined) continue
+    const channel = fixture.channelStart + offset
+    const value = next[channel]
+    if (typeof value !== 'number') continue
+    next[channel] = Math.round(min + ((max - min) * Math.max(0, Math.min(255, value))) / 255)
+  }
+  return next
+}
 
 /**
  * Map a cue's fixture values onto a 1-based DMX channel patch.
@@ -58,19 +79,22 @@ export function computeCueChannels(
   for (const fixture of fixtures) {
     const attrs = transformPosition(cue.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
     const map = fixtureChannelMap(fixture)
+    // Ignore Master Dimmer (LightKey Fixture Options, Guide p.62): the
+    // master fader never scales this fixture — its effective master is full.
+    const effectiveMaster = fixture.ignoreMasterDimmer ? 255 : master
     if (fixture.disabled) { for (const offset of Object.values(map)) channels[fixture.channelStart + offset] = 0; continue }
 
     if (zeroMissing) {
       for (const attr of Object.keys(map)) {
         const channel = fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)
-        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, master)
+        channels[fixture.channelStart + map[attr]] = scaleAttribute(attr, fixture.defaultValues?.[attr] ?? channel?.defaultValue ?? 0, effectiveMaster)
       }
     }
 
     for (const [attr, value] of Object.entries(attrs)) {
       const offset = map[attr]
       if (offset === undefined || typeof value !== 'number' || Number.isNaN(value)) continue
-      channels[fixture.channelStart + offset] = scaleAttribute(attr, value, master)
+      channels[fixture.channelStart + offset] = scaleAttribute(attr, value, effectiveMaster)
     }
 
     // A fixture with no dimmer channel still has a working Dimmer in
@@ -80,12 +104,19 @@ export function computeCueChannels(
     // hardware and are untouched. The scaling applies to the values
     // this call wrote — the cue's values and, with zeroMissing, the
     // default fill — so a blue default at half dimmer comes out at
-    // half. A colour defined by a higher layer is not scaled by a
+    // half. An unset virtual dimmer defaults to 0 (dark), not full:
+    // a fresh fixture is dark with its blue default underneath, and
+    // raising the Dimmer brings it up (Jake, 19 Nov 2026, reversing
+    // Piece 13). A colour defined by a higher layer is not scaled by a
     // lower layer's dimmer (known limitation, see NOTES.md).
-    const virtualDimmer = map['intensity'] === undefined ? attrs.intensity : undefined
+    const virtualDimmer = map['intensity'] === undefined ? (attrs.intensity ?? 0) : undefined
     if (typeof virtualDimmer === 'number' && !Number.isNaN(virtualDimmer)) {
-      for (const attr of DIMMER_ATTRIBUTES) {
-        if (attr === 'intensity') continue
+      // Every LED channel this fixture actually has — its own channel
+      // map, so any pod spelling or count scales ("red 2", "red2",
+      // "white 2", "uv 5", CMY and lime pods alike), not just the
+      // spellings a fixed list happens to name.
+      for (const attr of Object.keys(map)) {
+        if (attr === 'intensity' || !isDimmerAttribute(attr)) continue
         const offset = map[attr]
         if (offset === undefined) continue
         const channel = fixture.channelStart + offset

@@ -1,0 +1,128 @@
+// Project Browser (Piece 5, Guide ch.4 p.26: "When you first start
+// Lightkey, the Project Browser appears. It shows a preview of the recently
+// used projects … and the built-in demo projects."). Shown on launch, with a
+// Recent Projects row and a templates row. Opening a recent reuses
+// ProjectBar's load flow (via the `openlights-load-show` event, so the
+// unsaved-changes prompt still applies); starting from a template opens the
+// New Project name dialog prefilled with the template name. Closing it
+// leaves the show underneath (the demo on launch).
+
+import { useEffect, useState } from 'react'
+import { useShowStore, defaultShow } from '../stores/showStore'
+import { demoShowTemplate, deleteUserTemplate, listUserTemplates, type ShowTemplate } from '../lib/templates'
+import type { ShowMeta } from '../global'
+
+export function WelcomeScreen() {
+  const [recents, setRecents] = useState<ShowMeta[]>([])
+  const [templates, setTemplates] = useState<ShowTemplate[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      try {
+        const shows = await window.electronAPI.listShows()
+        if (!alive) return
+        setRecents(shows)
+        setTemplates([demoShowTemplate(defaultShow), ...listUserTemplates()])
+      } catch (e) { if (alive) setError(e instanceof Error ? e.message : String(e)) }
+      finally { if (alive) setLoading(false) }
+    }
+    void load()
+    return () => { alive = false }
+  }, [])
+
+  const openRecent = (path: string) => {
+    useShowStore.getState().setWelcomeOpen(false)
+    window.dispatchEvent(new CustomEvent('openlights-load-show', { detail: path }))
+  }
+  const newProject = () => {
+    const state = useShowStore.getState()
+    state.setNewProjectTemplate(null)
+    state.setNewProjectDialogOpen(true)
+  }
+  const startTemplate = (template: ShowTemplate) => {
+    const state = useShowStore.getState()
+    state.setNewProjectTemplate(template)
+    state.setNewProjectDialogOpen(true)
+  }
+
+  // The overlay must be a solid full-screen scrim (19 Nov 2026, Jake's
+  // screenshot: the startup menu floated over the live Preview/dock with
+  // no background). It was `bg-bg` at 95% then, and that painted nothing:
+  // the theme colours were plain `var(--bg)` with no `<alpha-value>`
+  // placeholder, so Tailwind generated no opacity-modified `bg-bg`
+  // utility at all. The placeholder is fixed now (tailwind.config.js,
+  // `color-mix`), so 95% would paint — but this overlay stays solid
+  // `bg-bg` on purpose: a full-screen scrim must be opaque, and 95%
+  // would still let the Preview bleed through. The content is also
+  // taller than short viewports, so the overlay scrolls (`overflow-y-auto`
+  // + `min-h-full` flex centring: centred when short, scrolls from the
+  // top when tall instead of clipping).
+  //
+  // 20 Nov 2026, Jake's screenshot image-24.png: the GUI still showed
+  // ghosted behind the overlay after a drag, although the `bg-bg` utility
+  // compiles opaque — the colour-mix utility is one silent failure away
+  // from translucent, and a full-screen scrim must not depend on it. The
+  // background is now a plain `var(--bg)` inline style, and the overlay
+  // is a hard event boundary (`select-none`, `-webkit-app-region:
+  // no-drag`, pointer events stop here): a drag on the startup screen
+  // can neither select text nor reach anything behind it — including the
+  // header's drag region underneath, which otherwise eats clicks in the
+  // top 50px regardless of z-index.
+  return (
+    <div className="modal-scrim fixed inset-0 z-[70] select-none overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
+      <div className="flex min-h-full items-center justify-center p-6">
+      <div className="w-full max-w-[720px]">
+        <header className="flex items-start justify-between">
+          <div>
+            <h1 id="welcome-title" className="text-2xl font-semibold">OpenLights</h1>
+            <p className="mt-1 text-sm text-dim">Project Browser</p>
+          </div>
+          <button type="button" className="btn-theme" onClick={() => useShowStore.getState().setWelcomeOpen(false)} aria-label="Close Project Browser" title="Close Project Browser">×</button>
+        </header>
+
+        <div className="mt-6 flex gap-2">
+          <button type="button" className="rounded bg-accent px-4 py-2 text-sm font-semibold text-black" onClick={newProject}>New Project</button>
+        </div>
+
+        {error && <p role="alert" className="mt-4 text-sm text-red-300">{error}</p>}
+
+        <section className="mt-8">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-dim">Recent Projects</h2>
+          {loading ? <p className="mt-2 text-sm text-dim">Loading…</p>
+          : recents.length === 0 ? <p className="mt-2 text-sm text-dim">No recent projects yet — start a new project or open a template.</p>
+          : <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {recents.map((recent) => (
+              <li key={recent.path}>
+                <button type="button" onClick={() => openRecent(recent.path)} className="block w-full rounded border border-line bg-panel p-3 text-left hover:border-accent">
+                  <span className="block truncate text-sm font-semibold">{recent.name}</span>
+                  <span className="mt-1 block text-xs text-dim">{new Date(recent.updatedAt).toLocaleDateString(undefined, { dateStyle: 'medium' })}</span>
+                </button>
+              </li>
+            ))}
+          </ul>}
+        </section>
+
+        <section className="mt-8">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-dim">Templates</h2>
+          <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {templates.map((template) => (
+              <li key={template.id} className="relative">
+                <button type="button" onClick={() => startTemplate(template)} className="block w-full rounded border border-line bg-panel p-3 text-left hover:border-accent">
+                  <span className="block truncate text-sm font-semibold">{template.name}</span>
+                  <span className="mt-1 block text-xs text-dim">{template.id === 'template:demo' ? 'Built-in demo project' : 'Saved template'}</span>
+                </button>
+                {template.id !== 'template:demo' && (
+                  <button type="button" aria-label={`Delete template ${template.name}`} title={`Delete template ${template.name}`} className="absolute right-1 top-1 rounded bg-panel2 px-1 text-xs text-dim" onClick={(event) => { event.stopPropagation(); deleteUserTemplate(template.id); setTemplates((current) => current.filter((t) => t.id !== template.id)) }}>×</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+      </div>
+    </div>
+  )
+}

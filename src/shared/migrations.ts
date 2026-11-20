@@ -3,10 +3,27 @@ export const CURRENT_SCHEMA_VERSION = 4
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
-import type { FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
+import type { FixtureProfile, FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
+
+/**
+ * Does a library profile identify the same OFL definition as a stored
+ * snapshot, by the snapshot's stored `ofl` field rather than its id?
+ * The fixture key must match, and the manufacturer key must match unless
+ * the snapshot's is the placeholder 'open-fixture-library' (or missing)
+ * that the old no-options import wrote — that placeholder is the only
+ * reason the id can be wrong, so it is the only case this forgives.
+ */
+const oflIdentityMatches = (profile: FixtureProfile, stored: Document): boolean => {
+  const storedOfl = record(stored.ofl)
+  const profileOfl = record(profile.ofl)
+  if (typeof storedOfl.fixtureKey !== 'string' || !storedOfl.fixtureKey) return false
+  if (storedOfl.fixtureKey !== profileOfl.fixtureKey) return false
+  const manufacturerKey = storedOfl.manufacturerKey
+  return manufacturerKey === profileOfl.manufacturerKey || manufacturerKey === 'open-fixture-library' || manufacturerKey === '' || manufacturerKey === undefined
+}
 
 const steps: Record<number, (source: Document) => Document> = {
   0: (source) => ({ ...source, schemaVersion: 1 }),
@@ -118,7 +135,7 @@ const steps: Record<number, (source: Document) => Document> = {
 }
 
 /** Non-destructive version steps. Future documents retain their version and unknown fields. */
-export function migrateShow(raw: unknown): ShowDef {
+export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[] = []): ShowDef {
   let doc = { ...record(raw) }
   let version = typeof doc.schemaVersion === 'number' && Number.isInteger(doc.schemaVersion) && doc.schemaVersion >= 0 ? doc.schemaVersion : 0
   if (version > CURRENT_SCHEMA_VERSION) console.warn(`This show uses schema ${version}; OpenLights supports ${CURRENT_SCHEMA_VERSION}. Unknown fields will be preserved.`)
@@ -165,7 +182,78 @@ export function migrateShow(raw: unknown): ShowDef {
   // exactly as they are; this only fills blanks, so it is idempotent.
   const usedShortNames = new Set<string>()
   for (const raw of doc.fixtures as unknown[]) { const name = record(raw).shortName; if (typeof name === 'string' && name.trim()) usedShortNames.add(name.trim().toUpperCase()) }
-  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ?? profile, inStorage: fixture.inStorage === true, previewBeam: { direction: 'auto', ...record(fixture.previewBeam) }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
+  // Inline profile snapshots go stale (Jake, 20 Nov 2026): patching
+  // stores a structuredClone of the profile on the fixture, and Piece 11
+  // (19 Nov 2026) changed the colour defaults (blue 0 → 255) — so a
+  // fixture patched before then keeps blue at 0 forever: no colour on the
+  // wheel and the Dimmer brings up black until the wheel is touched,
+  // while a fixture patched after auto-goes blue. The wheel still shows
+  // blue on the stale fixture because it displays the preserved hue /
+  // saturation / brightness for a black fixture, not a real colour value
+  // — the output side is the wrong one, and healing the snapshot fixes
+  // it. Library profiles are immutable (built-ins refuse a same-id edit,
+  // OFL profiles are re-imported from their definitions, and the show's
+  // own stored profiles are the library copies the fixtures were patched
+  // from), so an inline deviation from the library is staleness, never a
+  // user edit: backfill the channel defaults from the current library
+  // profile, matched by mode and attribute. Channel layout is never
+  // touched for a base record — except for a CUSTOM profile, which is
+  // the user's own editable fixture (Jake, 20 Nov 2026, global customs):
+  // its inline snapshot is refreshed wholesale from the library copy,
+  // so an edit to the definition reaches fixtures already patched from
+  // it. A profile whose id is in no library is left exactly as
+  // stored — a custom profile's defaults are the user's, so the heal
+  // only ever matches by id (the fixture's profileId, or the snapshot's
+  // own id when the profileId was lost) — or by the snapshot's stored OFL
+  // identity, which is the same definition named a different way — never
+  // by legacy type. The
+  // library is the built-ins, the show's own stored profiles, and any
+  // extra profiles the caller supplies — the OFL library lives in the
+  // main process, so the renderer passes its cached copy (a fixture
+  // whose profileId is 'ofl:…' was skipped entirely before this, which
+  // is why the Rogue R3 Spots in Jake's "PRBC Default" stayed dark).
+  // Same composition as PatchPanel's library.
+  const library: FixtureProfile[] = [...BUILTIN_PROFILES, ...((doc.fixtureProfiles as FixtureProfile[] | undefined) ?? []), ...extraLibraryProfiles]
+  const healStoredProfileDefaults = (rawProfile: unknown, profileId: unknown): unknown => {
+    const stored = record(rawProfile)
+    // A snapshot imported without manufacturer/fixture keys carries the
+    // placeholder id ofl:open-fixture-library:<fixture>, which no library
+    // profile has — its stored `ofl` field still names the definition it
+    // came from, so match on the fixture key, allowing the placeholder
+    // manufacturer key (the buggy import wrote 'open-fixture-library'
+    // there) or a missing one. A genuinely custom profile carries no
+    // `ofl` field, so it can never match this way.
+    const libraryProfile = library.find((p) => p.id === profileId) ?? library.find((p) => p.id === stored.id)
+      ?? library.find((p) => oflIdentityMatches(p, stored))
+    if (!libraryProfile || !Array.isArray(stored.modes)) return rawProfile
+    // A custom profile is the user's own fixture and it is editable
+    // (Jake, 20 Nov 2026 — customs are global, edited in the profile
+    // editor): the library copy is the definition, so an inline
+    // snapshot that differs from it is stale from an edit, not user
+    // data — refresh the whole snapshot. A custom in no library is
+    // left exactly as stored (it is the only copy). Base records keep
+    // the defaults-only backfill below: their layout is immutable
+    // library data, and only a stale default is ever healed.
+    if (libraryProfile.custom === true) return structuredClone(libraryProfile)
+    return {
+      ...stored,
+      modes: stored.modes.map((rawMode) => {
+        const mode = record(rawMode)
+        const libraryMode = libraryProfile.modes.find((m) => m.id === mode.id)
+        if (!libraryMode || !Array.isArray(mode.channels)) return mode
+        const byAttribute = new Map(libraryMode.channels.map((c) => [c.attribute, c]))
+        return {
+          ...mode,
+          channels: mode.channels.map((rawChannel) => {
+            const channel = record(rawChannel)
+            const match = typeof channel.attribute === 'string' ? byAttribute.get(channel.attribute) : undefined
+            return match && typeof match.defaultValue === 'number' ? { ...channel, defaultValue: match.defaultValue } : channel
+          })
+        }
+      })
+    }
+  }
+  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = library.find((p) => p.id === fixture.profileId) ?? library.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ? healStoredProfileDefaults(fixture.profile, fixture.profileId) : profile, inStorage: fixture.inStorage === true, previewBeam: { direction: (() => { const d = record(fixture.previewBeam).direction; return d === 'auto' || typeof d === 'number' ? d : 'auto' })() }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
   if (!Array.isArray(doc.fixtureGroups)) {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
