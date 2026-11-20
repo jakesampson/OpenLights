@@ -59,6 +59,7 @@ import { mixColor, baseColorChannels, colorChannels, normalizeColorFavorite, typ
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
+import { effectiveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
 import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
 
 interface ShowState {
@@ -282,6 +283,13 @@ interface ShowState {
   saveFan: (fan: FanDef) => void
   deleteFan: (id: string, keepValues: boolean) => void
   activateCue: (id: string) => void
+  /** Re-send the base look (the active cue, or the defaults when no cue
+   * is active) with the current effective intensities — the base is
+   * otherwise only recomputed when a cue activates, so a dimmer drag
+   * after that would leave it stale (Jake, 20 Nov 2026: the dimmer
+   * drags but no light appears). Called after any manual-override
+   * change. A no-op under blackout or with no show open. */
+  refreshBaseOutput: () => void
   flashCue: (id: string) => void
   endFlash: () => void
   capturePreset: (name: string, category: PresetCategory) => void
@@ -522,13 +530,58 @@ export function defaultFixtureValues(fixture: FixtureDef): Record<string, number
 }
 
 function cuePatch(
-  state: Pick<ShowState, 'show' | 'master'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds'>,
   cue: CueDef
 ): Record<number, number> {
   // The cue resolves through its preset references first (Piece 8): a
   // preset edit updates every cue that references it, because the values
   // are resolved here at output time, never copied into the cue.
-  return computeCueChannels(state.show?.fixtures ?? [], resolveCue(cue, state.show?.presets ?? [], state.show?.fixtures ?? []), state.master, true)
+  const fixtures = state.show?.fixtures ?? []
+  const resolved = resolveCue(cue, state.show?.presets ?? [], fixtures)
+  // The dimmer is a property of the fixture, not of the cue (Jake,
+  // 20 Nov 2026): a fixture the cue leaves without an intensity still
+  // resolves its colours against the dimmer it is actually at — the
+  // Design override, an active preset, or the cue itself. Without
+  // this, a dimmer-only override on a fixture the cue never lit stays
+  // dark: the cue's own fill scales its default blue by an unset
+  // dimmer (0), and the override layer carries no colour to scale.
+  // Every fixture gets an entry first, so a fixture the cue never
+  // mentions still resolves its defaults against the effective dimmer.
+  const values: Record<string, Record<string, number>> = {}
+  for (const fixture of fixtures) values[fixture.id] = { ...(resolved.fixtureValues[fixture.id] ?? {}) }
+  const levels = effectiveIntensityLevels({
+    cueValues: resolved.fixtureValues,
+    activePresetIds: state.activePresetIds ?? [],
+    presets: state.show?.presets ?? [],
+    manualOverrides: state.manualOverrides ?? {}
+  })
+  return computeCueChannels(fixtures, { ...resolved, fixtureValues: withEffectiveIntensity(values, levels) }, state.master, true)
+}
+
+/**
+ * The base look when no cue is active: every fixture at its LightKey
+ * default (Guide pp.85, 114 — normally blue, dimmer 0), with the
+ * default colour scaled by the dimmer the fixture is actually at, so
+ * a dimmer drag on a fresh fixture brings up blue instead of nothing.
+ * This replaces the all-zero patch the no-cue paths used to send —
+ * zeros latch the previous look's colours off and the defaults layer
+ * in the output composer is masked by the full-frame base, so the
+ * default blue never reached the frame any other way (Jake,
+ * 20 Nov 2026). Blackout and project-close still send zeros.
+ */
+function defaultsPatch(
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'activeCueId' | 'cues'>
+): Record<number, number> {
+  const fixtures = state.show?.fixtures ?? []
+  const levels = effectiveIntensityLevels({
+    cueValues: resolvedActiveCueValues(state.cues ?? [], state.show?.presets ?? [], state.activeCueId ?? null, fixtures),
+    activePresetIds: state.activePresetIds ?? [],
+    presets: state.show?.presets ?? [],
+    manualOverrides: state.manualOverrides ?? {}
+  })
+  const values: Record<string, Record<string, number>> = {}
+  for (const fixture of fixtures) values[fixture.id] = defaultFixtureValues(fixture)
+  return computeCueChannels(fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: withEffectiveIntensity(values, levels) }, state.master, true)
 }
 
 /**
@@ -537,7 +590,7 @@ function cuePatch(
  * leave the last values latched on the DMX interface.
  */
 function cueOutput(
-  state: Pick<ShowState, 'show' | 'master'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds'>,
   cue: CueDef
 ): Record<number, number> {
   suppressPresetsForCue(Boolean(cue.blackout))
@@ -862,7 +915,7 @@ const actions: ShowState = {
     const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
     set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
     const cue = next.cues.find((item) => item.id === activeCueId)
-    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
+    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : defaultsPatch(get()))
   },
   redo: () => {
     const state = get(), following = state.redoStack.at(-1)
@@ -871,7 +924,7 @@ const actions: ShowState = {
     const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
     set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
     const cue = next.cues.find((item) => item.id === activeCueId)
-    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : allZeroPatch())
+    if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : defaultsPatch(get()))
   },
   show: defaultShow,
   cues: defaultShow.cues,
@@ -999,6 +1052,7 @@ const actions: ShowState = {
     })
     const restored = get().cues.find((cue) => cue.id === get().activeCueId)
     if (restored) sendImmediate(cueOutput(get(), restored))
+    else if (show) sendImmediate(defaultsPatch(get()))
     // "Activate at startup" (Guide ch.11, p.204): cue buttons on the
     // visible page flagged for startup activate when a project opens.
     // Ignored when the startup mode restores the last state, as the guide
@@ -1369,6 +1423,7 @@ const actions: ShowState = {
         setEffectBlackout(false)
         const activeCue = state.cues.find((s) => s.id === state.activeCueId)
         if (activeCue) sendImmediate(cueOutput(state, activeCue))
+        else if (state.show) sendImmediate(defaultsPatch(state))
       }
       return { blackout: active }
     }),
@@ -1518,6 +1573,16 @@ const actions: ShowState = {
     const fixtures = (state.show?.fixtures ?? []).map((f) => group?.fixtureIds.includes(f.id) && !groups.some((g) => g.fixtureIds.includes(f.id)) ? { ...f, group: 'Ungrouped' } : f)
     return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
   }),
+
+  refreshBaseOutput: () => {
+    const state = get()
+    if (!state.show || state.blackout) return
+    const active = state.cues.find((cue) => cue.id === state.activeCueId)
+    // sendImmediate cancels an in-flight base fade (a cue transition):
+    // a manual override is a live intervention, so it takes precedence
+    // over the fade — the same trade the cue-write paths already make.
+    sendImmediate(active ? cueOutput(state, active) : defaultsPatch(state))
+  },
 
   activateCue: (id) =>
     set((state) => {
@@ -1971,14 +2036,14 @@ const actions: ShowState = {
       return persistState(state, { cues }, { cues, activeCueId: activeCue.id, cuePlaying: false })
     }),
 
-  deleteCue: (id) =>
+  deleteCue: (id) => {
+    const wasActive = get().activeCueId === id
     set((state) => {
       const cues = state.cues.filter((s) => s.id !== id)
       const cueLists = state.cueLists.map((list) => ({
         ...list,
         steps: list.steps.filter((step) => step.cueId !== id)
       }))
-      if (state.activeCueId === id) sendImmediate(allZeroPatch())
       return persistState(
         state,
         { cues, cueLists },
@@ -1988,7 +2053,13 @@ const actions: ShowState = {
           activeCueId: state.activeCueId === id ? null : state.activeCueId
         }
       )
-    }),
+    })
+    // The rig returns to the defaults look, not to zeros (Jake,
+    // 20 Nov 2026 — a deleted cue must not black the rig out when the
+    // dimmer is up). Sent after the set so the deleted cue is gone
+    // from the levels the defaults resolve against.
+    if (wasActive) get().refreshBaseOutput()
+  },
 
   addFixture: (preset, name, group) =>
     set((state) => {

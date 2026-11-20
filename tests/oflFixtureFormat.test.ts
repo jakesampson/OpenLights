@@ -124,10 +124,13 @@ describe('Open Fixture Library format', () => {
     expect(preload).toContain("ipcRenderer.invoke('ofl-library:import-zip')")
     expect(preload).toContain("ipcRenderer.invoke('ofl-library:duplicate'")
     expect(patch).toContain('importOflLibraryZip')
-    // The upload button is labelled Import (Jake, 20 Nov 2026) and the
-    // Build Your Own button is + Custom — the zip picker still opens.
+    // The upload button is labelled Import (Jake, 20 Nov 2026) and
+    // Duplicate and + Custom are one New Fixture button (Jake,
+    // 20 Nov 2026) — the zip picker still opens.
     expect(patch).toContain('>Import<')
-    expect(patch).toContain('>+ Custom<')
+    expect(patch).toContain('>New Fixture<')
+    expect(patch).not.toContain('>+ Custom<')
+    expect(patch).not.toContain('>Duplicate<')
     expect(patch).toContain('User Fixtures')
     expect(patch).not.toContain('Export OFL')
     expect(patch).toContain('listOflProfiles')

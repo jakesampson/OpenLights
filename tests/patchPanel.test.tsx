@@ -146,9 +146,26 @@ describe('PatchPanel fixture library', () => {
     expect(brandButton).toBeDefined()
     act(() => { brandButton?.click() })
     expect(models?.querySelectorAll('button')).toHaveLength(1)
-    const duplicateButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Duplicate')
-    expect(duplicateButton?.hasAttribute('disabled')).toBe(false)
-    await act(async () => { duplicateButton?.click() })
+    // Jake, 20 Nov 2026: Duplicate and + Custom are one New Fixture
+    // button. Duplicating goes through the profile editor — the copy's
+    // channels land in the form, ready to edit before saving — and the
+    // saved copy lives in this show, not in the global library.
+    const newFixtureButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'New Fixture')
+    expect(newFixtureButton).toBeDefined()
+    act(() => { newFixtureButton?.click() })
+    expect(container?.querySelector('[aria-label="New fixture"]')).not.toBeNull()
+    const duplicateChoice = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent?.includes('Duplicate existing'))
+    act(() => { duplicateChoice?.click() })
+    const sourceSelect = container?.querySelector('[aria-label="Fixture to duplicate"]') as HTMLSelectElement | null
+    expect(sourceSelect?.value).toBe(stubQ5().id)
+    const continueButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Continue')
+    act(() => { continueButton?.click() })
+    await act(async () => {})
+    expect(container?.querySelector('[aria-label="Fixture profile editor"]')).not.toBeNull()
+    const nameInput = container?.querySelector('[aria-label="Profile name"]') as HTMLInputElement | null
+    expect(nameInput?.value).toBe('FXarray Q5 copy')
+    const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
+    act(() => { saveButton?.click() })
     await act(async () => {})
     // The duplicate is visible immediately (Jake, 20 Nov 2026): the
     // brands column switches to User Fixtures and the copy is selected
@@ -161,16 +178,17 @@ describe('PatchPanel fixture library', () => {
     const selectedModel = models?.querySelector('button[aria-pressed="true"]')
     expect(selectedModel?.textContent).toContain('FXarray Q5 copy')
     expect(container?.textContent).toContain('OFL zip uploads will never update it')
-    const stored = useShowStore.getState().oflProfiles
-    expect(stored.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
+    const saved = useShowStore.getState().show?.fixtureProfiles ?? []
+    expect(saved.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
   })
 
   it('duplicates a built-in generic as a custom fixture', async () => {
     // 20 Nov 2026, Jake's screenshot image-ecf244b1.png: with no OFL
-    // library uploaded every visible profile is a built-in, and Duplicate
-    // was disabled for all of them — it looked clickable (no dimmed
-    // styling) but did nothing. Built-ins duplicate locally into this
-    // show as a custom copy, the same as an OFL duplicate.
+    // library uploaded every visible profile is a built-in, and the old
+    // Duplicate was disabled for all of them — it looked clickable (no
+    // dimmed styling) but did nothing. Built-ins now duplicate through
+    // New Fixture into this show as a custom copy, the same as an OFL
+    // duplicate.
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
@@ -178,9 +196,19 @@ describe('PatchPanel fixture library', () => {
     await act(async () => {})
     const models = container?.querySelector('[aria-label="Fixture models"]')
     const brands = container?.querySelector('[aria-label="Fixture brands"]')
-    const duplicateButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Duplicate')
-    expect(duplicateButton?.hasAttribute('disabled')).toBe(false)
-    act(() => { duplicateButton?.click() })
+    const newFixtureButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'New Fixture')
+    expect(newFixtureButton).toBeDefined()
+    expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Duplicate')).toBe(false)
+    act(() => { newFixtureButton?.click() })
+    const duplicateChoice = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent?.includes('Duplicate existing'))
+    act(() => { duplicateChoice?.click() })
+    const continueButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Continue')
+    act(() => { continueButton?.click() })
+    await act(async () => {})
+    const nameInput = container?.querySelector('[aria-label="Profile name"]') as HTMLInputElement | null
+    expect(nameInput?.value).toBe('Generic PAR (RGB) copy')
+    const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
+    act(() => { saveButton?.click() })
     await act(async () => {})
     const userFixturesButton = [...(brands?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'User Fixtures')
     expect(userFixturesButton?.getAttribute('aria-pressed')).toBe('true')
@@ -192,16 +220,21 @@ describe('PatchPanel fixture library', () => {
     expect(saved.some((p) => p.name === 'Generic PAR (RGB) copy' && p.custom === true && p.id.startsWith('custom:'))).toBe(true)
   })
 
-  it("'+ Custom' creates a custom fixture listed under User Fixtures", async () => {
+  it("'New Fixture' from scratch creates a custom fixture listed under User Fixtures", async () => {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
     renderInRoot(<PatchPanel />)
     await act(async () => {})
     expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Export OFL')).toBe(false)
-    const buildButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === '+ Custom')
-    expect(buildButton).toBeDefined()
-    act(() => { buildButton?.click() })
+    expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === '+ Custom')).toBe(false)
+    const newFixtureButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'New Fixture')
+    expect(newFixtureButton).toBeDefined()
+    act(() => { newFixtureButton?.click() })
+    expect(container?.querySelector('[aria-label="New fixture"]')).not.toBeNull()
+    // Start from scratch is the default choice — no need to pick it.
+    const continueButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Continue')
+    act(() => { continueButton?.click() })
     expect(container?.querySelector('[aria-label="Fixture profile editor"]')).not.toBeNull()
     // The editor form is expanded on open (Jake, 20 Nov 2026) — no
     // collapsed "Fixture profile editor" disclosure to click first. (The

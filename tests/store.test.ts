@@ -186,9 +186,19 @@ describe('cue output', () => {
     useShowStore.getState().activateCue('s1')
     useShowStore.getState().setShow(makeShow())
     const patch = lastPatch()
-    expect(Object.keys(patch)).toHaveLength(512)
-    expect(Object.values(patch).every((v) => v === 0)).toBe(true)
+    // The rig returns to the fixtures' defaults, not to the previous
+    // cue's look (Jake, 20 Nov 2026): the dimmers are closed, so no
+    // light — but pan/tilt sit centred (128) and the colour default is
+    // blue, gated by the dimmer. A stale cue's red (255) or pan (10)
+    // must not survive the load.
     expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(patch[1]).toBe(0) // f1 dimmer closed — no light
+    expect(patch[2]).toBe(0) // f1 red: the stale cue's 255 is gone
+    expect(patch[4]).toBe(255) // f1 blue: the default colour, gated by the dimmer
+    expect(patch[5]).toBe(0) // f2 dimmer closed — no light
+    expect(patch[6]).toBe(128) // f2 pan: centred default, not the stale 10
+    expect(patch[7]).toBe(128) // f2 tilt: centred default, not the stale 20
+    expect(patch[8]).toBe(0) // f2 red: the stale cue's 0 stays 0
   })
 
   it('duplicates a cue directly after the original', () => {

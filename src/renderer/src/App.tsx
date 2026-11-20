@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { MidiPanel } from './components/MidiPanel'
@@ -20,7 +20,8 @@ import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
-import { resolveCue, fanPresetFixtureValues } from '@shared/cueResolution'
+import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
+import { effectiveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -73,10 +74,26 @@ export default function App() {
     cancelEditingCueAdHoc,
     toggleBlackout,
     activateCue,
+    refreshBaseOutput,
     cueNext,
     cuePrev,
     stopCue
   } = useShowStore()
+  // The dimmer is a property of the fixture, not of one layer (Jake,
+  // 20 Nov 2026): the colour a look carries resolves against the
+  // dimmer the fixture is actually at — the active cue, an active
+  // preset, or the Design overrides — so a dimmer drag brings up blue
+  // without the wheel being touched. Sequences and Live controls are
+  // deliberately not sources (see effectiveIntensity.ts).
+  const effectiveLevels = useMemo(() => {
+    const activeCue = cues.find((item) => item.id === activeCueId)
+    return effectiveIntensityLevels({
+      cueValues: activeCue ? resolveCueValues(activeCue, presets, show?.fixtures ?? []) : {},
+      activePresetIds,
+      presets,
+      manualOverrides
+    })
+  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
   const setupWizardStep = useShowStore((s) => s.setupWizardStep)
@@ -255,10 +272,10 @@ export default function App() {
       // A preset's colour is the fixture's colour (Jake, 19 Nov
       // 2026): applying it live fans the bare colour out to every
       // beam, so a red preset lights all four cells of a 4Bar.
-      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []) }, master))
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, master))
     }
     configurePresetOutput(patch)
-  }, [presets, activePresetIds, show?.fixtures, master])
+  }, [presets, activePresetIds, show?.fixtures, master, effectiveLevels])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
@@ -268,12 +285,15 @@ export default function App() {
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
-      if (cue && !cue.blackout) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], resolveCue(cue, presets, show?.fixtures ?? []), scaledMaster))
+      if (cue && !cue.blackout) {
+        const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
+        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, effectiveLevels) }, scaledMaster))
+      }
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []) }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, scaledMaster))
       }
-      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: control.adHocValues }, scaledMaster))
+      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, effectiveLevels) }, scaledMaster))
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
@@ -298,11 +318,18 @@ export default function App() {
       return (previousLevels[id] ?? 0) !== (outputLevels[id] ?? 0)
     })
     configureLiveOutput(patch, changed || liveChanged ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master])
+  }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master, effectiveLevels])
 
   useEffect(() => {
-    configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: manualOverrides }, master))
-  }, [manualOverrides, show?.fixtures, master])
+    configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: withEffectiveIntensity(manualOverrides, effectiveLevels) }, master))
+    // The base look is otherwise only recomputed when a cue activates,
+    // so it would stay dark after a dimmer drag (Jake, 20 Nov 2026:
+    // the dimmer drags but no light appears until the wheel is
+    // clicked). This runs on every override change and re-sends the
+    // base with the current effective intensities — a no-op under
+    // blackout or with no show open.
+    refreshBaseOutput()
+  }, [manualOverrides, show?.fixtures, master, effectiveLevels, refreshBaseOutput])
 
   useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
   useEffect(() => startLiveWindowBridge(), [])
