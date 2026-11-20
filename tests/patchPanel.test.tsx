@@ -76,14 +76,18 @@ describe('PatchPanel fixture library', () => {
     act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
     renderInRoot(<PatchPanel />)
     await act(async () => {})
-    expect(container?.textContent).toContain('8 models · 8 profiles')
+    // The model count is gone from the footer (Jake, 20 Nov 2026) — the
+    // models list itself is the check: 8 built-ins, filtered by search.
+    const models = container?.querySelector('[aria-label="Fixture models"]')
+    expect(models?.querySelectorAll('button')).toHaveLength(8)
+    expect(container?.textContent).not.toContain('models ·')
     const search = container?.querySelector('[aria-label="Search fixture library"]') as HTMLInputElement
     const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
     act(() => {
       setter.call(search, 'dimmer')
       search.dispatchEvent(new window.Event('input', { bubbles: true }))
     })
-    expect(container?.textContent).toContain('1 models · 8 profiles')
+    expect(models?.querySelectorAll('button')).toHaveLength(1)
     expect(container?.textContent).toContain('Single Dimmer')
     const editorButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Profile editor')
     expect(editorButton).toBeDefined()
@@ -117,10 +121,11 @@ describe('PatchPanel fixture library', () => {
     renderInRoot(<PatchPanel />)
     await act(async () => {})
     // The built-ins still patch, but the OFL library is empty: the panel
-    // says so and points at the zip upload instead of a blank list.
+    // says so and points at the zip upload instead of a blank list. The
+    // upload button is labelled Import (Jake, 20 Nov 2026).
     expect(container?.textContent).toContain('No fixture library yet')
     expect(container?.textContent).toContain('open-fixture-library.org')
-    expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Upload OFL zip…')).toBe(true)
+    expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Import')).toBe(true)
   })
 
   it('duplicates an OFL profile as a custom fixture and hands it to the store', async () => {
@@ -131,35 +136,50 @@ describe('PatchPanel fixture library', () => {
     renderInRoot(<PatchPanel />)
     await act(async () => {})
     // The brand filter starts on Generic (the library loads after the
-    // first render), so switch to the uploaded brand first.
-    expect(container?.textContent).toContain('8 models · 9 profiles')
+    // first render), so switch to the uploaded brand first. The models
+    // list is brand-filtered, so the upload is proven by the brand
+    // column gaining Chauvet DJ, not by the list length.
+    const models = container?.querySelector('[aria-label="Fixture models"]')
+    const brands = container?.querySelector('[aria-label="Fixture brands"]')
+    expect([...(brands?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Chauvet DJ')).toBe(true)
     const brandButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Chauvet DJ')
     expect(brandButton).toBeDefined()
     act(() => { brandButton?.click() })
-    expect(container?.textContent).toContain('1 models · 9 profiles')
+    expect(models?.querySelectorAll('button')).toHaveLength(1)
     const duplicateButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Duplicate')
     expect(duplicateButton?.hasAttribute('disabled')).toBe(false)
     await act(async () => { duplicateButton?.click() })
     await act(async () => {})
+    // The duplicate is visible immediately (Jake, 20 Nov 2026): the
+    // brands column switches to User Fixtures and the copy is selected
+    // there, instead of staying on the old brand with nothing to show.
+    const userFixturesButton = [...(brands?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'User Fixtures')
+    expect(userFixturesButton?.getAttribute('aria-pressed')).toBe('true')
+    expect(models?.querySelectorAll('button')).toHaveLength(1)
     expect(container?.textContent).toContain('FXarray Q5 copy')
     expect(container?.textContent).toContain('Custom')
-    expect(container?.textContent).toContain('2 models · 10 profiles')
+    const selectedModel = models?.querySelector('button[aria-pressed="true"]')
+    expect(selectedModel?.textContent).toContain('FXarray Q5 copy')
     expect(container?.textContent).toContain('OFL zip uploads will never update it')
     const stored = useShowStore.getState().oflProfiles
     expect(stored.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
   })
 
-  it('Build Your Own Fixture creates a custom fixture listed under User Fixtures', async () => {
+  it("'+ Custom' creates a custom fixture listed under User Fixtures", async () => {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
     renderInRoot(<PatchPanel />)
     await act(async () => {})
     expect([...(container?.querySelectorAll('button') ?? [])].some((button) => button.textContent === 'Export OFL')).toBe(false)
-    const buildButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Build Your Own Fixture')
+    const buildButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === '+ Custom')
     expect(buildButton).toBeDefined()
     act(() => { buildButton?.click() })
     expect(container?.querySelector('[aria-label="Fixture profile editor"]')).not.toBeNull()
+    // The editor form is expanded on open (Jake, 20 Nov 2026) — no
+    // collapsed "Fixture profile editor" disclosure to click first. (The
+    // wheel-ranges disclosure inside the form is a different, kept one.)
+    expect([...(container?.querySelectorAll('summary') ?? [])].some((summary) => summary.textContent === 'Fixture profile editor')).toBe(false)
     const nameInput = container?.querySelector('[aria-label="Profile name"]') as HTMLInputElement | null
     expect(nameInput?.value).toBe('New Fixture')
     const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
@@ -172,7 +192,8 @@ describe('PatchPanel fixture library', () => {
     const brandButtons = [...(brands?.querySelectorAll('button') ?? [])]
     expect(brandButtons[0]?.textContent).toBe('User Fixtures')
     act(() => { brandButtons[0]?.click() })
-    expect(container?.textContent).toContain('1 models · 9 profiles')
+    const models = container?.querySelector('[aria-label="Fixture models"]')
+    expect(models?.querySelectorAll('button')).toHaveLength(1)
     expect(container?.textContent).toContain('New Fixture')
   })
 
@@ -188,7 +209,6 @@ describe('PatchPanel fixture library', () => {
     const brandButtons = [...(brands?.querySelectorAll('button') ?? [])]
     expect(brandButtons.map((b) => b.textContent)).toEqual(['User Fixtures', 'Chauvet DJ', 'Generic'])
     act(() => { brandButtons[0]?.click() })
-    expect(container?.textContent).toContain('1 models · 10 profiles')
     const models = container?.querySelector('[aria-label="Fixture models"]')
     expect(models?.querySelectorAll('button')).toHaveLength(1)
     expect(models?.textContent).toContain('FXarray Q5 copy')

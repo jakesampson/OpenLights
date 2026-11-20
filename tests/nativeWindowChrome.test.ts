@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 
 const main = readFileSync('src/main/index.ts', 'utf8')
+const overlay = readFileSync('src/main/titleBarOverlay.ts', 'utf8')
 const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
 const css = readFileSync('src/renderer/src/index.css', 'utf8')
 const preload = readFileSync('src/preload/index.ts', 'utf8')
@@ -39,11 +40,29 @@ describe('Windows/Linux caption buttons match the header', () => {
     // border-box, so padding and border are already inside the 50px —
     // the earlier 61px (50 + 5 + 5 + 1) double-counted them and the
     // overlay stuck out ~11px below the header (Jake, 19 Nov 2026,
-    // screenshot image-8.png).
-    expect(main).toContain("{ color: '#444345', symbolColor: '#d2d2d2', height: 50 }")
-    expect(main).not.toContain('#3a1b47')
-    expect(main).not.toContain('height: 72')
-    expect(main).not.toContain('height: 61')
+    // screenshot image-8.png). The presets live in titleBarOverlay.ts;
+    // the main window starts on the grey one.
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_MAIN[^}]*color: '#444345'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_MAIN[^}]*symbolColor: '#d2d2d2'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_MAIN[^}]*height: 50/s)
+    expect(overlay).not.toContain('height: 72')
+    expect(overlay).not.toContain('height: 61')
+    expect(main).toContain('titleBarOverlay: process.platform === \'darwin\' ? false : TITLE_BAR_OVERLAY_MAIN')
+  })
+
+  it('switches the overlay to the wizard page colour while the wizard is open', () => {
+    // The wizard page is purple, not the header grey — the native
+    // buttons must blend with it, or they sit in a grey strip over the
+    // wizard and cover its Back button (Jake, 20 Nov 2026, screenshot
+    // image-25.png). The wizard preset is the panel colour, never the
+    // header grey; the renderer reports the wizard state over IPC and
+    // the main process restores the grey when it closes.
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WIZARD[^}]*color: '#3a1b47'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WIZARD[^}]*symbolColor: '#d2d2d2'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WIZARD[^}]*height: 50/s)
+    expect(main).toContain("ipcMain.on('window:set-titlebar-overlay'")
+    expect(preload).toContain('setTitleBarOverlay')
+    expect(app).toContain('setTitleBarOverlay')
   })
 })
 

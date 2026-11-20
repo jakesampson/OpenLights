@@ -201,7 +201,10 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
   // Duplicate the selected library record into the user's own fixture:
   // tagged custom, so no zip upload ever updates it. Only library
   // records (OFL + customs) can be duplicated here — built-ins are
-  // duplicated from the profile editor instead.
+  // duplicated from the profile editor instead. The brands column
+  // switches to User Fixtures and selects the copy, so the result is
+  // visible immediately (Jake, 20 Nov 2026 — Duplicate used to give no
+  // visible feedback at all).
   const duplicateSelectedProfile = async () => {
     if (!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)) return
     try {
@@ -210,16 +213,16 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
       const profiles = Array.isArray(result.profiles) ? result.profiles : []
       setOflProfiles(profiles)
       useShowStore.getState().setOflProfiles(profiles)
-      if (result.profile) chooseProfile(result.profile)
+      if (result.profile) { setManufacturer(USER_FIXTURES); chooseProfile(result.profile) }
       setPatchError('')
       setPatchNotice('Duplicated as a custom fixture — OFL zip uploads will never update it')
     } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
   }
 
   return <section className="relative flex h-full min-h-0 gap-3" aria-label="Fixture patch workspace">
-    <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Fixture library">
+    <aside className="flex w-[420px] shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Fixture library">
       <div className="border-b border-line p-3"><input aria-label="Search fixture library" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search fixtures" className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" /></div>
-      {!oflProfiles.length && <div className="border-b border-line bg-panel2 px-3 py-2 text-[11px] leading-snug text-dim">No fixture library yet — download the OFL fixture library (.zip) from open-fixture-library.org and upload it here. Fixtures you duplicate stay yours: uploads never replace a custom fixture.<div className="mt-2"><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibraryZip()}>Upload OFL zip…</button></div></div>}
+      {!oflProfiles.length && <div className="border-b border-line bg-panel2 px-3 py-2 text-[11px] leading-snug text-dim">No fixture library yet — download the OFL fixture library (.zip) from open-fixture-library.org and upload it here. Fixtures you duplicate stay yours: uploads never replace a custom fixture.<div className="mt-2"><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibraryZip()}>Import</button></div></div>}
       <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line">
         <div className="min-h-0 overflow-y-auto p-2" aria-label="Fixture brands">
           {manufacturers.map((brand) => <button key={brand} type="button" aria-pressed={manufacturer === brand} className={`mb-1 block w-full truncate rounded px-2 py-1.5 text-left text-xs ${manufacturer === brand ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => { setManufacturer(brand); const first = brand === USER_FIXTURES ? library.find(isUserFixture) : library.find((profile) => (profile.manufacturer || 'Generic') === brand); if (first) chooseProfile(first) }}>{brand}</button>)}
@@ -233,7 +236,9 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
           {!matchingProfiles.length && <p className="p-2 text-xs text-dim">{manufacturer === USER_FIXTURES ? 'No custom fixtures yet — duplicate a fixture or build your own to add one here.' : 'No matching models'}</p>}
         </div>
       </div>
-      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibraryZip()}>Upload OFL zip…</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)} onClick={() => void duplicateSelectedProfile()}>Duplicate</button><button type="button" className="btn-theme text-[10px]" onClick={() => { setEditorProfileId(null); setEditorCreateCustom(true); setEditorOpen(true) }}>Build Your Own Fixture</button><button type="button" className="btn-theme text-[10px]" onClick={() => { setEditorCreateCustom(false); setEditorOpen(true) }}>Profile editor</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+      {/* Jake, 20 Nov 2026: five equal buttons, no wrapping, no model
+          count — the footer is actions only, all the same size. */}
+      <footer className="flex items-center gap-1 border-t border-line px-3 py-2"><button type="button" className="btn-theme patch-footer-btn" onClick={() => void importOflLibraryZip()}>Import</button><button type="button" className="btn-theme patch-footer-btn" disabled={!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)} onClick={() => void duplicateSelectedProfile()}>Duplicate</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorProfileId(null); setEditorCreateCustom(true); setEditorOpen(true) }}>+ Custom</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => { setEditorCreateCustom(false); setEditorOpen(true) }}>Profile editor</button><button type="button" className="btn-theme patch-footer-btn" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
     </aside>
 
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">

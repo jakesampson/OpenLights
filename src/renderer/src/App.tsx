@@ -98,6 +98,14 @@ export default function App() {
     setToolPanel(null)
     useShowStore.getState().setPreviewEditing(setupWizardStep === 'preview' || setupWizardStep === 'groups')
   }, [setupWizardStep])
+  // While the setup wizard is open the native caption buttons must blend
+  // with the wizard page, not the main window's grey header (Jake, 20 Nov
+  // 2026, screenshot image-25.png — the grey strip covered the wizard's
+  // Back button). The main process restores the grey when the wizard
+  // closes; on macOS this is a no-op (native traffic lights).
+  useEffect(() => {
+    window.electronAPI?.setTitleBarOverlay?.(Boolean(setupWizardStep))
+  }, [setupWizardStep])
   // The OFL library is the migration's second source (Jake, 20 Nov 2026,
   // image-18): without it, a show's OFL fixtures keep their stale inline
   // snapshots and the Dimmer brings up black. Load it once at startup so
@@ -507,8 +515,18 @@ export default function App() {
         // Browser fix — z-[70] like the WelcomeScreen) with the step bar
         // and the current step's body inside it. Back / Next only, no Skip
         // (LightKey, Guide ch.4); × exits to Design as-is.
-        <div className="fixed inset-0 z-[70] flex flex-col bg-bg" role="dialog" aria-modal="true" aria-label="Setup wizard">
-          <SetupWizard />
+        //
+        // The scrim background is a plain `var(--bg)` inline style, not
+        // the Tailwind `bg-bg` utility (20 Nov 2026, Jake's screenshot
+        // image-24.png: the Project Browser showed the GUI ghosted behind
+        // it after a drag, although the utility compiles opaque — the
+        // colour-mix utility is one silent failure away from translucent,
+        // and a full-screen scrim must not depend on it). The modal is
+        // also a hard event boundary: `select-none` + no-drag + pointer
+        // events stop here, so a drag on the modal can neither select
+        // text nor reach anything behind it.
+        <div className="modal-scrim fixed inset-0 z-[70] flex select-none flex-col" role="dialog" aria-modal="true" aria-label="Setup wizard" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
+          <SetupWizard isMac={isMac} />
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
             {setupWizardStep === 'dmx' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDmxStep /></div>
             : setupWizardStep === 'done' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDoneStep /></div>

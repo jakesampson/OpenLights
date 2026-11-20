@@ -15,7 +15,7 @@ import { useShowStore } from '../stores/showStore'
 import { WIZARD_STEPS, nextWizardStep, previousWizardStep, type WizardStep } from '../lib/setupWizard'
 import { isCalibrationComplete } from '../lib/calibration'
 
-export function SetupWizard() {
+export function SetupWizard({ isMac }: { isMac: boolean }) {
   const step = useShowStore((s) => s.setupWizardStep)
   const show = useShowStore((s) => s.show)
   const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
@@ -44,7 +44,7 @@ export function SetupWizard() {
 
   return (
     <div className="shrink-0 border-b border-line bg-panel shadow-lg">
-      <div className="flex items-center gap-3 px-4 py-2">
+      <div className={`flex items-center gap-3 px-4 py-2 ${isMac ? 'wizard-bar-mac' : 'wizard-bar-windows'}`}>
         <div className="flex items-center gap-1" aria-label={`Step ${index + 1} of ${WIZARD_STEPS.length}: ${current.title}`}>
           {WIZARD_STEPS.map((s, i) => (
             <span key={s.id} className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${i === index ? 'bg-accent text-black' : i < index ? 'bg-panel2 text-text' : 'bg-panel2 text-dim'}`} aria-current={i === index ? 'step' : undefined}>{i + 1}</span>

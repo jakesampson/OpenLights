@@ -10,9 +10,10 @@
 // of the window) — Chromium hit-tests draggable regions geometrically,
 // so the drag rect swallowed clicks on the wizard bar's Back / Next even
 // though the bar (z-60) painted above it. The wizard is now one
-// full-window modal (fixed inset-0 z-[70], solid bg-bg) holding the bar
-// and the step body, and the Patch panel renders inside the modal — no
-// tool-panel overlay, no drag region over the bar, on any step.
+// full-window modal (fixed inset-0 z-[70], solid var(--bg) background)
+// holding the bar and the step body, and the Patch panel renders inside
+// the modal — no tool-panel overlay, no drag region over the bar, on any
+// step.
 // These tests render the whole App, so they guard the layout itself, not
 // just the step machine: the header must be gone while the wizard is open,
 // the Patch overlay must not exist, and Next on the patch step must
@@ -92,10 +93,16 @@ describe('Setup wizard modal (full-window, over the whole GUI)', () => {
     const dialog = wizardDialog()
     expect(dialog).not.toBeNull()
     const classes = dialog!.className.split(/\s+/)
-    // Solid theme background — plain `bg-bg` compiles to `var(--bg)`.
-    expect(classes).toContain('bg-bg')
+    // Solid theme background — a plain `var(--bg)` inline style, not the
+    // `bg-bg` Tailwind utility (20 Nov 2026, image-24.png: the utility
+    // compiled opaque yet the GUI showed ghosted behind the overlay).
+    expect(dialog!.getAttribute('style')).toContain('var(--bg)')
+    expect(classes).not.toContain('bg-bg')
     expect(classes).toContain('fixed')
     expect(classes).toContain('inset-0')
+    // The scrim is no-drag: the header's drag region underneath must not
+    // eat clicks in the top 50px regardless of z-index.
+    expect(classes).toContain('modal-scrim')
     // No opacity-modified theme background: Tailwind generates no such
     // rule, so it would leave the modal transparent.
     expect(classes.some((c) => /^bg-bg\//.test(c))).toBe(false)

@@ -4,6 +4,7 @@ import { usbOnlyStatus } from '../shared/outputSettings'
 import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
 import { normalizeLiveWindows, LIVE_WINDOW_COMMANDS, type LiveWindowSpec } from '../shared/liveWindows'
 import { autoUpdater } from 'electron-updater'
+import { TITLE_BAR_OVERLAY_MAIN, titleBarOverlayForWizard } from './titleBarOverlay'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import * as fs from 'fs'
@@ -226,7 +227,7 @@ function createWindow() {
     // palette (Jake, 19 Nov 2026, screenshot image-8.png).
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     trafficLightPosition: process.platform === 'darwin' ? { x: 20, y: 19 } : undefined,
-    titleBarOverlay: process.platform === 'darwin' ? false : { color: '#444345', symbolColor: '#d2d2d2', height: 50 }
+    titleBarOverlay: process.platform === 'darwin' ? false : TITLE_BAR_OVERLAY_MAIN
   })
   const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
     label: group.label,
@@ -257,6 +258,17 @@ function createWindow() {
 // the native traffic lights and Windows/Linux have the title bar
 // overlay, and Cmd+Q / menu Quit still reaches before-quit above.
 ipcMain.on('window:close', () => mainWindow?.close())
+
+// The setup wizard is a full-window modal whose page is purple, not the
+// main window's grey header — so while it is open the native caption
+// buttons must blend with the wizard page (see titleBarOverlay.ts). The
+// renderer reports the wizard state; on macOS this is a no-op (the native
+// traffic lights cannot be recoloured and the wizard bar clears them with
+// padding instead).
+ipcMain.on('window:set-titlebar-overlay', (_event, wizardOpen: unknown) => {
+  if (process.platform === 'darwin' || !mainWindow) return
+  mainWindow.setTitleBarOverlay(titleBarOverlayForWizard(wizardOpen === true))
+})
 
 app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) app.dock.setIcon(nativeImage.createFromPath(APP_ICON))

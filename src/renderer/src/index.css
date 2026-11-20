@@ -64,6 +64,18 @@ body {
   border-color: var(--accent);
 }
 
+/* Patch library footer (Jake, 20 Nov 2026): the five footer buttons are
+   one row of equal buttons — same width, same height, labels never wrap.
+   They share the row evenly (flex-basis 0) once the model count is gone. */
+.patch-footer-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 2px;
+  font-size: 10px;
+  white-space: nowrap;
+  text-align: center;
+}
+
 button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--sel);
   outline-offset: 2px;
@@ -130,6 +142,29 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
 
 .patch-dialog-header-mac {
   padding-left: 184px;
+}
+
+/* Setup wizard bar (full-window modal): the native window controls sit
+   over the top of the window, so the bar must clear them — on Windows the
+   caption buttons occupy the top-right (~150px, mirroring .top-bar's
+   right padding), on macOS the traffic lights occupy the top-left
+   (~80px, mirroring .top-bar-mac). Without this the wizard's Back / Next
+   sit underneath the native controls (Jake, 20 Nov 2026, image-25.png). */
+.wizard-bar-windows {
+  padding-right: 150px;
+}
+
+.wizard-bar-mac {
+  padding-left: 80px;
+}
+
+/* Full-screen modal scrims (Project Browser, setup wizard): the scrim
+   covers the whole window, including the header's `-webkit-app-region:
+   drag` strip underneath — without this the drag rect eats clicks in
+   the top 50px regardless of z-index, and a drag starting on the scrim
+   would move the window instead of doing nothing. */
+.modal-scrim {
+  -webkit-app-region: no-drag;
 }
 
 .patch-dialog-header-mac > button {

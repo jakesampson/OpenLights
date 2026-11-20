@@ -60,8 +60,19 @@ export function WelcomeScreen() {
   // taller than short viewports, so the overlay scrolls (`overflow-y-auto`
   // + `min-h-full` flex centring: centred when short, scrolls from the
   // top when tall instead of clipping).
+  //
+  // 20 Nov 2026, Jake's screenshot image-24.png: the GUI still showed
+  // ghosted behind the overlay after a drag, although the `bg-bg` utility
+  // compiles opaque — the colour-mix utility is one silent failure away
+  // from translucent, and a full-screen scrim must not depend on it. The
+  // background is now a plain `var(--bg)` inline style, and the overlay
+  // is a hard event boundary (`select-none`, `-webkit-app-region:
+  // no-drag`, pointer events stop here): a drag on the startup screen
+  // can neither select text nor reach anything behind it — including the
+  // header's drag region underneath, which otherwise eats clicks in the
+  // top 50px regardless of z-index.
   return (
-    <div className="fixed inset-0 z-[70] overflow-y-auto bg-bg" role="dialog" aria-modal="true" aria-labelledby="welcome-title">
+    <div className="modal-scrim fixed inset-0 z-[70] select-none overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
       <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-[720px]">
         <header className="flex items-start justify-between">

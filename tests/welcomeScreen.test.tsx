@@ -6,8 +6,11 @@
 // tailwind.config.js as plain `var(--bg)` with no `<alpha-value>`
 // placeholder, so Tailwind generates no `bg-bg/NN` opacity utility at all
 // (the built CSS has no `bg-bg/95` rule) and the overlay was transparent.
-// The overlay now uses solid `bg-bg`, and scrolls when its content is
-// taller than the viewport instead of clipping.
+// The overlay now uses a plain `var(--bg)` inline style — no generated
+// utility to fail — and scrolls when its content is taller than the
+// viewport instead of clipping. (20 Nov 2026, image-24.png: the `bg-bg`
+// utility compiled opaque yet the GUI still showed ghosted behind the
+// overlay after a drag, so the background no longer depends on it.)
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { readFileSync } from 'node:fs'
@@ -56,8 +59,10 @@ describe('WelcomeScreen (Project Browser) overlay', () => {
     const dialog = container?.querySelector('[role="dialog"]') as HTMLElement | null
     expect(dialog).not.toBeNull()
     const classes = dialog!.className.split(/\s+/)
-    // Solid theme background — plain `bg-bg` compiles to `var(--bg)`.
-    expect(classes).toContain('bg-bg')
+    // Solid theme background — a plain `var(--bg)` inline style, not the
+    // `bg-bg` Tailwind utility (see the header note).
+    expect(dialog!.getAttribute('style')).toContain('var(--bg)')
+    expect(classes).not.toContain('bg-bg')
     expect(classes).toContain('fixed')
     expect(classes).toContain('inset-0')
     // No opacity-modified theme background: Tailwind generates no such

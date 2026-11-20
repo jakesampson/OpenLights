@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   disconnectDmx: () => ipcRenderer.invoke('disconnect-dmx'),
   getDmxPorts: () => ipcRenderer.invoke('get-dmx-ports'),
   setChannels: (values: Record<number, number>) => ipcRenderer.send('set-channels', values),
+  setTitleBarOverlay: (wizardOpen: boolean) => ipcRenderer.send('window:set-titlebar-overlay', wizardOpen),
   closeWindow: () => ipcRenderer.send('window:close'),
   onMenuCommand: (callback: (command: string) => void) => { const listener = (_event: Electron.IpcRendererEvent, command: string) => callback(command); ipcRenderer.on('menu:command', listener); return () => ipcRenderer.removeListener('menu:command', listener) },
   onAppQuitting: (callback: () => void) => { const listener = () => callback(); ipcRenderer.on('app:quitting', listener); return () => ipcRenderer.removeListener('app:quitting', listener) }

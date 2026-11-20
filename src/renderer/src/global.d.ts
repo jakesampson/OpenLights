@@ -51,6 +51,7 @@ declare global {
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
       getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void
+      setTitleBarOverlay: (wizardOpen: boolean) => void
       closeWindow: () => void
       onMenuCommand: (callback: (command: string) => void) => () => void
       onAppQuitting: (callback: () => void) => () => void
