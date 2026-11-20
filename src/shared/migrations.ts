@@ -8,6 +8,23 @@ import type { FixtureProfile, FixtureType, FrameConfig, LiveDefaultStyles, LiveO
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
 
+/**
+ * Does a library profile identify the same OFL definition as a stored
+ * snapshot, by the snapshot's stored `ofl` field rather than its id?
+ * The fixture key must match, and the manufacturer key must match unless
+ * the snapshot's is the placeholder 'open-fixture-library' (or missing)
+ * that the old no-options import wrote — that placeholder is the only
+ * reason the id can be wrong, so it is the only case this forgives.
+ */
+const oflIdentityMatches = (profile: FixtureProfile, stored: Document): boolean => {
+  const storedOfl = record(stored.ofl)
+  const profileOfl = record(profile.ofl)
+  if (typeof storedOfl.fixtureKey !== 'string' || !storedOfl.fixtureKey) return false
+  if (storedOfl.fixtureKey !== profileOfl.fixtureKey) return false
+  const manufacturerKey = storedOfl.manufacturerKey
+  return manufacturerKey === profileOfl.manufacturerKey || manufacturerKey === 'open-fixture-library' || manufacturerKey === '' || manufacturerKey === undefined
+}
+
 const steps: Record<number, (source: Document) => Document> = {
   0: (source) => ({ ...source, schemaVersion: 1 }),
   // 18 Nov 2026: LightKey has no "scene" concept (Guide ch.9/ch.11) — a
@@ -183,7 +200,9 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
   // touched, and a profile whose id is in no library is left exactly as
   // stored — a custom profile's defaults are the user's, so the heal
   // only ever matches by id (the fixture's profileId, or the snapshot's
-  // own id when the profileId was lost), never by legacy type. The
+  // own id when the profileId was lost) — or by the snapshot's stored OFL
+  // identity, which is the same definition named a different way — never
+  // by legacy type. The
   // library is the built-ins, the show's own stored profiles, and any
   // extra profiles the caller supplies — the OFL library lives in the
   // main process, so the renderer passes its cached copy (a fixture
@@ -193,7 +212,15 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
   const library: FixtureProfile[] = [...BUILTIN_PROFILES, ...((doc.fixtureProfiles as FixtureProfile[] | undefined) ?? []), ...extraLibraryProfiles]
   const healStoredProfileDefaults = (rawProfile: unknown, profileId: unknown): unknown => {
     const stored = record(rawProfile)
+    // A snapshot imported without manufacturer/fixture keys carries the
+    // placeholder id ofl:open-fixture-library:<fixture>, which no library
+    // profile has — its stored `ofl` field still names the definition it
+    // came from, so match on the fixture key, allowing the placeholder
+    // manufacturer key (the buggy import wrote 'open-fixture-library'
+    // there) or a missing one. A genuinely custom profile carries no
+    // `ofl` field, so it can never match this way.
     const libraryProfile = library.find((p) => p.id === profileId) ?? library.find((p) => p.id === stored.id)
+      ?? library.find((p) => oflIdentityMatches(p, stored))
     if (!libraryProfile || !Array.isArray(stored.modes)) return rawProfile
     return {
       ...stored,

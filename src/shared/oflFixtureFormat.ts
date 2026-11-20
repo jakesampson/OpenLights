@@ -181,6 +181,58 @@ export function isOflFixture(value: unknown): boolean {
   return typeof raw.$schema === 'string' && raw.$schema.includes('open-fixture-library') && Array.isArray(raw.modes)
 }
 
+/**
+ * Merge a freshly seeded OFL library with the cached one: the fresh
+ * profiles win for every id they carry (that is the refresh that heals
+ * stale cached defaults), and cached profiles the fresh seed does not
+ * know — a hand-imported definition, for example — are kept, never
+ * dropped. Used when the bundled library changes underneath a cache
+ * seeded from an older bundle (Q3, 20 Nov 2026).
+ *
+ * A custom-tagged cached record is never replaced, even when the fresh
+ * library carries the same id — the user's own fixture wins over the
+ * base record (Jake, 20 Nov 2026: an OFL zip upload never updates a
+ * custom fixture).
+ */
+export function mergeOflLibraries(fresh: FixtureProfile[], cached: FixtureProfile[]): FixtureProfile[] {
+  const customIds = new Set(cached.filter((p) => p.custom).map((p) => p.id))
+  const keptFresh = fresh.filter((p) => !customIds.has(p.id))
+  const keptFreshIds = new Set(keptFresh.map((p) => p.id))
+  return [...keptFresh, ...cached.filter((p) => !keptFreshIds.has(p.id))]
+}
+
+/**
+ * Duplicate an OFL record into the user's own fixture (Jake, 20 Nov
+ * 2026): a fresh `custom:` id, the name with " copy", tagged custom,
+ * and the OFL identity stripped — it is no longer an OFL record, so a
+ * zip upload never updates it and the heal never matches it as a base
+ * profile. The modes and channels are a deep copy, so editing the
+ * duplicate never touches the original.
+ */
+export function duplicateProfileAsCustom(profile: FixtureProfile): FixtureProfile {
+  const copy = structuredClone(profile)
+  copy.id = `custom:${slug(profile.name)}-${crypto.randomUUID().slice(0, 8)}`
+  copy.name = `${profile.name} copy`
+  copy.custom = true
+  delete copy.ofl
+  return copy
+}
+
+/**
+ * Whether a cached OFL library must be dropped now the bundled
+ * fixtures/ folder no longer ships (Jake, 20 Nov 2026): a cache seeded
+ * from the bundle — meta 'bundled' from before the unbundling, or a
+ * cache from before the meta file existed — would keep serving stale
+ * bundle defaults (blue 0) forever once the folder is gone. A library
+ * the user uploaded themselves ('import' / 'upload') stands as-is: it
+ * is their library, not shipped data. An empty cache needs no clearing.
+ */
+export function shouldClearBundledOflCache(meta: { source: string } | null, cached: FixtureProfile[] | null): boolean {
+  if (!cached || !cached.length) return false
+  if (!meta) return true
+  return meta.source !== 'import' && meta.source !== 'upload'
+}
+
 export function importOflFixture(value: string | unknown, options: OflImportOptions = {}): FixtureProfile {
   const raw = typeof value === 'string' ? JSON.parse(value) : value
   if (!isOflFixture(raw)) throw new Error('This is not an Open Fixture Library fixture JSON file')
@@ -276,9 +328,15 @@ export function importOflFixture(value: string | unknown, options: OflImportOpti
   })
 
   const name = typeof fixture.name === 'string' && fixture.name.trim() ? fixture.name : 'OFL fixture'
-  const manufacturerKey = options.manufacturerKey ?? ''
+  // The file names its own manufacturer and fixture — use them when the
+  // caller does not supply keys. (Before this, a call without options
+  // minted ofl:open-fixture-library:<fixture> for every definition, an
+  // id no library profile ever carries, so a snapshot imported that way
+  // could never be matched — and healed — later. Q3, 20 Nov 2026.)
+  const fileManufacturerKey = typeof fixture.manufacturerKey === 'string' ? fixture.manufacturerKey : ''
+  const manufacturerKey = options.manufacturerKey ?? fileManufacturerKey
   const manufacturer = options.manufacturer ?? manufacturerFromSource(options.sourceName) ?? (manufacturerKey ? displayKey(manufacturerKey) : 'Open Fixture Library')
-  const fixtureKey = options.fixtureKey ?? slug(name)
+  const fixtureKey = options.fixtureKey ?? (typeof fixture.fixtureKey === 'string' ? fixture.fixtureKey : slug(name))
   return {
     id: `ofl:${slug(manufacturerKey || manufacturer)}:${slug(fixtureKey)}`,
     name,

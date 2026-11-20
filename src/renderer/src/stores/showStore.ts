@@ -2032,7 +2032,11 @@ const actions: ShowState = {
     const errors = validateProfile(profile)
     if (errors.length) throw new Error(errors.join('; '))
     if (BUILTIN_PROFILES.some((p) => p.id === profile.id)) throw new Error('Duplicate built-in profiles before editing')
-    const fixtureProfiles = [...(state.show?.fixtureProfiles ?? []).filter((p) => p.id !== profile.id), structuredClone(profile)]
+    // Everything the editor saves is the user's own fixture — a build of
+    // their own, an import, or an edited copy of a base record — so it is
+    // tagged custom: it lists under User Fixtures, and an OFL zip upload
+    // (which only ever touches the library database) never updates it.
+    const fixtureProfiles = [...(state.show?.fixtureProfiles ?? []).filter((p) => p.id !== profile.id), structuredClone({ ...profile, custom: true })]
     return persistState(state, { fixtureProfiles })
   }),
   deleteFixtureProfile: (id) => set((state) => persistState(state, { fixtureProfiles: (state.show?.fixtureProfiles ?? []).filter((p) => p.id !== id) })),

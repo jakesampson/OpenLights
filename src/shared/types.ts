@@ -433,6 +433,9 @@ export interface FixtureProfile {
   name: string
   manufacturer: string
   legacyType: FixtureType
+  /** A fixture the user created (duplicated from an OFL record, or their
+   *  own): an OFL zip upload never updates it, whatever id it carries. */
+  custom?: boolean
   /** Original OFL document is retained so unsupported metadata is never lost. */
   ofl?: { manufacturerKey: string; fixtureKey: string; source?: unknown }
   modes: { id: string; name: string; channels: FixtureChannel[]; beams?: { id: string; name: string; properties: Record<string, string> }[]; flexibleLeds?: { channelsPerLed: number; maxLeds: number; defaultLeds: number; minLeds?: number }; /** Total pan range in degrees from the fixture profile (Guide p.60 — "Lightkey needs to know a moving light's pan and tilt ranges"); OFL pan capabilities carry angleStart/angleEnd. Unset = the 540°/270° defaults in lib/calibration.ts. */ panRange?: number; /** Total tilt range in degrees from the fixture profile. */ tiltRange?: number }[]

@@ -58,7 +58,7 @@ afterEach(() => {
   Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
 })
 
-const fixturesDir = resolve(__dirname, '..', 'fixtures')
+const fixturesDir = resolve(__dirname, 'fixtures')
 
 function loadOfl(file: string) {
   const manufacturers = JSON.parse(readFileSync(join(fixturesDir, 'manufacturers.json'), 'utf8')) as Record<string, { name?: string }>

@@ -28,7 +28,7 @@ import { migrateShow } from '../src/shared/migrations'
 import type { CueDef, FixtureDef, FixtureProfile, PresetDef } from '../src/shared/types'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 
-const fixturesDir = fileURLToPath(new URL('../fixtures', import.meta.url))
+const fixturesDir = fileURLToPath(new URL('./fixtures', import.meta.url))
 
 function loadOfl(file: string) {
   const manufacturers = JSON.parse(readFileSync(join(fixturesDir, 'manufacturers.json'), 'utf8')) as Record<string, { name?: string }>

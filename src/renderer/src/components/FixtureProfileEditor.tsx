@@ -4,12 +4,23 @@ import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { exportProfile, importProfile } from '@shared/profileValidation'
 import type { FixtureChannel, FixtureProfile } from '@shared/types'
 import { useShowStore } from '../stores/showStore'
-export function FixtureProfileEditor({ profiles, initialProfileId }: { profiles?: FixtureProfile[]; initialProfileId?: string }) {
+export function FixtureProfileEditor({ profiles, initialProfileId, createCustom }: { profiles?: FixtureProfile[]; initialProfileId?: string; createCustom?: boolean }) {
   const { show, saveFixtureProfile, deleteFixtureProfile } = useShowStore()
   // First entry wins per id, so a project copy saved from a bundled (OFL)
   // profile shadows the bundled original instead of listing it twice.
   const library = [...new Map((profiles ?? [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? [])]).map((p) => [p.id, p])).values()]
-  const [draft, setDraft] = useState<FixtureProfile>(() => structuredClone(library.find((p) => p.id === initialProfileId) ?? BUILTIN_PROFILES[0]))
+  // Build Your Own Fixture (Jake, 20 Nov 2026): start from a blank
+  // custom fixture — one dimmer channel — instead of an existing
+  // profile. Saving stores it in the show, tagged custom.
+  const blankCustomProfile = (): FixtureProfile => ({
+    id: crypto.randomUUID(),
+    name: 'New Fixture',
+    manufacturer: 'User',
+    legacyType: 'par',
+    custom: true,
+    modes: [{ id: 'default', name: 'Default', channels: [{ number: 0, attribute: 'intensity', propertyType: 'intensity', min: 0, max: 255, defaultValue: 0, highlightValue: 255 }] }]
+  })
+  const [draft, setDraft] = useState<FixtureProfile>(() => createCustom ? blankCustomProfile() : structuredClone(library.find((p) => p.id === initialProfileId) ?? BUILTIN_PROFILES[0]))
   const [modeIndex, setModeIndex] = useState(0)
   const [error, setError] = useState('')
   const fileInput = useRef<HTMLInputElement>(null)

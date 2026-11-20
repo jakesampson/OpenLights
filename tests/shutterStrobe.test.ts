@@ -180,7 +180,7 @@ describe('findShutterChannel', () => {
 })
 
 describe('Jake’s real fixture profiles', () => {
-  const fixturesDir = fileURLToPath(new URL('../fixtures', import.meta.url))
+  const fixturesDir = fileURLToPath(new URL('./fixtures', import.meta.url))
   function load(file: string) {
     const raw = JSON.parse(readFileSync(join(fixturesDir, file), 'utf8'))
     return importOflFixture(raw, { manufacturerKey: basename(dirname(file)), fixtureKey: basename(file, '.json'), preserveSource: false })

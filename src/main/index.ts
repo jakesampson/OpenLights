@@ -7,10 +7,12 @@ import { autoUpdater } from 'electron-updater'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import * as fs from 'fs'
+import * as os from 'os'
+import extract from 'extract-zip'
 import { DMXEngine } from '../shared/dmx'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 import { WINDOWS_MENU } from '../shared/menuModel'
-import { importOflFixture, isOflFixture } from '../shared/oflFixtureFormat'
+import { importOflFixture, isOflFixture, mergeOflLibraries, duplicateProfileAsCustom, shouldClearBundledOflCache } from '../shared/oflFixtureFormat'
 import type { FixtureProfile } from '../shared/types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -64,17 +66,15 @@ function openLiveWindow(spec: LiveWindowSpec) {
 ipcMain.handle('window:fullscreen', (event) => { const window = BrowserWindow.fromWebContents(event.sender); if (window) window.setFullScreen(!window.isFullScreen()) })
 ipcMain.handle('window:open-live', (_, pageId: string | null) => { const spec = { id: crypto.randomUUID(), pageId, width: 1000, height: 700 }; openLiveWindow(spec); return spec })
 /**
- * The fixture library shipped in the repo (fixtures/ at the project root,
- * loaded by default — Piece 2): the OFL export Jake provided plus the
- * four profiles authored from their DMX charts. In dev this is the project
- * root; in the packaged app it sits inside app.asar (or resources/).
+ * The fixture library is no longer shipped in the repo (Jake, 20 Nov
+ * 2026 — the OFL export's licence for bundling is unclear, and he does
+ * not want to ship with any fixtures by default). The user downloads
+ * the OFL export (.zip) from open-fixture-library.org and uploads it in
+ * the app; it is merged into the user-data cache (ofl-library.json) and
+ * that cache is the library from then on. The EP4 profile lives in
+ * fixtures-github/ in the repo instead — not bundled, imported by hand
+ * through the profile editor's Import JSON / OFL.
  */
-function bundledFixturesDir(): string | null {
-  for (const candidate of [path.join(app.getAppPath(), 'fixtures'), path.join(process.resourcesPath, 'fixtures')]) {
-    try { if (fs.statSync(candidate).isDirectory()) return candidate } catch { /* try the next candidate */ }
-  }
-  return null
-}
 
 /** Read every OFL fixture JSON under a folder (recursively) and convert it to a profile. */
 function loadOflFolder(root: string): { profiles: FixtureProfile[]; skipped: number } {
@@ -106,24 +106,87 @@ function loadOflFolder(root: string): { profiles: FixtureProfile[]; skipped: num
   return { profiles, skipped }
 }
 
-ipcMain.handle('ofl-library:list', () => {
-  try { return JSON.parse(fs.readFileSync(OFL_LIBRARY_FILE, 'utf8')) as FixtureProfile[] } catch { /* no cached library — seed it from the bundled fixtures */ }
-  const bundled = bundledFixturesDir()
-  if (!bundled) return []
+const OFL_LIBRARY_META_FILE = path.join(USER_DATA_DIR, 'ofl-library.meta.json')
+// What's on disk: 'upload' (a zip the user uploaded) or 'import' (the old
+// folder import) mean the cache is the user's own library; 'bundled' is
+// the pre-unbundling value, kept readable so the migration below can
+// recognise and clear it; 'none' is a cache cleared by that migration.
+type OflLibraryMeta = { source: string; fingerprint: string | null }
+function readOflLibraryCache(): FixtureProfile[] | null {
   try {
-    const { profiles } = loadOflFolder(bundled)
-    fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
-    return profiles
-  } catch { return [] }
-})
-ipcMain.handle('ofl-library:import', async () => {
-  const selection = await dialog.showOpenDialog(mainWindow!, { title: 'Choose the extracted OFL export folder', properties: ['openDirectory'] })
+    const parsed = JSON.parse(fs.readFileSync(OFL_LIBRARY_FILE, 'utf8')) as unknown
+    return Array.isArray(parsed) ? parsed as FixtureProfile[] : null
+  } catch { return null }
+}
+function readOflLibraryMeta(): OflLibraryMeta | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(OFL_LIBRARY_META_FILE, 'utf8')) as unknown
+    if (!parsed || typeof parsed !== 'object') return null
+    const source = (parsed as { source?: unknown }).source
+    const fingerprint = (parsed as { fingerprint?: unknown }).fingerprint
+    return typeof source === 'string' ? { source, fingerprint: typeof fingerprint === 'string' ? fingerprint : null } : null
+  } catch { return null }
+}
+function writeOflLibrary(profiles: FixtureProfile[], meta: OflLibraryMeta): void {
+  fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
+  fs.writeFileSync(OFL_LIBRARY_META_FILE, JSON.stringify(meta))
+}
+let oflLibraryMemo: FixtureProfile[] | null = null
+/**
+ * The OFL library as it stands right now: the user-data cache, or
+ * nothing on a fresh install — nothing ships with the app any more.
+ * A cache seeded from the old bundled fixtures/ folder is cleared the
+ * first time this runs after the unbundling (Jake, 20 Nov 2026): it
+ * would otherwise keep serving stale bundle defaults (blue 0) forever
+ * once the folder is gone. A library the user uploaded themselves
+ * stands as-is. Memoised per process; the import and duplicate handlers
+ * invalidate it when they write.
+ */
+function getOflLibrary(): FixtureProfile[] {
+  if (oflLibraryMemo) return oflLibraryMemo
+  const meta = readOflLibraryMeta()
+  const cached = readOflLibraryCache()
+  if (shouldClearBundledOflCache(meta, cached)) {
+    try { fs.unlinkSync(OFL_LIBRARY_FILE) } catch { /* already gone */ }
+    writeOflLibrary([], { source: 'none', fingerprint: null })
+    oflLibraryMemo = []
+    return []
+  }
+  oflLibraryMemo = cached ?? []
+  return oflLibraryMemo
+}
+
+ipcMain.handle('ofl-library:list', () => getOflLibrary())
+ipcMain.handle('ofl-library:import-zip', async () => {
+  const selection = await dialog.showOpenDialog(mainWindow!, { title: 'Choose the OFL fixture library (.zip)', filters: [{ name: 'OFL fixture library', extensions: ['zip'] }], properties: ['openFile'] })
   if (selection.canceled || !selection.filePaths[0]) return { success: false, canceled: true, profiles: [] }
+  const zipPath = selection.filePaths[0]
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'openlights-ofl-'))
   try {
-    const { profiles, skipped } = loadOflFolder(selection.filePaths[0])
-    fs.writeFileSync(OFL_LIBRARY_FILE, JSON.stringify(profiles))
-    return { success: true, canceled: false, profiles, imported: profiles.length, skipped }
+    await extract(zipPath, { dir: tmpDir })
+    const { profiles, skipped } = loadOflFolder(tmpDir)
+    if (!profiles.length) return { success: false, canceled: false, profiles: [], error: 'No OFL fixture files found in that zip' }
+    // Merge, don't replace: fresh base records win, new ones are added,
+    // and custom-tagged records are never touched (mergeOflLibraries).
+    const merged = mergeOflLibraries(profiles, getOflLibrary())
+    oflLibraryMemo = merged
+    writeOflLibrary(merged, { source: 'upload', fingerprint: null })
+    return { success: true, canceled: false, profiles: merged, imported: profiles.length, skipped }
   } catch (error) { return { success: false, canceled: false, profiles: [], error: error instanceof Error ? error.message : String(error) } }
+  finally { try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch { /* best effort */ } }
+})
+ipcMain.handle('ofl-library:duplicate', (_, profileId: string) => {
+  try {
+    const library = getOflLibrary()
+    const original = library.find((p) => p.id === profileId)
+    if (!original) return { success: false, profiles: library, error: 'Fixture not found in the library' }
+    const copy = duplicateProfileAsCustom(original)
+    const next = [...library, copy]
+    oflLibraryMemo = next
+    const meta = readOflLibraryMeta()
+    writeOflLibrary(next, meta && (meta.source === 'upload' || meta.source === 'import') ? { source: meta.source, fingerprint: meta.fingerprint } : { source: 'none', fingerprint: null })
+    return { success: true, profiles: next, profile: copy }
+  } catch (error) { return { success: false, profiles: getOflLibrary(), error: error instanceof Error ? error.message : String(error) } }
 })
 ipcMain.on('live-window:state', (event, state) => { if (event.sender.id !== mainWindow?.webContents.id) return; liveState = state; for (const { window } of liveWindows.values()) window.webContents.send('live-window:state', state) })
 ipcMain.on('live-window:request', (event) => { if (liveWindows.has(event.sender.id)) event.sender.send('live-window:state', liveState) })
@@ -280,7 +343,11 @@ ipcMain.handle('load-show', async (_, showPath?: string) => {
   if (!showPath) return { success: false, error: 'No path' }
   try {
     const data = fs.readFileSync(showPath, 'utf-8')
-    return { success: true, data: migrateShow(JSON.parse(data)), path: showPath }
+    // The migration heals stale profile defaults against the OFL library
+    // — hand it the current library, or an OFL fixture loads dark and
+    // only the renderer's later re-heal (same library, same staleness)
+    // could save it. Q3, 20 Nov 2026.
+    return { success: true, data: migrateShow(JSON.parse(data), getOflLibrary()), path: showPath }
   } catch (e: any) {
     return { success: false, error: e.message }
   }
@@ -301,7 +368,7 @@ ipcMain.handle('open-show', async () => {
   try {
     const showPath = filePaths[0]
     const data = fs.readFileSync(showPath, 'utf-8')
-    return { success: true, data: migrateShow(JSON.parse(data)), path: showPath }
+    return { success: true, data: migrateShow(JSON.parse(data), getOflLibrary()), path: showPath }
   } catch (e: any) {
     return { success: false, error: e.message }
   }

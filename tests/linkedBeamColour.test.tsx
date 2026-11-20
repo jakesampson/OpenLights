@@ -104,7 +104,7 @@ function overrideValues(fixtureId: string) {
   return useShowStore.getState().manualOverrides[fixtureId] ?? {}
 }
 
-const fixturesDir = resolve(__dirname, '..', 'fixtures')
+const fixturesDir = resolve(__dirname, 'fixtures')
 
 function loadOfl(file: string) {
   const manufacturers = JSON.parse(readFileSync(join(fixturesDir, 'manufacturers.json'), 'utf8')) as Record<string, { name?: string }>

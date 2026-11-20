@@ -1,0 +1,300 @@
+{
+  "$schema": "https://raw.githubusercontent.com/OpenLightingProject/open-fixture-library/master/schemas/fixture.json",
+  "availableChannels": {
+    "Blue": {
+      "capability": {
+        "color": "Blue",
+        "type": "ColorIntensity"
+      }
+    },
+    "Blue 1": {
+      "capability": {
+        "color": "Blue",
+        "type": "ColorIntensity"
+      }
+    },
+    "Blue 2": {
+      "capability": {
+        "color": "Blue",
+        "type": "ColorIntensity"
+      }
+    },
+    "Blue 3": {
+      "capability": {
+        "color": "Blue",
+        "type": "ColorIntensity"
+      }
+    },
+    "Blue 4": {
+      "capability": {
+        "color": "Blue",
+        "type": "ColorIntensity"
+      }
+    },
+    "Control / Operating Mode": {
+      "capabilities": [
+        {
+          "comment": "RGB Color Mixing",
+          "dmxRange": [
+            0,
+            9
+          ],
+          "type": "Generic"
+        },
+        {
+          "comment": "Auto Program 1",
+          "dmxRange": [
+            10,
+            29
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 2",
+          "dmxRange": [
+            30,
+            49
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 3",
+          "dmxRange": [
+            50,
+            69
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 4",
+          "dmxRange": [
+            70,
+            89
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 5",
+          "dmxRange": [
+            90,
+            109
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 6",
+          "dmxRange": [
+            110,
+            129
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 7",
+          "dmxRange": [
+            130,
+            149
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 8",
+          "dmxRange": [
+            150,
+            169
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 9",
+          "dmxRange": [
+            170,
+            189
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 10",
+          "dmxRange": [
+            190,
+            209
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 11",
+          "dmxRange": [
+            210,
+            229
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Auto Program 12",
+          "dmxRange": [
+            230,
+            249
+          ],
+          "type": "Effect"
+        },
+        {
+          "comment": "Sound-Active mode",
+          "dmxRange": [
+            250,
+            255
+          ],
+          "type": "SoundSensitivity"
+        }
+      ]
+    },
+    "Dimmer": {
+      "capabilities": [
+        {
+          "comment": "No function",
+          "dmxRange": [
+            0,
+            9
+          ],
+          "type": "NoFunction"
+        },
+        {
+          "comment": "Dimmer 1-100%",
+          "dmxRange": [
+            10,
+            255
+          ],
+          "type": "Intensity"
+        }
+      ]
+    },
+    "Green": {
+      "capability": {
+        "color": "Green",
+        "type": "ColorIntensity"
+      }
+    },
+    "Green 1": {
+      "capability": {
+        "color": "Green",
+        "type": "ColorIntensity"
+      }
+    },
+    "Green 2": {
+      "capability": {
+        "color": "Green",
+        "type": "ColorIntensity"
+      }
+    },
+    "Green 3": {
+      "capability": {
+        "color": "Green",
+        "type": "ColorIntensity"
+      }
+    },
+    "Green 4": {
+      "capability": {
+        "color": "Green",
+        "type": "ColorIntensity"
+      }
+    },
+    "Red": {
+      "capability": {
+        "color": "Red",
+        "type": "ColorIntensity"
+      }
+    },
+    "Red 1": {
+      "capability": {
+        "color": "Red",
+        "type": "ColorIntensity"
+      }
+    },
+    "Red 2": {
+      "capability": {
+        "color": "Red",
+        "type": "ColorIntensity"
+      }
+    },
+    "Red 3": {
+      "capability": {
+        "color": "Red",
+        "type": "ColorIntensity"
+      }
+    },
+    "Red 4": {
+      "capability": {
+        "color": "Red",
+        "type": "ColorIntensity"
+      }
+    },
+    "Strobe": {
+      "capabilities": [
+        {
+          "comment": "No function",
+          "dmxRange": [
+            0,
+            9
+          ],
+          "type": "NoFunction"
+        },
+        {
+          "comment": "Strobe, slow to fast",
+          "dmxRange": [
+            10,
+            255
+          ],
+          "shutterEffect": "Strobe",
+          "speedEnd": "fast",
+          "speedStart": "slow",
+          "type": "ShutterStrobe"
+        }
+      ]
+    }
+  },
+  "categories": [
+    "Color Changer"
+  ],
+  "fixtureKey": "4bar",
+  "manufacturerKey": "chauvet-dj",
+  "meta": {
+    "authors": [
+      "OpenLights"
+    ],
+    "createDate": "2026-11-19",
+    "lastModifyDate": "2026-11-19"
+  },
+  "modes": [
+    {
+      "channels": [
+        "Control / Operating Mode",
+        "Dimmer",
+        "Strobe",
+        "Red 1",
+        "Green 1",
+        "Blue 1",
+        "Red 2",
+        "Green 2",
+        "Blue 2",
+        "Red 3",
+        "Green 3",
+        "Blue 3",
+        "Red 4",
+        "Green 4",
+        "Blue 4"
+      ],
+      "name": "15-channel",
+      "shortName": "15ch"
+    },
+    {
+      "channels": [
+        "Red",
+        "Green",
+        "Blue"
+      ],
+      "name": "3-channel",
+      "shortName": "3ch"
+    }
+  ],
+  "name": "4BAR",
+  "shortName": "4BAR"
+}

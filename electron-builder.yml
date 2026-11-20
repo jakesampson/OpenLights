@@ -40,5 +40,10 @@
   },
   "asar": true,
   "compression": "normal",
-  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}"
+  "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+  "files": [
+    "**/*",
+    "!fixtures-github/**",
+    "!tests/**"
+  ]
 }

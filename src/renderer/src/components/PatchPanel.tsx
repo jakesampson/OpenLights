@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FixtureDef, FixtureProfile } from '@shared/types'
 import { BUILTIN_PROFILES } from '@shared/fixtureProfiles'
 import { modeChannelOffset } from '@shared/fixtureProfiles'
-import { exportOflFixture, oflFilename } from '@shared/oflFixtureFormat'
 import { filterProfiles } from '../lib/filterProfiles'
 import { fixtureWidth, placementError } from '../lib/patch'
 import { useShowStore } from '../stores/showStore'
@@ -29,9 +28,18 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
   const [oflProfiles, setOflProfiles] = useState<FixtureProfile[]>([])
   const library = useMemo(() => [...BUILTIN_PROFILES, ...(show?.fixtureProfiles ?? []), ...oflProfiles], [show?.fixtureProfiles, oflProfiles])
   const fixtures = show?.fixtures ?? []
-  const manufacturers = useMemo(() => [...new Set(library.map((profile) => profile.manufacturer || 'Generic'))].sort((a, b) => a.localeCompare(b)), [library])
+  // User Fixtures (Jake, 20 Nov 2026): custom-created fixtures — OFL
+  // duplicates, Build Your Own creations and imported JSONs — live in a
+  // category pinned to the top of the brands column. A fixture is the
+  // user's own when it carries the custom tag, or when it is stored in
+  // this show (edited copies and imports predate the tag).
+  const USER_FIXTURES = 'User Fixtures'
+  const showProfileSet = useMemo(() => new Set(show?.fixtureProfiles ?? []), [show?.fixtureProfiles])
+  const isUserFixture = (profile: FixtureProfile) => profile.custom === true || showProfileSet.has(profile)
+  const brands = useMemo(() => [...new Set(library.map((profile) => profile.manufacturer || 'Generic'))].sort((a, b) => a.localeCompare(b)), [library])
+  const manufacturers = useMemo(() => [USER_FIXTURES, ...brands], [brands])
   const [query, setQuery] = useState('')
-  const [manufacturer, setManufacturer] = useState(manufacturers[0] ?? 'Generic')
+  const [manufacturer, setManufacturer] = useState(brands[0] ?? 'Generic')
   const [selectedProfileId, setSelectedProfileId] = useState(library[0]?.id ?? '')
   const selectedProfile = library.find((profile) => profile.id === selectedProfileId) ?? library.find((profile) => profile.manufacturer === manufacturer) ?? library[0]
   const [modeId, setModeId] = useState(selectedProfile?.modes[0]?.id ?? '')
@@ -44,6 +52,7 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
   const [groupsOpen, setGroupsOpen] = useState(false)
   const [editorOpen, setEditorOpen] = useState(false)
   const [editorProfileId, setEditorProfileId] = useState<string | null>(null)
+  const [editorCreateCustom, setEditorCreateCustom] = useState(false)
   const [patchDialog, setPatchDialog] = useState<{ profile: FixtureProfile; modeId: string; start: number } | null>(null)
   const [editDialog, setEditDialog] = useState<{ fixture: FixtureDef; profile: FixtureProfile } | null>(null)
 
@@ -55,8 +64,13 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
 
   // The library search + brand filter (lib/filterProfiles): a model
   // matches when its brand is selected and the query (name or brand)
-  // matches, so the search box and the brand list share one filter.
-  const matchingProfiles = useMemo(() => filterProfiles(library, { query, manufacturer }), [library, query, manufacturer])
+  // matches, so the search box and the brand list share one filter. The
+  // User Fixtures category matches the user's own fixtures instead of a
+  // brand.
+  const matchingProfiles = useMemo(() => {
+    const filtered = filterProfiles(library, { query, manufacturer: manufacturer === USER_FIXTURES ? undefined : manufacturer })
+    return manufacturer === USER_FIXTURES ? filtered.filter(isUserFixture) : filtered
+  }, [library, query, manufacturer, showProfileSet])
 
   const occupied = useMemo(() => {
     const result = new Map<number, OccupiedChannel>()
@@ -164,50 +178,62 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
   // the validation in the dialog would go stale after the first edit.
   const editFixture = editDialog ? fixtures.find((fixture) => fixture.id === editDialog.fixture.id) : undefined
 
-  const importOflLibrary = async () => {
+  // The OFL library is a zip the user uploads (Jake, 20 Nov 2026 —
+  // nothing ships with the app any more): the main process extracts it
+  // and merges it into the library, and the open show re-heals against
+  // the uploaded library, so a fixture whose snapshot went stale while
+  // the library was empty lights up again without touching the wheel
+  // (Q3). The merge keeps the current selection — it never drops a
+  // profile — so there is no jump to the top of the list.
+  const importOflLibraryZip = async () => {
     try {
-      const result = await window.electronAPI.importOflLibrary()
+      const result = await window.electronAPI.importOflLibraryZip()
       if (result.canceled) return
       if (!result.success) throw new Error(result.error ?? 'Could not import the OFL library')
       const profiles = Array.isArray(result.profiles) ? result.profiles : []
       setOflProfiles(profiles)
-      if (profiles[0]) { setManufacturer(profiles[0].manufacturer); chooseProfile(profiles[0]) }
+      useShowStore.getState().setOflProfiles(profiles)
       setPatchError('')
       setPatchNotice(`Imported ${result.imported ?? profiles.length} OFL fixtures${result.skipped ? ` · skipped ${result.skipped} unsupported files` : ''}`)
     } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
   }
 
-  const exportSelectedOfl = () => {
-    if (!selectedProfile) return
+  // Duplicate the selected library record into the user's own fixture:
+  // tagged custom, so no zip upload ever updates it. Only library
+  // records (OFL + customs) can be duplicated here — built-ins are
+  // duplicated from the profile editor instead.
+  const duplicateSelectedProfile = async () => {
+    if (!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)) return
     try {
-      const url = URL.createObjectURL(new Blob([exportOflFixture(selectedProfile)], { type: 'application/json' }))
-      const anchor = document.createElement('a')
-      anchor.href = url
-      anchor.download = oflFilename(selectedProfile)
-      anchor.click()
-      URL.revokeObjectURL(url)
+      const result = await window.electronAPI.duplicateOflProfile(selectedProfile.id)
+      if (!result.success) throw new Error(result.error ?? 'Could not duplicate the fixture')
+      const profiles = Array.isArray(result.profiles) ? result.profiles : []
+      setOflProfiles(profiles)
+      useShowStore.getState().setOflProfiles(profiles)
+      if (result.profile) chooseProfile(result.profile)
       setPatchError('')
-      setPatchNotice('Exported selected fixture as OFL JSON')
+      setPatchNotice('Duplicated as a custom fixture — OFL zip uploads will never update it')
     } catch (reason) { setPatchError(reason instanceof Error ? reason.message : String(reason)) }
   }
 
   return <section className="relative flex h-full min-h-0 gap-3" aria-label="Fixture patch workspace">
     <aside className="flex w-[360px] shrink-0 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Fixture library">
       <div className="border-b border-line p-3"><input aria-label="Search fixture library" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search fixtures" className="w-full rounded-md border border-line bg-bg px-3 py-2 text-sm" /></div>
+      {!oflProfiles.length && <div className="border-b border-line bg-panel2 px-3 py-2 text-[11px] leading-snug text-dim">No fixture library yet — download the OFL fixture library (.zip) from open-fixture-library.org and upload it here. Fixtures you duplicate stay yours: uploads never replace a custom fixture.<div className="mt-2"><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibraryZip()}>Upload OFL zip…</button></div></div>}
       <div className="grid min-h-0 flex-1 grid-cols-2 divide-x divide-line">
         <div className="min-h-0 overflow-y-auto p-2" aria-label="Fixture brands">
-          {manufacturers.map((brand) => <button key={brand} type="button" aria-pressed={manufacturer === brand} className={`mb-1 block w-full truncate rounded px-2 py-1.5 text-left text-xs ${manufacturer === brand ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => { setManufacturer(brand); const first = library.find((profile) => (profile.manufacturer || 'Generic') === brand); if (first) chooseProfile(first) }}>{brand}</button>)}
+          {manufacturers.map((brand) => <button key={brand} type="button" aria-pressed={manufacturer === brand} className={`mb-1 block w-full truncate rounded px-2 py-1.5 text-left text-xs ${manufacturer === brand ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => { setManufacturer(brand); const first = brand === USER_FIXTURES ? library.find(isUserFixture) : library.find((profile) => (profile.manufacturer || 'Generic') === brand); if (first) chooseProfile(first) }}>{brand}</button>)}
         </div>
         <div className="min-h-0 overflow-y-auto p-2" aria-label="Fixture models">
           {matchingProfiles.map((profile) => {
             const mode = profile.modes[0]
             const channels = mode ? fixtureWidth(profile, mode.id) : 0
-            return <button key={profile.id} type="button" draggable aria-pressed={selectedProfile?.id === profile.id} className={`mb-1 block w-full rounded px-2 py-1.5 text-left ${selectedProfile?.id === profile.id ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => chooseProfile(profile)} onDragStart={(event) => dragProfile(event, profile)} onDragEnd={() => { setDragging(null); setDragRange(null) }}><span className="block truncate text-xs font-medium">{profile.name}</span><span className="block text-[9px] opacity-70">{channels} channels</span></button>
+            return <button key={profile.id} type="button" draggable aria-pressed={selectedProfile?.id === profile.id} className={`mb-1 block w-full rounded px-2 py-1.5 text-left ${selectedProfile?.id === profile.id ? 'bg-accent text-black' : 'hover:bg-panel2'}`} onClick={() => chooseProfile(profile)} onDragStart={(event) => dragProfile(event, profile)} onDragEnd={() => { setDragging(null); setDragRange(null) }}><span className="block truncate text-xs font-medium">{profile.name}{isUserFixture(profile) && <span className="ml-1 rounded border border-current px-1 text-[8px] font-semibold uppercase">Custom</span>}</span><span className="block text-[9px] opacity-70">{channels} channels</span></button>
           })}
-          {!matchingProfiles.length && <p className="p-2 text-xs text-dim">No matching models</p>}
+          {!matchingProfiles.length && <p className="p-2 text-xs text-dim">{manufacturer === USER_FIXTURES ? 'No custom fixtures yet — duplicate a fixture or build your own to add one here.' : 'No matching models'}</p>}
         </div>
       </div>
-      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibrary()}>Import OFL library</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile} onClick={exportSelectedOfl}>Export OFL</button><button type="button" className="btn-theme text-[10px]" onClick={() => setEditorOpen(true)}>Profile editor</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
+      <footer className="flex items-center justify-between gap-1 border-t border-line px-3 py-2 text-[10px] text-dim"><span className="mr-auto">{matchingProfiles.length} models · {library.length} profiles</span><button type="button" className="btn-theme text-[10px]" onClick={() => void importOflLibraryZip()}>Upload OFL zip…</button><button type="button" className="btn-theme text-[10px]" disabled={!selectedProfile || !oflProfiles.some((profile) => profile.id === selectedProfile.id)} onClick={() => void duplicateSelectedProfile()}>Duplicate</button><button type="button" className="btn-theme text-[10px]" onClick={() => { setEditorProfileId(null); setEditorCreateCustom(true); setEditorOpen(true) }}>Build Your Own Fixture</button><button type="button" className="btn-theme text-[10px]" onClick={() => { setEditorCreateCustom(false); setEditorOpen(true) }}>Profile editor</button><button type="button" className="btn-theme text-[10px]" onClick={() => setGroupsOpen(true)}>Fixture groups</button></footer>
     </aside>
 
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg border border-line bg-panel" aria-label="Universe 1 patch matrix">
@@ -229,8 +255,8 @@ export function PatchPanel({ onShowInPreview }: { onShowInPreview?: (fixtureId: 
       <footer className="flex justify-between border-t border-line px-4 py-2 text-[10px] text-dim"><span>Drag a model to add it, or drag a patched fixture to a new starting address</span><span>{occupiedCount} occupied · {512 - occupiedCount} free</span></footer>
     </div>
     {groupsOpen && <div role="dialog" aria-modal="true" aria-label="Fixture groups" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel w-full max-w-lg p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture groups</strong><button type="button" className="btn-theme text-xs" onClick={() => setGroupsOpen(false)}>Done</button></div><FixtureGroups /></div></div>}
-    {editorOpen && <div role="dialog" aria-modal="true" aria-label="Fixture profile editor" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel max-h-full w-full max-w-4xl overflow-auto p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture profile editor</strong><button type="button" className="btn-theme text-xs" onClick={() => { setEditorOpen(false); setEditorProfileId(null) }}>Done</button></div><FixtureProfileEditor profiles={library} initialProfileId={editorProfileId ?? undefined} /></div></div>}
-    {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setPatchDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorOpen(true); setPatchDialog(null) }} />}
-    {editDialog && editFixture && <PatchDialog profile={editDialog.profile} initialModeId={editFixture.modeId ?? editDialog.profile.modes[0]?.id ?? ''} start={editFixture.channelStart} fixture={editFixture} onPatched={() => {}} onClose={() => setEditDialog(null)} onNotice={(message) => { setPatchNotice(message); setPatchError(''); setEditDialog(null) }} onShowInPreview={onShowInPreview} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setEditDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorOpen(true); setEditDialog(null) }} />}
+    {editorOpen && <div role="dialog" aria-modal="true" aria-label="Fixture profile editor" className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 p-8"><div className="panel max-h-full w-full max-w-4xl overflow-auto p-4"><div className="mb-3 flex items-center justify-between"><strong className="text-sm">Fixture profile editor</strong><button type="button" className="btn-theme text-xs" onClick={() => { setEditorOpen(false); setEditorProfileId(null); setEditorCreateCustom(false) }}>Done</button></div><FixtureProfileEditor profiles={library} initialProfileId={editorProfileId ?? undefined} createCustom={editorCreateCustom} /></div></div>}
+    {patchDialog && <PatchDialog profile={patchDialog.profile} initialModeId={patchDialog.modeId} start={patchDialog.start} onPatched={(message) => { setPatchNotice(message); setPatchError(''); setPatchDialog(null) }} onClose={() => setPatchDialog(null)} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setPatchDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorCreateCustom(false); setEditorOpen(true); setPatchDialog(null) }} />}
+    {editDialog && editFixture && <PatchDialog profile={editDialog.profile} initialModeId={editFixture.modeId ?? editDialog.profile.modes[0]?.id ?? ''} start={editFixture.channelStart} fixture={editFixture} onPatched={() => {}} onClose={() => setEditDialog(null)} onNotice={(message) => { setPatchNotice(message); setPatchError(''); setEditDialog(null) }} onShowInPreview={onShowInPreview} onShowProfileInLibrary={(profile) => { chooseProfile(profile); setEditDialog(null) }} onEditProfile={(profile) => { chooseProfile(profile); setEditorProfileId(profile.id); setEditorCreateCustom(false); setEditorOpen(true); setEditDialog(null) }} />}
   </section>
 }

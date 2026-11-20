@@ -17,7 +17,7 @@ import { CalibrationDialog } from './CalibrationDialog'
 import { isCalibrationComplete } from '../lib/calibration'
 import { useShowStore } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
-import { overridePropertyGroups } from '../lib/overrideLabels'
+import { layoutOverrideLabels, overridePropertyGroups } from '../lib/overrideLabels'
 import { instanceKey, instancePositions } from '../lib/previewLayout'
 import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
@@ -397,6 +397,22 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // instance only for a Count fixture — LightKey shows one label per
   // fixture, Guide ch.11 p.116).
   const labelledFixtures = fixtureViews.filter((f) => f.instance === 0 && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0)
+  // De-collided label positions (Jake, 20 Nov 2026): labels anchored
+  // close together are shifted down only as far as needed to clear each
+  // other; the box sizes are the ones the render below draws.
+  const overrideLabelPositions = useMemo(() => {
+    const boxes = labelledFixtures.map((f) => {
+      const groups = overridePropertyGroups(manualOverrides[f.id])
+      return {
+        id: f.id,
+        x: f.pos.x + 12,
+        y: f.pos.y + 14,
+        width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
+        height: groups.length * 12 + 6,
+      }
+    })
+    return layoutOverrideLabels(boxes)
+  }, [labelledFixtures, manualOverrides])
 
   // Newly patched fixtures appear with a short fade/scale-in when they
   // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a
@@ -795,8 +811,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const groups = overridePropertyGroups(manualOverrides[f.id])
           const width = Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18
           const height = groups.length * 12 + 6
-          const lx = f.pos.x + 12
-          const ly = f.pos.y + 14
+          // De-collided position (same anchor when nothing overlaps).
+          const { x: lx, y: ly } = overrideLabelPositions.get(f.id) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
           return <g key={`overrides-${f.key}`} data-override-label={f.id}>
             <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />

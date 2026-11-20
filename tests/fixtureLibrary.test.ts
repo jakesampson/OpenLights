@@ -4,7 +4,7 @@ import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { importOflFixture, isOflFixture } from '../src/shared/oflFixtureFormat'
 
-const fixturesDir = fileURLToPath(new URL('../fixtures', import.meta.url))
+const fixturesDir = fileURLToPath(new URL('./fixtures', import.meta.url))
 
 function jsonFiles(dir: string): string[] {
   const out: string[] = []
@@ -16,13 +16,14 @@ function jsonFiles(dir: string): string[] {
   return out
 }
 
-describe('bundled fixture library (Piece 2)', () => {
-  it('imports every bundled OFL fixture', () => {
+describe('OFL fixture import (Piece 2)', () => {
+  it('imports every fixture in the test library', () => {
     const manufacturers = JSON.parse(readFileSync(join(fixturesDir, 'manufacturers.json'), 'utf8')) as Record<string, { name?: string }>
     const files = jsonFiles(fixturesDir).filter((file) => basename(file).toLowerCase() !== 'manufacturers.json')
-    // The OFL export Jake provided 19 Nov 2026 (656 fixtures) plus the
-    // five profiles authored from their DMX charts (Piece 2 + EP4).
-    expect(files.length).toBe(661)
+    // The bundled fixtures/ folder was removed 20 Nov 2026 (Jake does
+    // not want the OFL library shipped): the five profiles authored from
+    // their DMX charts are kept here as test data only — they never ship.
+    expect(files.length).toBe(5)
     const ids = new Set<string>()
     const failures: string[] = []
     for (const file of files) {

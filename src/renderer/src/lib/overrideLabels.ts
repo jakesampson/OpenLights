@@ -62,3 +62,47 @@ export function overridePropertyGroups(overrides: Record<string, number>): Overr
   const known = GROUP_DEFS.map((d) => byName.get(d.name)).filter((g): g is OverridePropertyGroup => g !== undefined)
   return [...known, ...unknownOrder]
 }
+
+export interface OverrideLabelBox {
+  /** The fixture id the label belongs to. */
+  id: string
+  /** Anchor position: the label's top-left corner before de-collision. */
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+/**
+ * De-collide override labels (Jake, 20 Nov 2026 — two labels drawn on
+ * top of each other in the Preview). Labels are placed top-to-bottom,
+ * left-to-right; a label that would overlap one already placed is
+ * shifted down only as far as needed to clear it (2px gap), so every
+ * label stays readable and keeps LightKey's look — the pointer arrow
+ * moves with the label, still pointing at its fixture. Covers any
+ * number of nearby overridden fixtures: a shifted label can push the
+ * next one down in turn. Labels that do not collide are not moved.
+ */
+export function layoutOverrideLabels(boxes: OverrideLabelBox[]): Map<string, { x: number; y: number }> {
+  const GAP = 2
+  const placed: OverrideLabelBox[] = []
+  const positions = new Map<string, { x: number; y: number }>()
+  for (const box of [...boxes].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    let y = box.y
+    let moved = true
+    while (moved) {
+      moved = false
+      for (const other of placed) {
+        const overlapsX = box.x < other.x + other.width + GAP && box.x + box.width + GAP > other.x
+        const overlapsY = y < other.y + other.height + GAP && y + box.height + GAP > other.y
+        if (overlapsX && overlapsY) {
+          y = other.y + other.height + GAP
+          moved = true
+        }
+      }
+    }
+    placed.push({ ...box, y })
+    positions.set(box.id, { x: box.x, y })
+  }
+  return positions
+}
