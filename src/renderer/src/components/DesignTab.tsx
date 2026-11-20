@@ -87,8 +87,13 @@ function percentHeaderText(percent: number): string {
 // colour it controls — red/green/blue (and cyan/magenta/yellow/white/amber
 // for CMY/white/amber fixtures). The Dimmer uses the Master's lavender.
 // Any other attribute falls back to the theme accent.
-function channelFillColor(attribute: string) {
-  switch (attribute) {
+// The fill follows the channel, not the beam index (Jake, 20 Nov 2026,
+// image-17): per-beam attributes ('red2' built-in, 'red 2' OFL) get the
+// same fill as beam 1 — the old exact-match switch left Red 2 through
+// Blue 4 on the purple accent fallback.
+export function channelFillColor(attribute: string) {
+  const base = attribute.replace(/ ?\d+$/, '')
+  switch (base) {
     case 'red': return '#ef4444'
     case 'green': return '#22c55e'
     case 'blue': return '#3b82f6'

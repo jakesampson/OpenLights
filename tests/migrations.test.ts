@@ -5,6 +5,7 @@ import { useShowStore, defaultFixtureValues } from '../src/renderer/src/stores/s
 import { CURRENT_SCHEMA_VERSION, migrateShow } from '../src/shared/migrations'
 import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
+import { composeOutput } from '../src/renderer/src/lib/outputModel'
 import { DEFAULT_OBJECT_STYLES, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '../src/shared/liveObjectDefaults'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('cancelAnimationFrame', vi.fn())
@@ -312,5 +313,103 @@ describe('stale built-in profile defaults (Piece 11, Jake 20 Nov 2026)', () => {
   it('is idempotent', () => {
     const once: any = migrateShow({ fixtures: [staleBar()], cues: [] })
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('stale OFL / library profile defaults (Jake 20 Nov 2026, image-18)', () => {
+  // The built-in-only backfill above does not cover the fixtures Jake
+  // actually owns in "PRBC Default": the Rogue R3 Spots (and the EP4 bar)
+  // come from the OFL library — their profileIds are
+  // 'ofl:<manufacturer>:<fixture>' — so the migration skipped them and a
+  // Dimmer-only override still brought up black (blue default 0 in the
+  // stale inline snapshot). The wheel shows blue while the output is
+  // black because the wheel displays the preserved hue/saturation/
+  // brightness for a black fixture, not a real colour value — the output
+  // side is the wrong one, and healing the snapshot fixes it. The OFL
+  // library lives in the main process, so migrateShow takes it as a
+  // second argument; the renderer passes its cached copy (see
+  // oflMigrationStore.test.ts). The show's own fixtureProfiles and the
+  // legacyType fallback cover fixtures whose inline snapshot outlived
+  // their profileId.
+  const EP4_ATTRIBUTES = ['red', 'green', 'blue', 'red 2', 'green 2', 'blue 2', 'red 3', 'green 3', 'blue 3', 'red 4', 'green 4', 'blue 4', 'intensity', 'strobe', 'programs', 'program speed', 'curve select']
+  const oflEp4Profile = (blueDefault: number) => ({
+    id: 'ofl:event-lighting:ep4',
+    name: 'EP4',
+    manufacturer: 'Event Lighting',
+    legacyType: 'pixel-bar-17ch' as const,
+    modes: [{
+      id: '17ch',
+      name: '17ch',
+      channels: EP4_ATTRIBUTES.map((attribute, number) => ({
+        number, attribute,
+        propertyType: attribute === 'intensity' ? 'intensity' as const : /^(red|green|blue)/.test(attribute) ? 'color' as const : 'other' as const,
+        min: 0, max: 255,
+        defaultValue: /^blue/.test(attribute) ? blueDefault : 0,
+        highlightValue: /^(intensity|red|green|blue)/.test(attribute) ? 255 : 0
+      })),
+      beams: [1, 2, 3, 4].map((cell) => ({ id: `cell-${cell}`, name: `Cell ${cell}`, properties: { red: cell === 1 ? 'red' : `red ${cell}`, green: cell === 1 ? 'green' : `green ${cell}`, blue: cell === 1 ? 'blue' : `blue ${cell}` } }))
+    }]
+  })
+  const staleOflBar = () => ({
+    id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch',
+    profileId: 'ofl:event-lighting:ep4', modeId: '17ch',
+    channelStart: 1, channels: 17, profile: oflEp4Profile(0)
+  })
+
+  it('heals a stale OFL snapshot from the OFL library profiles', () => {
+    const show = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    const fixture = show.fixtures[0]
+    const defaults = defaultFixtureValues(fixture)
+    expect(defaults.blue).toBe(255)
+    expect(defaults['blue 2']).toBe(255)
+    expect(defaults['blue 3']).toBe(255)
+    expect(defaults['blue 4']).toBe(255)
+    expect(defaults.red).toBe(0)
+    expect(defaults.intensity).toBe(0)
+  })
+
+  it('brings up blue on a Dimmer-only override once healed', () => {
+    const show = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    const fixture = show.fixtures[0]
+    const frame = composeOutput({
+      defaults: computeCueChannels([fixture], { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, 255, true),
+      overrides: computeCueChannels([fixture], { id: 'overrides', name: 'Overrides', fadeMs: 0, fixtureValues: { bar: { intensity: 255 } } }, 255, false)
+    })
+    // The four blue channels (Ch3/6/9/12) and the Dimmer (Ch13) are up;
+    // red and green stay at 0 — the fixture lights blue, not white.
+    for (const channel of [3, 6, 9, 12, 13]) expect(frame[channel]).toBe(255)
+    for (const channel of [1, 2, 4, 5, 7, 8, 10, 11, 14]) expect(frame[channel]).toBe(0)
+  })
+
+  it('heals a snapshot whose profileId is gone, via its legacy type', () => {
+    const profile = structuredClone(BUILTIN_PROFILES.find((p) => p.id === 'pan-4x1x30-17ch')!)
+    for (const channel of profile.modes[0].channels) {
+      channel.defaultValue = channel.attribute === 'pan' || channel.attribute === 'tilt' ? 128 : 0
+    }
+    const fixture = { id: 'bar', name: 'PB1', shortName: 'PB1', type: 'pixel-bar-17ch', channelStart: 1, channels: 17, profile }
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+  })
+
+  it('heals from the show’s own stored fixtureProfiles', () => {
+    const custom = oflEp4Profile(255)
+    custom.id = 'custom-bar'
+    custom.name = 'My edited bar'
+    const fixture = { ...staleOflBar(), profileId: 'custom-bar', profile: oflEp4Profile(0) }
+    fixture.profile.id = 'custom-bar'
+    const show = migrateShow({ fixtures: [fixture], cues: [], fixtureProfiles: [custom] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+  })
+
+  it('still leaves a custom profile in no library exactly as stored', () => {
+    const fixture = { ...staleOflBar(), profileId: 'custom-bar', profile: oflEp4Profile(0) }
+    fixture.profile.id = 'custom-bar'
+    const show = migrateShow({ fixtures: [fixture], cues: [] })
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(0)
+  })
+
+  it('is idempotent with OFL profiles supplied', () => {
+    const once: any = migrateShow({ fixtures: [staleOflBar()], cues: [] }, [oflEp4Profile(255)])
+    expect(migrateShow(JSON.parse(JSON.stringify(once)), [oflEp4Profile(255)])).toEqual(once)
   })
 })

@@ -98,6 +98,20 @@ export default function App() {
     setToolPanel(null)
     useShowStore.getState().setPreviewEditing(setupWizardStep === 'preview' || setupWizardStep === 'groups')
   }, [setupWizardStep])
+  // The OFL library is the migration's second source (Jake, 20 Nov 2026,
+  // image-18): without it, a show's OFL fixtures keep their stale inline
+  // snapshots and the Dimmer brings up black. Load it once at startup so
+  // a show opened afterwards heals on load; a show opened before it
+  // arrives is re-healed when it lands (setOflProfiles). A failed load
+  // is not an error — Patch loads the same list on demand, and the
+  // built-in healing still runs.
+  useEffect(() => {
+    let active = true
+    window.electronAPI.listOflProfiles().then((profiles) => {
+      if (active && Array.isArray(profiles)) useShowStore.getState().setOflProfiles(profiles)
+    }).catch(() => {})
+    return () => { active = false }
+  }, [])
   // Create the project the New Project dialog named (Guide p.26). The
   // creation itself lives in ProjectBar — it owns the save path and
   // snapshot — via the `openlights-create-project` event; this only makes

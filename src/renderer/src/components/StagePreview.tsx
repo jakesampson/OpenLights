@@ -785,7 +785,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         {/* Override labels (Guide ch.11, p.116; Jake's LightKey
             screenshots 20 Nov 2026): one white callout per overridden
             fixture, pointer arrow to the fixture, one row per overridden
-            property. Hovering a row highlights it blue and shows an ✕
+            property. The rows are vertically centred in the box (12px
+            per row, 3px top and bottom padding); hovering a row turns
+            its TEXT blue — the background stays white — and shows an ✕
             that clears just that property's override for that fixture
             (Alt/Option clears it for all fixtures); clicking a row
             selects the fixture and opens it in Design. */}
@@ -799,13 +801,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
             <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             {groups.map((group, i) => {
-              const rowY = ly + 6 + i * 12
+              const rowY = ly + 12 + i * 12
               const key = `${f.id}:${group.name}`
               const hovered = hoveredLabelRow === key
               return <g key={group.name} onMouseEnter={() => setHoveredLabelRow(key)} onMouseLeave={() => setHoveredLabelRow((current) => current === key ? null : current)} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-show-design')) }} style={{ cursor: 'pointer' }}>
-                {hovered && <rect x={lx + 1} y={rowY - 8} width={width - 2} height={11} fill="#0A84FF" />}
-                <text x={lx + 5} y={rowY} fontSize={9} fill={hovered ? '#ffffff' : '#111111'}>{group.name}</text>
-                {hovered && <text x={lx + width - 4} y={rowY} fontSize={10} textAnchor="end" fill="#ffffff" aria-label={`Clear ${group.name} override on ${f.name}`} onClick={(event) => { event.stopPropagation(); releaseManualOverrides(event.altKey ? undefined : [f.id], group.attributes) }}>×</text>}
+                <text x={lx + 5} y={rowY} fontSize={9} fill={hovered ? '#0A84FF' : '#111111'}>{group.name}</text>
+                {hovered && <text x={lx + width - 4} y={rowY} fontSize={10} textAnchor="end" fill="#0A84FF" aria-label={`Clear ${group.name} override on ${f.name}`} onClick={(event) => { event.stopPropagation(); releaseManualOverrides(event.altKey ? undefined : [f.id], group.attributes) }}>×</text>}
               </g>
             })}
           </g>

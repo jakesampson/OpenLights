@@ -137,6 +137,36 @@ describe('Preview override dots and labels', () => {
     expect(useShowStore.getState().manualOverrides.fx1).toEqual({ red: 255, green: 0, blue: 0 })
   })
 
+  it('centres the label rows vertically and highlights hovered text, not its background', async () => {
+    // Jake, 20 Nov 2026 (image-19): the rows sit off-centre in the white
+    // label, and hovering a row paints its background blue — the text
+    // itself should turn blue instead, with the background staying white.
+    await renderPreview()
+    act(() => { useShowStore.setState({ manualOverrides: { fx1: { intensity: 200, red: 255, green: 0, blue: 0 } }, showOverrideLabels: true }) })
+    const label = container?.querySelector('[data-override-label="fx1"]')
+    expect(label).not.toBeNull()
+    // The label box is 12px per row with 3px top and bottom padding, so
+    // the first row's baseline sits 12px below the top edge (9px font on
+    // a 12px band) and the second 24px below — centred, not riding high.
+    const rect = label?.querySelector('rect') as SVGRectElement | null
+    const rectY = Number(rect?.getAttribute('y'))
+    expect(Number(rect?.getAttribute('height'))).toBe(2 * 12 + 6)
+    const rowTexts = [...(label?.querySelectorAll('g text') ?? [])] as SVGTextElement[]
+    expect(rowTexts).toHaveLength(2)
+    expect(Number(rowTexts[0].getAttribute('y')) - rectY).toBe(12)
+    expect(Number(rowTexts[1].getAttribute('y')) - rectY).toBe(24)
+    // Hover the Dimmer row: the text turns blue, the background stays white.
+    const rows = [...(label?.querySelectorAll('g') ?? [])]
+    const dimmerRow = rows.find((g) => g.textContent === 'Dimmer')
+    if (!dimmerRow) throw new Error('no Dimmer row')
+    act(() => { dimmerRow.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
+    expect(label?.querySelector('rect[fill="#0A84FF"]')).toBeNull()
+    expect(rowTexts[0].getAttribute('fill')).toBe('#0A84FF')
+    expect(rowTexts[1].getAttribute('fill')).toBe('#111111')
+    // The ✕ still appears on hover.
+    expect(container?.querySelector('[aria-label="Clear Dimmer override on Test Wash 1"]')).not.toBeNull()
+  })
+
   it('clicking the dot shows the labels', async () => {
     await renderPreview()
     act(() => { useShowStore.setState({ manualOverrides: { fx1: { intensity: 200 } } }) })

@@ -104,6 +104,13 @@ interface ShowState {
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
+  /** The OFL library as the main process last reported it (Jake,
+   *  20 Nov 2026, image-18): the migration needs it to heal stale OFL
+   *  fixture snapshots, and migrateShow cannot see the main process on
+   *  its own. Loaded once at startup by App; not persisted in the show,
+   *  not undo history. */
+  oflProfiles: FixtureProfile[]
+  setOflProfiles: (profiles: FixtureProfile[]) => void
   automations: AutomationDef[]
   effects: EffectDef[]
   cueLists: CueListDef[]
@@ -887,6 +894,7 @@ const actions: ShowState = {
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
+  oflProfiles: [],
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
   cueLists: defaultShow.cueLists ?? [],
@@ -912,8 +920,23 @@ const actions: ShowState = {
   manualCrossfade: 1,
   manualCrossfadeAnchor: 1,
 
+  setOflProfiles: (profiles) => {
+    const state = get()
+    if (!state.show) { set({ oflProfiles: profiles }); return }
+    // A show opened before the library arrived heals the moment it lands
+    // (Jake, 20 Nov 2026, image-18): re-run the migration with the OFL
+    // profiles now known. Only the fixtures can change here — the show
+    // was already migrated at load — so nothing else is re-applied, and
+    // when nothing healed the show object is left untouched. The App's
+    // output effects all depend on show.fixtures, so a healed show
+    // re-sends its defaults to the hardware through the normal path.
+    const healed = migrateShow(state.show, profiles)
+    if (JSON.stringify(healed.fixtures) === JSON.stringify(state.show.fixtures)) { set({ oflProfiles: profiles }); return }
+    set({ oflProfiles: profiles, ...persistState(state, { fixtures: healed.fixtures }) })
+  },
+
   setShow: (show) => {
-    if (show) show = migrateShow(show)
+    if (show) show = migrateShow(show, get().oflProfiles)
     // Loading a different show must not leave the previous show's look
     // latched on the outputs.
     flashState = null

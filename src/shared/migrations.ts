@@ -3,7 +3,7 @@ export const CURRENT_SCHEMA_VERSION = 4
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
-import type { FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
+import type { FixtureProfile, FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
@@ -118,7 +118,7 @@ const steps: Record<number, (source: Document) => Document> = {
 }
 
 /** Non-destructive version steps. Future documents retain their version and unknown fields. */
-export function migrateShow(raw: unknown): ShowDef {
+export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[] = []): ShowDef {
   let doc = { ...record(raw) }
   let version = typeof doc.schemaVersion === 'number' && Number.isInteger(doc.schemaVersion) && doc.schemaVersion >= 0 ? doc.schemaVersion : 0
   if (version > CURRENT_SCHEMA_VERSION) console.warn(`This show uses schema ${version}; OpenLights supports ${CURRENT_SCHEMA_VERSION}. Unknown fields will be preserved.`)
@@ -165,27 +165,41 @@ export function migrateShow(raw: unknown): ShowDef {
   // exactly as they are; this only fills blanks, so it is idempotent.
   const usedShortNames = new Set<string>()
   for (const raw of doc.fixtures as unknown[]) { const name = record(raw).shortName; if (typeof name === 'string' && name.trim()) usedShortNames.add(name.trim().toUpperCase()) }
-  // Built-in profile snapshots go stale (Jake, 20 Nov 2026): patching
+  // Inline profile snapshots go stale (Jake, 20 Nov 2026): patching
   // stores a structuredClone of the profile on the fixture, and Piece 11
   // (19 Nov 2026) changed the colour defaults (blue 0 → 255) — so a
   // fixture patched before then keeps blue at 0 forever: no colour on the
   // wheel and the Dimmer brings up black until the wheel is touched,
-  // while a fixture patched after auto-goes blue. Built-in profiles are
-  // immutable library data (saveFixtureProfile refuses a same-id edit),
-  // so an inline deviation from the library is staleness, never a user
-  // edit: backfill the channel defaults from the current library
+  // while a fixture patched after auto-goes blue. The wheel still shows
+  // blue on the stale fixture because it displays the preserved hue /
+  // saturation / brightness for a black fixture, not a real colour value
+  // — the output side is the wrong one, and healing the snapshot fixes
+  // it. Library profiles are immutable (built-ins refuse a same-id edit,
+  // OFL profiles are re-imported from their definitions, and the show's
+  // own stored profiles are the library copies the fixtures were patched
+  // from), so an inline deviation from the library is staleness, never a
+  // user edit: backfill the channel defaults from the current library
   // profile, matched by mode and attribute. Channel layout is never
-  // touched, and custom / OFL profiles (which a user can edit) are left
-  // exactly as stored.
-  const healBuiltinProfileDefaults = (rawProfile: unknown, library: (typeof BUILTIN_PROFILES)[number] | undefined): unknown => {
-    if (!library) return rawProfile
+  // touched, and a profile whose id is in no library is left exactly as
+  // stored — a custom profile's defaults are the user's, so the heal
+  // only ever matches by id (the fixture's profileId, or the snapshot's
+  // own id when the profileId was lost), never by legacy type. The
+  // library is the built-ins, the show's own stored profiles, and any
+  // extra profiles the caller supplies — the OFL library lives in the
+  // main process, so the renderer passes its cached copy (a fixture
+  // whose profileId is 'ofl:…' was skipped entirely before this, which
+  // is why the Rogue R3 Spots in Jake's "PRBC Default" stayed dark).
+  // Same composition as PatchPanel's library.
+  const library: FixtureProfile[] = [...BUILTIN_PROFILES, ...((doc.fixtureProfiles as FixtureProfile[] | undefined) ?? []), ...extraLibraryProfiles]
+  const healStoredProfileDefaults = (rawProfile: unknown, profileId: unknown): unknown => {
     const stored = record(rawProfile)
-    if (!Array.isArray(stored.modes)) return rawProfile
+    const libraryProfile = library.find((p) => p.id === profileId) ?? library.find((p) => p.id === stored.id)
+    if (!libraryProfile || !Array.isArray(stored.modes)) return rawProfile
     return {
       ...stored,
       modes: stored.modes.map((rawMode) => {
         const mode = record(rawMode)
-        const libraryMode = library.modes.find((m) => m.id === mode.id)
+        const libraryMode = libraryProfile.modes.find((m) => m.id === mode.id)
         if (!libraryMode || !Array.isArray(mode.channels)) return mode
         const byAttribute = new Map(libraryMode.channels.map((c) => [c.attribute, c]))
         return {
@@ -199,7 +213,7 @@ export function migrateShow(raw: unknown): ShowDef {
       })
     }
   }
-  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) ?? BUILTIN_PROFILES.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ? healBuiltinProfileDefaults(fixture.profile, typeof fixture.profileId === 'string' ? BUILTIN_PROFILES.find((p) => p.id === fixture.profileId) : undefined) : profile, inStorage: fixture.inStorage === true, previewBeam: { direction: (() => { const d = record(fixture.previewBeam).direction; return d === 'auto' || typeof d === 'number' ? d : 'auto' })() }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
+  doc.fixtures = (doc.fixtures as unknown[]).map((raw) => { const fixture = record(raw); const profile = library.find((p) => p.id === fixture.profileId) ?? library.find((p) => p.legacyType === fixture.type); return { ...fixture, disabled: fixture.disabled === true, notes: typeof fixture.notes === 'string' ? fixture.notes : '', universe: typeof fixture.universe === 'number' ? fixture.universe : 1, profileId: fixture.profileId ?? profile?.id, modeId: fixture.modeId ?? 'default', profile: fixture.profile ? healStoredProfileDefaults(fixture.profile, fixture.profileId) : profile, inStorage: fixture.inStorage === true, previewBeam: { direction: (() => { const d = record(fixture.previewBeam).direction; return d === 'auto' || typeof d === 'number' ? d : 'auto' })() }, namePosition: ['above', 'below', 'hidden'].includes(String(fixture.namePosition)) ? fixture.namePosition : 'above', iconSize: typeof fixture.iconSize === 'number' ? fixture.iconSize : 10, rotation: typeof fixture.rotation === 'number' ? fixture.rotation : 0, shortName: typeof fixture.shortName === 'string' && fixture.shortName.trim() ? fixture.shortName.trim().slice(0, 4) : (() => { const next = proposeShortName(usedShortNames, (typeof fixture.type === 'string' ? fixture.type : 'par') as FixtureType); usedShortNames.add(next.toUpperCase()); return next })() } })
   if (!Array.isArray(doc.fixtureGroups)) {
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
