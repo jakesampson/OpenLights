@@ -13,7 +13,9 @@ import extract from 'extract-zip'
 import { DMXEngine } from '../shared/dmx'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 import { WINDOWS_MENU } from '../shared/menuModel'
-import { importOflFixture, isOflFixture, mergeOflLibraries, duplicateProfileAsCustom, shouldClearBundledOflCache } from '../shared/oflFixtureFormat'
+import { importOflFixture, isOflFixture, mergeOflLibraries, duplicateProfileAsCustom, upsertCustomProfile, deleteCustomProfile, preservesUserLibrary, shouldClearBundledOflCache } from '../shared/oflFixtureFormat'
+import { validateProfile } from '../shared/profileValidation'
+import { BUILTIN_PROFILES } from '../shared/fixtureProfiles'
 import type { FixtureProfile } from '../shared/types'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -185,8 +187,41 @@ ipcMain.handle('ofl-library:duplicate', (_, profileId: string) => {
     const next = [...library, copy]
     oflLibraryMemo = next
     const meta = readOflLibraryMeta()
-    writeOflLibrary(next, meta && (meta.source === 'upload' || meta.source === 'import') ? { source: meta.source, fingerprint: meta.fingerprint } : { source: 'none', fingerprint: null })
+    writeOflLibrary(next, meta && preservesUserLibrary(meta.source) ? { source: meta.source, fingerprint: meta.fingerprint } : { source: 'none', fingerprint: null })
     return { success: true, profiles: next, profile: copy }
+  } catch (error) { return { success: false, profiles: getOflLibrary(), error: error instanceof Error ? error.message : String(error) } }
+})
+// Custom fixtures are GLOBAL (Jake, 20 Nov 2026 — all duplicates and
+// Build Your Own fixtures live in the library database, available in
+// every show): the profile editor saves them here, tagged custom, and
+// the renderer re-reads the library so the patch dialog lists them
+// under User Fixtures in any show. A base library record is never
+// overwritten — a clash means the caller must mint a fresh custom id
+// (asNewCustom) — and a zip upload never touches a custom record
+// (mergeOflLibraries), so the saved copy is safe from then on. The
+// meta source becomes 'custom' when the library gains its first user
+// fixture, so the bundled-cache migration never clears it.
+ipcMain.handle('ofl-library:save-custom', (_, profile: FixtureProfile) => {
+  try {
+    const errors = validateProfile(profile)
+    if (errors.length) return { success: false, profiles: getOflLibrary(), error: errors.join('; ') }
+    if (BUILTIN_PROFILES.some((p) => p.id === profile.id)) return { success: false, profiles: getOflLibrary(), error: 'Duplicate a built-in profile before editing' }
+    const result = upsertCustomProfile(getOflLibrary(), profile)
+    if ('error' in result) return { success: false, profiles: getOflLibrary(), error: result.error }
+    oflLibraryMemo = result.profiles
+    const meta = readOflLibraryMeta()
+    writeOflLibrary(result.profiles, meta && preservesUserLibrary(meta.source) ? { source: meta.source, fingerprint: meta.fingerprint } : { source: 'custom', fingerprint: null })
+    return { success: true, profiles: result.profiles, profile: result.profile }
+  } catch (error) { return { success: false, profiles: getOflLibrary(), error: error instanceof Error ? error.message : String(error) } }
+})
+ipcMain.handle('ofl-library:delete-custom', (_, profileId: string) => {
+  try {
+    const result = deleteCustomProfile(getOflLibrary(), profileId)
+    if ('error' in result) return { success: false, profiles: getOflLibrary(), error: result.error }
+    oflLibraryMemo = result.profiles
+    const meta = readOflLibraryMeta()
+    writeOflLibrary(result.profiles, meta ?? { source: 'none', fingerprint: null })
+    return { success: true, profiles: result.profiles }
   } catch (error) { return { success: false, profiles: getOflLibrary(), error: error instanceof Error ? error.message : String(error) } }
 })
 ipcMain.on('live-window:state', (event, state) => { if (event.sender.id !== mainWindow?.webContents.id) return; liveState = state; for (const { window } of liveWindows.values()) window.webContents.send('live-window:state', state) })

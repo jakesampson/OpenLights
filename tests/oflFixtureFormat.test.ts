@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
-import { exportOflFixture, importOflFixture, isOflFixture, oflFilename } from '../src/shared/oflFixtureFormat'
+import { exportOflFixture, importOflFixture, isOflFixture, oflFilename, upsertCustomProfile, deleteCustomProfile, asNewCustom, duplicateProfileAsCustom, preservesUserLibrary, shouldClearBundledOflCache } from '../src/shared/oflFixtureFormat'
 import { importProfile } from '../src/shared/profileValidation'
 
 const oflFixture = {
@@ -134,5 +134,85 @@ describe('Open Fixture Library format', () => {
     expect(patch).toContain('User Fixtures')
     expect(patch).not.toContain('Export OFL')
     expect(patch).toContain('listOflProfiles')
+    // Global customs (Jake, 20 Nov 2026): the editor saves duplicates
+    // and Build Your Own fixtures into the library database through
+    // these handlers, and deletes them the same way.
+    expect(main).toContain("ipcMain.handle('ofl-library:save-custom'")
+    expect(main).toContain("ipcMain.handle('ofl-library:delete-custom'")
+    expect(preload).toContain("ipcRenderer.invoke('ofl-library:save-custom'")
+    expect(preload).toContain("ipcRenderer.invoke('ofl-library:delete-custom'")
+  })
+})
+
+describe('global custom fixtures (Jake, 20 Nov 2026)', () => {
+  const base = BUILTIN_PROFILES[0]
+
+  it('asNewCustom mints a fresh custom id and keeps the name', () => {
+    const copy = asNewCustom(base)
+    expect(copy.id).not.toBe(base.id)
+    expect(copy.id.startsWith('custom:')).toBe(true)
+    expect(copy.name).toBe(base.name)
+    expect(copy.custom).toBe(true)
+    expect(copy.ofl).toBeUndefined()
+    expect(base.id).not.toContain('custom:')
+  })
+
+  it('duplicateProfileAsCustom keeps the " copy" name on the fresh id', () => {
+    const copy = duplicateProfileAsCustom(base)
+    expect(copy.name).toBe(`${base.name} copy`)
+    expect(copy.id.startsWith('custom:')).toBe(true)
+    expect(copy.custom).toBe(true)
+  })
+
+  it('upsertCustomProfile inserts a new custom and replaces an edited one by id', () => {
+    const first = upsertCustomProfile([], duplicateProfileAsCustom(base))
+    if ('error' in first) throw new Error(first.error)
+    expect(first.profiles).toHaveLength(1)
+    expect(first.profile.custom).toBe(true)
+    const edited = { ...first.profile, name: 'Renamed' }
+    const second = upsertCustomProfile(first.profiles, edited)
+    if ('error' in second) throw new Error(second.error)
+    expect(second.profiles).toHaveLength(1)
+    expect(second.profiles[0]?.id).toBe(first.profile.id)
+    expect(second.profiles[0]?.name).toBe('Renamed')
+  })
+
+  it('upsertCustomProfile strips the OFL identity and forces the custom tag', () => {
+    const imported = importOflFixture(readFileSync('tests/fixtures/chauvet-dj/fxarray-q5.json', 'utf-8'), { manufacturerKey: 'chauvet-dj', manufacturer: 'Chauvet DJ', fixtureKey: 'fxarray-q5', preserveSource: false })
+    const saved = upsertCustomProfile([], imported)
+    if ('error' in saved) throw new Error(saved.error)
+    expect(saved.profile.custom).toBe(true)
+    expect(saved.profile.ofl).toBeUndefined()
+    expect(saved.profile.id).toBe(imported.id)
+  })
+
+  it('upsertCustomProfile refuses to overwrite a base record with the same id', () => {
+    const imported = importOflFixture(readFileSync('tests/fixtures/chauvet-dj/fxarray-q5.json', 'utf-8'), { manufacturerKey: 'chauvet-dj', manufacturer: 'Chauvet DJ', fixtureKey: 'fxarray-q5', preserveSource: false })
+    const library = [imported]
+    const edited = { ...imported, custom: true, name: 'Edited Q5' }
+    const result = upsertCustomProfile(library, edited)
+    expect('error' in result).toBe(true)
+    expect(library).toHaveLength(1)
+    expect(library[0]?.name).not.toBe('Edited Q5')
+  })
+
+  it('deleteCustomProfile removes a custom and refuses a base record', () => {
+    const custom = duplicateProfileAsCustom(base)
+    const imported = importOflFixture(readFileSync('tests/fixtures/chauvet-dj/fxarray-q5.json', 'utf-8'), { manufacturerKey: 'chauvet-dj', manufacturer: 'Chauvet DJ', fixtureKey: 'fxarray-q5', preserveSource: false })
+    const library = [imported, custom]
+    const removed = deleteCustomProfile(library, custom.id)
+    if ('error' in removed) throw new Error(removed.error)
+    expect(removed.profiles).toEqual([imported])
+    expect('error' in deleteCustomProfile(library, imported.id)).toBe(true)
+    expect('error' in deleteCustomProfile(library, 'no-such-id')).toBe(true)
+  })
+
+  it('a library holding customs is user-owned and never cleared as bundled', () => {
+    expect(preservesUserLibrary('custom')).toBe(true)
+    expect(preservesUserLibrary('upload')).toBe(true)
+    expect(preservesUserLibrary('import')).toBe(true)
+    expect(preservesUserLibrary('bundled')).toBe(false)
+    expect(preservesUserLibrary('none')).toBe(false)
+    expect(shouldClearBundledOflCache({ source: 'custom', fingerprint: null }, [duplicateProfileAsCustom(base)])).toBe(false)
   })
 })

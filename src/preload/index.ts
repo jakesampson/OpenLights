@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   listOflProfiles: () => ipcRenderer.invoke('ofl-library:list'),
   importOflLibraryZip: () => ipcRenderer.invoke('ofl-library:import-zip'),
   duplicateOflProfile: (profileId: string) => ipcRenderer.invoke('ofl-library:duplicate', profileId),
+  saveOflCustomProfile: (profile: unknown) => ipcRenderer.invoke('ofl-library:save-custom', profile),
+  deleteOflCustomProfile: (profileId: string) => ipcRenderer.invoke('ofl-library:delete-custom', profileId),
   publishLiveWindowState: (state: Record<string, unknown>) => ipcRenderer.send('live-window:state', state),
   requestLiveWindowState: () => ipcRenderer.send('live-window:request'),
   liveWindowCommand: (command: string, args: unknown[]) => ipcRenderer.send('live-window:command', command, args),

@@ -303,6 +303,35 @@ describe('stale built-in profile defaults (Piece 11, Jake 20 Nov 2026)', () => {
     expect(show.fixtures[0].profile.name).toBe('My edited bar')
   })
 
+  it('refreshes a custom profile from the library copy when the library copy was edited', () => {
+    // Customs are global and editable (Jake, 20 Nov 2026): the library
+    // copy is the definition, so a fixture patched from the old version
+    // picks up a rename and a changed default when the show loads or
+    // the library lands — the snapshot is refreshed wholesale, not just
+    // its defaults. A custom in no library is still left as stored
+    // (the test above): the library copy has to exist to refresh from.
+    const edited = staleBarProfile()
+    edited.id = 'custom-bar'
+    edited.custom = true
+    edited.name = 'My edited bar v2'
+    for (const channel of edited.modes[0].channels) {
+      if (channel.attribute === 'blue') channel.defaultValue = 255
+    }
+    const stored = staleBarProfile()
+    stored.id = 'custom-bar'
+    stored.custom = true
+    stored.name = 'My edited bar'
+    const fixture = { ...staleBar(), profileId: 'custom-bar', profile: stored }
+    const show = migrateShow({ fixtures: [fixture], cues: [] }, [edited])
+    expect(show.fixtures[0].profile.name).toBe('My edited bar v2')
+    expect(defaultFixtureValues(show.fixtures[0]).blue).toBe(255)
+    // The same refresh runs from the show's own stored profiles: a
+    // copy edited in the show is the library copy for that show.
+    const showWithStored = migrateShow({ fixtures: [fixture], fixtureProfiles: [edited], cues: [] })
+    expect(showWithStored.fixtures[0].profile.name).toBe('My edited bar v2')
+    expect(defaultFixtureValues(showWithStored.fixtures[0]).blue).toBe(255)
+  })
+
   it('keeps an explicit per-fixture default ahead of the library one', () => {
     const fixture = { ...staleBar(), defaultValues: { blue: 40 } }
     const show = migrateShow({ fixtures: [fixture], cues: [] })

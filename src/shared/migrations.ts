@@ -197,7 +197,11 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
   // from), so an inline deviation from the library is staleness, never a
   // user edit: backfill the channel defaults from the current library
   // profile, matched by mode and attribute. Channel layout is never
-  // touched, and a profile whose id is in no library is left exactly as
+  // touched for a base record — except for a CUSTOM profile, which is
+  // the user's own editable fixture (Jake, 20 Nov 2026, global customs):
+  // its inline snapshot is refreshed wholesale from the library copy,
+  // so an edit to the definition reaches fixtures already patched from
+  // it. A profile whose id is in no library is left exactly as
   // stored — a custom profile's defaults are the user's, so the heal
   // only ever matches by id (the fixture's profileId, or the snapshot's
   // own id when the profileId was lost) — or by the snapshot's stored OFL
@@ -222,6 +226,15 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
     const libraryProfile = library.find((p) => p.id === profileId) ?? library.find((p) => p.id === stored.id)
       ?? library.find((p) => oflIdentityMatches(p, stored))
     if (!libraryProfile || !Array.isArray(stored.modes)) return rawProfile
+    // A custom profile is the user's own fixture and it is editable
+    // (Jake, 20 Nov 2026 — customs are global, edited in the profile
+    // editor): the library copy is the definition, so an inline
+    // snapshot that differs from it is stale from an edit, not user
+    // data — refresh the whole snapshot. A custom in no library is
+    // left exactly as stored (it is the only copy). Base records keep
+    // the defaults-only backfill below: their layout is immutable
+    // library data, and only a stale default is ever healed.
+    if (libraryProfile.custom === true) return structuredClone(libraryProfile)
     return {
       ...stored,
       modes: stored.modes.map((rawMode) => {

@@ -25,6 +25,8 @@ declare global {
       listOflProfiles: () => Promise<import('@shared/types').FixtureProfile[]>
       importOflLibraryZip: () => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; imported?: number; skipped?: number }>
       duplicateOflProfile: (profileId: string) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; profile?: import('@shared/types').FixtureProfile }>
+      saveOflCustomProfile: (profile: import('@shared/types').FixtureProfile) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[]; profile?: import('@shared/types').FixtureProfile }>
+      deleteOflCustomProfile: (profileId: string) => Promise<IpcResult & { profiles: import('@shared/types').FixtureProfile[] }>
       publishLiveWindowState: (state: Record<string, unknown>) => void
       requestLiveWindowState: () => void
       liveWindowCommand: (command: string, args: unknown[]) => void

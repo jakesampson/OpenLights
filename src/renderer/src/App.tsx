@@ -37,6 +37,7 @@ import { WelcomeScreen } from './components/WelcomeScreen'
 import { NewProjectDialog } from './components/NewProjectDialog'
 import { WizardDmxStep } from './components/WizardDmxStep'
 import { WizardDoneStep } from './components/WizardDoneStep'
+import type { FixtureProfile } from '@shared/types'
 
 type Tab = 'Design' | 'Live'
 type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
@@ -137,6 +138,47 @@ export default function App() {
     }).catch(() => {})
     return () => { active = false }
   }, [])
+  // A show opened with its own stored custom fixtures promotes them
+  // into the global library (Jake, 20 Nov 2026 — all duplicates and
+  // Build Your Own fixtures are global): the library is the single
+  // home for a custom fixture, so a copy that only lives in one show
+  // is moved there the first time the show opens with the library
+  // loaded, and the show copy is removed so it cannot shadow the
+  // fresh global record. A show copy whose id is ALREADY in the
+  // library is left alone — it may carry edits made to the global
+  // record's twin before customs went global, and deleting it would
+  // lose them; editing that fixture converges the two (the editor's
+  // global save replaces the library record and removes the show
+  // copy). Only profiles whose save succeeded are removed, and only
+  // while the same show is still open; the effect settles once the
+  // promoted ids are in the library.
+  const oflProfiles = useShowStore((s) => s.oflProfiles)
+  useEffect(() => {
+    if (!show) return
+    const showId = show.id
+    const missing = (show.fixtureProfiles ?? []).filter((p) => p.custom === true && !oflProfiles.some((g) => g.id === p.id))
+    if (!missing.length) return
+    let cancelled = false
+    void (async () => {
+      let profiles = oflProfiles
+      const promoted: FixtureProfile[] = []
+      for (const profile of missing) {
+        if (cancelled) return
+        try {
+          const result = await window.electronAPI.saveOflCustomProfile(profile)
+          if (result && result.success && Array.isArray(result.profiles)) { profiles = result.profiles; promoted.push(profile) }
+        } catch { /* a failed promotion stays show-only until the next open */ }
+      }
+      if (cancelled || !promoted.length) return
+      const store = useShowStore.getState()
+      if (store.show?.id !== showId) return
+      for (const profile of promoted) {
+        if ((store.show?.fixtureProfiles ?? []).some((p) => p.id === profile.id)) store.deleteFixtureProfile(profile.id)
+      }
+      store.setOflProfiles(profiles)
+    })()
+    return () => { cancelled = true }
+  }, [show, oflProfiles])
   // Create the project the New Project dialog named (Guide p.26). The
   // creation itself lives in ProjectBar — it owns the save path and
   // snapshot — via the `openlights-create-project` event; this only makes

@@ -108,6 +108,9 @@ describe('dropping a stale bundle-seeded cache', () => {
     expect(shouldClearBundledOflCache({ source: 'import', fingerprint: null }, cached)).toBe(false)
     expect(shouldClearBundledOflCache({ source: 'upload', fingerprint: null }, cached)).toBe(false)
   })
+  it('keeps a library holding fixtures the user created (Jake, 20 Nov 2026, global customs)', () => {
+    expect(shouldClearBundledOflCache({ source: 'custom', fingerprint: null }, cached)).toBe(false)
+  })
   it('clears nothing when the cache is empty or missing', () => {
     expect(shouldClearBundledOflCache({ source: 'bundled', fingerprint: 'abc' }, [])).toBe(false)
     expect(shouldClearBundledOflCache(null, null)).toBe(false)

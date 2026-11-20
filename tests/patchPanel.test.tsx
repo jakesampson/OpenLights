@@ -17,7 +17,7 @@ import type { FixtureDef } from '../src/shared/types'
 // or React's commit path (window.HTMLIFrameElement) breaks. The stubbed
 // library is mutable per test: the zip-upload and duplicate flows return
 // the library the main process would have written.
-import { duplicateProfileAsCustom } from '../src/shared/oflFixtureFormat'
+import { duplicateProfileAsCustom, upsertCustomProfile, deleteCustomProfile } from '../src/shared/oflFixtureFormat'
 import { importOflFixture } from '../src/shared/oflFixtureFormat'
 import { readFileSync } from 'node:fs'
 import type { FixtureProfile } from '../src/shared/types'
@@ -32,6 +32,21 @@ let oflLibraryStub: FixtureProfile[] = []
     const copy = duplicateProfileAsCustom(original)
     oflLibraryStub = [...oflLibraryStub, copy]
     return Promise.resolve({ success: true, profiles: oflLibraryStub, profile: copy })
+  },
+  // The global-custom IPC, stubbed with the same shared helpers the main
+  // process uses, so the tests prove the editor's save routing, not a
+  // second implementation of it.
+  saveOflCustomProfile: (profile: FixtureProfile) => {
+    const result = upsertCustomProfile(oflLibraryStub, profile)
+    if ('error' in result) return Promise.resolve({ success: false, profiles: oflLibraryStub, error: result.error })
+    oflLibraryStub = result.profiles
+    return Promise.resolve({ success: true, profiles: oflLibraryStub, profile: result.profile })
+  },
+  deleteOflCustomProfile: (profileId: string) => {
+    const result = deleteCustomProfile(oflLibraryStub, profileId)
+    if ('error' in result) return Promise.resolve({ success: false, profiles: oflLibraryStub, error: result.error })
+    oflLibraryStub = result.profiles
+    return Promise.resolve({ success: true, profiles: oflLibraryStub })
   }
 }
 
@@ -149,7 +164,8 @@ describe('PatchPanel fixture library', () => {
     // Jake, 20 Nov 2026: Duplicate and + Custom are one New Fixture
     // button. Duplicating goes through the profile editor — the copy's
     // channels land in the form, ready to edit before saving — and the
-    // saved copy lives in this show, not in the global library.
+    // saved copy is GLOBAL: it lives in the library database, not in
+    // this show, so every show lists it under User Fixtures.
     const newFixtureButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'New Fixture')
     expect(newFixtureButton).toBeDefined()
     act(() => { newFixtureButton?.click() })
@@ -178,8 +194,12 @@ describe('PatchPanel fixture library', () => {
     const selectedModel = models?.querySelector('button[aria-pressed="true"]')
     expect(selectedModel?.textContent).toContain('FXarray Q5 copy')
     expect(container?.textContent).toContain('OFL zip uploads will never update it')
-    const saved = useShowStore.getState().show?.fixtureProfiles ?? []
-    expect(saved.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
+    // Global (Jake, 20 Nov 2026): the copy is in the library database,
+    // and the show holds no copy of it — opening another show lists it
+    // under User Fixtures there too.
+    expect(oflLibraryStub.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
+    expect(useShowStore.getState().show?.fixtureProfiles ?? []).toHaveLength(0)
+    expect(useShowStore.getState().oflProfiles.some((p) => p.custom && p.name === 'FXarray Q5 copy')).toBe(true)
   })
 
   it('duplicates a built-in generic as a custom fixture', async () => {
@@ -187,7 +207,7 @@ describe('PatchPanel fixture library', () => {
     // library uploaded every visible profile is a built-in, and the old
     // Duplicate was disabled for all of them — it looked clickable (no
     // dimmed styling) but did nothing. Built-ins now duplicate through
-    // New Fixture into this show as a custom copy, the same as an OFL
+    // New Fixture as a global custom copy, the same as an OFL
     // duplicate.
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
@@ -216,8 +236,10 @@ describe('PatchPanel fixture library', () => {
     expect(container?.textContent).toContain('Generic PAR (RGB) copy')
     expect(container?.textContent).toContain('Custom')
     expect(container?.textContent).toContain('OFL zip uploads will never update it')
-    const saved = useShowStore.getState().show?.fixtureProfiles ?? []
-    expect(saved.some((p) => p.name === 'Generic PAR (RGB) copy' && p.custom === true && p.id.startsWith('custom:'))).toBe(true)
+    // Global (Jake, 20 Nov 2026): the copy is in the library database
+    // under a fresh custom: id, and the show holds no copy of it.
+    expect(oflLibraryStub.some((p) => p.name === 'Generic PAR (RGB) copy' && p.custom === true && p.id.startsWith('custom:'))).toBe(true)
+    expect(useShowStore.getState().show?.fixtureProfiles ?? []).toHaveLength(0)
   })
 
   it("'New Fixture' from scratch creates a custom fixture listed under User Fixtures", async () => {
@@ -245,8 +267,11 @@ describe('PatchPanel fixture library', () => {
     const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
     expect(saveButton).toBeDefined()
     act(() => { saveButton?.click() })
-    const saved = useShowStore.getState().show?.fixtureProfiles ?? []
-    expect(saved.some((p) => p.name === 'New Fixture' && p.custom === true)).toBe(true)
+    await act(async () => {})
+    // Global (Jake, 20 Nov 2026): a from-scratch fixture lives in the
+    // library database, not in this show.
+    expect(oflLibraryStub.some((p) => p.name === 'New Fixture' && p.custom === true)).toBe(true)
+    expect(useShowStore.getState().show?.fixtureProfiles ?? []).toHaveLength(0)
     // The User Fixtures category is pinned first in the brands column.
     const brands = container?.querySelector('[aria-label="Fixture brands"]')
     const brandButtons = [...(brands?.querySelectorAll('button') ?? [])]
@@ -285,5 +310,69 @@ describe('PatchPanel fixture library', () => {
     expect(brandButtons[0]?.textContent).toBe('User Fixtures')
     act(() => { brandButtons[0]?.click() })
     expect(container?.textContent).toContain('No custom fixtures yet')
+  })
+
+  it('editing a global custom fixture updates the global record, not the show', async () => {
+    // Jake, 20 Nov 2026: customs are global — editing one updates the
+    // library record, and the show holds no copy of it.
+    const base = useShowStore.getState().show
+    if (!base) throw new Error('store has no default show')
+    const custom = duplicateProfileAsCustom(BUILTIN_PROFILES[0])
+    custom.name = 'My PAR'
+    oflLibraryStub = [custom]
+    act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
+    renderInRoot(<PatchPanel />)
+    await act(async () => {})
+    const editorButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Profile editor')
+    act(() => { editorButton?.click() })
+    await act(async () => {})
+    const select = container?.querySelector('[aria-label="Profile to edit"]') as HTMLSelectElement | null
+    const selectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
+    act(() => { selectSetter.call(select!, custom.id); select!.dispatchEvent(new window.Event('change', { bubbles: true })) })
+    const nameInput = container?.querySelector('[aria-label="Profile name"]') as HTMLInputElement | null
+    expect(nameInput?.value).toBe('My PAR')
+    const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => { inputSetter.call(nameInput!, 'My PAR Renamed'); nameInput!.dispatchEvent(new window.Event('input', { bubbles: true })) })
+    const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
+    act(() => { saveButton?.click() })
+    await act(async () => {})
+    expect(oflLibraryStub).toHaveLength(1)
+    expect(oflLibraryStub[0]?.id).toBe(custom.id)
+    expect(oflLibraryStub[0]?.name).toBe('My PAR Renamed')
+    expect(useShowStore.getState().show?.fixtureProfiles ?? []).toHaveLength(0)
+  })
+
+  it('editing an OFL base record saves a new global custom and leaves the base untouched', async () => {
+    // A base library record is never overwritten: editing it in place
+    // mints a fresh custom id for the edited copy, which is global.
+    const base = useShowStore.getState().show
+    if (!base) throw new Error('store has no default show')
+    const q5 = stubQ5()
+    oflLibraryStub = [q5]
+    act(() => { useShowStore.setState({ show: { ...base, fixtures: [], fixtureProfiles: [] } }) })
+    renderInRoot(<PatchPanel />)
+    await act(async () => {})
+    const editorButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Profile editor')
+    act(() => { editorButton?.click() })
+    await act(async () => {})
+    const select = container?.querySelector('[aria-label="Profile to edit"]') as HTMLSelectElement | null
+    const selectSetter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!
+    act(() => { selectSetter.call(select!, q5.id); select!.dispatchEvent(new window.Event('change', { bubbles: true })) })
+    const nameInput = container?.querySelector('[aria-label="Profile name"]') as HTMLInputElement | null
+    expect(nameInput?.value).toBe('FXarray Q5')
+    const inputSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => { inputSetter.call(nameInput!, 'FXarray Q5 Edited'); nameInput!.dispatchEvent(new window.Event('input', { bubbles: true })) })
+    const saveButton = [...(container?.querySelectorAll('button') ?? [])].find((button) => button.textContent === 'Save profile')
+    act(() => { saveButton?.click() })
+    await act(async () => {})
+    expect(oflLibraryStub).toHaveLength(2)
+    const original = oflLibraryStub.find((p) => p.id === q5.id)
+    expect(original?.name).toBe('FXarray Q5')
+    expect(original?.custom).not.toBe(true)
+    const edited = oflLibraryStub.find((p) => p.name === 'FXarray Q5 Edited')
+    expect(edited?.custom).toBe(true)
+    expect(edited?.id).not.toBe(q5.id)
+    expect(edited?.id.startsWith('custom:')).toBe(true)
+    expect(useShowStore.getState().show?.fixtureProfiles ?? []).toHaveLength(0)
   })
 })

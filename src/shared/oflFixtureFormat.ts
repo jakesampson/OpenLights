@@ -202,6 +202,24 @@ export function mergeOflLibraries(fresh: FixtureProfile[], cached: FixtureProfil
 }
 
 /**
+ * Mint a profile as the user's own fixture (Jake, 20 Nov 2026 — all
+ * duplicates and Build Your Own fixtures are GLOBAL: they live in the
+ * library database, not in one show): a fresh `custom:` id, tagged
+ * custom, and the OFL identity stripped — it is no longer an OFL
+ * record, so a zip upload never updates it and the heal never matches
+ * it as a base profile. The name is UNCHANGED: this is for saving an
+ * edited base record (or an imported JSON) under the name the user
+ * already gave it, not for duplicating.
+ */
+export function asNewCustom(profile: FixtureProfile): FixtureProfile {
+  const copy = structuredClone(profile)
+  copy.id = `custom:${slug(profile.name)}-${crypto.randomUUID().slice(0, 8)}`
+  copy.custom = true
+  delete copy.ofl
+  return copy
+}
+
+/**
  * Duplicate an OFL record into the user's own fixture (Jake, 20 Nov
  * 2026): a fresh `custom:` id, the name with " copy", tagged custom,
  * and the OFL identity stripped — it is no longer an OFL record, so a
@@ -210,12 +228,50 @@ export function mergeOflLibraries(fresh: FixtureProfile[], cached: FixtureProfil
  * duplicate never touches the original.
  */
 export function duplicateProfileAsCustom(profile: FixtureProfile): FixtureProfile {
-  const copy = structuredClone(profile)
-  copy.id = `custom:${slug(profile.name)}-${crypto.randomUUID().slice(0, 8)}`
+  const copy = asNewCustom(profile)
   copy.name = `${profile.name} copy`
-  copy.custom = true
-  delete copy.ofl
   return copy
+}
+
+/**
+ * Store a custom fixture in the global library (Jake, 20 Nov 2026):
+ * insert it, or replace the custom record with the same id when the
+ * user edits it. A record with the same id that is NOT custom is a
+ * base library record — it is never overwritten; the caller must mint
+ * a fresh id (asNewCustom) instead. The saved copy is forced custom
+ * with its OFL identity stripped, whatever the caller passed in.
+ * Returns `{ profiles, profile }` on success, `{ error }` on refusal.
+ */
+export function upsertCustomProfile(library: FixtureProfile[], profile: FixtureProfile): { profiles: FixtureProfile[]; profile: FixtureProfile } | { error: string } {
+  const saved = structuredClone(profile)
+  saved.custom = true
+  delete saved.ofl
+  const clash = library.find((p) => p.id === saved.id)
+  if (clash && !clash.custom) return { error: `A library fixture already uses the id ${saved.id} — save it as a new custom fixture instead` }
+  if (clash) return { profiles: library.map((p) => (p.id === saved.id ? saved : p)), profile: saved }
+  return { profiles: [...library, saved], profile: saved }
+}
+
+/**
+ * Remove a custom fixture from the global library. A base library
+ * record is never deleted this way, and an unknown id is an error.
+ */
+export function deleteCustomProfile(library: FixtureProfile[], profileId: string): { profiles: FixtureProfile[] } | { error: string } {
+  const existing = library.find((p) => p.id === profileId)
+  if (!existing) return { error: 'Fixture not found in the library' }
+  if (!existing.custom) return { error: 'Only a custom fixture can be deleted from the library' }
+  return { profiles: library.filter((p) => p.id !== profileId) }
+}
+
+/**
+ * Whether a library meta source means the cache is the user's own
+ * library and must stand as-is: a zip they uploaded ('upload'), a
+ * folder they imported ('import'), or a library holding fixtures they
+ * created ('custom' — Jake, 20 Nov 2026, global customs). Anything
+ * else ('bundled', 'none', or no meta) is shipped/stale data.
+ */
+export function preservesUserLibrary(source: string | undefined): boolean {
+  return source === 'import' || source === 'upload' || source === 'custom'
 }
 
 /**
@@ -230,7 +286,7 @@ export function duplicateProfileAsCustom(profile: FixtureProfile): FixtureProfil
 export function shouldClearBundledOflCache(meta: { source: string } | null, cached: FixtureProfile[] | null): boolean {
   if (!cached || !cached.length) return false
   if (!meta) return true
-  return meta.source !== 'import' && meta.source !== 'upload'
+  return !preservesUserLibrary(meta.source)
 }
 
 export function importOflFixture(value: string | unknown, options: OflImportOptions = {}): FixtureProfile {
