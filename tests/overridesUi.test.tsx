@@ -175,6 +175,44 @@ describe('Preview override dots and labels', () => {
     expect(useShowStore.getState().showOverrideLabels).toBe(true)
     expect(container?.querySelector('[data-override-label="fx1"]')).not.toBeNull()
   })
+
+  // Jake, 22 Nov 2026: clicking a preset in the palette shows its saved
+  // values as labels on the fixtures in the Preview — LightKey's
+  // "Dimmer Shutter" callouts. Same white callout as the override
+  // labels, one row per saved property, but no ✕ (nothing to clear).
+  it('shows the selected preset saved properties as callouts on its fixtures only', async () => {
+    await renderPreview()
+    act(() => {
+      useShowStore.setState({
+        presets: [{ id: 'p1', name: '28%', category: 'intensity', fixtureValues: { fx1: { intensity: 71 } } }],
+        previewPresetId: 'p1'
+      })
+    })
+    const label = container?.querySelector('[data-preset-label="fx1"]')
+    expect(label).not.toBeNull()
+    expect(label?.textContent).toContain('Dimmer')
+    expect(container?.querySelector('[data-preset-label="fx2"]')).toBeNull()
+    // Hovering the row shows no ✕ — a preset label has nothing to clear.
+    const row = [...(label?.querySelectorAll('g') ?? [])].find((g) => g.textContent === 'Dimmer')
+    if (!row) throw new Error('no Dimmer row')
+    act(() => { row.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
+    expect(container?.querySelector('[aria-label^="Clear"]')).toBeNull()
+  })
+
+  it('shows both saved properties for a colour+dimmer preset, and clears when the selection moves away', async () => {
+    await renderPreview()
+    act(() => {
+      useShowStore.setState({
+        presets: [{ id: 'p1', name: 'Orange', category: 'color', fixtureValues: { fx1: { red: 255, green: 165, blue: 0, intensity: 200 } } }],
+        previewPresetId: 'p1'
+      })
+    })
+    const label = container?.querySelector('[data-preset-label="fx1"]')
+    expect(label?.textContent).toContain('Dimmer')
+    expect(label?.textContent).toContain('Color')
+    act(() => { useShowStore.setState({ previewPresetId: null }) })
+    expect(container?.querySelector('[data-preset-label="fx1"]')).toBeNull()
+  })
 })
 
 describe('Overrides menu commands', () => {

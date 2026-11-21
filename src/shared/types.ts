@@ -291,7 +291,8 @@ export interface EffectDef {
   interval?: number
   /** Sparkle lifetime in seconds (Guide p.159). */
   lifetime?: number
-  /** Fire speed (Guide p.160). */
+  /** Fire speed (Guide p.160): a multiplier, 1 = normal speed. The
+   *  editor shows it as LightKey's percentage (50% = 1). */
   fireSpeed?: number
   /** Fire sparking: how fast a flame cools down (Guide p.160). */
   sparking?: number
@@ -301,16 +302,20 @@ export interface EffectDef {
   jellyfishCount?: number
   /** Jellyfish size (Guide p.160). */
   jellyfishSize?: number
-  /** Jellyfish speed (Guide p.160): how fast the jellyfish move. Stored
-   *  separately from fireSpeed, which the runtime used to share for all
-   *  three (fire/jellyfish/snakes) — older effects fall back to it. */
+  /** Jellyfish speed (Guide p.160): how fast the jellyfish move. A
+   *  multiplier, 1 = normal speed (shown as 50% in the editor, as for
+   *  fireSpeed). Stored separately from fireSpeed, which the runtime
+   *  used to share for all three (fire/jellyfish/snakes) — older
+   *  effects fall back to it. */
   jellyfishSpeed?: number
   /** Snakes length range (Guide p.160): [min, max] pixels. */
   lengthRange?: [number, number]
   /** Snakes distance range (Guide p.160): [min, max] pixels. */
   distanceRange?: [number, number]
-  /** Snakes speed (Guide p.160): how fast the snakes creep. Falls back to
-   *  fireSpeed on effects stored before this field existed. */
+  /** Snakes speed (Guide p.160): how fast the snakes creep. A
+   *  multiplier, 1 = normal speed (shown as 50% in the editor, as for
+   *  fireSpeed). Falls back to fireSpeed on effects stored before this
+   *  field existed. */
   snakeSpeed?: number
   /** Fixed duration in milliseconds (Guide p.150). Absent = derived from speed. */
   durationMs?: number

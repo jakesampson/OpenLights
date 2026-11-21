@@ -54,6 +54,7 @@ function setShow() {
       showOverrideLabels: false,
       editingEffectId: null,
       editingEffectTemplateId: null,
+      editingLiveEffectId: null,
       effectChooserAttribute: null
     })
   })
@@ -92,6 +93,7 @@ function setShowWithChannels(attrs: string[]) {
       showOverrideLabels: false,
       editingEffectId: null,
       editingEffectTemplateId: null,
+      editingLiveEffectId: null,
       effectChooserAttribute: null
     })
   })
@@ -586,19 +588,119 @@ describe('effect editor', () => {
     expect(container?.textContent).not.toContain('Rename')
   })
 
-  it('shows the full parameter set for each pattern', () => {
-    const openPattern = (pattern: PatternEffect) => {
+  it('shows LightKey\u2019s parameter set for each pattern (Guide pp.154-160)', () => {
+    // Every pattern's set is the guide's, cross-checked against Jake's
+    // LightKey screenshots where one exists (Chase 9.31.29 pm, Scanner
+    // 9.34.02 pm, Meteor 9.34.46 pm, Fire 5.35.53 am — all four match
+    // the guide). Nothing extra: a param LightKey does not show for
+    // that pattern must not appear, or the panel scrolls.
+    const openPattern = (pattern: PatternEffect, patch: Partial<EffectDef> = {}) => {
       setShow()
       act(() => {
-        useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-pattern', name: 'Pattern', pattern })
+        useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-pattern', name: 'Pattern', pattern, ...patch })
         useShowStore.setState({ editingEffectId: 'e-pattern' })
       })
       renderInRoot(<DesignTab />)
     }
-    openPattern('sparkle')
-    for (const label of ['Interval', 'Lifetime', 'Fringe', 'Noise']) {
-      expect(container?.querySelector(`[aria-label="${label}"]`)).not.toBeNull()
+    const has = (label: string) => container?.querySelector(`[aria-label="${label}"]`) !== null
+    const cases: Array<{ pattern: PatternEffect; present: string[]; absent: string[]; palette?: boolean }> = [
+      { pattern: 'chase', present: ['Steps p. Sample', 'Phase', 'Time Offset', 'Delay', 'Smoothness'], absent: ['Length', 'Speed', 'Trail'] },
+      { pattern: 'scanner', present: ['Length', 'Overshoot', 'Phase', 'Fringe', 'Noise'], absent: ['Steps p. Sample', 'Speed'] },
+      { pattern: 'yo-yo', present: ['Phase', 'Center', 'Steepness'], absent: ['Length', 'Speed'] },
+      { pattern: 'fill', present: [], absent: ['Phase', 'Length', 'Speed', 'Fringe'] },
+      { pattern: 'rain', present: ['Length', 'Distance', 'Phase', 'Fringe', 'Noise'], absent: ['Steps p. Sample', 'Speed'] },
+      { pattern: 'meteor', present: ['Length', 'Distance', 'Phase', 'Trail'], absent: ['Noise', 'Speed'], palette: true },
+      { pattern: 'sparkle', present: ['Interval', 'Lifetime', 'Fringe', 'Noise'], absent: ['Phase', 'Length'], palette: true },
+      { pattern: 'fire', present: ['Speed', 'Sparking', 'Cooling'], absent: ['Phase', 'Length'] },
+      { pattern: 'jellyfish', present: ['Count', 'Size', 'Speed', 'Fringe'], absent: ['Phase', 'Length'], palette: true },
+      { pattern: 'snakes', present: ['Speed', 'Fringe', 'Noise', 'Length min', 'Length max', 'Distance min', 'Distance max'], absent: ['Phase', 'Length', 'Distance'] }
+    ]
+    for (const { pattern, present, absent, palette } of cases) {
+      openPattern(pattern)
+      for (const label of present) expect(has(label), `${pattern} should show ${label}`).toBe(true)
+      for (const label of absent) expect(has(label), `${pattern} should not show ${label}`).toBe(false)
+      if (palette) expect(container?.textContent).toContain('Use samples as palette')
+      else expect(container?.textContent ?? '').not.toContain('Use samples as palette')
+      act(() => { rootNode?.unmount() })
+      container?.remove()
+      container = undefined
+      rootNode = undefined
     }
+  })
+
+  it('Fire, Jellyfish and Snakes Speed show as LightKey percentages (50% = normal speed)', () => {
+    // Jake's Fire screenshot (5.35.53 am): Speed 50%, Sparking 50%,
+    // Cooling 50%. The runtime stores a multiplier (1 = normal), so
+    // the row displays percent and writes back percent / 50.
+    const openPattern = (pattern: PatternEffect, patch: Partial<EffectDef> = {}) => {
+      setShow()
+      act(() => {
+        useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-pattern', name: 'Pattern', pattern, ...patch })
+        useShowStore.setState({ editingEffectId: 'e-pattern' })
+      })
+      renderInRoot(<DesignTab />)
+    }
+    const speedInput = () => container?.querySelector('[aria-label="Speed"]') as HTMLInputElement | null
+    openPattern('fire')
+    expect(speedInput()?.value).toBe('50')
+    act(() => { setInputValue(speedInput()!, '100') })
+    expect(useShowStore.getState().effects[0].fireSpeed).toBe(2)
+    act(() => { rootNode?.unmount() })
+    container?.remove()
+    container = undefined
+    rootNode = undefined
+    openPattern('jellyfish', { jellyfishSpeed: 0.5 })
+    expect(speedInput()?.value).toBe('25')
+    act(() => { rootNode?.unmount() })
+    container?.remove()
+    container = undefined
+    rootNode = undefined
+    openPattern('snakes', { snakeSpeed: 2 })
+    expect(speedInput()?.value).toBe('100')
+  })
+
+  it('manual-timing parameters hide under beat-controlled timing', () => {
+    // Guide pp.154-158 labels Phase, Time Offset and Delay "Manual
+    // timing". Jake's Meteor screenshot (9.34.46 pm, beat timing ×4)
+    // shows Length/Distance/Trail/"Use samples as palette" with no
+    // Phase row, while the fixed-duration Chase screenshot (9.31.29
+    // pm) shows it. The stored values are kept when hidden.
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[aria-label="Phase"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Time Offset"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Delay"]')).not.toBeNull()
+    // A stored phase survives hiding: switching timing modes never
+    // loses it.
+    act(() => { useShowStore.getState().updateEffect('e-chase', { phase: 25 }) })
+    const beat = container?.querySelector('[aria-label="Beat-controlled"]') as HTMLButtonElement | null
+    if (!beat) throw new Error('no beat toggle')
+    act(() => { beat.click() })
+    expect(container?.querySelector('[aria-label="Phase"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Time Offset"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Delay"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Steps p. Sample"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Smoothness"]')).not.toBeNull()
+    expect(useShowStore.getState().effects[0].phase).toBe(25)
+    const fixed = container?.querySelector('[aria-label="Fixed duration"]') as HTMLButtonElement | null
+    if (!fixed) throw new Error('no fixed toggle')
+    act(() => { fixed.click() })
+    expect(container?.querySelector('[aria-label="Phase"]')).not.toBeNull()
+    expect((container?.querySelector('[aria-label="Phase"]') as HTMLInputElement | null)?.value).toBe('25')
+    // A meteor under beat timing shows its set with no Phase row.
+    act(() => {
+      useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-meteor', name: 'Meteor', pattern: 'meteor', timingMode: 'beat' })
+      useShowStore.setState({ editingEffectId: 'e-meteor' })
+    })
+    expect(container?.querySelector('[aria-label="Phase"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Length"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Distance"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Trail"]')).not.toBeNull()
+    expect(container?.textContent).toContain('Use samples as palette')
   })
 
   it('shows Speed for jellyfish and snakes, and the length ranges for snakes', () => {
@@ -1090,7 +1192,7 @@ describe('preset palette hover-Edit and right-click Edit (Jake, Nov 2026)', () =
     expect(useShowStore.getState().editingPresetId).toBe('p1')
   })
 
-  it('shows a yellow Edit button on hover over an effect row, and Edit opens the effect editor', () => {
+  it('shows a yellow Edit button on hover over an effect row, and Edit opens the effect editor with a draft session', () => {
     openPalette()
     const row = container?.querySelector('[data-palette-row="effect:e-chase"]')
     expect(row).not.toBeNull()
@@ -1100,9 +1202,10 @@ describe('preset palette hover-Edit and right-click Edit (Jake, Nov 2026)', () =
     expect(edit).not.toBeNull()
     act(() => { edit!.click() })
     expect(useShowStore.getState().editingEffectId).toBe('e-chase')
+    expect(useShowStore.getState().editingLiveEffectId).toBe('e-chase')
   })
 
-  it('right-click Edit on an effect row opens the effect editor', () => {
+  it('right-click Edit on an effect row opens the effect editor with a draft session', () => {
     openPalette()
     const row = container?.querySelector('[data-palette-row="effect:e-chase"]')
     const button = row?.querySelector('button') as HTMLButtonElement | null
@@ -1114,5 +1217,207 @@ describe('preset palette hover-Edit and right-click Edit (Jake, Nov 2026)', () =
     expect(editItem).not.toBeUndefined()
     act(() => { editItem!.click() })
     expect(useShowStore.getState().editingEffectId).toBe('e-chase')
+    expect(useShowStore.getState().editingLiveEffectId).toBe('e-chase')
+  })
+})
+
+describe('one editor at a time (Jake, 22 Nov 2026)', () => {
+  function seedPreset() {
+    act(() => {
+      useShowStore.setState({
+        presets: [{ id: 'p1', name: 'Warm Wash', category: 'color', fixtureValues: { fx1: { red: 255 } } }]
+      })
+    })
+  }
+
+  it('starting a preset edit closes the effect editor', () => {
+    setShow()
+    seedPreset()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    act(() => { useShowStore.getState().startEditingPreset('p1') })
+    const state = useShowStore.getState()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.editingPresetId).toBe('p1')
+  })
+
+  it('starting an effect edit closes a preset edit, keeping its edits (save semantics)', () => {
+    setShow()
+    seedPreset()
+    act(() => { useShowStore.getState().startEditingPreset('p1') })
+    act(() => { useShowStore.getState().updateEditingPresetValues({ red: 128 }) })
+    expect(useShowStore.getState().presets.find((p) => p.id === 'p1')?.fixtureValues.fx1.red).toBe(128)
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.getState().setEditingEffectId('e-chase')
+    })
+    const state = useShowStore.getState()
+    expect(state.editingPresetId).toBeNull()
+    expect(state.editingEffectId).toBe('e-chase')
+    // Saved, not cancelled: the edit survives the switch.
+    expect(state.presets.find((p) => p.id === 'p1')?.fixtureValues.fx1.red).toBe(128)
+  })
+
+  it('starting a cue ad-hoc edit closes the effect editor', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    act(() => { useShowStore.getState().startEditingCueAdHoc('c1') })
+    const state = useShowStore.getState()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.editingCueAdHocId).toBe('c1')
+  })
+
+  it('starting an effect edit closes a cue ad-hoc edit, keeping its edits (save semantics)', () => {
+    setShow()
+    act(() => { useShowStore.getState().startEditingCueAdHoc('c1') })
+    act(() => {
+      useShowStore.getState().updateCue('c1', { fixtureValues: { fx1: { intensity: 100, red: 10, green: 20, blue: 30 } } })
+    })
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.getState().setEditingEffectId('e-chase')
+    })
+    const state = useShowStore.getState()
+    expect(state.editingCueAdHocId).toBeNull()
+    expect(state.editingEffectId).toBe('e-chase')
+    expect(state.cues.find((c) => c.id === 'c1')?.fixtureValues.fx1.intensity).toBe(100)
+  })
+
+  it('closing the editor does not touch an open preset edit', () => {
+    // Only *opening* an effect closes the other editors; closing the
+    // editor (id null) must not save or discard anything elsewhere.
+    setShow()
+    seedPreset()
+    act(() => { useShowStore.getState().startEditingPreset('p1') })
+    act(() => { useShowStore.getState().setEditingEffectId(null) })
+    expect(useShowStore.getState().editingPresetId).toBe('p1')
+  })
+})
+
+describe('live-effect draft sessions from the palette (Jake, 22 Nov 2026)', () => {
+  function fireEffect(): EffectDef {
+    return {
+      ...chaseEffect(),
+      id: 'e-fire',
+      name: 'Fire',
+      attribute: 'color',
+      pattern: 'fire',
+      samples: [
+        { id: 'sample-bg', color: '#000000' },
+        { id: 'sample-1', color: '#ff0000' },
+        { id: 'sample-2', color: '#ff8000' },
+        { id: 'sample-3', color: '#ffff00' },
+        { id: 'sample-4', color: '#ffffff' }
+      ],
+      fireSpeed: 1,
+      sparking: 50,
+      cooling: 50
+    }
+  }
+
+  it('Edit on a palette effect opens a draft session for that effect', () => {
+    setShow()
+    act(() => { useShowStore.getState().addEffect(fireEffect()) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    const state = useShowStore.getState()
+    expect(state.editingLiveEffectId).toBe('e-fire')
+    expect(state.editingEffectId).toBe('e-fire')
+    expect(state.editingEffectTemplateId).toBeNull()
+  })
+
+  it('Update keeps the edits and exits the editor', () => {
+    setShow()
+    act(() => { useShowStore.getState().addEffect(fireEffect()) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => { useShowStore.getState().updateEffect('e-fire', { fireSpeed: 2, sparking: 80 }) })
+    act(() => { useShowStore.getState().saveEditingLiveEffect() })
+    const state = useShowStore.getState()
+    const effect = state.effects.find((e) => e.id === 'e-fire')
+    expect(effect?.fireSpeed).toBe(2)
+    expect(effect?.sparking).toBe(80)
+    expect(state.editingLiveEffectId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
+  })
+
+  it('Cancel restores the snapshot, including a pattern switch', () => {
+    setShow()
+    act(() => { useShowStore.getState().addEffect(fireEffect()) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => {
+      useShowStore.getState().updateEffect('e-fire', { pattern: 'snakes', lengthRange: [2, 5], snakeSpeed: 1.5 })
+    })
+    expect(useShowStore.getState().effects.find((e) => e.id === 'e-fire')?.pattern).toBe('snakes')
+    act(() => { useShowStore.getState().cancelEditingLiveEffect() })
+    const state = useShowStore.getState()
+    const effect = state.effects.find((e) => e.id === 'e-fire')
+    expect(effect?.pattern).toBe('fire')
+    expect(effect?.fireSpeed).toBe(1)
+    // A merge restore would leave lengthRange behind; the full
+    // replace removes it.
+    expect(effect?.lengthRange).toBeUndefined()
+    expect(effect?.snakeSpeed).toBeUndefined()
+    expect(state.editingLiveEffectId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
+  })
+
+  it('switching to another live effect saves the first session', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(fireEffect())
+      useShowStore.getState().addEffect(chaseEffect())
+    })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => { useShowStore.getState().updateEffect('e-fire', { fireSpeed: 2 }) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-chase') })
+    const state = useShowStore.getState()
+    expect(state.effects.find((e) => e.id === 'e-fire')?.fireSpeed).toBe(2)
+    expect(state.editingLiveEffectId).toBe('e-chase')
+    expect(state.editingEffectId).toBe('e-chase')
+  })
+
+  it('leaving the editor cancels the live session (Cancel semantics)', () => {
+    setShow()
+    act(() => { useShowStore.getState().addEffect(fireEffect()) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => { useShowStore.getState().updateEffect('e-fire', { fireSpeed: 2 }) })
+    act(() => { useShowStore.getState().exitEffectEditor() })
+    const state = useShowStore.getState()
+    expect(state.effects.find((e) => e.id === 'e-fire')?.fireSpeed).toBe(1)
+    expect(state.editingLiveEffectId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
+  })
+
+  it('starting a preset edit cancels the live session', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(fireEffect())
+      useShowStore.setState({
+        presets: [{ id: 'p1', name: 'Warm Wash', category: 'color', fixtureValues: { fx1: { red: 255 } } }]
+      })
+    })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => { useShowStore.getState().updateEffect('e-fire', { fireSpeed: 2 }) })
+    act(() => { useShowStore.getState().startEditingPreset('p1') })
+    const state = useShowStore.getState()
+    expect(state.effects.find((e) => e.id === 'e-fire')?.fireSpeed).toBe(1)
+    expect(state.editingLiveEffectId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.editingPresetId).toBe('p1')
+  })
+
+  it('deleting the edited effect ends the session without restoring', () => {
+    setShow()
+    act(() => { useShowStore.getState().addEffect(fireEffect()) })
+    act(() => { useShowStore.getState().startEditingLiveEffect('e-fire') })
+    act(() => { useShowStore.getState().removeEffect('e-fire') })
+    const state = useShowStore.getState()
+    expect(state.effects).toHaveLength(0)
+    expect(state.editingLiveEffectId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
   })
 })

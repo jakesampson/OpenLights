@@ -1224,29 +1224,47 @@ interface PatternParam {
   percent?: boolean
   /** Seconds (Interval, Lifetime) — shown with an "s" suffix. */
   unit?: 's'
+  /** Manual-timing only (Guide pp.154-158 labels Phase, Time Offset and
+   *  Delay "Manual timing") — hidden under beat-controlled timing.
+   *  Jake's Meteor screenshot (9.34.46 pm, beat timing ×4) shows no
+   *  Phase row, while the Chase screenshot (9.31.29 pm, fixed duration)
+   *  shows it; the stored values are kept either way. */
+  manual?: boolean
+  /** LightKey shows Speed as a percentage (Fire screenshot, 5.35.53 am:
+   *  Speed 50%); the runtime stores a multiplier where 1 = normal
+   *  speed, so 50% maps to 1 and the displayed range 0–100% maps to
+   *  0–2. Applies to Fire, Jellyfish and Snakes Speed alike. */
+  speed?: boolean
 }
 
 /** Per-pattern parameters (Guide ch.10, pp.154-160) with LightKey's own
  *  labels from Jake's screenshots ("Steps p. Sample", "Phase",
  *  "Time Offset", …). Percent parameters render as a row whose fill is
- *  proportional to the value (screenshot 9.34.46 pm: Trail 60%). */
+ *  proportional to the value (screenshot 9.34.46 pm: Trail 60%).
+ *  The sets below are the guide's, cross-checked against the
+ *  screenshots: Chase (9.31.29 pm), Scanner (9.34.02 pm), Meteor
+ *  (9.34.46 pm) and Fire (5.35.53 am) all match the guide exactly —
+ *  no pattern's set needed a screenshot correction. Yo-yo, Fill, Rain,
+ *  Sparkle, Jellyfish and Snakes have no LightKey screenshot; their
+ *  sets are the guide's alone (see the per-pattern notes in the
+ *  report). */
 const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
   chase: [
     { key: 'stepsPerValue', label: 'Steps p. Sample', min: 1, max: 64, step: 1, placeholder: '1' },
-    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
-    { key: 'timeOffset', label: 'Time Offset', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
-    { key: 'delay', label: 'Delay', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
+    { key: 'timeOffset', label: 'Time Offset', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
+    { key: 'delay', label: 'Delay', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
     { key: 'smoothness', label: 'Smoothness', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   scanner: [
     { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
     { key: 'overshoot', label: 'Overshoot', min: 0, max: 64, step: 1, placeholder: '0' },
-    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
     { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
     { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   'yo-yo': [
-    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
     { key: 'center', label: 'Center', min: 0, max: 100, step: 1, placeholder: '50', percent: true },
     { key: 'steepness', label: 'Steepness', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
@@ -1254,14 +1272,14 @@ const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
   rain: [
     { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
     { key: 'distance', label: 'Distance', min: 1, max: 64, step: 1, placeholder: '2' },
-    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
     { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
     { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   meteor: [
     { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
     { key: 'distance', label: 'Distance', min: 1, max: 64, step: 1, placeholder: '6' },
-    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true, manual: true },
     { key: 'trail', label: 'Trail', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   sparkle: [
@@ -1271,18 +1289,18 @@ const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
     { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   fire: [
-    { key: 'fireSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
+    { key: 'fireSpeed', label: 'Speed', min: 0, max: 100, step: 1, placeholder: '50', percent: true, speed: true },
     { key: 'sparking', label: 'Sparking', min: 0, max: 100, step: 1, placeholder: '50', percent: true },
     { key: 'cooling', label: 'Cooling', min: 0, max: 100, step: 1, placeholder: '50', percent: true }
   ],
   jellyfish: [
     { key: 'jellyfishCount', label: 'Count', min: 1, max: 16, step: 1, placeholder: '1' },
     { key: 'jellyfishSize', label: 'Size', min: 1, max: 100, step: 1, placeholder: '50', percent: true },
-    { key: 'jellyfishSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
+    { key: 'jellyfishSpeed', label: 'Speed', min: 0, max: 100, step: 1, placeholder: '50', percent: true, speed: true },
     { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   snakes: [
-    { key: 'snakeSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
+    { key: 'snakeSpeed', label: 'Speed', min: 0, max: 100, step: 1, placeholder: '50', percent: true, speed: true },
     { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
     { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ]
@@ -1299,21 +1317,25 @@ function ParamRow({ param, value, onChange }: {
   value: number | undefined
   onChange: (value: number) => void
 }) {
-  const current = value ?? Number(param.placeholder)
+  // A Speed row shows LightKey's percentage while the stored value is
+  // the runtime's multiplier (50% = 1 = normal speed — see
+  // PatternParam.speed). Everything else passes through unchanged.
+  const toDisplay = (stored: number | undefined) => param.speed ? (stored ?? 1) * 50 : stored
+  const toStored = (display: number) => param.speed ? display / 50 : display
+  const displayValue = toDisplay(value)
+  const current = displayValue ?? Number(param.placeholder)
   const clamped = Math.max(param.min, Math.min(param.max, Number.isFinite(current) ? current : Number(param.placeholder)))
+  const commit = (display: number) => { if (Number.isFinite(display)) onChange(toStored(display)) }
   const input = (
     <input
       type="number"
       aria-label={param.label}
-      value={value ?? ''}
+      value={displayValue ?? ''}
       min={param.min}
       max={param.max}
       step={param.step}
       placeholder={param.placeholder}
-      onChange={(event) => {
-        const next = Number(event.target.value)
-        if (Number.isFinite(next)) onChange(next)
-      }}
+      onChange={(event) => commit(Number(event.target.value))}
       className="relative w-14 rounded bg-transparent text-right"
     />
   )
@@ -1321,8 +1343,8 @@ function ParamRow({ param, value, onChange }: {
     <StepperButtons
       upLabel={`Increase ${param.label}`}
       downLabel={`Decrease ${param.label}`}
-      onUp={() => onChange(Math.min(param.max, clamped + param.step))}
-      onDown={() => onChange(Math.max(param.min, clamped - param.step))}
+      onUp={() => commit(Math.min(param.max, clamped + param.step))}
+      onDown={() => commit(Math.max(param.min, clamped - param.step))}
     />
   )
   if (!param.percent) {
@@ -1348,6 +1370,41 @@ function ParamRow({ param, value, onChange }: {
   )
 }
 
+/** One min/max range parameter (Snakes' Length / Distance, Guide p.160)
+ *  as a single row: the label plus two boxed numbers joined by an en
+ *  dash. The plain rows' steppers do not fit two values in the 224px
+ *  column; the number inputs are still directly editable (and their
+ *  native arrow keys step by 1). Labels keep the "Length min" /
+ *  "Length max" form, so the param set is unchanged. */
+function RangeParamRow({ label, min, max, minValue, maxValue, onMin, onMax }: {
+  label: string; min: number; max: number
+  minValue: number; maxValue: number
+  onMin: (value: number) => void; onMax: (value: number) => void
+}) {
+  const input = (ariaLabel: string, value: number, onChange: (value: number) => void) => (
+    <input
+      type="number"
+      aria-label={ariaLabel}
+      value={value}
+      min={min}
+      max={max}
+      step={1}
+      onChange={(event) => { const next = Number(event.target.value); if (Number.isFinite(next)) onChange(Math.max(min, Math.min(max, next))) }}
+      className="relative w-12 rounded bg-transparent text-right"
+    />
+  )
+  return (
+    <div className="flex items-center justify-between gap-2 px-1 py-1 text-xs">
+      <span className="min-w-0 flex-1 truncate text-dim">{label}</span>
+      <span className="flex shrink-0 items-center gap-0.5 rounded bg-bg px-1 py-0.5">
+        {input(`${label} min`, minValue, onMin)}
+        <span className="text-dim">–</span>
+        {input(`${label} max`, maxValue, onMax)}
+      </span>
+    </div>
+  )
+}
+
 /** The pattern picker (Jake's screenshots, 9.31.29 / 9.34.02 pm): a
  *  button showing the current pattern, opening a menu of the ten
  *  patterns with their icons. */
@@ -1360,7 +1417,7 @@ function PatternPicker({ pattern, onChange }: { pattern: PatternEffect; onChange
         aria-label="Pattern"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-sm"
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-1.5 text-sm"
       >
         <PatternGlyph pattern={pattern} />
         {PATTERN_LABELS[pattern]}
@@ -1390,10 +1447,19 @@ function PatternPicker({ pattern, onChange }: { pattern: PatternEffect; onChange
  *  per-pattern parameters (Guide pp.154-160). */
 function PatternParams({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const pattern = effect.pattern ?? 'chase'
+  // Manual-timing parameters (Phase, Time Offset, Delay) only show
+  // under fixed-duration timing (Guide p.150: fixed duration vs
+  // beat-controlled; pp.154-158 label them "Manual timing"). Jake's
+  // Meteor screenshot (9.34.46 pm, beat timing ×4) shows no Phase
+  // row, while the fixed-duration Chase screenshot (9.31.29 pm) shows
+  // it. The stored values are kept when hidden, so switching timing
+  // modes never loses them.
+  const mode = effect.timingMode ?? (effect.syncToBpm ? 'beat' : 'fixed')
+  const params = PATTERN_PARAMS[pattern].filter((param) => !param.manual || mode === 'fixed')
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1">
       <PatternPicker pattern={pattern} onChange={(next) => update({ pattern: next })} />
-      {PATTERN_PARAMS[pattern].map((param) => (
+      {params.map((param) => (
         <ParamRow
           key={param.key}
           param={param}
@@ -1401,32 +1467,30 @@ function PatternParams({ effect, update }: { effect: EffectDef; update: (patch: 
           onChange={(value) => update({ [param.key]: value } as Partial<EffectDef>)}
         />
       ))}
+      {/* Snakes' Length and Distance are each ONE guide parameter with
+          a min/max range (Guide p.160), so each renders as one row with
+          two numbers — four separate rows made the panel scroll (the
+          tallest panel must fit without scrolling, Jake 22 Nov 2026).
+          The inputs keep the "Length min" / "Length max" labels the
+          plain rows used, so the param set is unchanged. */}
       {pattern === 'snakes' && (
         <>
-          <ParamRow
-            param={{ key: 'lengthRange', label: 'Length min', min: 1, max: 64, step: 1, placeholder: '1' }}
-            value={effect.lengthRange?.[0] ?? 1}
-            onChange={(value) => update({ lengthRange: [value, effect.lengthRange?.[1] ?? 4] })}
+          <RangeParamRow
+            label="Length" min={1} max={64}
+            minValue={effect.lengthRange?.[0] ?? 1} maxValue={effect.lengthRange?.[1] ?? 4}
+            onMin={(value) => update({ lengthRange: [value, effect.lengthRange?.[1] ?? 4] })}
+            onMax={(value) => update({ lengthRange: [effect.lengthRange?.[0] ?? 1, value] })}
           />
-          <ParamRow
-            param={{ key: 'lengthRange', label: 'Length max', min: 1, max: 64, step: 1, placeholder: '4' }}
-            value={effect.lengthRange?.[1] ?? 4}
-            onChange={(value) => update({ lengthRange: [effect.lengthRange?.[0] ?? 1, value] })}
-          />
-          <ParamRow
-            param={{ key: 'distanceRange', label: 'Distance min', min: 1, max: 64, step: 1, placeholder: '1' }}
-            value={effect.distanceRange?.[0] ?? 1}
-            onChange={(value) => update({ distanceRange: [value, effect.distanceRange?.[1] ?? 4] })}
-          />
-          <ParamRow
-            param={{ key: 'distanceRange', label: 'Distance max', min: 1, max: 64, step: 1, placeholder: '4' }}
-            value={effect.distanceRange?.[1] ?? 4}
-            onChange={(value) => update({ distanceRange: [effect.distanceRange?.[0] ?? 1, value] })}
+          <RangeParamRow
+            label="Distance" min={1} max={64}
+            minValue={effect.distanceRange?.[0] ?? 1} maxValue={effect.distanceRange?.[1] ?? 4}
+            onMin={(value) => update({ distanceRange: [value, effect.distanceRange?.[1] ?? 4] })}
+            onMax={(value) => update({ distanceRange: [effect.distanceRange?.[0] ?? 1, value] })}
           />
         </>
       )}
       {(pattern === 'meteor' || pattern === 'sparkle' || pattern === 'jellyfish') && (
-        <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1.5 text-xs">
+        <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1 text-xs">
           <input
             type="checkbox"
             checked={effect.usePalette ?? false}

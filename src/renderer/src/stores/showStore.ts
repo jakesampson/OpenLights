@@ -17,6 +17,7 @@ import {
 import { addOverridesTargetIds } from '../lib/liveOverrideTargets'
 import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
+import { autoPresetName, derivePresetCategory, uniquePresetName } from '../lib/presetAutoName'
 import { sequenceOrder } from '../lib/sequenceClock'
 import type { PresetGroup } from '@shared/types'
 import type { SequenceDef, SequenceStep } from '@shared/types'
@@ -234,6 +235,12 @@ interface ShowState {
   showOverrideLabels: boolean
   setShowOverrideLabels: (visible: boolean) => void
   toggleOverrideLabels: () => void
+  /** The preset whose saved values the Preview labels (LightKey's
+   * per-fixture callouts, Guide ch.11 p.116) while it is selected in
+   * the palette, or null. Set by clicking a preset row; cleared when
+   * the selection moves away or the preset is deleted. */
+  previewPresetId: string | null
+  setPreviewPresetId: (id: string | null) => void
   locateFixtures: (ids: string[]) => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
@@ -296,6 +303,16 @@ interface ShowState {
   flashCue: (id: string) => void
   endFlash: () => void
   capturePreset: (name: string, category: PresetCategory) => void
+  /**
+   * Capture a preset from the current look on the selected fixtures, with
+   * LightKey's auto-name (Jake, 22 Nov 2026 — no name/category form).
+   * Plain: whatever was touched in Design (the manual overrides).
+   * Snapshot: the combined look — active cue, then applied presets, then
+   * overrides on top. Returns the created preset, or null when nothing
+   * was captured (no fixtures selected, or nothing touched / nothing in
+   * the look). Optionally files it into a preset group.
+   */
+  capturePresetFromLook: (snapshot: boolean, groupId?: string | null) => { id: string; name: string } | null
   convertCuesToPresets: () => number
   togglePreset: (id: string) => void
   clearPresets: () => void
@@ -416,12 +433,31 @@ interface ShowState {
   /** End a template-edit session, discarding the working copy Edit
    *  created (the saved template is untouched). */
   cancelEditingEffectTemplate: () => void
+  /** The live effect open in the editor from the Preset Palette (Jake,
+   *  22 Nov 2026): Edit on a palette effect row opens a draft session —
+   *  the effect's pre-edit values are snapshotted, its name appears in
+   *  the toolbar with Update/Cancel, Update ends the session keeping
+   *  the edits, Cancel restores the snapshot. Mirrors preset editing.
+   *  Session-only: never persisted. */
+  editingLiveEffectId: string | null
+  /** Open a live effect in the editor with a draft session (palette
+   *  Edit): snapshots the effect first. Re-editing the same effect
+   *  keeps its session (and its snapshot). */
+  startEditingLiveEffect: (id: string) => void
+  /** End a live-effect edit session, keeping the edits (Update) — the
+   *  edits were written live into the effect, as for presets — and
+   *  close the editor. */
+  saveEditingLiveEffect: () => void
+  /** End a live-effect edit session, restoring the snapshotted values
+   *  (Cancel), and close the editor. */
+  cancelEditingLiveEffect: () => void
   /** Leave the effect editor (and the effects chooser) for Design or
    *  Live — the Cancel path: a template-edit session discards its
-   *  working copy, an ordinary effect just closes and stays. The
-   *  Design/Live navigation calls this (Jake, 21 Nov 2026: clicking
-   *  Design while the editor is open must return to Design, not
-   *  leave the editor stuck). */
+   *  working copy, a live-effect draft session restores its snapshot,
+   *  an ordinary effect just closes and stays. The Design/Live
+   *  navigation calls this (Jake, 21 Nov 2026: clicking Design while
+   *  the editor is open must return to Design, not leave the editor
+   *  stuck). */
   exitEffectEditor: () => void
   /** Rename a saved effect template (Guide p.174: Control-click → Rename
    *  in the Effects Chooser). */
@@ -516,6 +552,11 @@ let flashState: { patch: Record<number, number>; activeCueId: string | null } | 
  * on Cancel. Edits write straight into the preset (undoable), so Cancel
  * restores this snapshot and Save just ends the session. */
 let editingPresetSnapshot: { preset: PresetDef; activePresetIds: string[]; selectedFixtureIds: string[] } | null = null
+// The live effect's pre-edit values while a palette draft session is
+// open (see startEditingLiveEffect): Cancel restores this whole
+// object, so fields editing added (e.g. a pattern switch adding
+// lengthRange) are removed again rather than left behind by a merge.
+let editingLiveEffectSnapshot: EffectDef | null = null
 
 /** In-place cue ad-hoc editing (Guide ch.11, p.201): the cue as it was
  * when editing started, plus the active cue and fixture selection to
@@ -959,8 +1000,19 @@ const actions: ShowState = {
     // mid-template-edit would leave the session bound to the old
     // template while the editor showed another effect — and Update
     // would write the wrong effect's settings into it.
+    // Opening an effect also closes any other editor (one editor at a
+    // time, always): a preset or cue ad-hoc edit is saved — the
+    // existing navigate-away convention — and another live-effect
+    // draft session is saved before it is replaced. Closing the
+    // editor (id null) touches no other session.
     const state = get()
     if (state.editingEffectTemplateId && id !== state.editingEffectId) state.cancelEditingEffectTemplate()
+    if (id) {
+      const fresh = get()
+      if (fresh.editingLiveEffectId && fresh.editingLiveEffectId !== id) fresh.saveEditingLiveEffect()
+      if (get().editingPresetId) get().saveEditingPreset()
+      if (get().editingCueAdHocId) get().saveEditingCueAdHoc()
+    }
     set({ editingEffectId: id })
   },
   editingEffectTemplateId: null,
@@ -1019,6 +1071,7 @@ const actions: ShowState = {
   editingPresetId: null,
   editingCueAdHocId: null,
   showOverrideLabels: false,
+  previewPresetId: null,
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
@@ -1102,6 +1155,7 @@ const actions: ShowState = {
       manualOverrides: {},
       editingCueAdHocId: null,
       showOverrideLabels: false,
+      previewPresetId: null,
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       effectClipboard: null,
@@ -1716,6 +1770,43 @@ const actions: ShowState = {
     const presets = [...state.presets, preset]
     return persistState(state, { presets }, { presets })
   }),
+  capturePresetFromLook: (snapshot, groupId = null) => {
+    let created: { id: string; name: string } | null = null
+    set((state) => {
+      if (!state.show || state.selectedFixtureIds.length === 0) return state
+      const fixtures = state.show.fixtures
+      const cue = state.activeCueId ? state.cues.find((item) => item.id === state.activeCueId) : undefined
+      const cueValues = cue ? resolveCueValues(cue, state.presets, fixtures) : {}
+      const fixtureValues: PresetDef['fixtureValues'] = {}
+      for (const fixture of fixtures) {
+        if (!state.selectedFixtureIds.includes(fixture.id)) continue
+        const supported = new Set(fixtureAttributes(fixture))
+        // Plain (Jake, 22 Nov 2026): whatever was touched in Design —
+        // the manual overrides only, so an untouched property is not
+        // saved. Snapshot: the combined current look — the active cue,
+        // then any applied presets, then the overrides on top (a blue
+        // preset plus a 90% dimmer override snapshots as both).
+        const source: Record<string, number> = {}
+        if (snapshot) {
+          Object.assign(source, cueValues[fixture.id] ?? {})
+          for (const activeId of state.activePresetIds) Object.assign(source, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
+        }
+        Object.assign(source, state.manualOverrides[fixture.id])
+        const entries = Object.entries(source).filter(([attribute, value]) => supported.has(attribute) && Number.isFinite(value))
+        if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
+      }
+      if (!Object.keys(fixtureValues).length) return state
+      const name = uniquePresetName(autoPresetName(fixtureValues, state.selectedFixtureIds) ?? 'Preset', state.presets.map((p) => p.name))
+      const preset: PresetDef = { id: crypto.randomUUID(), name, category: derivePresetCategory(fixtureValues), fixtureValues }
+      created = { id: preset.id, name }
+      const presets = [...state.presets, preset]
+      const presetGroups = groupId && state.show?.presetGroups?.some((g) => g.id === groupId)
+        ? state.show.presetGroups.map((g) => g.id === groupId ? { ...g, presetIds: [...g.presetIds, preset.id] } : g)
+        : undefined
+      return persistState(state, { presets, ...(presetGroups ? { presetGroups } : {}) }, { presets })
+    })
+    return created
+  },
   convertCuesToPresets: () => {
     const state = get()
     const existing = new Set(state.presets.map((p) => p.id))
@@ -1848,6 +1939,11 @@ const actions: ShowState = {
   startEditingPreset: (id) => {
     const state = get(), preset = state.presets.find((p) => p.id === id)
     if (!preset) return
+    // One editor at a time (Jake, 22 Nov 2026): starting a preset edit
+    // closes the effect editor first — Cancel semantics for a template
+    // or live-effect draft session (the working copy / snapshot is
+    // discarded), so the editor never stays stuck behind Design.
+    if (state.editingEffectId) state.exitEffectEditor()
     if (state.editingPresetId && state.editingPresetId !== id) state.saveEditingPreset()
     if (state.editingCueAdHocId) state.saveEditingCueAdHoc()
     editingPresetSnapshot = { preset: structuredClone(preset), activePresetIds: [...state.activePresetIds], selectedFixtureIds: [...state.selectedFixtureIds] }
@@ -1871,6 +1967,8 @@ const actions: ShowState = {
   startEditingCueAdHoc: (id) => {
     const state = get(), cue = state.cues.find((c) => c.id === id)
     if (!cue) return
+    // One editor at a time (Jake, 22 Nov 2026): as for presets above.
+    if (state.editingEffectId) state.exitEffectEditor()
     if (state.editingCueAdHocId && state.editingCueAdHocId !== id) state.saveEditingCueAdHoc()
     if (state.editingPresetId) state.saveEditingPreset()
     editingCueAdHocSnapshot = { cue: structuredClone(cue), activeCueId: state.activeCueId, selectedFixtureIds: [...state.selectedFixtureIds] }
@@ -1909,6 +2007,7 @@ const actions: ShowState = {
   },
   setShowOverrideLabels: (visible) => set({ showOverrideLabels: visible }),
   toggleOverrideLabels: () => set((state) => ({ showOverrideLabels: !state.showOverrideLabels })),
+  setPreviewPresetId: (id) => set({ previewPresetId: id }),
   updateEditingPresetValues: (values, beams) => set((state) => {
     const preset = state.presets.find((p) => p.id === state.editingPresetId)
     if (!preset) return state
@@ -1981,7 +2080,7 @@ const actions: ShowState = {
   deletePreset: (id) => set((state) => {
     const presets = state.presets.filter((preset) => preset.id !== id)
     resendActiveCueForPreset(state, id, presets)
-    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId })
+    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
   }),
 
   addCue: () => {
@@ -2380,9 +2479,11 @@ const actions: ShowState = {
     // Deleting the effect being edited closes the editor (a template
     // working copy's session ends with it; the saved template is
     // untouched) — otherwise the bottom panel would sit blank with a
-    // dangling editor id.
+    // dangling editor id. A live-effect draft session ends with it
+    // too; its snapshot is dropped (there is nothing to restore to).
     const state = get()
-    if (state.editingEffectId === id) set({ editingEffectId: null, editingEffectTemplateId: null })
+    if (state.editingEffectId === id) set({ editingEffectId: null, editingEffectTemplateId: null, editingLiveEffectId: null })
+    if (state.editingLiveEffectId === id) editingLiveEffectSnapshot = null
     set((s) => {
       const effects = s.effects.filter((effect) => effect.id !== id)
       return persistState(s, { effects }, { effects })
@@ -2431,6 +2532,15 @@ const actions: ShowState = {
   },
 
   startEditingEffectTemplate: (id) => {
+    // One editor at a time: a preset/ad-hoc edit is saved and a
+    // live-effect draft session is saved before the template session
+    // opens (setEditingEffectId below would cancel a template session,
+    // which is not what opening one wants — so the other editors are
+    // closed here, directly).
+    const state = get()
+    if (state.editingPresetId) state.saveEditingPreset()
+    if (state.editingCueAdHocId) state.saveEditingCueAdHoc()
+    if (state.editingLiveEffectId) state.saveEditingLiveEffect()
     const newId = get().applyEffectTemplate(id)
     if (!newId) return null
     set({ editingEffectTemplateId: id, editingEffectId: newId })
@@ -2463,9 +2573,55 @@ const actions: ShowState = {
     if (workingId) get().removeEffect(workingId)
   },
 
+  editingLiveEffectId: null,
+  startEditingLiveEffect: (id) => {
+    const state = get()
+    const effect = state.effects.find((item) => item.id === id)
+    if (!effect) return
+    // A template working copy already has its own draft session — the
+    // working copy is a live effect in the palette while it is being
+    // edited, so Edit on that row keeps the template session instead
+    // of opening a second one bound to the same effect.
+    if (state.editingEffectTemplateId && id === state.editingEffectId) {
+      get().setEditingEffectId(id)
+      return
+    }
+    // setEditingEffectId ends any other editor first (a template
+    // session is cancelled, a preset/ad-hoc edit and another live
+    // session are saved), so one editor is open at a time.
+    get().setEditingEffectId(id)
+    // Re-editing the same effect keeps its session (and its snapshot):
+    // re-snapshotting would bake the unconfirmed edits into the
+    // "original" Cancel restores.
+    if (get().editingLiveEffectId !== id) {
+      editingLiveEffectSnapshot = structuredClone(effect)
+      set({ editingLiveEffectId: id })
+    }
+  },
+  saveEditingLiveEffect: () => {
+    // Update: the edits were written live into the effect while it
+    // was open (as for presets), so saving just ends the session and
+    // closes the editor.
+    if (!get().editingLiveEffectId) return
+    editingLiveEffectSnapshot = null
+    set({ editingLiveEffectId: null, editingEffectId: null })
+  },
+  cancelEditingLiveEffect: () => {
+    const state = get(), snapshot = editingLiveEffectSnapshot
+    if (!state.editingLiveEffectId || !snapshot || snapshot.id !== state.editingLiveEffectId) return
+    editingLiveEffectSnapshot = null
+    // Full replace, not a patch merge: editing may have added fields
+    // (switching patterns adds lengthRange, for example) that a merge
+    // would leave behind.
+    const effects = state.effects.map((effect) => effect.id === snapshot.id ? structuredClone(snapshot) : effect)
+    set(persistState(state, { effects }, { effects }))
+    set({ editingLiveEffectId: null, editingEffectId: null })
+  },
+
   exitEffectEditor: () => {
     const state = get()
     if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate()
+    else if (state.editingLiveEffectId) state.cancelEditingLiveEffect()
     else if (state.editingEffectId) set({ editingEffectId: null })
     if (state.effectChooserAttribute) set({ effectChooserAttribute: null })
   },
@@ -2794,7 +2950,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
