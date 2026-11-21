@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
@@ -121,8 +121,31 @@ export function GroupsPresetsPanel() {
   const headerMenuRef = useRef<HTMLDivElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
-  const composerInputRef = useRef<HTMLInputElement>(null)
-  const renameInputRef = useRef<HTMLInputElement>(null)
+  const composerInputRef = useRef<HTMLInputElement | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  // Focus an input the moment its node mounts — not only when the state
+  // that opened it changes (Jake, 22 Nov 2026: the rename box sometimes
+  // stayed unfocused so typing went nowhere). The layout effect below
+  // covers the same-commit mount; the callback ref covers the late
+  // mount — a preset created into a collapsed group (or behind a search
+  // filter) mounts its input only when the row becomes visible, long
+  // after the effect already ran against a null ref. Stable identity,
+  // so it runs on mount/unmount only — never again on a keystroke
+  // re-render, which would re-select the text and eat the next char.
+  const focusComposerInput = useCallback((el: HTMLInputElement | null) => {
+    composerInputRef.current = el
+    if (el) el.focus()
+  }, [])
+  const focusRenameInput = useCallback((el: HTMLInputElement | null) => {
+    renameInputRef.current = el
+    if (el) {
+      // LightKey leaves a new preset's auto-name selected, ready to type
+      // over (Jake, 22 Nov 2026) — select-all, not just focus, so the
+      // first keystroke replaces the name instead of appending to it.
+      el.focus()
+      el.select()
+    }
+  }, [])
 
   useEffect(() => {
     if (!contextMenu && !headerMenu) return
@@ -169,6 +192,14 @@ export function GroupsPresetsPanel() {
       return
     }
     setPaletteNote(`Preset “${created.name}” created.`)
+    // The rename box only mounts when its row renders: a preset created
+    // into a collapsed group — or behind a search that does not match
+    // its auto-name — would open a rename with no visible input, so
+    // typing went nowhere and Enter did nothing (Jake, 22 Nov 2026).
+    // Make the new row visible first; the focus callback on the input
+    // then lands the caret as soon as it mounts.
+    if (parentGroupId) setCollapsed((prev) => ({ ...prev, [parentGroupId]: false }))
+    if (search.trim() && !created.name.toLowerCase().includes(search.trim().toLowerCase())) setSearch('')
     startRename({ kind: 'preset', id: created.id }, created.name)
   }
 
@@ -317,6 +348,26 @@ export function GroupsPresetsPanel() {
     }
     setRenaming(null)
   }
+  // Clicking off a rename commits it (Jake, 22 Nov 2026: clicking off
+  // did nothing and the rename stayed stuck). The input's own blur
+  // covers the ordinary click — but not a pointerdown that calls
+  // preventDefault, which never moves focus and so never fires blur:
+  // the Preview canvas does exactly that (its pan/drag handlers), so a
+  // click onto the Preview left the rename open with focus still in the
+  // input. Commit on any pointerdown outside the input instead — the
+  // blur path stays as the backstop for keyboard-driven focus moves.
+  // The listener re-registers when the typed value changes so the
+  // closure always commits the current text, not the auto-name.
+  useEffect(() => {
+    if (!renaming) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (renameInputRef.current?.contains(event.target as Node)) return
+      commitRename()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renaming, renameValue])
   const openProperties = (item: PaletteItem) => {
     if (item.kind === 'preset') setPropertiesId((prev) => prev === item.id ? null : item.id)
     else if (item.kind === 'sequence') setExpandedSequenceId((prev) => prev === item.id ? null : item.id)
@@ -436,6 +487,12 @@ export function GroupsPresetsPanel() {
   const onTreeKeyDown = (event: React.KeyboardEvent) => {
     const target = event.target as HTMLElement | null
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+    // A rename is already open but focus is not in its input (it never
+    // landed there, or Tab moved it out): Return must commit the typed
+    // name, not start a fresh rename from the stored name — that would
+    // silently throw the typed text away (Jake, 22 Nov 2026). Escape
+    // keeps its existing cancel path below.
+    if (renaming && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); commitRename(); return }
     const mod = event.ctrlKey || event.metaKey
     const key = event.key.toLowerCase()
     if (mod && key === 'n' && !event.shiftKey) {
@@ -508,7 +565,7 @@ export function GroupsPresetsPanel() {
 
   const renameInput = (item: PaletteItem) => (
     <input
-      ref={renameInputRef}
+      ref={focusRenameInput}
       aria-label={`Rename ${item.kind}`}
       value={renameValue}
       onChange={(event) => setRenameValue(event.target.value)}
@@ -546,14 +603,37 @@ export function GroupsPresetsPanel() {
           onDragLeave={(event) => clearDragOver(event, preset.id)}
           onDrop={(event) => dropOntoItem(event, item, parentGroupId)}
           onClick={(event) => {
-            const wasSelected = isSelected(item)
-            selectItem(item, event.shiftKey)
-            if (!editing) togglePreset(preset.id)
-            // Clicking a preset shows its saved values as labels on the
-            // fixtures in the Preview (LightKey, Jake 22 Nov 2026); a
-            // plain click always leaves it selected, a shift-click
-            // toggles it — the label follows the resulting selection.
-            setPreviewPresetId(event.shiftKey && wasSelected ? null : preset.id)
+            // A plain click toggles the preset (Jake, 22 Nov 2026):
+            // the second click turns it off AND lets go of the
+            // selection, so the row highlight and the Preview labels
+            // go with it. The old code always re-selected on a plain
+            // click, so after the second click the row stayed
+            // highlighted and labelled even though the preset was off.
+            // Shift-click keeps the additive multi-select behaviour.
+            if (editing) {
+              selectItem(item, event.shiftKey)
+              setPreviewPresetId(preset.id)
+              return
+            }
+            const wasActive = activePresetIds.includes(preset.id)
+            if (event.shiftKey) {
+              const wasSelected = isSelected(item)
+              selectItem(item, true)
+              togglePreset(preset.id)
+              setPreviewPresetId(wasSelected ? null : preset.id)
+              return
+            }
+            if (wasActive) {
+              setSelected([])
+              togglePreset(preset.id)
+              setPreviewPresetId(null)
+              return
+            }
+            selectItem(item, false)
+            togglePreset(preset.id)
+            // Clicking a preset shows its saved values as labels on
+            // the fixtures in the Preview (LightKey, Jake 22 Nov 2026).
+            setPreviewPresetId(preset.id)
           }}
           onDoubleClick={() => openProperties(item)}
           onContextMenu={(event) => rowContextMenu(event, item)}
@@ -703,7 +783,7 @@ export function GroupsPresetsPanel() {
       )}
       {composer && (
         <div className="mx-1 flex flex-wrap items-center gap-1 rounded border border-line bg-panel2 p-2">
-          <input ref={composerInputRef} aria-label={composer.type === 'group' ? 'New group name' : 'New sequence name'} placeholder={composer.type === 'group' ? 'Group name' : 'Sequence name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
+          <input ref={focusComposerInput} aria-label={composer.type === 'group' ? 'New group name' : 'New sequence name'} placeholder={composer.type === 'group' ? 'Group name' : 'Sequence name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
           <button type="button" className="btn-theme text-xs" disabled={!composerName.trim()} onClick={createFromComposer}>Create</button>
           <button type="button" className="text-xs text-dim" onClick={() => { setComposer(null); setComposerName('') }}>Cancel</button>
           {composer.fromSelection && <span className="w-full text-[10px] text-dim">From the {selected.length} selected item{selected.length === 1 ? '' : 's'}.</span>}

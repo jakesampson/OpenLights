@@ -588,6 +588,23 @@ function mergeOverridesIntoAdHoc(existing: Record<string, Record<string, number>
 /** The fixture values a new cue starts with: LightKey's defaults, with
  * any currently overridden properties overlaid (Guide ch.11, p.191 —
  * creating a cue adds the overridden properties to it). */
+/**
+ * Attributes a preset capture may keep for a fixture: its channel-map
+ * attributes, plus 'intensity' for a virtual-dimmer fixture (colour
+ * channels, no dimmer channel — the same test as DesignTab's
+ * isVirtualDimmer). The Dimmer fader writes an intensity value for
+ * such a fixture and the output scales its LEDs by it, so 'intensity'
+ * is a real stored attribute for it — filtering it out here silently
+ * drops the dimmer from every preset captured on the fixture (Jake,
+ * 22 Nov 2026: a 100% dimmer preset held nothing for his Q12BTs, so
+ * Red + 100% gave no output on them, in the palette or on a Live pad).
+ */
+function capturableAttributes(fixture: FixtureDef): Set<string> {
+  const attrs = new Set(fixtureAttributes(fixture))
+  if (!attrs.has('intensity') && colorChannels([...attrs]).length > 0) attrs.add('intensity')
+  return attrs
+}
+
 function newCueFixtureValues(fixtures: FixtureDef[], manualOverrides: Record<string, Record<string, number>>): CueDef['fixtureValues'] {
   const fixtureValues: CueDef['fixtureValues'] = {}
   for (const fixture of fixtures) fixtureValues[fixture.id] = { ...defaultFixtureValues(fixture), ...manualOverrides[fixture.id] }
@@ -1756,7 +1773,7 @@ const actions: ShowState = {
     const fixtureValues: PresetDef['fixtureValues'] = {}
     for (const fixture of state.show.fixtures) {
       if (!state.selectedFixtureIds.includes(fixture.id)) continue
-      const supported = new Set(fixtureAttributes(fixture))
+      const supported = capturableAttributes(fixture)
       const source = resolveCueValues(cue, state.presets, state.show?.fixtures ?? [])[fixture.id] ?? {}
       // The category test is the shared one (presetProperties): its
       // colour match covers every beam ("red 2" and "red2" alike, any
@@ -1780,7 +1797,7 @@ const actions: ShowState = {
       const fixtureValues: PresetDef['fixtureValues'] = {}
       for (const fixture of fixtures) {
         if (!state.selectedFixtureIds.includes(fixture.id)) continue
-        const supported = new Set(fixtureAttributes(fixture))
+        const supported = capturableAttributes(fixture)
         // Plain (Jake, 22 Nov 2026): whatever was touched in Design —
         // the manual overrides only, so an untouched property is not
         // saved. Snapshot: the combined current look — the active cue,

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { fixtureGroupMembers } from '../lib/fixtureGroups'
 
@@ -14,6 +14,11 @@ export function FixtureGroups() {
   const { show, locked, selectedFixtureIds, selectFixtures, selectFixture, createFixtureGroup, renameFixtureGroup, parentFixtureGroup, moveFixtureGroup, removeFixtureGroup } = useShowStore()
   const [name, setName] = useState(''), [parent, setParent] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null), [renameDraft, setRenameDraft] = useState('')
+  // Focus the rename input the moment its node mounts: autoFocus is
+  // queued by the browser as a separate task, so a fast keystroke after
+  // the click could land before focus arrived (the palette rename had
+  // the same fault, Jake 19 + 22 Nov 2026).
+  const focusRenameInput = useCallback((el: HTMLInputElement | null) => { if (el) el.focus() }, [])
   const groups = show?.fixtureGroups ?? []
   const selectedCount = selectedFixtureIds.length
   const saveRename = (id: string) => {
@@ -22,7 +27,7 @@ export function FixtureGroups() {
   }
   const render = (parentId: string | null, visited = new Set<string>()): React.ReactNode => groups.filter((g) => (g.parentId ?? null) === parentId && !visited.has(g.id)).map((g) => <div key={g.id} className="ml-2 border-l border-line pl-2"><div className="flex flex-wrap items-center gap-1 py-1">
     {renamingId === g.id ? <>
-      <input aria-label={`Rename group ${g.name}`} autoFocus value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(g.id); if (e.key === 'Escape') setRenamingId(null) }} className="min-w-0 flex-1 rounded bg-panel2 p-1 text-xs" />
+      <input aria-label={`Rename group ${g.name}`} ref={focusRenameInput} value={renameDraft} onChange={(e) => setRenameDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') saveRename(g.id); if (e.key === 'Escape') setRenamingId(null) }} className="min-w-0 flex-1 rounded bg-panel2 p-1 text-xs" />
       <button type="button" className="btn-theme text-xs" onClick={() => saveRename(g.id)}>Save</button>
       <button type="button" className="btn-theme text-xs" onClick={() => setRenamingId(null)}>Cancel</button>
     </> : <button type="button" className="min-w-0 flex-1 truncate text-left text-xs" title="Click to select this group's fixtures" onClick={() => selectFixtures(fixtureGroupMembers(groups, g.id))}>{g.name}<span className="ml-1 text-dim">{fixtureGroupMembers(groups, g.id).length}</span></button>}

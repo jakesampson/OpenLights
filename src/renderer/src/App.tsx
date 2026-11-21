@@ -21,7 +21,7 @@ import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
-import { effectiveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
+import { effectiveIntensityLevels, liveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -391,20 +391,31 @@ export default function App() {
   useEffect(() => {
     const patch: Record<number, number> = {}
     const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
-    for (const control of orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)) {
+    const controls = orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)
+    // A Live pad's dimmer is a property of the fixture, like a palette
+    // preset's (Jake, 22 Nov 2026): a Full On pad must lift a Red pad's
+    // colour on a virtual-dimmer fixture, which has no dimmer channel
+    // for the Full On pad to write — so the two pads never meet at the
+    // channel level. Resolve every pad's colours against the
+    // intensities the pressed pads carry (liveIntensityLevels), riding
+    // on top of the base look's effective levels. Hardware-dimmer
+    // fixtures are unaffected — their pads already write the intensity
+    // channel.
+    const levels = { ...effectiveLevels, ...liveIntensityLevels({ controls, levels: outputLevels, presets, cues, fixtures: show?.fixtures ?? [] }) }
+    for (const control of controls) {
       const level = outputLevels[control.id] ?? 0
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
       if (cue && !cue.blackout) {
         const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
-        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, effectiveLevels) }, scaledMaster))
+        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, levels) }, scaledMaster))
       }
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), levels) }, scaledMaster))
       }
-      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, effectiveLevels) }, scaledMaster))
+      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, levels) }, scaledMaster))
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId

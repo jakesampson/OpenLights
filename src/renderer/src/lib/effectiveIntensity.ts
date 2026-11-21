@@ -1,5 +1,5 @@
-import type { CueDef, FixtureDef, PresetDef } from '@shared/types'
-import { resolveCueValues } from '@shared/cueResolution'
+import type { CueDef, FixtureDef, LiveControl, PresetDef } from '@shared/types'
+import { resolveCue, resolveCueValues } from '@shared/cueResolution'
 
 export type FixtureValuePatch = Record<string, Record<string, number>>
 
@@ -44,6 +44,48 @@ export function effectiveIntensityLevels(input: EffectiveIntensityInput): Record
   }
   take(input.manualOverrides)
   return levels
+}
+
+/**
+ * The intensities the pressed Live pads carry (Jake, 22 Nov 2026): a
+ * Live pad's dimmer is a property of the fixture, like a palette
+ * preset's — a Full On pad must lift a Red pad's colour on a
+ * virtual-dimmer fixture, which has no dimmer channel for the Full On
+ * pad to write, so the two pads never meet at the channel level. The
+ * palette path does this via effectiveIntensityLevels; the live layer
+ * needs its own copy because live controls are deliberately not
+ * sources for the base look (their level reaches their own colours
+ * through the scaled master). Later controls win, as in the patch
+ * build; each pad's contribution is scaled by its pressed level.
+ * Callers merge the result over effectiveIntensityLevels for the live
+ * layer only.
+ */
+export function liveIntensityLevels(input: {
+  controls: LiveControl[]
+  levels: Record<string, number>
+  presets: PresetDef[]
+  cues: CueDef[]
+  fixtures: FixtureDef[]
+}): Record<string, number> {
+  const liveLevels: Record<string, number> = {}
+  const take = (values: FixtureValuePatch, level: number) => {
+    for (const [fixtureId, fixturePatch] of Object.entries(values)) {
+      const intensity = fixturePatch?.intensity
+      if (typeof intensity === 'number' && Number.isFinite(intensity)) liveLevels[fixtureId] = Math.round(intensity * level / 255)
+    }
+  }
+  for (const control of input.controls) {
+    const level = input.levels[control.id] ?? 0
+    if (!level) continue
+    const cue = input.cues.find((item) => item.id === control.cueId)
+    if (cue && !cue.blackout) take(resolveCue(cue, input.presets, input.fixtures).fixtureValues, level)
+    for (const id of control.presetIds) {
+      const preset = input.presets.find((item) => item.id === id)
+      if (preset) take(preset.fixtureValues ?? {}, level)
+    }
+    if (control.adHocValues) take(control.adHocValues, level)
+  }
+  return liveLevels
 }
 
 /**
