@@ -51,7 +51,9 @@ export function seededRandom(seed: number): number {
 }
 
 /** Default samples when a pattern effect has none. The guide does not specify
- *  defaults; these are the neutral ones (background off, foreground full). */
+ *  defaults; these are the neutral ones (background off, foreground full) —
+ *  LightKey's own Dimmer templates show black first, white second (Jake's
+ *  screenshot, 9.34.46 pm: the Dimmer Meteor strip is black, white, +). */
 export function defaultSamples(isColor: boolean): EffectSample[] {
   return isColor
     ? [
@@ -59,8 +61,8 @@ export function defaultSamples(isColor: boolean): EffectSample[] {
         { id: 'sample-1', color: '#ffffff' }
       ]
     : [
-        { id: 'sample-bg', value: 100 },
-        { id: 'sample-1', value: 0 }
+        { id: 'sample-bg', value: 0 },
+        { id: 'sample-1', value: 100 }
       ]
 }
 
@@ -361,10 +363,11 @@ export function patternPixelValue(
     }
     case 'meteor': {
       // Guide p.158: meteoroids of `length` pixels pass by, `distance` apart, leaving
-      // a `trail` which disintegrates randomly.
+      // a `trail` which disintegrates randomly. Trail is a percent of the pixel
+      // count (LightKey shows "Trail 60%"; the guide gives no unit).
       const length = Math.max(1, effect.length ?? 1)
       const distance = Math.max(1, effect.distance ?? 6)
-      const trail = Math.max(0, effect.trail ?? 0)
+      const trail = (Math.max(0, Math.min(100, effect.trail ?? 0)) / 100) * count
       const period = length + distance
       const head = cycleOf(cycleT) * (count + period) - length
       let level = 0
@@ -421,7 +424,7 @@ export function patternPixelValue(
       // Guide p.160: bell-shaped elements move along the pixels while pulsating.
       const countJ = Math.max(1, Math.floor(effect.jellyfishCount ?? 1))
       const size = Math.max(0.05, (effect.jellyfishSize ?? 50) / 100)
-      const speed = Math.max(0.1, effect.fireSpeed ?? 1)
+      const speed = Math.max(0.1, effect.jellyfishSpeed ?? effect.fireSpeed ?? 1)
       const width = Math.max(1, size * count * 0.4)
       let level = 0
       let bellIndex = 0
@@ -441,7 +444,7 @@ export function patternPixelValue(
     case 'snakes': {
       // Guide p.160: variable-length snakes creep along at constant pace; lengths
       // and distances are randomized within their ranges.
-      const speed = Math.max(0.1, effect.fireSpeed ?? 1)
+      const speed = Math.max(0.1, effect.snakeSpeed ?? effect.fireSpeed ?? 1)
       const [minLen, maxLen] = effect.lengthRange ?? [1, 3]
       const [minDist, maxDist] = effect.distanceRange ?? [2, 6]
       const avgLen = (minLen + maxLen) / 2

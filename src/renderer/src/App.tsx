@@ -70,6 +70,7 @@ export default function App() {
     editingPresetId,
     saveEditingPreset,
     cancelEditingPreset,
+    editingEffectId,
     editingCueAdHocId,
     saveEditingCueAdHoc,
     cancelEditingCueAdHoc,
@@ -456,7 +457,7 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
@@ -494,11 +495,19 @@ export default function App() {
     return () => window.removeEventListener('openlights-show-design', showDesign)
   }, [])
 
+  // The effects panel's Design/Live tabs (Jake's screenshots): Live
+  // switches the lower panel away from Design, like the ViewSwitch.
+  useEffect(() => {
+    const showLive = () => setTab('Live')
+    window.addEventListener('openlights-show-live', showLive)
+    return () => window.removeEventListener('openlights-show-live', showLive)
+  }, [])
+
   // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots) live in
   // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
   // one contextual list per state — see that file for why the Live-edit
   // rows are never concatenated with the palette rows.
-  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })
+  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })
   const closeToolPanel = () => setToolPanel(null)
   // The Design workspace (Preview + side panel + bottom panel) renders
   // either under the header in the normal flow, or inside the setup wizard

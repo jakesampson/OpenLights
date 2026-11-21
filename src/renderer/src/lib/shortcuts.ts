@@ -57,7 +57,7 @@ export function matchShortcut(event: ShortcutInput, target: { tagName?: string; 
 /** One row of the Shortcuts panel (bottom right). `section` is part of
  * the row's identity: two rows may share a key and a label in different
  * contexts, but never in the same list — see buildShortcutsList. */
-export interface ShortcutRow { key: string; label: string; section: 'app' | 'palette' | 'live-edit' | 'preset' }
+export interface ShortcutRow { key: string; label: string; section: 'app' | 'palette' | 'live-edit' | 'preset' | 'effect' }
 
 // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots): arrows
 // select presets, esc clears, Return renames, Cmd/Ctrl+N new preset,
@@ -86,9 +86,12 @@ export const PALETTE_SHORTCUTS: ShortcutRow[] = [
  * identical rows). Every list this builds has unique (section, key,
  * label) triples by construction.
  */
-export function buildShortcutsList(options: { tab: string; liveEditing: boolean; editingPreset: boolean }): ShortcutRow[] {
+export function buildShortcutsList(options: { tab: string; liveEditing: boolean; editingPreset: boolean; editingEffect?: boolean }): ShortcutRow[] {
   const rows: ShortcutRow[] = []
   if (options.editingPreset) rows.push({ key: 'esc', label: 'Cancel preset edit', section: 'preset' })
+  // While an effect is being edited LightKey shows "esc End editing"
+  // (Jake's screenshots, 9.31.29 pm) — Escape ends the edit (App.tsx).
+  if (options.editingEffect) rows.push({ key: 'esc', label: 'End editing', section: 'effect' })
   if (options.tab === 'Live' && options.liveEditing) {
     rows.push(
       { key: '↑ ← ↓ →', label: 'Nudge', section: 'live-edit' },

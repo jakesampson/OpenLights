@@ -12,7 +12,15 @@ import type {
 import { useShowStore } from '../stores/showStore'
 import { defaultSamples, isColorAttribute, normalizedPatternSamples } from '../lib/patternRuntime'
 import { colorModelComponents, defaultCurvePoints, evaluateCurve, extraColorComponents, waveformPoints } from '../lib/curveEffects'
-import { BUILTIN_MOVEMENT_PATHS, pathPointAt, resolveMovementPath } from '../lib/movementRuntime'
+import { BUILTIN_MOVEMENT_PATHS, builtinMovementPathPoints, pathPointAt, resolveMovementPath } from '../lib/movementRuntime'
+import { movementPoint } from '../lib/movementEffects'
+import { effectableProperties } from '../lib/availableProperties'
+import {
+  EFFECT_TEMPLATE_SECTIONS,
+  createEffectFromTemplate,
+  defaultCurveComponents,
+  type LightKeyTemplate
+} from '../lib/effectTemplates'
 import { getEffectTime } from '../lib/output'
 import { panTiltRange } from '../lib/calibration'
 
@@ -23,8 +31,9 @@ import { panTiltRange } from '../lib/calibration'
  * that drive it. The effects chooser (same chapter) picks a template or a
  * custom effect to add.
  *
- * Built-in templates: the guide says there are over 70 but does not enumerate
- * them, so this ships one template per pattern, waveform and built-in path.
+ * The built-in templates live in lib/effectTemplates.ts — LightKey's real
+ * template names, kinds and beat flags from Jake's screenshots, with the
+ * pattern behind each name flagged as a reading to confirm.
  */
 
 export const PATTERN_LABELS: Record<PatternEffect, string> = {
@@ -70,12 +79,87 @@ const FIXTURE_ORDER_LABELS: Record<EffectFixtureOrder, string> = {
 }
 
 const BEAT_MULTIPLIERS: { value: number; label: string }[] = [
-  { value: 4, label: '4 beats' },
-  { value: 2, label: '2 beats' },
-  { value: 1, label: '1 beat' },
-  { value: 0.5, label: '½ beat' },
-  { value: 0.25, label: '¼ beat' }
+  { value: 4, label: '×4' },
+  { value: 2, label: '×2' },
+  { value: 1, label: '×1' },
+  { value: 0.5, label: '÷2' },
+  { value: 0.25, label: '÷4' }
 ]
+
+function beatMultiplierLabel(value: number): string {
+  return BEAT_MULTIPLIERS.find((m) => m.value === value)?.label ?? `×${value}`
+}
+
+/** Duration as LightKey shows it in the timing column (Guide p.149):
+ *  minutes:seconds.tenths, e.g. 00:08.0. */
+export function formatDurationMs(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 100) * 100)
+  const minutes = Math.floor(total / 60000)
+  const seconds = Math.floor((total % 60000) / 1000)
+  const tenths = Math.floor((total % 1000) / 100)
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${tenths}`
+}
+
+/** Parse a duration the user typed: "mm:ss.t", "ss.t" or plain seconds. */
+export function parseDurationMs(text: string): number | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const parts = trimmed.split(':')
+  let seconds = 0
+  if (parts.length === 1) {
+    seconds = Number(parts[0])
+  } else if (parts.length === 2) {
+    const minutes = Number(parts[0])
+    const secs = Number(parts[1])
+    if (!Number.isFinite(minutes) || !Number.isFinite(secs)) return null
+    seconds = minutes * 60 + secs
+  } else {
+    return null
+  }
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+  return Math.max(50, Math.min(600000, Math.round(seconds * 1000 / 100) * 100))
+}
+
+/** The Design/Live tabs LightKey shows at the top of the effects panel
+ *  (Jake's screenshots). They switch the whole lower panel: Design is
+ *  where the editor lives, so it is the active tab here; Live switches
+ *  away (App listens for `openlights-show-live`, like the existing
+ *  `openlights-show-design` event). */
+function EffectPanelTabs() {
+  return (
+    <div className="flex items-center gap-4 text-sm" role="tablist" aria-label="Design or Live">
+      <span role="tab" aria-selected className="font-medium">Design</span>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={false}
+        className="text-dim hover:text-[var(--text)]"
+        onClick={() => window.dispatchEvent(new CustomEvent('openlights-show-live'))}
+      >
+        Live
+      </button>
+    </div>
+  )
+}
+
+/** The pulse glyph LightKey shows on beat-controlled templates. */
+function BeatGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2 12h4l2-6 4 12 2-6h8" />
+    </svg>
+  )
+}
+
+/** The clock glyph for the fixed-duration timing segment. */
+function ClockGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  )
+}
 
 function attributeLabel(attribute: string): string {
   if (attribute === 'intensity') return 'Dimmer'
@@ -103,37 +187,74 @@ function newEffectId() {
 /* Effects chooser (Guide ch.10, pp.148-149)                         */
 /* ------------------------------------------------------------------ */
 
-interface TemplateChoice {
-  id: string
-  name: string
-  kind: 'pattern' | 'curve' | 'movement'
-  pattern?: PatternEffect
-  waveform?: EffectWaveform
-  movementPathId?: string
-  /** Saved project template (Guide p.174) — applied as stored. */
-  templateId?: string
-  beat?: boolean
+/** Small glyph for a pattern, used by the pattern picker and template tiles. */
+function PatternGlyph({ pattern }: { pattern: PatternEffect }) {
+  return (
+    <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      {pattern === 'chase' && <circle cx="9" cy="9" r="6" strokeDasharray="3 2" />}
+      {pattern === 'scanner' && (<><line x1="2" y1="9" x2="16" y2="9" /><circle cx="9" cy="9" r="3" fill="currentColor" stroke="none" /></>)}
+      {pattern === 'yo-yo' && (<><rect x="2" y="4" width="6" height="10" fill="currentColor" stroke="none" /><rect x="10" y="4" width="6" height="10" /></>)}
+      {pattern === 'fill' && (<><rect x="2" y="4" width="14" height="10" /><rect x="2" y="4" width="7" height="10" fill="currentColor" stroke="none" /></>)}
+      {pattern === 'rain' && (<><line x1="5" y1="3" x2="5" y2="8" /><line x1="9" y1="3" x2="9" y2="8" /><line x1="13" y1="3" x2="13" y2="8" /><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="9" cy="13" r="1" fill="currentColor" stroke="none" /><circle cx="13" cy="12" r="1" fill="currentColor" stroke="none" /></>)}
+      {pattern === 'meteor' && (<><line x1="3" y1="15" x2="11" y2="7" /><circle cx="14" cy="4" r="3" fill="currentColor" stroke="none" /></>)}
+      {pattern === 'sparkle' && <path d="M9 2 L10.5 7.5 L16 9 L10.5 10.5 L9 16 L7.5 10.5 L2 9 L7.5 7.5 Z" fill="currentColor" stroke="none" />}
+      {pattern === 'fire' && <path d="M9 2 C12 6 14 8 14 11 A5 5 0 0 1 4 11 C4 8 6 6 9 2 Z" fill="currentColor" stroke="none" />}
+      {pattern === 'jellyfish' && (<><path d="M3 9 A6 6 0 0 1 15 9 Z" fill="currentColor" stroke="none" /><line x1="6" y1="11" x2="6" y2="15" /><line x1="9" y1="11" x2="9" y2="16" /><line x1="12" y1="11" x2="12" y2="15" /></>)}
+      {pattern === 'snakes' && <path d="M2 12 C4 6 6 6 8 10 S12 14 16 10" />}
+    </svg>
+  )
 }
 
-function builtinTemplates(attribute: string): TemplateChoice[] {
-  const kinds = kindsForAttribute(attribute)
-  const list: TemplateChoice[] = []
-  if (kinds.includes('pattern')) {
-    for (const pattern of Object.keys(PATTERN_LABELS) as PatternEffect[]) {
-      list.push({ id: `builtin-pattern-${pattern}`, name: PATTERN_LABELS[pattern], kind: 'pattern', pattern, beat: true })
-    }
+/** The icon LightKey shows on a template tile: overlapping sample circles
+ *  for a pattern, the curve's shape for a curve, the path's shape for a
+ *  movement (Jake's screenshots, 9.15.56 / 9.16.05 / 9.16.22 pm). */
+function TemplateIcon({ template }: { template: LightKeyTemplate }) {
+  if (template.kind === 'pattern') {
+    const samples = template.samples ?? defaultSamples(template.property === 'color')
+    // LightKey's icons show the foreground colours when there are several
+    // (Fire: red, orange, yellow, white); with two samples, background
+    // and foreground (Barn Doors: black, white).
+    const shown = samples.length > 3 ? samples.slice(1, 4) : samples.slice(0, 3)
+    const colour = (sample: EffectSample) =>
+      sample.color ?? `rgb(${Math.round(((sample.value ?? 0) / 100) * 255)}, ${Math.round(((sample.value ?? 0) / 100) * 255)}, ${Math.round(((sample.value ?? 0) / 100) * 255)})`
+    return (
+      <svg viewBox="0 0 36 20" width="36" height="20" aria-hidden="true" className="shrink-0">
+        {shown.map((sample, i) => (
+          <circle key={sample.id} cx={9 + i * 9} cy="10" r="6.5" fill={colour(sample)} opacity={i > 0 ? 0.85 : 1} />
+        ))}
+      </svg>
+    )
   }
-  if (kinds.includes('curve')) {
-    for (const waveform of Object.keys(WAVEFORM_LABELS) as EffectWaveform[]) {
-      list.push({ id: `builtin-curve-${waveform}`, name: `${WAVEFORM_LABELS[waveform]} Wave`, kind: 'curve', waveform, beat: true })
+  if (template.kind === 'curve') {
+    const components = template.curveComponents ?? defaultCurveComponents(template.property)
+    const line = (points: CurveControlPoint[]) => {
+      const sorted = [...points].sort((a, b) => a.x - b.x)
+      return sorted.map((p) => `${2 + p.x * 32},${18 - p.y * 16}`).join(' ')
     }
+    return (
+      <svg viewBox="0 0 36 20" width="36" height="20" aria-hidden="true" className="shrink-0">
+        {components[1] && <polyline points={line(components[1].points)} fill="none" stroke="#fb923c" strokeWidth="1.5" />}
+        {components[0] && <polyline points={line(components[0].points)} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
+      </svg>
+    )
   }
-  if (kinds.includes('movement')) {
-    for (const path of BUILTIN_MOVEMENT_PATHS) {
-      list.push({ id: `builtin-movement-${path.id}`, name: path.name, kind: 'movement', movementPathId: path.id })
-    }
+  const resolved = template.movementPathId ? resolveMovementPath(template.movementPathId) : null
+  let points: { pan: number; tilt: number }[] = []
+  if (resolved) {
+    points = Array.isArray(resolved.path)
+      ? resolved.path
+      : Array.from({ length: 16 }, (_, i) => movementPoint(resolved.path, i / 16))
   }
-  return list
+  const toXY = (p: { pan: number; tilt: number }) => `${18 + p.pan * 16},${10 - p.tilt * 8}`
+  return (
+    <svg viewBox="0 0 36 20" width="36" height="20" aria-hidden="true" className="shrink-0">
+      {resolved?.type === 'points'
+        ? points.map((p, i) => <circle key={i} cx={18 + p.pan * 16} cy={10 - p.tilt * 8} r="1.6" fill="#22d3ee" />)
+        : points.length > 1 && (
+          <polyline points={[...points, points[0]].map(toXY).join(' ')} fill="none" stroke="#22d3ee" strokeWidth="1.5" />
+        )}
+    </svg>
+  )
 }
 
 export function EffectsChooser() {
@@ -147,214 +268,319 @@ export function EffectsChooser() {
   const applyEffectTemplate = useShowStore((s) => s.applyEffectTemplate)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const [query, setQuery] = useState('')
-  const [customKind, setCustomKind] = useState<'pattern' | 'curve' | 'movement'>(() =>
-    kindsForAttribute(attribute ?? 'intensity')[0]
-  )
+  const [mode, setMode] = useState<'templates' | 'template-editor'>('templates')
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
   /** An effect already controls this property — LightKey asks Replace or Overlay (p.152). */
-  const [conflict, setConflict] = useState<{ choice: TemplateChoice; existing: EffectDef } | null>(null)
+  const [conflict, setConflict] = useState<{ apply: () => void; existing: EffectDef } | null>(null)
+  // The template editor opens on the property the wand menu picked.
+  const [templateProperty, setTemplateProperty] = useState<string>('intensity')
+  const [templateKind, setTemplateKind] = useState<'pattern' | 'curve' | 'movement'>('pattern')
 
-  const templates = useMemo(() => builtinTemplates(attribute ?? 'intensity'), [attribute])
-  const projectTemplates = useMemo(
-    () => (show?.effectTemplates ?? []).filter((t) => t.attribute === attribute),
-    [show?.effectTemplates, attribute]
+  const fixtures = useMemo(
+    () => (show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id)),
+    [show?.fixtures, selectedFixtureIds]
   )
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return templates
-    return templates.filter((t) => t.name.toLowerCase().includes(q))
-  }, [templates, query])
-  const filteredProject = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return projectTemplates
-    return projectTemplates.filter((t) => t.name.toLowerCase().includes(q))
-  }, [projectTemplates, query])
+  const effectable = useMemo(
+    () => new Set(effectableProperties(fixtures).map((p) => p.attribute)),
+    [fixtures]
+  )
+  const projectTemplates = useMemo(() => show?.effectTemplates ?? [], [show?.effectTemplates])
+
+  useEffect(() => {
+    setMode('templates')
+    setConflict(null)
+    if (attribute) {
+      setTemplateProperty(attribute)
+      setTemplateKind(kindsForAttribute(attribute)[0])
+    }
+  }, [attribute])
 
   if (!attribute) return null
   const label = attributeLabel(attribute)
-  const kinds = kindsForAttribute(attribute)
-  const existing = effects.find(
-    (e) => e.enabled && e.attribute === attribute && (e.fixtureIds.length === 0 || e.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
-  )
 
-  const createFromChoice = (choice: TemplateChoice): EffectDef | null => {
+  const existingFor = (property: string) =>
+    effects.find(
+      (e) => e.enabled && e.attribute === property && (e.fixtureIds.length === 0 || e.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+    )
+
+  const openEditor = (id: string) => {
+    setEffectChooserAttribute(null)
+    setEditingEffectId(id)
+  }
+
+  const addBuiltIn = (template: LightKeyTemplate) => {
+    const run = () => {
+      const effect = createEffectFromTemplate(template, selectedFixtureIds)
+      addEffect(effect)
+      openEditor(effect.id)
+    }
+    const clash = existingFor(template.property)
+    if (clash && !conflict) {
+      setConflict({ apply: run, existing: clash })
+      return
+    }
+    run()
+  }
+
+  const addProjectTemplate = (id: string) => {
+    const template = projectTemplates.find((t) => t.id === id)
+    if (!template) return
+    const run = () => {
+      const newId = applyEffectTemplate(id)
+      if (newId) openEditor(newId)
+    }
+    const clash = existingFor(template.attribute)
+    if (clash && !conflict) {
+      setConflict({ apply: run, existing: clash })
+      return
+    }
+    run()
+  }
+
+  const createCustomEffect = (): EffectDef => {
     const base: EffectDef = {
       id: newEffectId(),
-      name: `${choice.name} ${label}`,
+      name: `${attributeLabel(templateProperty)} Effect`,
       fixtureIds: [...selectedFixtureIds],
-      attribute,
-      waveform: choice.waveform ?? 'sine',
+      attribute: templateProperty,
+      waveform: 'sine',
       speed: 1,
       syncToBpm: false,
       size: 255,
       offset: 128,
       phaseSpread: 0,
       enabled: true,
-      kind: choice.kind,
+      kind: templateKind,
       durationMs: 2000,
       timingMode: 'fixed'
     }
-    if (choice.kind === 'pattern' && choice.pattern) {
-      return { ...base, pattern: choice.pattern, samples: defaultSamples(isColorAttribute(attribute)) }
+    if (templateKind === 'pattern') {
+      return { ...base, pattern: 'chase', samples: defaultSamples(isColorAttribute(templateProperty)) }
     }
-    if (choice.kind === 'curve') {
-      return { ...base, curveComponents: defaultComponentsFor(attribute) }
+    if (templateKind === 'curve') {
+      return { ...base, curveComponents: defaultCurveComponents(templateProperty) }
     }
-    if (choice.kind === 'movement' && choice.movementPathId) {
-      return { ...base, movementPathId: choice.movementPathId }
-    }
-    return base
+    return { ...base, movementPathId: 'builtin-circle' }
   }
 
-  const addChoice = (choice: TemplateChoice) => {
-    if (existing && !conflict) {
-      setConflict({ choice, existing })
+  const addCustomEffect = () => {
+    const run = () => {
+      const effect = createCustomEffect()
+      addEffect(effect)
+      openEditor(effect.id)
+    }
+    const clash = existingFor(templateProperty)
+    if (clash && !conflict) {
+      setConflict({ apply: run, existing: clash })
       return
     }
-    if (choice.templateId) {
-      const id = applyEffectTemplate(choice.templateId)
-      if (id) {
-        setEffectChooserAttribute(null)
-        setEditingEffectId(id)
-      }
-      return
-    }
-    const effect = createFromChoice(choice)
-    if (!effect) return
-    addEffect(effect)
-    setEffectChooserAttribute(null)
-    setEditingEffectId(effect.id)
+    run()
   }
 
   const resolveConflict = (mode: 'replace' | 'overlay') => {
     if (!conflict) return
     if (mode === 'replace') removeEffect(conflict.existing.id)
-    const choice = conflict.choice
+    const apply = conflict.apply
     setConflict(null)
-    // Re-run without the conflict gate (the existing effect is gone, or kept for overlay).
-    if (choice.templateId) {
-      const id = applyEffectTemplate(choice.templateId)
-      if (id) {
-        setEffectChooserAttribute(null)
-        setEditingEffectId(id)
-      }
-      return
-    }
-    const effect = createFromChoice(choice)
-    if (!effect) return
-    addEffect(effect)
-    setEffectChooserAttribute(null)
-    setEditingEffectId(effect.id)
+    apply()
+  }
+
+  const conflictAlert = conflict && (
+    <div className="rounded border border-line bg-panel2 p-2 text-xs" role="alert">
+      <p className="mb-2">
+        <strong>{conflict.existing.name}</strong> already controls {attributeLabel(conflict.existing.attribute)} for these fixtures.
+        Replace it, or overlay the new effect on top of it?
+      </p>
+      <div className="flex gap-2">
+        <button type="button" className="btn-theme text-xs" onClick={() => resolveConflict('replace')}>Replace</button>
+        <button type="button" className="btn-theme text-xs" onClick={() => resolveConflict('overlay')}>Overlay</button>
+        <button type="button" className="text-xs text-dim" onClick={() => setConflict(null)}>Cancel</button>
+      </div>
+    </div>
+  )
+
+  const searchField = (
+    <input
+      aria-label="Search effects"
+      placeholder="Search"
+      value={query}
+      onChange={(event) => setQuery(event.target.value)}
+      className="ml-auto min-w-0 rounded bg-bg px-2 py-1 text-xs sm:w-40"
+    />
+  )
+  const closeButton = (
+    <button type="button" className="shrink-0 text-xs text-dim" onClick={() => setEffectChooserAttribute(null)}>Close</button>
+  )
+
+  if (mode === 'template-editor') {
+    // The effect template editor (Guide ch.10, pp.148-149; Jake's
+    // screenshot, 9.28.18 pm): pick a fixture property and an effect
+    // kind, then Add Effect opens the editor for a fresh custom effect.
+    const kinds = kindsForAttribute(templateProperty)
+    const properties = effectableProperties(fixtures)
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effects-chooser">
+        <div className="flex items-center gap-2">
+          <span className="w-28 shrink-0" aria-hidden="true" />
+          <EffectPanelTabs />
+          {searchField}
+          {closeButton}
+        </div>
+        {conflictAlert}
+        <div className="flex flex-1 flex-col items-start gap-5 p-2">
+          <label className="flex items-center gap-2 text-sm">
+            <span>Fixture property:</span>
+            <select
+              aria-label="Fixture property"
+              value={templateProperty}
+              onChange={(event) => {
+                const next = event.target.value
+                setTemplateProperty(next)
+                const nextKinds = kindsForAttribute(next)
+                if (!nextKinds.includes(templateKind)) setTemplateKind(nextKinds[0])
+              }}
+              className="rounded bg-bg px-2 py-1 text-sm"
+            >
+              {properties.map((p) => <option key={p.attribute} value={p.attribute}>{p.label}</option>)}
+            </select>
+          </label>
+          <div>
+            <span className="text-sm">Effect:</span>
+            <div className="mt-2 flex gap-5" role="radiogroup" aria-label="Effect kind">
+              {(['pattern', 'curve', 'movement'] as const).filter((kind) => kinds.includes(kind)).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  role="radio"
+                  aria-checked={templateKind === kind}
+                  className="flex flex-col items-center gap-1 text-xs"
+                  onClick={() => setTemplateKind(kind)}
+                >
+                  <span className="flex h-10 w-10 items-center justify-center rounded border border-line bg-panel2 text-[var(--text)]">
+                    {kind === 'pattern' && (
+                      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="9" cy="12" r="6" fill="currentColor" opacity="0.45" /><circle cx="15" cy="12" r="6" fill="currentColor" opacity="0.85" /></svg>
+                    )}
+                    {kind === 'curve' && (
+                      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 12 C5 4 8 4 11 12 S17 20 22 12" /></svg>
+                    )}
+                    {kind === 'movement' && (
+                      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M12 3 C16 3 20 7 20 12 C20 17 16 21 12 21 C8 21 4 17 4 12 C4 7 8 3 12 3 Z M12 8 C14 8 16 10 16 12 C16 14 14 16 12 16" /></svg>
+                    )}
+                  </span>
+                  {kind === 'pattern' ? 'Pattern' : kind === 'curve' ? 'Curve' : 'Movement'}
+                  <span className={`h-1 w-10 rounded-full ${templateKind === kind ? 'bg-[#0A84FF]' : 'bg-transparent'}`} aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" className="rounded px-3 py-1 text-xs" onClick={() => setMode('templates')}>Cancel</button>
+            <button
+              type="button"
+              className="rounded bg-[#22c55e] px-4 py-1.5 text-xs font-semibold text-white"
+              onClick={addCustomEffect}
+            >
+              Add Effect
+            </button>
+          </div>
+        </div>
+        <div className="flex">
+          <button
+            type="button"
+            className="rounded-full border border-line bg-panel2 px-3 py-1 text-xs"
+            onClick={() => setMode('templates')}
+          >
+            Effect Template
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // The template presets view (Guide ch.10, p.148; Jake's screenshots,
+  // 9.15.56 / 9.16.05 / 9.16.22 pm): sections grouped by fixture property,
+  // each template a tile with its icon and name; beat-controlled templates
+  // carry the pulse icon. Hovering a tile reveals the green Add pill;
+  // clicking the tile adds that template and opens its editor. Templates
+  // which don't apply to the selected fixtures appear gray.
+  const q = query.trim().toLowerCase()
+  const matches = (name: string) => !q || name.toLowerCase().includes(q)
+  const visibleSections = EFFECT_TEMPLATE_SECTIONS
+    .map((section) => ({ ...section, templates: section.templates.filter((t) => matches(t.name)) }))
+    .filter((section) => section.templates.length > 0)
+  const visibleProject = projectTemplates.filter((t) => matches(t.name))
+
+  const tile = (template: LightKeyTemplate) => {
+    const grayed = !effectable.has(template.property)
+    return (
+      <button
+        key={template.id}
+        type="button"
+        disabled={grayed}
+        aria-label={`${template.name} template`}
+        className="relative flex min-w-0 items-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-left text-xs hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40"
+        onMouseEnter={() => setHoveredId(template.id)}
+        onMouseLeave={() => setHoveredId((current) => (current === template.id ? null : current))}
+        onFocus={() => setHoveredId(template.id)}
+        onBlur={() => setHoveredId((current) => (current === template.id ? null : current))}
+        onClick={() => addBuiltIn(template)}
+      >
+        <TemplateIcon template={template} />
+        <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
+        {template.beat && <span className="shrink-0 text-dim" title="Beat-controlled"><BeatGlyph /></span>}
+        {hoveredId === template.id && !grayed && (
+          <span className="absolute right-2 rounded bg-[#22c55e] px-2 py-0.5 text-xs font-semibold text-white">Add</span>
+        )}
+      </button>
+    )
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effects-chooser">
       <div className="flex items-center gap-2">
-        <strong className="text-sm">Add {label} Effect</strong>
-        <input
-          aria-label="Search effects"
-          placeholder="Search…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className="ml-auto min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs sm:max-w-48"
-        />
-        <button type="button" className="text-xs text-dim" onClick={() => setEffectChooserAttribute(null)}>Close</button>
+        <button
+          type="button"
+          className="shrink-0 rounded-full border border-line bg-panel2 px-3 py-1 text-xs font-medium"
+          onClick={() => setMode('template-editor')}
+        >
+          Custom Effect
+        </button>
+        <EffectPanelTabs />
+        {searchField}
+        {closeButton}
       </div>
-      {conflict && (
-        <div className="rounded border border-line bg-panel2 p-2 text-xs" role="alert">
-          <p className="mb-2">
-            <strong>{conflict.existing.name}</strong> already controls {label} for these fixtures.
-            Replace it, or overlay the new effect on top of it?
-          </p>
-          <div className="flex gap-2">
-            <button type="button" className="btn-theme text-xs" onClick={() => resolveConflict('replace')}>Replace</button>
-            <button type="button" className="btn-theme text-xs" onClick={() => resolveConflict('overlay')}>Overlay</button>
-            <button type="button" className="text-xs text-dim" onClick={() => setConflict(null)}>Cancel</button>
+      {conflictAlert}
+      {visibleSections.map((section) => (
+        <section key={section.property} aria-label={`${section.label} templates`}>
+          <h3 className="px-1 pb-1 text-sm">{section.label}</h3>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
+            {section.templates.map(tile)}
           </div>
-        </div>
+        </section>
+      ))}
+      {visibleSections.length === 0 && visibleProject.length === 0 && (
+        <span className="text-[11px] text-dim">No templates match.</span>
       )}
-      <div className="flex flex-wrap gap-1">
-        {filtered.map((template) => (
-          <button
-            key={template.id}
-            type="button"
-            className="rounded border border-line bg-panel2 px-2 py-1.5 text-left text-xs hover:border-[var(--accent)]"
-            onClick={() => addChoice(template)}
-          >
-            <span className="block font-medium">{template.name}</span>
-            <span className="text-[10px] text-dim">
-              {template.kind === 'pattern' ? 'Pattern' : template.kind === 'curve' ? 'Curve' : 'Movement'}
-              {template.beat ? ' · ♩' : ''}
-            </span>
-          </button>
-        ))}
-        {filtered.length === 0 && <span className="text-[11px] text-dim">No built-in templates match.</span>}
-      </div>
-      {filteredProject.length > 0 && (
-        <>
-          <strong className="text-xs">Your Templates</strong>
-          <div className="flex flex-wrap gap-1">
-            {filteredProject.map((template) => (
+      {visibleProject.length > 0 && (
+        <section aria-label="Your templates">
+          <h3 className="px-1 pb-1 text-sm">Your Templates</h3>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
+            {visibleProject.map((template) => (
               <button
                 key={template.id}
                 type="button"
-                className="rounded border border-line bg-panel2 px-2 py-1.5 text-left text-xs hover:border-[var(--accent)]"
-                onClick={() => addChoice({ id: template.id, name: template.name, kind: template.kind ?? 'curve', templateId: template.id })}
+                className="relative flex min-w-0 items-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-left text-xs hover:border-[var(--accent)]"
+                onClick={() => addProjectTemplate(template.id)}
               >
-                <span className="block font-medium">{template.name}</span>
-                <span className="text-[10px] text-dim">Saved template</span>
+                <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
+                <span className="shrink-0 text-[10px] text-dim">Saved template</span>
               </button>
             ))}
           </div>
-        </>
+        </section>
       )}
-      <div className="mt-auto flex items-center gap-2 border-t border-line pt-2">
-        <strong className="text-xs">Custom Effect</strong>
-        <select
-          aria-label="Custom effect kind"
-          value={customKind}
-          onChange={(event) => setCustomKind(event.target.value as 'pattern' | 'curve' | 'movement')}
-          className="rounded bg-bg px-1 py-1 text-xs"
-        >
-          {kinds.includes('pattern') && <option value="pattern">Pattern</option>}
-          {kinds.includes('curve') && <option value="curve">Curve</option>}
-          {kinds.includes('movement') && <option value="movement">Movement</option>}
-        </select>
-        <button
-          type="button"
-          className="btn-theme text-xs"
-          onClick={() => addChoice({
-            id: `custom-${customKind}`,
-            name: customKind === 'pattern' ? 'Custom Pattern' : customKind === 'curve' ? 'Custom Curve' : 'Custom Movement',
-            kind: customKind,
-            pattern: customKind === 'pattern' ? 'chase' : undefined,
-            waveform: customKind === 'curve' ? 'sine' : undefined,
-            movementPathId: customKind === 'movement' ? 'builtin-circle' : undefined
-          })}
-        >
-          Add Effect
-        </button>
-      </div>
     </div>
   )
-}
-
-/** Default curves for a fresh custom curve effect (Guide p.161): one curve per
- *  component, each a sine wave sampled into control points. */
-function defaultComponentsFor(attribute: string): CurveComponent[] {
-  if (attribute === 'color') {
-    return colorModelComponents('hsb').map((component) => ({
-      component,
-      points: waveformPoints('sine'),
-      curvedSegments: Array.from({ length: 8 }, () => true)
-    }))
-  }
-  if (attribute === 'position') {
-    return [
-      { component: 'pan', points: waveformPoints('sine'), curvedSegments: Array.from({ length: 8 }, () => true) },
-      { component: 'tilt', points: waveformPoints('cosine'), curvedSegments: Array.from({ length: 8 }, () => true) }
-    ]
-  }
-  return [{ component: attribute, points: waveformPoints('sine'), curvedSegments: Array.from({ length: 8 }, () => true) }]
 }
 
 /* ------------------------------------------------------------------ */
@@ -391,41 +617,127 @@ function NumberField({ label, value, min, max, step, onChange, placeholder }: {
   )
 }
 
-function TimingControls({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+/** Up/down steppers, LightKey style (small chevrons beside a value). */
+function StepperButtons({ onUp, onDown, upLabel, downLabel }: {
+  onUp: () => void
+  onDown: () => void
+  upLabel: string
+  downLabel: string
+}) {
+  return (
+    <span className="flex shrink-0 flex-col leading-none">
+      <button type="button" aria-label={upLabel} title={upLabel} className="px-0.5 text-[9px] text-dim hover:text-[var(--text)]" onClick={onUp}>▲</button>
+      <button type="button" aria-label={downLabel} title={downLabel} className="px-0.5 text-[9px] text-dim hover:text-[var(--text)]" onClick={onDown}>▼</button>
+    </span>
+  )
+}
+
+/** The duration field (mm:ss.t, LightKey's timing column). The text is
+ *  local state so typing "00:04.0" doesn't reformat mid-keystroke; it
+ *  commits on blur or Return. */
+function DurationField({ valueMs, onChange }: { valueMs: number; onChange: (ms: number) => void }) {
+  const [text, setText] = useState(() => formatDurationMs(valueMs))
+  useEffect(() => { setText(formatDurationMs(valueMs)) }, [valueMs])
+  const commit = () => {
+    const parsed = parseDurationMs(text)
+    if (parsed !== null) onChange(parsed)
+    else setText(formatDurationMs(valueMs))
+  }
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        aria-label="Duration"
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => { if (event.key === 'Enter') (event.target as HTMLInputElement).blur() }}
+        className="w-20 rounded bg-bg px-2 py-1 text-center text-sm"
+      />
+      <StepperButtons
+        upLabel="Increase duration"
+        downLabel="Decrease duration"
+        onUp={() => onChange(Math.min(600000, valueMs + 100))}
+        onDown={() => onChange(Math.max(50, valueMs - 100))}
+      />
+    </span>
+  )
+}
+
+/** The left timing column (Guide p.149; Jake's screenshots, 9.31.29 /
+ *  9.33.33 / 9.34.46 pm): a clock/pulse toggle, then the Duration
+ *  (mm:ss.t) or the Beat Multiplier (×N with steppers) below it. Random
+ *  timing — for patterns with no fixed cycle — adds a third segment. */
+function TimingColumn({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const canBeat = effect.kind !== 'movement'
   const canRandom = effect.kind === 'pattern'
   const mode = effect.timingMode ?? (effect.syncToBpm ? 'beat' : 'fixed')
+  const beatIndex = BEAT_MULTIPLIERS.findIndex((m) => m.value === (effect.beatMultiplier ?? 1))
+  const stepBeat = (direction: 1 | -1) => {
+    const current = beatIndex < 0 ? 2 : beatIndex
+    const next = BEAT_MULTIPLIERS[Math.max(0, Math.min(BEAT_MULTIPLIERS.length - 1, current + direction))]
+    update({ beatMultiplier: next.value })
+  }
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <label className="flex items-center gap-1">
-        <span className="text-dim">Timing</span>
-        <select
-          aria-label="Timing mode"
-          value={mode}
-          onChange={(event) => update({ timingMode: event.target.value as EffectDef['timingMode'] })}
-          className="rounded bg-bg px-1 py-1 text-xs"
+    <div className="flex w-28 shrink-0 flex-col items-start gap-2" aria-label="Timing">
+      <div className="flex rounded-lg border border-line bg-panel2" role="group" aria-label="Timing mode">
+        <button
+          type="button"
+          aria-label="Fixed duration"
+          aria-pressed={mode === 'fixed'}
+          title="Fixed duration"
+          className={`flex h-9 w-11 items-center justify-center rounded-l-lg ${mode === 'fixed' ? 'bg-panel font-medium' : 'text-dim'}`}
+          onClick={() => update({ timingMode: 'fixed' })}
         >
-          <option value="fixed">Fixed duration</option>
-          {canBeat && <option value="beat">Beat-controlled</option>}
-          {canRandom && <option value="random">Random</option>}
-        </select>
-      </label>
+          <ClockGlyph />
+        </button>
+        {canBeat && (
+          <button
+            type="button"
+            aria-label="Beat-controlled"
+            aria-pressed={mode === 'beat'}
+            title="Beat-controlled"
+            className={`flex h-9 w-11 items-center justify-center ${canRandom ? '' : 'rounded-r-lg'} ${mode === 'beat' ? 'bg-panel font-medium' : 'text-dim'}`}
+            onClick={() => update({ timingMode: 'beat' })}
+          >
+            <BeatGlyph />
+          </button>
+        )}
+        {canRandom && (
+          <button
+            type="button"
+            aria-label="Random timing"
+            aria-pressed={mode === 'random'}
+            title="Random timing"
+            className={`flex h-9 w-11 items-center justify-center rounded-r-lg ${mode === 'random' ? 'bg-panel font-medium' : 'text-dim'}`}
+            onClick={() => update({ timingMode: 'random' })}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 6h4l8 12h6M3 18h4l2.5-3.75M21 6h-6M17 3l3 3-3 3" />
+            </svg>
+          </button>
+        )}
+      </div>
       {mode === 'fixed' && (
-        <NumberField label="Duration (ms)" value={effect.durationMs ?? 2000} min={50} max={600000} step={50}
-          onChange={(durationMs) => update({ durationMs })} />
+        <div className="flex flex-col items-start gap-1">
+          <DurationField valueMs={effect.durationMs ?? 2000} onChange={(durationMs) => update({ durationMs })} />
+          <span className="text-[11px] text-dim">Duration</span>
+        </div>
       )}
       {mode === 'beat' && (
-        <label className="flex items-center gap-1">
-          <span className="text-dim">Beats per cycle</span>
-          <select
-            aria-label="Beats per cycle"
-            value={String(effect.beatMultiplier ?? 1)}
-            onChange={(event) => update({ beatMultiplier: Number(event.target.value) })}
-            className="rounded bg-bg px-1 py-1 text-xs"
-          >
-            {BEAT_MULTIPLIERS.map((m) => <option key={m.value} value={String(m.value)}>{m.label}</option>)}
-          </select>
-        </label>
+        <div className="flex flex-col items-start gap-1">
+          <span className="flex items-center gap-1">
+            <span className="flex h-8 w-20 items-center justify-center rounded bg-bg text-sm" aria-label="Beat multiplier">
+              {beatMultiplierLabel(effect.beatMultiplier ?? 1)}
+            </span>
+            <StepperButtons
+              upLabel="Increase beat multiplier"
+              downLabel="Decrease beat multiplier"
+              onUp={() => stepBeat(-1)}
+              onDown={() => stepBeat(1)}
+            />
+          </span>
+          <span className="text-[11px] text-dim">Beat Multiplier</span>
+        </div>
       )}
       {mode === 'random' && <span className="text-[11px] text-dim">No fixed cycle — a new random order each time.</span>}
     </div>
@@ -435,8 +747,8 @@ function TimingControls({ effect, update }: { effect: EffectDef; update: (patch:
 function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const order = effect.fixtureOrder ?? 'forward'
   return (
-    <div className="flex flex-wrap items-center gap-2 text-xs">
-      <label className="flex items-center gap-1">
+    <div className="flex flex-col gap-2 text-xs">
+      <label className="flex items-center justify-between gap-2">
         <span className="text-dim">Fixture order</span>
         <select
           aria-label="Fixture order"
@@ -449,7 +761,7 @@ function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (
           ))}
         </select>
       </label>
-      <label className="flex items-center gap-1">
+      <label className="flex items-center justify-between gap-2">
         <span className="text-dim">Origin</span>
         <select
           aria-label="Fixture order origin"
@@ -474,7 +786,7 @@ function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (
         />
         <span className="text-dim">Consider Spacing</span>
       </label>
-      <label className="flex items-center gap-1">
+      <label className="flex items-center justify-between gap-2">
         <span className="text-dim">Pixels</span>
         <select
           aria-label="Pixel mode"
@@ -509,55 +821,205 @@ interface PatternParam {
   step: number
   /** The runtime default, shown while the field is empty (unset = default). */
   placeholder: string
+  /** Rendered as a percentage row (label + value in one row with a fill). */
+  percent?: boolean
+  /** Seconds (Interval, Lifetime) — shown with an "s" suffix. */
+  unit?: 's'
 }
 
+/** Per-pattern parameters (Guide ch.10, pp.154-160) with LightKey's own
+ *  labels from Jake's screenshots ("Steps p. Sample", "Phase",
+ *  "Time Offset", …). Percent parameters render as a row whose fill is
+ *  proportional to the value (screenshot 9.34.46 pm: Trail 60%). */
 const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
   chase: [
-    { key: 'stepsPerValue', label: 'Steps per value', min: 1, max: 64, step: 1, placeholder: '1' },
-    { key: 'delay', label: 'Delay (%)', min: 0, max: 100, step: 1, placeholder: '0' },
-    { key: 'smoothness', label: 'Smoothness (%)', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'stepsPerValue', label: 'Steps p. Sample', min: 1, max: 64, step: 1, placeholder: '1' },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'timeOffset', label: 'Time Offset', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'delay', label: 'Delay', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'smoothness', label: 'Smoothness', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   scanner: [
-    { key: 'length', label: 'Length (pixels)', min: 1, max: 64, step: 1, placeholder: '1' },
-    { key: 'overshoot', label: 'Overshoot (pixels)', min: 0, max: 64, step: 1, placeholder: '0' },
-    { key: 'fringe', label: 'Fringe (%)', min: 0, max: 100, step: 1, placeholder: '0' },
-    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
+    { key: 'overshoot', label: 'Overshoot', min: 0, max: 64, step: 1, placeholder: '0' },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   'yo-yo': [
-    { key: 'center', label: 'Center (%)', min: 0, max: 100, step: 1, placeholder: '50' },
-    { key: 'steepness', label: 'Steepness (%)', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'center', label: 'Center', min: 0, max: 100, step: 1, placeholder: '50', percent: true },
+    { key: 'steepness', label: 'Steepness', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   fill: [],
   rain: [
-    { key: 'length', label: 'Length (pixels)', min: 1, max: 64, step: 1, placeholder: '1' },
-    { key: 'distance', label: 'Distance (pixels)', min: 1, max: 64, step: 1, placeholder: '2' },
-    { key: 'fringe', label: 'Fringe (%)', min: 0, max: 100, step: 1, placeholder: '0' },
-    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
+    { key: 'distance', label: 'Distance', min: 1, max: 64, step: 1, placeholder: '2' },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   meteor: [
-    { key: 'length', label: 'Length (pixels)', min: 1, max: 64, step: 1, placeholder: '1' },
-    { key: 'distance', label: 'Distance (pixels)', min: 1, max: 64, step: 1, placeholder: '6' },
-    { key: 'trail', label: 'Trail', min: 0, max: 64, step: 1, placeholder: '0' }
+    { key: 'length', label: 'Length', min: 1, max: 64, step: 1, placeholder: '1' },
+    { key: 'distance', label: 'Distance', min: 1, max: 64, step: 1, placeholder: '6' },
+    { key: 'phase', label: 'Phase', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'trail', label: 'Trail', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   sparkle: [
-    { key: 'interval', label: 'Interval (s)', min: 0.05, max: 10, step: 0.05, placeholder: '0.5' },
-    { key: 'lifetime', label: 'Lifetime (s)', min: 0.05, max: 10, step: 0.05, placeholder: '1' },
-    { key: 'fringe', label: 'Fringe (%)', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'interval', label: 'Interval', min: 0.05, max: 10, step: 0.05, placeholder: '0.5', unit: 's' },
+    { key: 'lifetime', label: 'Lifetime', min: 0.05, max: 10, step: 0.05, placeholder: '1', unit: 's' },
+    { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   fire: [
     { key: 'fireSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
-    { key: 'sparking', label: 'Sparking (%)', min: 0, max: 100, step: 1, placeholder: '50' },
-    { key: 'cooling', label: 'Cooling (%)', min: 0, max: 100, step: 1, placeholder: '50' }
+    { key: 'sparking', label: 'Sparking', min: 0, max: 100, step: 1, placeholder: '50', percent: true },
+    { key: 'cooling', label: 'Cooling', min: 0, max: 100, step: 1, placeholder: '50', percent: true }
   ],
   jellyfish: [
     { key: 'jellyfishCount', label: 'Count', min: 1, max: 16, step: 1, placeholder: '1' },
-    { key: 'jellyfishSize', label: 'Size', min: 1, max: 64, step: 1, placeholder: '50' },
-    { key: 'fringe', label: 'Fringe (%)', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'jellyfishSize', label: 'Size', min: 1, max: 100, step: 1, placeholder: '50', percent: true },
+    { key: 'jellyfishSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
+    { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ],
   snakes: [
-    { key: 'fringe', label: 'Fringe (%)', min: 0, max: 100, step: 1, placeholder: '0' },
-    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0' }
+    { key: 'snakeSpeed', label: 'Speed', min: 0.1, max: 10, step: 0.1, placeholder: '1' },
+    { key: 'fringe', label: 'Fringe', min: 0, max: 100, step: 1, placeholder: '0', percent: true },
+    { key: 'noise', label: 'Noise', min: 0, max: 100, step: 1, placeholder: '0', percent: true }
   ]
+}
+
+/** One parameter row, LightKey style (Jake's screenshots, 9.31.29 /
+ *  9.34.46 pm): the label on the left, the value on the right with
+ *  steppers; a percentage row's fill is proportional to its value. */
+function ParamRow({ param, value, onChange }: {
+  param: PatternParam
+  value: number | undefined
+  onChange: (value: number) => void
+}) {
+  const current = value ?? Number(param.placeholder)
+  const clamped = Math.max(param.min, Math.min(param.max, Number.isFinite(current) ? current : Number(param.placeholder)))
+  return (
+    <div className="relative flex items-center gap-1 overflow-hidden rounded border border-line bg-panel2 px-2 py-1 text-xs">
+      {param.percent && (
+        <div aria-hidden="true" className="absolute inset-y-0 left-0" style={{ width: `${clamped}%`, backgroundColor: 'rgba(255, 255, 255, 0.14)' }} />
+      )}
+      <span className="relative min-w-0 flex-1 truncate">{param.label}</span>
+      <input
+        type="number"
+        aria-label={param.label}
+        value={value ?? ''}
+        min={param.min}
+        max={param.max}
+        step={param.step}
+        placeholder={param.placeholder}
+        onChange={(event) => {
+          const next = Number(event.target.value)
+          if (Number.isFinite(next)) onChange(next)
+        }}
+        className="relative w-14 rounded bg-transparent text-right"
+      />
+      {param.percent && <span className="relative text-dim">%</span>}
+      {param.unit === 's' && <span className="relative text-dim">s</span>}
+      <StepperButtons
+        upLabel={`Increase ${param.label}`}
+        downLabel={`Decrease ${param.label}`}
+        onUp={() => onChange(Math.min(param.max, clamped + param.step))}
+        onDown={() => onChange(Math.max(param.min, clamped - param.step))}
+      />
+    </div>
+  )
+}
+
+/** The pattern picker (Jake's screenshots, 9.31.29 / 9.34.02 pm): a
+ *  button showing the current pattern, opening a menu of the ten
+ *  patterns with their icons. */
+function PatternPicker({ pattern, onChange }: { pattern: PatternEffect; onChange: (pattern: PatternEffect) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="Pattern"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex w-full items-center justify-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-sm"
+      >
+        <PatternGlyph pattern={pattern} />
+        {PATTERN_LABELS[pattern]}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-10 mt-1 flex w-44 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu" aria-label="Patterns">
+          {(Object.keys(PATTERN_LABELS) as PatternEffect[]).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="menuitem"
+              className="flex items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-panel"
+              onClick={() => { onChange(key); setOpen(false) }}
+            >
+              <PatternGlyph pattern={key} />
+              {PATTERN_LABELS[key]}
+              {key === pattern && <span className="ml-auto">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The right column of a pattern editor: the pattern picker and the
+ *  per-pattern parameters (Guide pp.154-160). */
+function PatternParams({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+  const pattern = effect.pattern ?? 'chase'
+  return (
+    <div className="flex flex-col gap-1.5">
+      <PatternPicker pattern={pattern} onChange={(next) => update({ pattern: next })} />
+      {PATTERN_PARAMS[pattern].map((param) => (
+        <ParamRow
+          key={param.key}
+          param={param}
+          value={effect[param.key] as number | undefined}
+          onChange={(value) => update({ [param.key]: value } as Partial<EffectDef>)}
+        />
+      ))}
+      {pattern === 'snakes' && (
+        <>
+          <ParamRow
+            param={{ key: 'lengthRange', label: 'Length min', min: 1, max: 64, step: 1, placeholder: '1' }}
+            value={effect.lengthRange?.[0] ?? 1}
+            onChange={(value) => update({ lengthRange: [value, effect.lengthRange?.[1] ?? 4] })}
+          />
+          <ParamRow
+            param={{ key: 'lengthRange', label: 'Length max', min: 1, max: 64, step: 1, placeholder: '4' }}
+            value={effect.lengthRange?.[1] ?? 4}
+            onChange={(value) => update({ lengthRange: [effect.lengthRange?.[0] ?? 1, value] })}
+          />
+          <ParamRow
+            param={{ key: 'distanceRange', label: 'Distance min', min: 1, max: 64, step: 1, placeholder: '1' }}
+            value={effect.distanceRange?.[0] ?? 1}
+            onChange={(value) => update({ distanceRange: [value, effect.distanceRange?.[1] ?? 4] })}
+          />
+          <ParamRow
+            param={{ key: 'distanceRange', label: 'Distance max', min: 1, max: 64, step: 1, placeholder: '4' }}
+            value={effect.distanceRange?.[1] ?? 4}
+            onChange={(value) => update({ distanceRange: [effect.distanceRange?.[0] ?? 1, value] })}
+          />
+        </>
+      )}
+      {(pattern === 'meteor' || pattern === 'sparkle' || pattern === 'jellyfish') && (
+        <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1.5 text-xs">
+          <input
+            type="checkbox"
+            checked={effect.usePalette ?? false}
+            onChange={(event) => update({ usePalette: event.target.checked })}
+          />
+          Use samples as palette
+        </label>
+      )}
+    </div>
+  )
 }
 
 function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
@@ -566,7 +1028,6 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
   // back) the levels of that channel, not a colour picker — a red chase
   // must not offer a colour that would light the whole fixture white.
   const samples = normalizedPatternSamples(effect)
-  const pattern = effect.pattern ?? 'chase'
   const [selectedSample, setSelectedSample] = useState(0)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const selected = samples[Math.min(selectedSample, samples.length - 1)]
@@ -588,26 +1049,10 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <label className="flex items-center gap-1">
-          <span className="text-dim">Pattern</span>
-          <select
-            aria-label="Pattern"
-            value={pattern}
-            onChange={(event) => update({ pattern: event.target.value as PatternEffect })}
-            className="rounded bg-bg px-1 py-1 text-xs"
-          >
-            {(Object.keys(PATTERN_LABELS) as PatternEffect[]).map((key) => (
-              <option key={key} value={key}>{PATTERN_LABELS[key]}</option>
-            ))}
-          </select>
-        </label>
-        <NumberField label="Time Offset (%)" value={effect.timeOffset ?? 0} min={0} max={100} step={1}
-          onChange={(timeOffset) => update({ timeOffset })} />
-      </div>
-      {/* Sample strip (Guide p.153): the first sample is the background.
-          Drag to reorder; click to edit; the buttons duplicate or delete. */}
-      <div className="flex flex-wrap items-center gap-1" role="listbox" aria-label="Pattern samples">
+      {/* Sample strip (Guide p.153; Jake's screenshots, 9.31.29 /
+          9.34.46 pm): large rounded squares, the first the background.
+          Drag to reorder; click to edit; the + tile adds a sample. */}
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel2 p-2" role="listbox" aria-label="Pattern samples">
         {samples.map((sample, index) => {
           const isSelected = index === Math.min(selectedSample, samples.length - 1)
           const swatch = isColor
@@ -630,7 +1075,7 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
               onDragEnd={() => setDragIndex(null)}
               onClick={() => setSelectedSample(index)}
               title={index === 0 ? 'Background sample — drag to reorder' : 'Sample — drag to reorder'}
-              className={`flex h-8 w-8 items-center justify-center rounded border text-[10px] ${isSelected ? 'border-[#0A84FF]' : 'border-line'}`}
+              className={`flex h-16 w-16 items-center justify-center rounded-lg border text-xs ${isSelected ? 'border-[#0A84FF]' : 'border-line'}`}
               style={{ backgroundColor: swatch, color: isColor ? '#fff' : '#000' }}
             >
               {index === 0 ? 'BG' : index}
@@ -639,7 +1084,7 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
         })}
         <button
           type="button"
-          className="h-8 w-8 rounded border border-dashed border-line text-xs text-dim"
+          className="flex h-16 w-16 items-center justify-center rounded-lg border border-dashed border-line text-lg text-dim"
           title="Add sample"
           aria-label="Add sample"
           onClick={() => {
@@ -697,42 +1142,6 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
           </button>
         </div>
       )}
-      <div className="flex flex-wrap items-center gap-2">
-        {PATTERN_PARAMS[pattern].map((param) => (
-          <NumberField
-            key={param.key}
-            label={param.label}
-            value={effect[param.key] as number | undefined}
-            min={param.min}
-            max={param.max}
-            step={param.step}
-            placeholder={param.placeholder}
-            onChange={(value) => update({ [param.key]: value } as Partial<EffectDef>)}
-          />
-        ))}
-        {(pattern === 'meteor' || pattern === 'sparkle' || pattern === 'jellyfish') && (
-          <label className="flex items-center gap-1 text-xs">
-            <input
-              type="checkbox"
-              checked={effect.usePalette ?? false}
-              onChange={(event) => update({ usePalette: event.target.checked })}
-            />
-            <span className="text-dim">Use samples as palette</span>
-          </label>
-        )}
-        {pattern === 'snakes' && (
-          <>
-            <NumberField label="Length min" value={effect.lengthRange?.[0] ?? 1} min={1} max={64} step={1}
-              onChange={(value) => update({ lengthRange: [value, effect.lengthRange?.[1] ?? 4] })} />
-            <NumberField label="Length max" value={effect.lengthRange?.[1] ?? 4} min={1} max={64} step={1}
-              onChange={(value) => update({ lengthRange: [effect.lengthRange?.[0] ?? 1, value] })} />
-            <NumberField label="Distance min" value={effect.distanceRange?.[0] ?? 1} min={1} max={64} step={1}
-              onChange={(value) => update({ distanceRange: [value, effect.distanceRange?.[1] ?? 4] })} />
-            <NumberField label="Distance max" value={effect.distanceRange?.[1] ?? 4} min={1} max={64} step={1}
-              onChange={(value) => update({ distanceRange: [effect.distanceRange?.[0] ?? 1, value] })} />
-          </>
-        )}
-      </div>
     </div>
   )
 }
@@ -793,6 +1202,9 @@ function CurveCanvas({ component, durationMs, onChange }: {
   const [dragId, setDragId] = useState<string | null>(null)
   const [copied, setCopied] = useState<CurveComponent | null>(null)
   const [dot, setDot] = useState<{ x: number; y: number } | null>(null)
+  // The horizontal axis shows percent or exact times (Guide p.163) —
+  // click the labels to toggle.
+  const [axisMode, setAxisMode] = useState<'percent' | 'time'>('percent')
 
   // The animated dot (Guide p.163): where the curve currently is.
   useEffect(() => {
@@ -911,7 +1323,8 @@ function CurveCanvas({ component, durationMs, onChange }: {
         onPointerUp={() => setDragId(null)}
         onDoubleClick={onDoubleClick}
       >
-        {/* Axis: percent and time subdivisions (Guide p.163). */}
+        {/* Axis: percent and time subdivisions (Guide p.163) — click the
+            horizontal labels to switch between percent and exact times. */}
         {[0, 0.25, 0.5, 0.75, 1].map((f) => {
           const x = CURVE_PAD + f * (CURVE_WIDTH - CURVE_PAD * 2)
           const y = CURVE_HEIGHT - CURVE_PAD - f * (CURVE_HEIGHT - CURVE_PAD * 2)
@@ -919,7 +1332,18 @@ function CurveCanvas({ component, durationMs, onChange }: {
             <g key={f}>
               <line x1={x} y1={CURVE_PAD} x2={x} y2={CURVE_HEIGHT - CURVE_PAD} stroke="var(--line, #333)" strokeWidth="0.5" />
               <line x1={CURVE_PAD} y1={y} x2={CURVE_WIDTH - CURVE_PAD} y2={y} stroke="var(--line, #333)" strokeWidth="0.5" />
-              <text x={x} y={CURVE_HEIGHT - 2} fontSize="8" fill="var(--dim, #888)" textAnchor="middle">{Math.round(f * 100)}%</text>
+              <text
+                x={x}
+                y={CURVE_HEIGHT - 2}
+                fontSize="8"
+                fill="var(--dim, #888)"
+                textAnchor="middle"
+                style={{ cursor: 'pointer' }}
+                onClick={() => setAxisMode((mode) => (mode === 'percent' ? 'time' : 'percent'))}
+              >
+                <title>Click to switch between percent and time</title>
+                {axisMode === 'percent' ? `${Math.round(f * 100)}%` : `${(f * (durationMs / 1000)).toFixed(1)}s`}
+              </text>
               <text x={CURVE_PAD - 2} y={y + 3} fontSize="8" fill="var(--dim, #888)" textAnchor="end">{Math.round(f * 100)}</text>
             </g>
           )
@@ -970,7 +1394,72 @@ function CurveCanvas({ component, durationMs, onChange }: {
   )
 }
 
-function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+/** The vertical gradient bar beside the curve (Jake's screenshot,
+ *  9.35.05 pm): the value range the curve moves through — the hue
+ *  spectrum for a hue curve, black-to-white for anything else. */
+function curveGradientBar(component: string): string {
+  if (component === 'hue') {
+    return 'linear-gradient(to bottom, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)'
+  }
+  return 'linear-gradient(to bottom, #ffffff, #000000)'
+}
+
+/** The right column of a curve editor: "Select Template…" and the Time
+ *  Offset (Guide p.163: Time Offset sits to the right of the curve). */
+function CurveParams({ effect, update, activeComponent }: {
+  effect: EffectDef
+  update: (patch: Partial<EffectDef>) => void
+  activeComponent: string
+}) {
+  const components = effect.curveComponents ?? []
+  const active = components.find((c) => c.component === activeComponent) ?? components[0]
+
+  const applyTemplate = (waveform: EffectWaveform | 'flat') => {
+    if (!active) return
+    const points = waveform === 'flat' ? defaultCurvePoints() : waveformPoints(waveform)
+    const curvedSegments = Array.from({ length: Math.max(0, points.length - 1) }, () => waveform !== 'flat')
+    update({
+      curveComponents: components.map((c) =>
+        c.component === active.component ? { ...active, points, curvedSegments } : c
+      )
+    })
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="flex flex-col gap-1 text-xs">
+        <span className="text-dim">Template</span>
+        <select
+          aria-label="Curve template"
+          value=""
+          onChange={(event) => {
+            if (event.target.value) applyTemplate(event.target.value as EffectWaveform | 'flat')
+            event.target.value = ''
+          }}
+          className="rounded border border-line bg-panel2 px-2 py-1.5 text-xs"
+        >
+          <option value="">Select Template…</option>
+          {(Object.keys(WAVEFORM_LABELS) as EffectWaveform[]).map((w) => (
+            <option key={w} value={w}>{WAVEFORM_LABELS[w]}</option>
+          ))}
+          <option value="flat">Flat</option>
+        </select>
+      </label>
+      <ParamRow
+        param={{ key: 'timeOffset', label: 'Time Offset', min: 0, max: 100, step: 1, placeholder: '0', percent: true }}
+        value={effect.timeOffset ?? 0}
+        onChange={(timeOffset) => update({ timeOffset })}
+      />
+    </div>
+  )
+}
+
+function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
+  effect: EffectDef
+  update: (patch: Partial<EffectDef>) => void
+  activeComponent: string
+  onActiveComponent: (component: string) => void
+}) {
   const components = effect.curveComponents ?? []
   const selectedFixtures = useShowStore((s) => {
     const fixtures = s.show?.fixtures ?? []
@@ -979,18 +1468,10 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
   const model = effect.colorModel ?? 'hsb'
   const isColor = effect.attribute === 'color'
   const isPosition = effect.attribute === 'position'
-  const [activeComponent, setActiveComponent] = useState<string>(components[0]?.component ?? '')
   const active = components.find((c) => c.component === activeComponent) ?? components[0]
 
   const updateComponent = (component: string, next: CurveComponent) => {
     update({ curveComponents: components.map((c) => (c.component === component ? next : c)) })
-  }
-
-  const applyTemplate = (waveform: EffectWaveform | 'flat') => {
-    if (!active) return
-    const points = waveform === 'flat' ? defaultCurvePoints() : waveformPoints(waveform)
-    const curvedSegments = Array.from({ length: Math.max(0, points.length - 1) }, () => waveform !== 'flat')
-    updateComponent(active.component, { ...active, points, curvedSegments })
   }
 
   const setColorModel = (nextModel: 'hsb' | 'rgb' | 'cmy') => {
@@ -1001,7 +1482,7 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
       curvedSegments: Array.from({ length: 8 }, () => true)
     }))
     update({ colorModel: nextModel, curveComponents: [...fresh, ...extras] })
-    setActiveComponent(fresh[0]?.component ?? '')
+    onActiveComponent(fresh[0]?.component ?? '')
   }
 
   const componentNames = useMemo(() => {
@@ -1015,8 +1496,8 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        {isColor && (
+      {isColor && (
+        <div className="flex flex-wrap items-center gap-2 text-xs">
           <label className="flex items-center gap-1">
             <span className="text-dim">Color model</span>
             <select
@@ -1030,28 +1511,8 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
               <option value="cmy">CMY</option>
             </select>
           </label>
-        )}
-        <label className="flex items-center gap-1">
-          <span className="text-dim">Template</span>
-          <select
-            aria-label="Curve template"
-            value=""
-            onChange={(event) => {
-              if (event.target.value) applyTemplate(event.target.value as EffectWaveform | 'flat')
-              event.target.value = ''
-            }}
-            className="rounded bg-bg px-1 py-1 text-xs"
-          >
-            <option value="">Select Template…</option>
-            {(Object.keys(WAVEFORM_LABELS) as EffectWaveform[]).map((w) => (
-              <option key={w} value={w}>{WAVEFORM_LABELS[w]}</option>
-            ))}
-            <option value="flat">Flat</option>
-          </select>
-        </label>
-        <NumberField label="Time Offset (%)" value={effect.timeOffset ?? 0} min={0} max={100} step={1}
-          onChange={(timeOffset) => update({ timeOffset })} />
-      </div>
+        </div>
+      )}
       <div className="flex flex-wrap gap-1" role="tablist" aria-label="Curve components">
         {componentNames.map((name) => {
           const has = components.some((c) => c.component === name)
@@ -1063,7 +1524,7 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
               aria-selected={active?.component === name}
               className={`rounded border px-2 py-1 text-xs ${active?.component === name ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
               onClick={() => {
-                setActiveComponent(name)
+                onActiveComponent(name)
                 if (!has) {
                   update({
                     curveComponents: [
@@ -1080,11 +1541,21 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
         })}
       </div>
       {active && (
-        <CurveCanvas
-          component={active}
-          durationMs={effect.durationMs ?? 2000}
-          onChange={(next) => updateComponent(active.component, next)}
-        />
+        <div className="flex items-stretch gap-1">
+          <div className="min-w-0 flex-1">
+            <CurveCanvas
+              component={active}
+              durationMs={effect.durationMs ?? 2000}
+              onChange={(next) => updateComponent(active.component, next)}
+            />
+          </div>
+          <div
+            aria-hidden="true"
+            title="Value range"
+            className="w-4 shrink-0 rounded"
+            style={{ background: curveGradientBar(active.component) }}
+          />
+        </div>
       )}
       {isPosition && (
         <div className="flex flex-wrap items-center gap-3 text-xs">
@@ -1247,6 +1718,61 @@ function PathCanvas({ path, onChange, durationMs, range }: {
   )
 }
 
+/** A miniature of a movement path for the gallery (Guide p.165: the
+ *  path gallery — click a path to use it). */
+function PathPreview({ pathId, userPaths }: { pathId: string; userPaths: MovementPathDef[] }) {
+  const resolved = resolveMovementPath(pathId, userPaths)
+  if (!resolved) return <span className="block h-8 w-12" aria-hidden="true" />
+  const points = Array.isArray(resolved.path)
+    ? resolved.path
+    : Array.from({ length: 16 }, (_, i) => movementPoint(resolved.path, i / 16))
+  if (points.length === 0) return <span className="block h-8 w-12" aria-hidden="true" />
+  const toXY = (p: { pan: number; tilt: number }) => `${24 + p.pan * 21},${16 - p.tilt * 13}`
+  return (
+    <svg viewBox="0 0 48 32" width="48" height="32" aria-hidden="true" className="shrink-0">
+      {resolved.type === 'points'
+        ? points.map((p, i) => <circle key={i} cx={24 + p.pan * 21} cy={16 - p.tilt * 13} r="1.8" fill="#22d3ee" />)
+        : <polyline points={[...points, points[0]].map(toXY).join(' ')} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
+    </svg>
+  )
+}
+
+/** The right column of a movement editor: Time Offset, Pan/Tilt Offset
+ *  and the Options (Guide pp.166-167). */
+function MovementParams({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <ParamRow
+        param={{ key: 'timeOffset', label: 'Time Offset', min: 0, max: 100, step: 1, placeholder: '0', percent: true }}
+        value={effect.timeOffset ?? 0}
+        onChange={(timeOffset) => update({ timeOffset })}
+      />
+      <ParamRow
+        param={{ key: 'panOffset', label: 'Pan Offset (°)', min: -180, max: 180, step: 1, placeholder: '0' }}
+        value={effect.panOffset ?? 0}
+        onChange={(panOffset) => update({ panOffset })}
+      />
+      <ParamRow
+        param={{ key: 'tiltOffset', label: 'Tilt Offset (°)', min: -180, max: 180, step: 1, placeholder: '0' }}
+        value={effect.tiltOffset ?? 0}
+        onChange={(tiltOffset) => update({ tiltOffset })}
+      />
+      <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1.5 text-xs">
+        <input type="checkbox" checked={effect.mirrorPan ?? false} onChange={(event) => update({ mirrorPan: event.target.checked })} />
+        Mirror Pan
+      </label>
+      <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1.5 text-xs">
+        <input type="checkbox" checked={effect.mirrorTilt ?? false} onChange={(event) => update({ mirrorTilt: event.target.checked })} />
+        Mirror Tilt
+      </label>
+      <label className="flex items-center gap-2 rounded border border-line bg-panel2 px-2 py-1.5 text-xs">
+        <input type="checkbox" checked={effect.relative ?? false} onChange={(event) => update({ relative: event.target.checked })} />
+        Relative
+      </label>
+    </div>
+  )
+}
+
 function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const show = useShowStore((s) => s.show)
   const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
@@ -1265,6 +1791,12 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
   const range = firstFixture ? panTiltRange(firstFixture) : { pan: 540, tilt: 270 }
 
   const builtinAsPath = (id: string): MovementPathDef | null => {
+    const named = builtinMovementPathPoints(id)
+    if (named) {
+      const def = BUILTIN_MOVEMENT_PATHS.find((p) => p.id === id)
+      if (!def) return null
+      return { id, name: def.name, builtIn: true, type: named.type, points: [...named.points] }
+    }
     if (id === 'builtin-circle') {
       const points = Array.from({ length: 16 }, (_, i) => {
         const a = (i / 16) * Math.PI * 2
@@ -1315,9 +1847,10 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
             type="button"
             role="option"
             aria-selected={selectedPathId === path.id}
-            className={`rounded border px-2 py-1 text-xs ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
+            className={`flex flex-col items-center gap-0.5 rounded border px-1.5 py-1 text-[11px] ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
             onClick={() => update({ movementPathId: path.id })}
           >
+            <PathPreview pathId={path.id} userPaths={userPaths} />
             {path.name}
           </button>
         ))}
@@ -1405,26 +1938,6 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
           range={range}
         />
       )}
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <NumberField label="Time Offset (%)" value={effect.timeOffset ?? 0} min={0} max={100} step={1}
-          onChange={(timeOffset) => update({ timeOffset })} />
-        <NumberField label="Pan Offset (°)" value={effect.panOffset ?? 0} min={-180} max={180} step={1}
-          onChange={(panOffset) => update({ panOffset })} />
-        <NumberField label="Tilt Offset (°)" value={effect.tiltOffset ?? 0} min={-180} max={180} step={1}
-          onChange={(tiltOffset) => update({ tiltOffset })} />
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={effect.mirrorPan ?? false} onChange={(event) => update({ mirrorPan: event.target.checked })} />
-          Mirror Pan
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={effect.mirrorTilt ?? false} onChange={(event) => update({ mirrorTilt: event.target.checked })} />
-          Mirror Tilt
-        </label>
-        <label className="flex items-center gap-1">
-          <input type="checkbox" checked={effect.relative ?? false} onChange={(event) => update({ relative: event.target.checked })} />
-          Relative
-        </label>
-      </div>
     </div>
   )
 }
@@ -1455,6 +1968,7 @@ export function EffectEditor() {
   const editingEffectId = useShowStore((s) => s.editingEffectId)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const effect = useShowStore((s) => s.effects.find((e) => e.id === s.editingEffectId))
+  const effects = useShowStore((s) => s.effects)
   const updateEffect = useShowStore((s) => s.updateEffect)
   const removeEffect = useShowStore((s) => s.removeEffect)
   const duplicateEffect = useShowStore((s) => s.duplicateEffect)
@@ -1463,27 +1977,122 @@ export function EffectEditor() {
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [includeFixtureOrder, setIncludeFixtureOrder] = useState(true)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [renaming, setRenaming] = useState(false)
+  const [renameName, setRenameName] = useState('')
+  const [activeCurveComponent, setActiveCurveComponent] = useState('')
+
+  useEffect(() => {
+    setActiveCurveComponent(effect?.curveComponents?.[0]?.component ?? '')
+    setMenuOpen(false)
+    setRenaming(false)
+  }, [effect?.id])
 
   if (!editingEffectId || !effect) return null
   const update = (patch: Partial<EffectDef>) => updateEffect(effect.id, patch)
   const kind = effect.kind ?? 'curve'
-  const kindLabel = kind === 'pattern' ? 'Pattern' : kind === 'movement' ? 'Movement' : 'Curve'
+  const sameProperty = effects.filter((e) => e.attribute === effect.attribute)
 
   const close = () => setEditingEffectId(null)
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effect-editor">
+      {/* Header (Jake's screenshots, 9.31.29 / 9.34.46 pm): the effect's
+          name menu top-centre, Design/Live tabs beside it, Fixture Order
+          top-right. The name menu switches between the effects on this
+          property, and duplicates, deletes or saves the effect (Guide
+          pp.173-174). Double-click the name to rename it. */}
       <div className="flex items-center gap-2">
-        <span aria-hidden="true" className="text-sm">∿</span>
-        <input
-          aria-label="Effect name"
-          value={effect.name}
-          onChange={(event) => update({ name: event.target.value })}
-          className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-sm font-medium"
-        />
-        <span className="rounded border border-line px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-dim">
-          {kindLabel} · {attributeLabel(effect.attribute)}
-        </span>
+        <div className="mx-auto flex items-center gap-4">
+          {renaming ? (
+            <input
+              aria-label="Effect name"
+              autoFocus
+              value={renameName}
+              onChange={(event) => setRenameName(event.target.value)}
+              onBlur={() => { if (renameName.trim()) update({ name: renameName.trim() }); setRenaming(false) }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
+                else if (event.key === 'Escape') setRenaming(false)
+              }}
+              className="rounded-full border border-line bg-panel2 px-3 py-1 text-sm font-medium"
+            />
+          ) : (
+            <div className="relative">
+              <button
+                type="button"
+                aria-label="Effect menu"
+                aria-expanded={menuOpen}
+                onClick={() => setMenuOpen((value) => !value)}
+                onDoubleClick={() => { setRenameName(effect.name); setRenaming(true) }}
+                className="rounded-full border border-line bg-panel2 px-3 py-1 text-sm font-medium"
+                title="Double-click to rename"
+              >
+                {effect.name} <span aria-hidden="true">⌄</span>
+              </button>
+              {menuOpen && (
+                <div className="absolute left-0 z-10 mt-1 flex min-w-52 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
+                  {sameProperty.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="menuitem"
+                      className="rounded px-2 py-1 text-left hover:bg-panel"
+                      onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
+                    >
+                      {item.name}{item.id === effect.id ? ' ✓' : ''}
+                    </button>
+                  ))}
+                  <hr className="my-1 border-line" />
+                  <button
+                    type="button"
+                    className="rounded px-2 py-1 text-left hover:bg-panel"
+                    onClick={() => {
+                      const id = duplicateEffect(effect.id)
+                      setMenuOpen(false)
+                      if (id) setEditingEffectId(id)
+                    }}
+                  >
+                    Duplicate
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded px-2 py-1 text-left hover:bg-panel"
+                    onClick={() => {
+                      setTemplateName(effect.name)
+                      setIncludeFixtureOrder(true)
+                      setSavingTemplate(true)
+                      setMenuOpen(false)
+                    }}
+                  >
+                    Save as Template…
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded px-2 py-1 text-left hover:bg-panel"
+                    onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
+                  >
+                    Delete and Keep Values
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
+                    onClick={() => { removeEffect(effect.id); close() }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          <EffectPanelTabs />
+        </div>
+        <details className="relative ml-auto">
+          <summary className="cursor-pointer list-none rounded border border-line bg-panel2 px-2 py-1 text-xs" aria-label="Fixture order menu">Fixture Order ⌄</summary>
+          <div className="absolute right-0 z-10 mt-1 w-64 rounded border border-line bg-panel2 p-2 shadow-lg">
+            <FixtureOrderControls effect={effect} update={update} />
+          </div>
+        </details>
         <label className="flex items-center gap-1 text-xs">
           <input
             type="checkbox"
@@ -1492,47 +2101,6 @@ export function EffectEditor() {
           />
           On
         </label>
-        <details className="relative">
-          <summary className="cursor-pointer list-none rounded border border-line px-2 py-1 text-xs" aria-label="Effect menu">•••</summary>
-          <div className="absolute right-0 z-10 mt-1 flex min-w-44 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg">
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-left hover:bg-panel"
-              onClick={(event) => {
-                const id = duplicateEffect(effect.id)
-                ;(event.target as HTMLElement).closest('details')?.removeAttribute('open')
-                if (id) setEditingEffectId(id)
-              }}
-            >
-              Duplicate
-            </button>
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-left hover:bg-panel"
-              onClick={() => {
-                setTemplateName(effect.name)
-                setIncludeFixtureOrder(true)
-                setSavingTemplate(true)
-              }}
-            >
-              Save as Template…
-            </button>
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-left hover:bg-panel"
-              onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
-            >
-              Delete and Keep Values
-            </button>
-            <button
-              type="button"
-              className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
-              onClick={() => { removeEffect(effect.id); close() }}
-            >
-              Delete
-            </button>
-          </div>
-        </details>
         <button type="button" className="text-xs text-dim" aria-label="Close effect editor" title="Close effect editor" onClick={close}>✕</button>
       </div>
       {savingTemplate && (
@@ -1567,11 +2135,29 @@ export function EffectEditor() {
           <button type="button" className="text-xs text-dim" onClick={() => setSavingTemplate(false)}>Cancel</button>
         </div>
       )}
-      <TimingControls effect={effect} update={update} />
-      <FixtureOrderControls effect={effect} update={update} />
-      {kind === 'pattern' && <PatternEditor effect={effect} update={update} />}
-      {kind === 'curve' && <CurveEditor effect={effect} update={update} />}
-      {kind === 'movement' && <MovementEditor effect={effect} update={update} />}
+      {/* Body (Jake's screenshots): the timing column on the left, the
+          pattern samples / curve canvas / movement path in the centre,
+          and the pattern picker + parameters on the right. */}
+      <div className="flex min-h-0 flex-1 gap-3">
+        <TimingColumn effect={effect} update={update} />
+        <div className="min-w-0 flex-1">
+          {kind === 'pattern' && <PatternEditor effect={effect} update={update} />}
+          {kind === 'curve' && (
+            <CurveEditor
+              effect={effect}
+              update={update}
+              activeComponent={activeCurveComponent}
+              onActiveComponent={setActiveCurveComponent}
+            />
+          )}
+          {kind === 'movement' && <MovementEditor effect={effect} update={update} />}
+        </div>
+        <div className="flex w-56 shrink-0 flex-col gap-2">
+          {kind === 'pattern' && <PatternParams effect={effect} update={update} />}
+          {kind === 'curve' && <CurveParams effect={effect} update={update} activeComponent={activeCurveComponent} />}
+          {kind === 'movement' && <MovementParams effect={effect} update={update} />}
+        </div>
+      </div>
     </div>
   )
 }

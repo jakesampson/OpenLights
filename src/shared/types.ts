@@ -280,7 +280,10 @@ export interface EffectDef {
   steepness?: number
   /** Rain/Meteor/Snakes distance in pixels (Guide pp.157-160). */
   distance?: number
-  /** Meteor trail length (Guide p.158). */
+  /** Meteor trail (Guide p.158; Jake's LightKey screenshot, 9.34.46 pm, shows
+   *  "Trail 60%"): the length of the meteor's trail, as a percent of the
+   *  pixel count. The guide gives no unit — the percent's reference is an
+   *  interpretation to confirm against LightKey. */
   trail?: number
   /** Meteor/Sparkle/Jellyfish: use samples (except background) as a palette (Guide pp.158-160). */
   usePalette?: boolean
@@ -298,10 +301,17 @@ export interface EffectDef {
   jellyfishCount?: number
   /** Jellyfish size (Guide p.160). */
   jellyfishSize?: number
+  /** Jellyfish speed (Guide p.160): how fast the jellyfish move. Stored
+   *  separately from fireSpeed, which the runtime used to share for all
+   *  three (fire/jellyfish/snakes) — older effects fall back to it. */
+  jellyfishSpeed?: number
   /** Snakes length range (Guide p.160): [min, max] pixels. */
   lengthRange?: [number, number]
   /** Snakes distance range (Guide p.160): [min, max] pixels. */
   distanceRange?: [number, number]
+  /** Snakes speed (Guide p.160): how fast the snakes creep. Falls back to
+   *  fireSpeed on effects stored before this field existed. */
+  snakeSpeed?: number
   /** Fixed duration in milliseconds (Guide p.150). Absent = derived from speed. */
   durationMs?: number
   /** Timing mode (Guide p.150). Absent = legacy: beat when syncToBpm, fixed otherwise. */

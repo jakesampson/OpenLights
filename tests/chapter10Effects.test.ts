@@ -44,7 +44,8 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
   it('chases the foreground sample across fixtures', () => {
     // Guide p.155: a time offset of 0% means all pixels change at the same
     // time — the chase staggers only with a time offset. 100% offsets each
-    // pixel by one sample step.
+    // pixel by one sample step. The defaults are background off, foreground
+    // full (LightKey's Dimmer templates show black first, white second).
     const fx = effect({
       kind: 'pattern',
       pattern: 'chase',
@@ -54,13 +55,13 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
       timingMode: 'fixed'
     })
     const patch = computeEffectPatch(fixtures, [fx], 0, 120)
-    // Background sample (100%) on the first fixture, foreground (0%) on the next.
-    expect(patch[channelOf(fixtures[0], 'intensity')]).toBe(255)
-    expect(patch[channelOf(fixtures[1], 'intensity')]).toBe(0)
+    // Background sample (0%) on the first fixture, foreground (100%) on the next.
+    expect(patch[channelOf(fixtures[0], 'intensity')]).toBe(0)
+    expect(patch[channelOf(fixtures[1], 'intensity')]).toBe(255)
     // One step later the chase has moved on.
     const later = computeEffectPatch(fixtures, [fx], 1, 120)
-    expect(later[channelOf(fixtures[0], 'intensity')]).toBe(0)
-    expect(later[channelOf(fixtures[1], 'intensity')]).toBe(255)
+    expect(later[channelOf(fixtures[0], 'intensity')]).toBe(255)
+    expect(later[channelOf(fixtures[1], 'intensity')]).toBe(0)
   })
 
   it('fills fixtures progressively', () => {
@@ -92,14 +93,14 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
     expect(patch[channelOf(fixtures[1], 'green')]).toBe(255)
   })
 
-  it('defaults to a black background and white foreground for colour', () => {
+  it('defaults to a dark background and full foreground', () => {
     expect(defaultSamples(true)).toEqual([
       { id: 'sample-bg', color: '#000000' },
       { id: 'sample-1', color: '#ffffff' }
     ])
     expect(defaultSamples(false)).toEqual([
-      { id: 'sample-bg', value: 100 },
-      { id: 'sample-1', value: 0 }
+      { id: 'sample-bg', value: 0 },
+      { id: 'sample-1', value: 100 }
     ])
   })
 
@@ -180,6 +181,42 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
     expect(patch[channelOf(wash, 'red')]).toBe(0)
     expect(patch[channelOf(wash, 'blue')]).toBe(255)
   })
+
+  it('treats the meteor trail as a percent of the pixel count', () => {
+    // LightKey shows "Trail 60%" (Jake's screenshot, 9.34.46 pm) — the
+    // guide gives no unit. Halfway through the cycle the meteoroid has
+    // passed the first pixels; with a 100% trail they still glow behind
+    // it, with a 0% trail they are dark.
+    const samples = [{ id: 'sample-bg', value: 0 }, { id: 'sample-1', value: 100 }]
+    const meteor = (trail: number) => effect({
+      kind: 'pattern',
+      pattern: 'meteor',
+      samples,
+      length: 1,
+      distance: 6,
+      trail,
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    const at = (fx: EffectDef) => [0, 1, 2, 3].map((i) => patternPixelValue('meteor', fx, samples, 1, 2, i, 4, false).intensity ?? 0)
+    expect(at(meteor(0))).toEqual([0, 0, 0, 0])
+    expect(at(meteor(100)).some((level) => level > 0)).toBe(true)
+  })
+
+  it('drives jellyfish and snakes from their own speed fields', () => {
+    // Guide p.160 gives Jellyfish and Snakes a Speed of their own — the
+    // runtime used to share fireSpeed for all three. The new fields win;
+    // an old effect with only fireSpeed still falls back to it.
+    const samples = [{ id: 'sample-bg', value: 0 }, { id: 'sample-1', value: 100 }]
+    const jelly = effect({ kind: 'pattern', pattern: 'jellyfish', samples, jellyfishSpeed: 2, jellyfishCount: 1, jellyfishSize: 50, durationMs: 2000, timingMode: 'fixed' })
+    const jellySlow = effect({ kind: 'pattern', pattern: 'jellyfish', samples, jellyfishSpeed: 0.5, jellyfishCount: 1, jellyfishSize: 50, durationMs: 2000, timingMode: 'fixed' })
+    const at = (fx: EffectDef) => patternPixelValue('jellyfish', fx, samples, 0.5, 2, 2, 4, false).intensity
+    expect(at(jelly)).not.toBe(at(jellySlow))
+    const legacy = effect({ kind: 'pattern', pattern: 'snakes', samples, fireSpeed: 2, durationMs: 2000, timingMode: 'fixed' })
+    const explicit = effect({ kind: 'pattern', pattern: 'snakes', samples, snakeSpeed: 2, durationMs: 2000, timingMode: 'fixed' })
+    const snakeAt = (fx: EffectDef) => patternPixelValue('snakes', fx, samples, 0.5, 2, 0, 4, false).intensity
+    expect(snakeAt(legacy)).toBe(snakeAt(explicit))
+  })
 })
 
 describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
@@ -243,8 +280,22 @@ describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
 })
 
 describe('movement effects (Guide ch.10, pp.165-171)', () => {
-  it('lists the three built-in paths', () => {
-    expect(BUILTIN_MOVEMENT_PATHS.map((p) => p.name)).toEqual(['Circle', 'Figure Eight', 'Line'])
+  it('lists the built-in paths, including LightKey’s named ones', () => {
+    expect(BUILTIN_MOVEMENT_PATHS.map((p) => p.name)).toEqual([
+      'Circle', 'Figure Eight', 'Line',
+      'Bow Tie', 'Flower', 'Half Flower 3', 'Half Flower 5', 'Pan Track',
+      'Random Dots', 'Tilt Track 1', 'Tilt Track 2', 'Triangle Small',
+      'Triangle Wide', 'Wedge Curved', 'Wedge Straight', 'Zigzag 2', 'Zigzag 5'
+    ])
+  })
+
+  it('resolves LightKey’s named paths to point sets', () => {
+    const bowTie = resolveMovementPath('builtin-bow-tie', [])
+    expect(Array.isArray(bowTie?.path)).toBe(true)
+    expect(bowTie?.type).toBe('smooth')
+    const dots = resolveMovementPath('builtin-random-dots', [])
+    expect(dots?.type).toBe('points')
+    expect(Array.isArray(dots?.path) && dots.path.length).toBeGreaterThan(1)
   })
 
   it('resolves built-in paths by id', () => {

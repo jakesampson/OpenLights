@@ -14,16 +14,111 @@ import { movementPoint, type MovementPoint } from './movementEffects'
  * continuous pan and tilt movement along a predefined closed path. Paths are stored
  * independently of effects and can be reused; editing a built-in path duplicates it.
  *
- * Built-in paths are Circle, Figure Eight and Line. Path points are normalized
- * pan/tilt coordinates (-1..1); they map to DMX via the fixture's pan/tilt range
- * (Guide p.60, lib/calibration.ts).
+ * Built-in paths are Circle, Figure Eight and Line (computed parametrically) plus
+ * LightKey's named path templates from the effects chooser (Jake's screenshots,
+ * 21 Nov 2026, 9.16.22 pm): Bow Tie, Flower, Half Flower 3/5, Pan Track,
+ * Random Dots, Tilt Track 1/2, Triangle Small/Wide, Wedge Curved/Straight and
+ * Zigzag 2/5. The named paths' exact geometry is not in the guide — the point
+ * sets below approximate each name's shape, and are flagged to confirm against
+ * LightKey. Path points are normalized pan/tilt coordinates (-1..1); they map
+ * to DMX via the fixture's pan/tilt range (Guide p.60, lib/calibration.ts).
  */
 
-export const BUILTIN_MOVEMENT_PATHS: { id: string; name: string }[] = [
+export interface BuiltinMovementPath {
+  id: string
+  name: string
+  /** Point-based built-ins (LightKey's named paths). The parametric ones
+   *  (Circle, Figure Eight, Line) have no points — they are computed. */
+  points?: MovementPoint[]
+  type?: MovementPathDef['type']
+}
+
+/** Rose-curve points: `petals` lobes over θ in [0, span] (a full flower
+ *  spans 2π; a half flower spans π, with the lobes kept in the upper half). */
+function rosePoints(petals: number, span: number, count = 16): MovementPoint[] {
+  const points: MovementPoint[] = []
+  for (let i = 0; i < count; i++) {
+    const theta = (i / count) * span
+    const r = Math.abs(Math.sin((petals * theta * Math.PI) / span))
+    points.push({ pan: Math.cos(theta) * r * 0.8, tilt: Math.sin(theta) * r * 0.8 })
+  }
+  return points
+}
+
+export const BUILTIN_MOVEMENT_PATHS: BuiltinMovementPath[] = [
   { id: 'builtin-circle', name: 'Circle' },
   { id: 'builtin-figure-eight', name: 'Figure Eight' },
-  { id: 'builtin-line', name: 'Line' }
+  { id: 'builtin-line', name: 'Line' },
+  {
+    id: 'builtin-bow-tie', name: 'Bow Tie', type: 'smooth',
+    points: [
+      { pan: 0, tilt: 0 }, { pan: 0.8, tilt: 0.8 }, { pan: 0.8, tilt: -0.8 },
+      { pan: 0, tilt: 0 }, { pan: -0.8, tilt: -0.8 }, { pan: -0.8, tilt: 0.8 },
+      { pan: 0, tilt: 0 }
+    ]
+  },
+  { id: 'builtin-flower', name: 'Flower', type: 'smooth', points: rosePoints(2, Math.PI * 2) },
+  { id: 'builtin-half-flower-3', name: 'Half Flower 3', type: 'smooth', points: rosePoints(3, Math.PI) },
+  { id: 'builtin-half-flower-5', name: 'Half Flower 5', type: 'smooth', points: rosePoints(5, Math.PI) },
+  {
+    id: 'builtin-pan-track', name: 'Pan Track', type: 'smooth',
+    points: [{ pan: -0.8, tilt: -0.1 }, { pan: 0, tilt: 0.2 }, { pan: 0.8, tilt: -0.1 }]
+  },
+  {
+    id: 'builtin-random-dots', name: 'Random Dots', type: 'points',
+    points: [
+      { pan: -0.6, tilt: 0.4 }, { pan: 0.3, tilt: -0.7 }, { pan: 0.8, tilt: 0.5 },
+      { pan: -0.2, tilt: -0.3 }, { pan: 0.6, tilt: 0.1 }, { pan: -0.9, tilt: -0.6 },
+      { pan: 0.1, tilt: 0.8 }, { pan: -0.4, tilt: 0.2 }
+    ]
+  },
+  {
+    id: 'builtin-tilt-track-1', name: 'Tilt Track 1', type: 'line',
+    points: [{ pan: 0, tilt: -0.8 }, { pan: 0, tilt: 0.8 }]
+  },
+  {
+    id: 'builtin-tilt-track-2', name: 'Tilt Track 2', type: 'smooth',
+    points: [{ pan: 0, tilt: -0.8 }, { pan: 0.25, tilt: -0.3 }, { pan: -0.25, tilt: 0.3 }, { pan: 0, tilt: 0.8 }]
+  },
+  {
+    id: 'builtin-triangle-small', name: 'Triangle Small', type: 'line',
+    points: [{ pan: 0, tilt: 0.4 }, { pan: 0.4, tilt: -0.3 }, { pan: -0.4, tilt: -0.3 }]
+  },
+  {
+    id: 'builtin-triangle-wide', name: 'Triangle Wide', type: 'line',
+    points: [{ pan: 0, tilt: 0.4 }, { pan: 0.8, tilt: -0.3 }, { pan: -0.8, tilt: -0.3 }]
+  },
+  {
+    id: 'builtin-wedge-curved', name: 'Wedge Curved', type: 'smooth',
+    points: [{ pan: 0, tilt: 0.8 }, { pan: 0.7, tilt: -0.5 }, { pan: -0.7, tilt: -0.5 }]
+  },
+  {
+    id: 'builtin-wedge-straight', name: 'Wedge Straight', type: 'line',
+    points: [{ pan: 0, tilt: 0.8 }, { pan: 0.7, tilt: -0.5 }, { pan: -0.7, tilt: -0.5 }]
+  },
+  {
+    id: 'builtin-zigzag-2', name: 'Zigzag 2', type: 'line',
+    points: [
+      { pan: -0.8, tilt: 0 }, { pan: -0.4, tilt: 0.6 }, { pan: 0, tilt: -0.6 },
+      { pan: 0.4, tilt: 0.6 }, { pan: 0.8, tilt: 0 }
+    ]
+  },
+  {
+    id: 'builtin-zigzag-5', name: 'Zigzag 5', type: 'line',
+    points: [
+      { pan: -0.8, tilt: 0 }, { pan: -0.48, tilt: 0.6 }, { pan: -0.16, tilt: -0.6 },
+      { pan: 0.16, tilt: 0.6 }, { pan: 0.48, tilt: -0.6 }, { pan: 0.8, tilt: 0 }
+    ]
+  }
 ]
+
+/** Point set for a point-based built-in path, or null for the parametric
+ *  ones (Circle, Figure Eight, Line) and unknown ids. */
+export function builtinMovementPathPoints(id: string): { points: MovementPoint[]; type: MovementPathDef['type'] } | null {
+  const found = BUILTIN_MOVEMENT_PATHS.find((p) => p.id === id && p.points)
+  if (!found?.points) return null
+  return { points: found.points, type: found.type ?? 'smooth' }
+}
 
 export function builtinMovementPathName(id: string): 'circle' | 'figure-eight' | 'line' | null {
   if (id === 'builtin-circle' || id === 'Circle') return 'circle'
@@ -84,6 +179,8 @@ export function resolveMovementPath(
 ): { path: 'circle' | 'figure-eight' | 'line' | MovementPoint[]; type: MovementPathDef['type'] } | null {
   const builtin = builtinMovementPathName(movementPathId)
   if (builtin) return { path: builtin, type: builtin === 'line' ? 'line' : 'smooth' }
+  const named = builtinMovementPathPoints(movementPathId)
+  if (named) return { path: named.points, type: named.type }
   const user = movementPaths.find((p) => p.id === movementPathId)
   if (!user) return null
   return { path: user.points, type: user.type }
