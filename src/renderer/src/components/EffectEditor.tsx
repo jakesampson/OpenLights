@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   CurveComponent,
   CurveControlPoint,
@@ -266,10 +266,30 @@ export function EffectsChooser() {
   const addEffect = useShowStore((s) => s.addEffect)
   const removeEffect = useShowStore((s) => s.removeEffect)
   const applyEffectTemplate = useShowStore((s) => s.applyEffectTemplate)
+  const startEditingEffectTemplate = useShowStore((s) => s.startEditingEffectTemplate)
+  const updateEffectTemplate = useShowStore((s) => s.updateEffectTemplate)
+  const editingEffectTemplateId = useShowStore((s) => s.editingEffectTemplateId)
+  const renameEffectTemplate = useShowStore((s) => s.renameEffectTemplate)
+  const duplicateEffectTemplate = useShowStore((s) => s.duplicateEffectTemplate)
+  const deleteEffectTemplate = useShowStore((s) => s.deleteEffectTemplate)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<'templates' | 'template-editor'>('templates')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  // Right-click menu on a saved template (LightKey's preset menu, 21 Nov
+  // 2026 screenshot 10.49.20 pm) and its inline rename.
+  const [templateMenu, setTemplateMenu] = useState<{ x: number; y: number; id: string } | null>(null)
+  const templateMenuRef = useRef<HTMLDivElement>(null)
+  const [renamingTemplate, setRenamingTemplate] = useState<{ id: string; name: string } | null>(null)
+  const [renameTemplateValue, setRenameTemplateValue] = useState('')
+  useEffect(() => {
+    if (!templateMenu) return
+    const close = (event: PointerEvent) => {
+      if (templateMenuRef.current && !templateMenuRef.current.contains(event.target as Node)) setTemplateMenu(null)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [templateMenu])
   /** An effect already controls this property — LightKey asks Replace or Overlay (p.152). */
   const [conflict, setConflict] = useState<{ apply: () => void; existing: EffectDef } | null>(null)
   // The template editor opens on the property the wand menu picked.
@@ -286,14 +306,40 @@ export function EffectsChooser() {
   )
   const projectTemplates = useMemo(() => show?.effectTemplates ?? [], [show?.effectTemplates])
 
+  // The show's saved templates, read through a ref so the open-on-pick
+  // effect below doesn't re-run when one is saved mid-session.
+  const projectTemplatesRef = useRef(projectTemplates)
+  projectTemplatesRef.current = projectTemplates
+  const hasTemplatesFor = (property: string) =>
+    EFFECT_TEMPLATE_SECTIONS.some((s) => s.property === property) ||
+    projectTemplatesRef.current.some((t) => t.attribute === property)
+
   useEffect(() => {
-    setMode('templates')
     setConflict(null)
     if (attribute) {
       setTemplateProperty(attribute)
       setTemplateKind(kindsForAttribute(attribute)[0])
+      // A property with no templates — built-in or the show's saved ones —
+      // goes straight to the effect template editor with that property
+      // pre-selected (Jake's screenshot, 21 Nov 2026, 10.27.26 pm: Frost
+      // opens the template editor, not an empty templates view).
+      setMode(hasTemplatesFor(attribute) ? 'templates' : 'template-editor')
     }
   }, [attribute])
+
+  /** The section each property's templates live in, so opening the view
+   *  can land on the picked property (Jake, 21 Nov 2026). */
+  const sectionRefs = useRef(new Map<string, HTMLElement>())
+  // Opening the templates view from the wand menu lands on the picked
+  // property's section — and so does coming back from the template
+  // editor, since the picked property is still in context. A property
+  // with no section (Focus, Frost) or filtered out by search simply
+  // doesn't scroll. Manual scrolling is untouched: this only runs when
+  // the picked property or the view mode changes.
+  useEffect(() => {
+    if (mode !== 'templates' || !attribute) return
+    sectionRefs.current.get(attribute)?.scrollIntoView?.({ block: 'start' })
+  }, [attribute, mode])
 
   if (!attribute) return null
   const label = attributeLabel(attribute)
@@ -335,6 +381,31 @@ export function EffectsChooser() {
       return
     }
     run()
+  }
+
+  // Edit a saved template (LightKey Guide ch.9, p.128: hover the preset
+  // and click Edit): a working copy opens in the editor and the session
+  // binds to the template, so Update can write back to it. Same
+  // Replace/Overlay conflict flow as adding.
+  const editProjectTemplate = (id: string) => {
+    const template = projectTemplates.find((t) => t.id === id)
+    if (!template) return
+    const run = () => {
+      const newId = startEditingEffectTemplate(id)
+      if (newId) openEditor(newId)
+    }
+    const clash = existingFor(template.attribute)
+    if (clash && !conflict) {
+      setConflict({ apply: run, existing: clash })
+      return
+    }
+    run()
+  }
+
+  const commitTemplateRename = () => {
+    if (!renamingTemplate) return
+    if (renameTemplateValue.trim()) renameEffectTemplate(renamingTemplate.id, renameTemplateValue.trim())
+    setRenamingTemplate(null)
   }
 
   const createCustomEffect = (): EffectDef => {
@@ -447,15 +518,22 @@ export function EffectsChooser() {
           <div>
             <span className="text-sm">Effect:</span>
             <div className="mt-2 flex gap-5" role="radiogroup" aria-label="Effect kind">
-              {(['pattern', 'curve', 'movement'] as const).filter((kind) => kinds.includes(kind)).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  role="radio"
-                  aria-checked={templateKind === kind}
-                  className="flex flex-col items-center gap-1 text-xs"
-                  onClick={() => setTemplateKind(kind)}
-                >
+              {/* LightKey shows all three kinds and greys out the ones
+                  that don't apply to the property (Jake's screenshot, 21
+                  Nov 2026, 10.27.26 pm: Pattern and Movement are dimmed
+                  for Frost, Curve is selected). */}
+              {(['pattern', 'curve', 'movement'] as const).map((kind) => {
+                const offered = kinds.includes(kind)
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    role="radio"
+                    aria-checked={templateKind === kind}
+                    disabled={!offered}
+                    className={`flex flex-col items-center gap-1 text-xs ${offered ? '' : 'opacity-40'}`}
+                    onClick={() => setTemplateKind(kind)}
+                  >
                   <span className="flex h-10 w-10 items-center justify-center rounded border border-line bg-panel2 text-[var(--text)]">
                     {kind === 'pattern' && (
                       <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><circle cx="9" cy="12" r="6" fill="currentColor" opacity="0.45" /><circle cx="15" cy="12" r="6" fill="currentColor" opacity="0.85" /></svg>
@@ -469,8 +547,9 @@ export function EffectsChooser() {
                   </span>
                   {kind === 'pattern' ? 'Pattern' : kind === 'curve' ? 'Curve' : 'Movement'}
                   <span className={`h-1 w-10 rounded-full ${templateKind === kind ? 'bg-[#0A84FF]' : 'bg-transparent'}`} aria-hidden="true" />
-                </button>
-              ))}
+                  </button>
+                )
+              })}
             </div>
           </div>
           <div className="flex gap-2">
@@ -551,7 +630,14 @@ export function EffectsChooser() {
       </div>
       {conflictAlert}
       {visibleSections.map((section) => (
-        <section key={section.property} aria-label={`${section.label} templates`}>
+        <section
+          key={section.property}
+          aria-label={`${section.label} templates`}
+          ref={(el) => {
+            if (el) sectionRefs.current.set(section.property, el)
+            else sectionRefs.current.delete(section.property)
+          }}
+        >
           <h3 className="px-1 pb-1 text-sm">{section.label}</h3>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
             {section.templates.map(tile)}
@@ -565,20 +651,158 @@ export function EffectsChooser() {
         <section aria-label="Your templates">
           <h3 className="px-1 pb-1 text-sm">Your Templates</h3>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(190px,1fr))] gap-2">
-            {visibleProject.map((template) => (
-              <button
-                key={template.id}
-                type="button"
-                className="relative flex min-w-0 items-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-left text-xs hover:border-[var(--accent)]"
-                onClick={() => addProjectTemplate(template.id)}
-              >
-                <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
-                <span className="shrink-0 text-[10px] text-dim">Saved template</span>
-              </button>
-            ))}
+            {visibleProject.map((template) => {
+              const beingEdited = editingEffectTemplateId === template.id
+              const renaming = renamingTemplate?.id === template.id
+              return (
+                <div
+                  key={template.id}
+                  className={`relative flex min-w-0 items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs ${beingEdited ? 'border-yellow-400 bg-yellow-400/15' : 'border-line bg-panel2 hover:border-[var(--accent)]'}`}
+                  onMouseEnter={() => setHoveredId(template.id)}
+                  onMouseLeave={() => setHoveredId((current) => (current === template.id ? null : current))}
+                  onContextMenu={(event) => {
+                    event.preventDefault(); event.stopPropagation()
+                    setTemplateMenu({ x: event.clientX, y: event.clientY, id: template.id })
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-label={`${template.name} template`}
+                    className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                    onClick={() => addProjectTemplate(template.id)}
+                  >
+                    {renaming ? (
+                      <input
+                        aria-label="Rename template"
+                        ref={(el) => el?.focus()}
+                        value={renameTemplateValue}
+                        onChange={(event) => setRenameTemplateValue(event.target.value)}
+                        onBlur={commitTemplateRename}
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          event.stopPropagation()
+                          if (event.key === 'Enter') commitTemplateRename()
+                          else if (event.key === 'Escape') setRenamingTemplate(null)
+                        }}
+                        className="min-w-0 flex-1 rounded bg-bg px-1 py-0.5 text-xs"
+                      />
+                    ) : (
+                      <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
+                    )}
+                    <span className="shrink-0 text-[10px] text-dim">Saved template</span>
+                  </button>
+                  {/* Hovering a saved template shows a yellow Edit button
+                      (LightKey Guide ch.9, p.128); while it is being
+                      edited the row shows a yellow Update button instead
+                      (Jake's 10.40.51 pm screenshot). */}
+                  {beingEdited ? (
+                    <button
+                      type="button"
+                      aria-label={`Update ${template.name}`}
+                      className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black"
+                      onClick={() => updateEffectTemplate()}
+                    >
+                      Update
+                    </button>
+                  ) : hoveredId === template.id && !renaming && (
+                    <button
+                      type="button"
+                      aria-label={`Edit ${template.name}`}
+                      className="absolute right-2 shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black"
+                      onClick={() => editProjectTemplate(template.id)}
+                    >
+                      Edit
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </section>
       )}
+      {templateMenu && <EffectTemplateContextMenu
+        x={templateMenu.x}
+        y={templateMenu.y}
+        templateId={templateMenu.id}
+        templateName={projectTemplates.find((t) => t.id === templateMenu.id)?.name ?? ''}
+        menuRef={templateMenuRef}
+        onClose={() => setTemplateMenu(null)}
+        onAction={(action) => {
+          const id = templateMenu.id
+          const template = projectTemplates.find((t) => t.id === id)
+          setTemplateMenu(null)
+          if (action === 'apply') addProjectTemplate(id)
+          else if (action === 'edit') editProjectTemplate(id)
+          else if (action === 'rename') {
+            if (template) { setRenamingTemplate({ id, name: template.name }); setRenameTemplateValue(template.name) }
+          } else if (action === 'duplicate') duplicateEffectTemplate(id)
+          else if (action === 'delete') {
+            if (template && confirm(`Delete template “${template.name}”?`)) deleteEffectTemplate(id)
+          } else if (action === 'new-preset' || action === 'new-preset-snapshot' || action === 'new-group' || action === 'new-sequence') {
+            // The palette owns the composer; ask it to open (same event
+            // shape the palette's own menu uses internally).
+            window.dispatchEvent(new CustomEvent('openlights-palette-composer', { detail: { type: action === 'new-preset' ? 'preset' : action === 'new-preset-snapshot' ? 'preset-snapshot' : action === 'new-group' ? 'group' : 'sequence' } }))
+          }
+        }}
+      />}
+    </div>
+  )
+}
+
+type EffectTemplateMenuAction =
+  | 'apply' | 'edit' | 'rename' | 'duplicate' | 'delete'
+  | 'new-preset' | 'new-preset-snapshot' | 'new-group' | 'new-sequence'
+
+// Right-click menu on a saved effect template, modelled on LightKey's
+// preset menu (Jake's screenshot, 21 Nov 2026, 10.49.20 pm: Show
+// Properties, Apply, Edit, Add Overrides, Rename, Duplicate, Delete,
+// External Control, New Preset, New Preset With Snapshot, New Group,
+// New Group From Selection, New Sequence, New Sequence From Selection).
+// Four entries have no OpenLights equivalent and are left out:
+// Show Properties — a template's properties are the editor itself
+// (Edit opens it); Add Overrides — a template holds no static fixture
+// values to add as overrides; External Control — no such feature;
+// New Group/Sequence From Selection — the chooser has no template
+// multi-select to take a selection from.
+function EffectTemplateContextMenu({ x, y, templateId, templateName, menuRef, onClose, onAction }: {
+  x: number; y: number; templateId: string; templateName: string
+  menuRef: { current: HTMLDivElement | null }
+  onClose: () => void
+  onAction: (action: EffectTemplateMenuAction) => void
+}) {
+  // The chooser lives in the bottom panel, so a menu opened at the
+  // click point can run off the bottom of the window (its lower items
+  // then can't be clicked). Clamp it into the viewport after mount.
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = menuRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))
+    })
+  }, [x, y, menuRef])
+  const item = (action: EffectTemplateMenuAction, label: string) => (
+    <button key={action} type="button" role="menuitem"
+      className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2"
+      onClick={() => onAction(action)}>{label}</button>
+  )
+  return (
+    <div ref={menuRef} role="menu" aria-label={`${templateName} actions`} className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
+      {item('apply', 'Apply')}
+      {item('edit', 'Edit')}
+      <div className="my-1 border-t border-line" />
+      {item('rename', 'Rename')}
+      {item('duplicate', 'Duplicate')}
+      {item('delete', 'Delete')}
+      <div className="my-1 border-t border-line" />
+      {item('new-preset', 'New Preset')}
+      {item('new-preset-snapshot', 'New Preset With Snapshot')}
+      {item('new-group', 'New Group')}
+      {item('new-sequence', 'New Sequence')}
+      <div className="my-1 border-t border-line" />
+      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={onClose}>Close</button>
     </div>
   )
 }
@@ -665,11 +889,15 @@ function DurationField({ valueMs, onChange }: { valueMs: number; onChange: (ms: 
 
 /** The left timing column (Guide p.149; Jake's screenshots, 9.31.29 /
  *  9.33.33 / 9.34.46 pm): a clock/pulse toggle, then the Duration
- *  (mm:ss.t) or the Beat Multiplier (×N with steppers) below it. Random
- *  timing — for patterns with no fixed cycle — adds a third segment. */
+ *  (mm:ss.t) or the Beat Multiplier (×N with steppers) below it. Two
+ *  segments only — LightKey's toggle is clock/pulse. Random timing
+ *  (Guide p.150: "Some pattern effects are entirely random") is a
+ *  property of some patterns, not a timing control: the engine keeps a
+ *  'random' timing mode internally, but the UI never offers it. An
+ *  effect saved with it (from an older build) keeps the mode until the
+ *  user picks Duration or Beat Multiplier here. */
 function TimingColumn({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const canBeat = effect.kind !== 'movement'
-  const canRandom = effect.kind === 'pattern'
   const mode = effect.timingMode ?? (effect.syncToBpm ? 'beat' : 'fixed')
   const beatIndex = BEAT_MULTIPLIERS.findIndex((m) => m.value === (effect.beatMultiplier ?? 1))
   const stepBeat = (direction: 1 | -1) => {
@@ -685,7 +913,7 @@ function TimingColumn({ effect, update }: { effect: EffectDef; update: (patch: P
           aria-label="Fixed duration"
           aria-pressed={mode === 'fixed'}
           title="Fixed duration"
-          className={`flex h-9 w-11 items-center justify-center rounded-l-lg ${mode === 'fixed' ? 'bg-panel font-medium' : 'text-dim'}`}
+          className={`flex h-9 w-11 items-center justify-center rounded-l-lg ${canBeat ? '' : 'rounded-r-lg'} ${mode === 'fixed' ? 'bg-panel font-medium' : 'text-dim'}`}
           onClick={() => update({ timingMode: 'fixed' })}
         >
           <ClockGlyph />
@@ -696,24 +924,10 @@ function TimingColumn({ effect, update }: { effect: EffectDef; update: (patch: P
             aria-label="Beat-controlled"
             aria-pressed={mode === 'beat'}
             title="Beat-controlled"
-            className={`flex h-9 w-11 items-center justify-center ${canRandom ? '' : 'rounded-r-lg'} ${mode === 'beat' ? 'bg-panel font-medium' : 'text-dim'}`}
+            className={`flex h-9 w-11 items-center justify-center rounded-r-lg ${mode === 'beat' ? 'bg-panel font-medium' : 'text-dim'}`}
             onClick={() => update({ timingMode: 'beat' })}
           >
             <BeatGlyph />
-          </button>
-        )}
-        {canRandom && (
-          <button
-            type="button"
-            aria-label="Random timing"
-            aria-pressed={mode === 'random'}
-            title="Random timing"
-            className={`flex h-9 w-11 items-center justify-center rounded-r-lg ${mode === 'random' ? 'bg-panel font-medium' : 'text-dim'}`}
-            onClick={() => update({ timingMode: 'random' })}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 6h4l8 12h6M3 18h4l2.5-3.75M21 6h-6M17 3l3 3-3 3" />
-            </svg>
           </button>
         )}
       </div>
@@ -1974,18 +2188,17 @@ export function EffectEditor() {
   const duplicateEffect = useShowStore((s) => s.duplicateEffect)
   const deleteEffectAndKeepValues = useShowStore((s) => s.deleteEffectAndKeepValues)
   const saveEffectTemplate = useShowStore((s) => s.saveEffectTemplate)
+  const editingEffectTemplateId = useShowStore((s) => s.editingEffectTemplateId)
+  const cancelEditingEffectTemplate = useShowStore((s) => s.cancelEditingEffectTemplate)
   const [savingTemplate, setSavingTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [includeFixtureOrder, setIncludeFixtureOrder] = useState(true)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [renaming, setRenaming] = useState(false)
-  const [renameName, setRenameName] = useState('')
   const [activeCurveComponent, setActiveCurveComponent] = useState('')
 
   useEffect(() => {
     setActiveCurveComponent(effect?.curveComponents?.[0]?.component ?? '')
     setMenuOpen(false)
-    setRenaming(false)
   }, [effect?.id])
 
   if (!editingEffectId || !effect) return null
@@ -1993,99 +2206,95 @@ export function EffectEditor() {
   const kind = effect.kind ?? 'curve'
   const sameProperty = effects.filter((e) => e.attribute === effect.attribute)
 
-  const close = () => setEditingEffectId(null)
+  // Closing the editor ends a template-edit session: the working copy
+  // Edit created is discarded (the saved template is untouched). An
+  // ordinary effect just closes and stays.
+  const close = () => {
+    if (editingEffectTemplateId) cancelEditingEffectTemplate()
+    else setEditingEffectId(null)
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effect-editor">
-      {/* Header (Jake's screenshots, 9.31.29 / 9.34.46 pm): the effect's
-          name menu top-centre, Design/Live tabs beside it, Fixture Order
-          top-right. The name menu switches between the effects on this
-          property, and duplicates, deletes or saves the effect (Guide
-          pp.173-174). Double-click the name to rename it. */}
+      {/* Header (Jake's screenshots, 9.34.46 / 10.40.51 pm): the
+          effect-type dropdown top-centre ("Color Effect" / "Dimmer
+          Effect" — the property, not the effect's name), Fixture Order
+          top-right. The name does not belong here: in LightKey it lives
+          in the palette (and in the yellow toolbar pill while a preset
+          is being edited). The Design/Live tabs are NOT repeated here —
+          the panel-level tabs above this panel are the only ones.
+          The dropdown's menu is the guide's name-menu actions (Guide
+          pp.173-174: switch between effects on this property,
+          Duplicate, Save as Template…, Delete and Keep Values,
+          Delete) — the button just shows the type, as LightKey does.
+          Rename is not in the menu: it lives in the preset browser's
+          right-click menu (Guide p.174). */}
       <div className="flex items-center gap-2">
         <div className="mx-auto flex items-center gap-4">
-          {renaming ? (
-            <input
-              aria-label="Effect name"
-              autoFocus
-              value={renameName}
-              onChange={(event) => setRenameName(event.target.value)}
-              onBlur={() => { if (renameName.trim()) update({ name: renameName.trim() }); setRenaming(false) }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') (event.target as HTMLInputElement).blur()
-                else if (event.key === 'Escape') setRenaming(false)
-              }}
+          <div className="relative">
+            <button
+              type="button"
+              aria-label="Effect menu"
+              aria-expanded={menuOpen}
+              onClick={() => setMenuOpen((value) => !value)}
               className="rounded-full border border-line bg-panel2 px-3 py-1 text-sm font-medium"
-            />
-          ) : (
-            <div className="relative">
-              <button
-                type="button"
-                aria-label="Effect menu"
-                aria-expanded={menuOpen}
-                onClick={() => setMenuOpen((value) => !value)}
-                onDoubleClick={() => { setRenameName(effect.name); setRenaming(true) }}
-                className="rounded-full border border-line bg-panel2 px-3 py-1 text-sm font-medium"
-                title="Double-click to rename"
-              >
-                {effect.name} <span aria-hidden="true">⌄</span>
-              </button>
-              {menuOpen && (
-                <div className="absolute left-0 z-10 mt-1 flex min-w-52 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
-                  {sameProperty.map((item) => (
-                    <button
-                      key={item.id}
-                      type="button"
-                      role="menuitem"
-                      className="rounded px-2 py-1 text-left hover:bg-panel"
-                      onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
-                    >
-                      {item.name}{item.id === effect.id ? ' ✓' : ''}
-                    </button>
-                  ))}
-                  <hr className="my-1 border-line" />
+            >
+              {attributeLabel(effect.attribute)} Effect <span aria-hidden="true">⌄</span>
+            </button>
+            {menuOpen && (
+              <div className="absolute left-0 z-10 mt-1 flex min-w-52 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
+                {sameProperty.map((item) => (
                   <button
+                    key={item.id}
                     type="button"
+                    role="menuitem"
                     className="rounded px-2 py-1 text-left hover:bg-panel"
-                    onClick={() => {
-                      const id = duplicateEffect(effect.id)
-                      setMenuOpen(false)
-                      if (id) setEditingEffectId(id)
-                    }}
+                    onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
                   >
-                    Duplicate
+                    {item.name}{item.id === effect.id ? ' ✓' : ''}
                   </button>
-                  <button
-                    type="button"
-                    className="rounded px-2 py-1 text-left hover:bg-panel"
-                    onClick={() => {
-                      setTemplateName(effect.name)
-                      setIncludeFixtureOrder(true)
-                      setSavingTemplate(true)
-                      setMenuOpen(false)
-                    }}
-                  >
-                    Save as Template…
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded px-2 py-1 text-left hover:bg-panel"
-                    onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
-                  >
-                    Delete and Keep Values
-                  </button>
-                  <button
-                    type="button"
-                    className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
-                    onClick={() => { removeEffect(effect.id); close() }}
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          <EffectPanelTabs />
+                ))}
+                <hr className="my-1 border-line" />
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-left hover:bg-panel"
+                  onClick={() => {
+                    const id = duplicateEffect(effect.id)
+                    setMenuOpen(false)
+                    if (id) setEditingEffectId(id)
+                  }}
+                >
+                  Duplicate
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-left hover:bg-panel"
+                  onClick={() => {
+                    setTemplateName(effect.name)
+                    setIncludeFixtureOrder(true)
+                    setSavingTemplate(true)
+                    setMenuOpen(false)
+                  }}
+                >
+                  Save as Template…
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-left hover:bg-panel"
+                  onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
+                >
+                  Delete and Keep Values
+                </button>
+                <button
+                  type="button"
+                  className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
+                  onClick={() => { removeEffect(effect.id); close() }}
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </div>
         </div>
         <details className="relative ml-auto">
           <summary className="cursor-pointer list-none rounded border border-line bg-panel2 px-2 py-1 text-xs" aria-label="Fixture order menu">Fixture Order ⌄</summary>

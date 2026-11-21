@@ -146,6 +146,20 @@ export function GroupsPresetsPanel() {
     return () => window.removeEventListener('openlights-preset-palette-context', open)
   }, [])
 
+  // The effects chooser's template menu offers the same New Preset /
+  // Group / Sequence entries as the palette menu (LightKey's preset
+  // menu); the palette owns the composer, so it opens on this event.
+  useEffect(() => {
+    const openComposer = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: 'preset' | 'preset-snapshot' | 'group' | 'sequence' }>).detail
+      if (!detail || !['preset', 'preset-snapshot', 'group', 'sequence'].includes(detail.type)) return
+      setComposer({ type: detail.type })
+      setComposerName('')
+    }
+    window.addEventListener('openlights-palette-composer', openComposer)
+    return () => window.removeEventListener('openlights-palette-composer', openComposer)
+  }, [])
+
   // Focus the composer / rename input synchronously when it opens (19 Nov
   // 2026, Jake: right-click → New Preset sometimes left the name box
   // unfocused so typing went nowhere). `autoFocus` is queued by the browser
@@ -800,13 +814,26 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
   // The submenu opens on hover or click, to the left — the palette is the
   // right sidebar, so a right-opening submenu would run off-screen.
   const [showInCueOpen, setShowInCueOpen] = useState(false)
+  // A menu opened at the click point can run off the bottom of the
+  // window when the row is low in the palette; clamp it into the
+  // viewport after mount so every item stays clickable.
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = contextMenuRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))
+    })
+  }, [x, y, contextMenuRef])
   const item = (action: PaletteMenuAction, label: string, disabled = false) => (
     <button key={action} type="button" role="menuitem" disabled={disabled}
       className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40"
       onClick={() => onAction(action)}>{label}</button>
   )
   return (
-    <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: x, top: y }}>
+    <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
       {target && <>
         {item('show-properties', 'Show Properties')}
         {item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}

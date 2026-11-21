@@ -402,6 +402,27 @@ interface ShowState {
   pasteEffect: () => string | null
   saveEffectTemplate: (id: string, includeFixtureOrder?: boolean) => void
   applyEffectTemplate: (id: string) => string | null
+  /** The saved effect template being edited (LightKey Guide ch.9, p.128:
+   *  hover a preset → Edit → its name appears in the toolbar with
+   *  Update). Session-only: never persisted. */
+  editingEffectTemplateId: string | null
+  /** Open a saved effect template in the editor (Edit): creates a working
+   *  copy of the template and binds the session to it. Returns the
+   *  working effect's id, or null when the template doesn't exist. */
+  startEditingEffectTemplate: (id: string) => string | null
+  /** Write the working copy back into the saved template (Update) and end
+   *  the session; the live effect stays as an ordinary effect. */
+  updateEffectTemplate: () => void
+  /** End a template-edit session, discarding the working copy Edit
+   *  created (the saved template is untouched). */
+  cancelEditingEffectTemplate: () => void
+  /** Rename a saved effect template (Guide p.174: Control-click → Rename
+   *  in the Effects Chooser). */
+  renameEffectTemplate: (id: string, name: string) => void
+  /** Duplicate a saved effect template. */
+  duplicateEffectTemplate: (id: string) => void
+  /** Delete a saved effect template (Guide p.175: Control-click → Delete). */
+  deleteEffectTemplate: (id: string) => void
 
   /** Movement paths (Guide ch.10, pp.165-171): stored independently of effects
    *  so they can be reused by any movement effect. */
@@ -924,6 +945,7 @@ const actions: ShowState = {
   effectClipboard: null,
   editingEffectId: null,
   setEditingEffectId: (id) => set({ editingEffectId: id }),
+  editingEffectTemplateId: null,
   effectChooserAttribute: null,
   setEffectChooserAttribute: (attribute) => set({ effectChooserAttribute: attribute }),
   selectedBeams: [],
@@ -1059,6 +1081,7 @@ const actions: ShowState = {
       effects: show?.effects ?? [],
       effectClipboard: null,
       editingEffectId: null,
+      editingEffectTemplateId: null,
       effectChooserAttribute: null,
       cueLists: show?.cueLists ?? [],
       midiMappings: show?.midiMappings ?? [],
@@ -2375,6 +2398,56 @@ const actions: ShowState = {
     return effect.id
   },
 
+  startEditingEffectTemplate: (id) => {
+    const newId = get().applyEffectTemplate(id)
+    if (!newId) return null
+    set({ editingEffectTemplateId: id, editingEffectId: newId })
+    return newId
+  },
+
+  updateEffectTemplate: () => {
+    const state = get()
+    const templateId = state.editingEffectTemplateId
+    const effect = state.effects.find((item) => item.id === state.editingEffectId)
+    if (!templateId || !effect || !state.show) return
+    const template = (state.show.effectTemplates ?? []).find((item) => item.id === templateId)
+    if (!template) return
+    // The name lives in the palette (the editor has no rename control),
+    // so the stored name is kept — only the effect's settings are
+    // written back to the preset.
+    const effectTemplates = (state.show.effectTemplates ?? []).map((item) =>
+      item.id === templateId ? { ...structuredClone(effect), id: templateId, name: template.name } : item)
+    set(persistState(state, { effectTemplates }))
+    set({ editingEffectTemplateId: null })
+  },
+
+  cancelEditingEffectTemplate: () => {
+    const state = get()
+    if (!state.editingEffectTemplateId) return
+    const workingId = state.editingEffectId
+    set({ editingEffectTemplateId: null, editingEffectId: null })
+    if (workingId) get().removeEffect(workingId)
+  },
+
+  renameEffectTemplate: (id, name) => set((state) => {
+    if (!state.show || !name.trim()) return state
+    const effectTemplates = (state.show.effectTemplates ?? []).map((item) => item.id === id ? { ...item, name: name.trim() } : item)
+    return persistState(state, { effectTemplates })
+  }),
+
+  duplicateEffectTemplate: (id) => set((state) => {
+    const source = state.show?.effectTemplates?.find((item) => item.id === id)
+    if (!source || !state.show) return state
+    const copy: EffectDef = { ...structuredClone(source), id: crypto.randomUUID(), name: `${source.name} copy` }
+    return persistState(state, { effectTemplates: [...(state.show.effectTemplates ?? []), copy] })
+  }),
+
+  deleteEffectTemplate: (id) => set((state) => {
+    if (!state.show) return state
+    const effectTemplates = (state.show.effectTemplates ?? []).filter((item) => item.id !== id)
+    return persistState(state, { effectTemplates })
+  }),
+
   duplicateEffect: (id) => {
     const source = get().effects.find((item) => item.id === id)
     if (!source) return null
@@ -2680,7 +2753,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

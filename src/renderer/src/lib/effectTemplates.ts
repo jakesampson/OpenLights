@@ -27,12 +27,13 @@ import { defaultSamples, isColorAttribute } from './patternRuntime'
  * movement-path geometry (lib/movementRuntime.ts) and to the curve
  * templates' component shapes. Nothing else here is invented: a template
  * whose kind or samples could not be read from a screenshot is not in
- * this list (Focus, Iris and Frost have no established templates, and
- * the Zoom section shows only the four tiles visible at the foot of the
- * 9.16.22 pm screenshot).
+ * this list (Focus and Frost have no established templates, and the Zoom
+ * section shows only the four tiles visible at the foot of the
+ * 9.16.22 pm screenshot). The Iris section comes from Jake's screenshot
+ * of 21 Nov 2026, 10.20.06 pm.
  */
 
-export type TemplateProperty = 'intensity' | 'color' | 'position' | 'zoom'
+export type TemplateProperty = 'intensity' | 'color' | 'position' | 'zoom' | 'iris'
 
 export interface LightKeyTemplate {
   id: string
@@ -59,7 +60,8 @@ export const TEMPLATE_PROPERTY_LABELS: Record<TemplateProperty, string> = {
   intensity: 'Dimmer',
   color: 'Color',
   position: 'Position',
-  zoom: 'Zoom'
+  zoom: 'Zoom',
+  iris: 'Iris'
 }
 
 function slug(name: string): string {
@@ -297,6 +299,48 @@ const ZOOM_TEMPLATES: LightKeyTemplate[] = [
   }
 ]
 
+// The Iris section (Jake's screenshot, 21 Nov 2026, 10.20.06 pm): five
+// tiles, all line icons — the same shapes as the Zoom section, so the
+// same mappings (Alternating/Wave sine, Closing ramp down, Opening ramp
+// up). Fireworks' icon is a corner line, not sample circles: in
+// LightKey's tile language a line is a curve (the corner/step line is the
+// curve glyph elsewhere, e.g. Beat Flash), and Guide p.146 says patterns
+// apply to Dimmer and Color only — so Fireworks is read as a curve, not
+// a pattern. Its shape — full, decaying to zero by mid-duration, flat
+// after — reads as a burst then fade, which fits the name. Flag for Jake
+// to confirm: if Fireworks is a pattern in LightKey, it needs its
+// pattern and samples instead.
+const IRIS_TEMPLATES: LightKeyTemplate[] = [
+  {
+    id: 'builtin-iris-fireworks', name: 'Fireworks', property: 'iris', kind: 'curve',
+    curveComponents: [{
+      component: 'iris',
+      points: [
+        { id: 'point-0', x: 0, y: 1 },
+        { id: 'point-1', x: 0.5, y: 0 },
+        { id: 'point-2', x: 1, y: 0 }
+      ],
+      curvedSegments: [false, false]
+    }]
+  },
+  {
+    id: 'builtin-iris-alternating', name: 'Iris Alternating', property: 'iris', kind: 'curve',
+    curveComponents: [waveformComponent('iris', 'sine')]
+  },
+  {
+    id: 'builtin-iris-closing', name: 'Iris Closing', property: 'iris', kind: 'curve',
+    curveComponents: [rampComponent('iris', false)]
+  },
+  {
+    id: 'builtin-iris-opening', name: 'Iris Opening', property: 'iris', kind: 'curve',
+    curveComponents: [rampComponent('iris', true)]
+  },
+  {
+    id: 'builtin-iris-wave', name: 'Iris Wave', property: 'iris', kind: 'curve',
+    curveComponents: [waveformComponent('iris', 'sine')]
+  }
+]
+
 export interface TemplateSection {
   property: TemplateProperty
   label: string
@@ -307,7 +351,8 @@ export const EFFECT_TEMPLATE_SECTIONS: TemplateSection[] = [
   { property: 'intensity', label: 'Dimmer', templates: DIMMER_TEMPLATES },
   { property: 'color', label: 'Color', templates: COLOR_TEMPLATES },
   { property: 'position', label: 'Position', templates: POSITION_TEMPLATES },
-  { property: 'zoom', label: 'Zoom', templates: ZOOM_TEMPLATES }
+  { property: 'zoom', label: 'Zoom', templates: ZOOM_TEMPLATES },
+  { property: 'iris', label: 'Iris', templates: IRIS_TEMPLATES }
 ]
 
 export const ALL_LIGHTKEY_TEMPLATES: LightKeyTemplate[] = EFFECT_TEMPLATE_SECTIONS.flatMap((s) => s.templates)

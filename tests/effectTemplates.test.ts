@@ -16,11 +16,12 @@ describe('LightKey effect templates', () => {
       ['Dimmer', 18],
       ['Color', 26],
       ['Position', 18],
-      ['Zoom', 4]
+      ['Zoom', 4],
+      ['Iris', 5]
     ])
-    expect(ALL_LIGHTKEY_TEMPLATES).toHaveLength(66)
-    expect(new Set(ALL_LIGHTKEY_TEMPLATES.map((t) => t.name)).size).toBe(66)
-    expect(new Set(ALL_LIGHTKEY_TEMPLATES.map((t) => t.id)).size).toBe(66)
+    expect(ALL_LIGHTKEY_TEMPLATES).toHaveLength(71)
+    expect(new Set(ALL_LIGHTKEY_TEMPLATES.map((t) => t.name)).size).toBe(71)
+    expect(new Set(ALL_LIGHTKEY_TEMPLATES.map((t) => t.id)).size).toBe(71)
   })
 
   it('marks only the beat-controlled templates with the pulse icon', () => {
@@ -86,6 +87,34 @@ describe('LightKey effect templates', () => {
     expect(bowTie.kind).toBe('movement')
     expect(bowTie.attribute).toBe('position')
     expect(bowTie.movementPathId).toBe('builtin-bow-tie')
+  })
+
+  it('gives Iris five curve tiles from Jake’s screenshot', () => {
+    // 21 Nov 2026, 10.20.06 pm: Fireworks, Iris Alternating, Iris
+    // Closing, Iris Opening, Iris Wave — the same line-icon shapes as
+    // Zoom, so the same curve mappings.
+    const iris = EFFECT_TEMPLATE_SECTIONS[4].templates
+    expect(iris.map((t) => t.name)).toEqual([
+      'Fireworks',
+      'Iris Alternating',
+      'Iris Closing',
+      'Iris Opening',
+      'Iris Wave'
+    ])
+    expect(iris.every((t) => t.kind === 'curve')).toBe(true)
+    // Fireworks is a burst-then-fade curve (see the comment in
+    // effectTemplates.ts) — flag for Jake to confirm it isn't a pattern.
+    expect(iris[0].curveComponents?.[0].points.map((p) => [p.x, p.y])).toEqual([[0, 1], [0.5, 0], [1, 0]])
+    expect(iris[2].curveComponents?.[0].points.map((p) => [p.x, p.y])).toEqual([[0, 1], [1, 0]])
+    expect(iris[3].curveComponents?.[0].points.map((p) => [p.x, p.y])).toEqual([[0, 0], [1, 1]])
+  })
+
+  it('builds an iris curve effect with one iris curve', () => {
+    const wave = createEffectFromTemplate(findLightKeyTemplate('builtin-iris-wave')!, ['fx1'])
+    expect(wave.kind).toBe('curve')
+    expect(wave.attribute).toBe('iris')
+    expect(wave.name).toBe('Iris Wave')
+    expect(wave.curveComponents?.map((c) => c.component)).toEqual(['iris'])
   })
 
   it('builds a colour curve effect with one curve per component', () => {

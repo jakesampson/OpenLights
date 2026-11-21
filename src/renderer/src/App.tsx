@@ -71,6 +71,9 @@ export default function App() {
     saveEditingPreset,
     cancelEditingPreset,
     editingEffectId,
+    editingEffectTemplateId,
+    updateEffectTemplate,
+    cancelEditingEffectTemplate,
     editingCueAdHocId,
     saveEditingCueAdHoc,
     cancelEditingCueAdHoc,
@@ -213,6 +216,11 @@ export default function App() {
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  // The saved effect template being edited (LightKey Guide ch.9, p.128):
+  // its name appears in the toolbar with Update, as for presets.
+  const editingEffectTemplate = editingEffectTemplateId
+    ? show?.effectTemplates?.find((t) => t.id === editingEffectTemplateId)
+    : undefined
   const editingCueAdHoc = editingCueAdHocId ? cues.find((c) => c.id === editingCueAdHocId) : undefined
   // In-place cue ad-hoc editing opens in Design (Guide ch.11, p.201).
   useEffect(() => { if (editingCueAdHocId) setTab('Design') }, [editingCueAdHocId])
@@ -457,7 +465,7 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
@@ -763,6 +771,14 @@ export default function App() {
               <span className="max-w-40 truncate">{editingPreset.name}</span>
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingPreset}>Save</button>
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
+            </span>
+          )}
+          {editingEffectTemplate && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">{editingEffectTemplate.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={updateEffectTemplate}>Update</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingEffectTemplate}>Cancel</button>
             </span>
           )}
           {editingCueAdHoc && (

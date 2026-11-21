@@ -3,11 +3,12 @@
 // Design shows an effect icon in place of a property's normal controls
 // while that property is effect-controlled.
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
+import { EffectsChooser } from '../src/renderer/src/components/EffectEditor'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import type { EffectDef } from '../src/shared/types'
 
@@ -34,6 +35,7 @@ function setShow() {
   const show = {
     ...base,
     id: 'test-show',
+    effectTemplates: [],
     fixtures: [{ id: 'fx1', name: 'Test Wash', type: 'led-wash', channelStart: 1, channels: 7 }],
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 255, green: 0, blue: 0 } }, fadeMs: 0 }]
   }
@@ -50,9 +52,52 @@ function setShow() {
       manualOverrides: {},
       showOverrideLabels: false,
       editingEffectId: null,
+      editingEffectTemplateId: null,
       effectChooserAttribute: null
     })
   })
+}
+
+function setShowWithChannels(attrs: string[]) {
+  // A fixture with an intensity channel plus the given extra channels
+  // (no built-in profile has iris/frost/focus, so it carries its own
+  // profile — the same shape as propertyValues.test.ts).
+  const base = useShowStore.getState().show
+  if (!base) throw new Error('store has no default show')
+  const channels = [
+    { number: 0, attribute: 'intensity', propertyType: 'intensity' as const, min: 0, max: 255, defaultValue: 0, highlightValue: 255 },
+    ...attrs.map((attribute, i) => ({ number: i + 1, attribute, propertyType: 'other' as const, min: 0, max: 255, defaultValue: 0, highlightValue: 0 }))
+  ]
+  const cueValues: Record<string, number> = { intensity: 255 }
+  for (const attribute of attrs) cueValues[attribute] = 128
+  const show = {
+    ...base,
+    id: 'test-show',
+    effectTemplates: [],
+    fixtures: [{ id: 'fx1', name: 'Test Custom', type: 'moving-head', channelStart: 1, channels: channels.length, profile: { id: 'test-custom', name: 'Test Custom', manufacturer: 'Test', legacyType: 'moving-head', modes: [{ id: 'default', name: 'Default', channels }] } }],
+    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: cueValues }, fadeMs: 0 }]
+  }
+  act(() => {
+    useShowStore.setState({
+      show,
+      cues: show.cues,
+      presets: [],
+      effects: [],
+      selectedFixtureIds: ['fx1'],
+      activeCueId: 'c1',
+      editingPresetId: null,
+      editingCueAdHocId: null,
+      manualOverrides: {},
+      showOverrideLabels: false,
+      editingEffectId: null,
+      editingEffectTemplateId: null,
+      effectChooserAttribute: null
+    })
+  })
+}
+
+function setShowWithIris() {
+  setShowWithChannels(['iris'])
 }
 
 function buttonWithText(text: string): HTMLButtonElement {
@@ -120,13 +165,32 @@ function chaseEffect(): EffectDef {
   }
 }
 
+/** A saved effect template in the show (no live effect left behind, so
+ *  opening it never hits the Replace/Overlay conflict). Returns its id. */
+function seedSavedTemplate(): string {
+  act(() => {
+    useShowStore.getState().addEffect(chaseEffect())
+    useShowStore.getState().saveEffectTemplate('e-chase', true)
+    useShowStore.getState().removeEffect('e-chase')
+  })
+  const template = useShowStore.getState().show?.effectTemplates?.at(-1)
+  if (!template) throw new Error('no saved template')
+  return template.id
+}
+
+function savedTemplateTile(name: string): HTMLButtonElement {
+  const found = container?.querySelector(`[aria-label="${name} template"]`) as HTMLButtonElement | null
+  if (!found) throw new Error(`no saved template tile "${name}"`)
+  return found
+}
+
 describe('effects chooser', () => {
   it('shows LightKey’s template sections and adds a template on tile click', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
     renderInRoot(<DesignTab />)
     expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
-    for (const section of ['Dimmer', 'Color', 'Position', 'Zoom']) {
+    for (const section of ['Dimmer', 'Color', 'Position', 'Zoom', 'Iris']) {
       expect(container?.querySelector(`[aria-label="${section} templates"]`)).not.toBeNull()
     }
     expect(container?.textContent).toContain('Custom Effect')
@@ -162,16 +226,64 @@ describe('effects chooser', () => {
     // Guide ch.10, p.146: patterns apply to Dimmer and Color only — red
     // alone is automated with a curve on Color, so the template editor
     // for red must not offer a Pattern (whose colour samples would light
-    // the fixture white).
+    // the fixture white). LightKey still shows the other kinds, greyed
+    // out (Jake's Frost screenshot, 21 Nov 2026, 10.27.26 pm). Red has
+    // no templates, so the chooser opens straight on the template editor.
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'red' }) })
     renderInRoot(<DesignTab />)
     expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
-    act(() => { buttonWithText('Custom Effect').click() })
+    expect(container?.querySelector('[aria-label="Fixture property"]')).not.toBeNull()
     const kinds = container?.querySelector('[aria-label="Effect kind"]')
-    expect(kinds?.textContent).toContain('Curve')
-    expect(kinds?.textContent).not.toContain('Pattern')
-    expect(kinds?.textContent).not.toContain('Movement')
+    const radios = Array.from(kinds?.querySelectorAll('[role="radio"]') ?? []) as HTMLButtonElement[]
+    expect(radios.map((r) => r.textContent)).toEqual(['Pattern', 'Curve', 'Movement'])
+    expect(radios.map((r) => r.disabled)).toEqual([true, false, true])
+    expect(radios.find((r) => r.getAttribute('aria-checked') === 'true')?.textContent).toBe('Curve')
+  })
+
+  it('opens straight on the template editor for a property with no templates', () => {
+    // Jake's screenshot, 21 Nov 2026, 10.27.26 pm: Frost opens the
+    // template editor, not an empty templates view. Same for Focus —
+    // the rule is about having no templates, not about Frost itself.
+    setShowWithChannels(['frost', 'focus'])
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'frost' }) })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
+    // No templates view: no tiles, no Custom Effect button.
+    expect(container?.querySelector('[aria-label="Marching Ants template"]')).toBeNull()
+    expect(container?.textContent).not.toContain('Custom Effect')
+    const property = container?.querySelector('[aria-label="Fixture property"]') as HTMLSelectElement | null
+    expect(property?.value).toBe('frost')
+    const kinds = container?.querySelector('[aria-label="Effect kind"]')
+    const radios = Array.from(kinds?.querySelectorAll('[role="radio"]') ?? []) as HTMLButtonElement[]
+    expect(radios.map((r) => r.textContent)).toEqual(['Pattern', 'Curve', 'Movement'])
+    expect(radios.map((r) => r.disabled)).toEqual([true, false, true])
+    expect(radios.find((r) => r.getAttribute('aria-checked') === 'true')?.textContent).toBe('Curve')
+  })
+
+  it('adds a Frost curve effect from the template editor', () => {
+    setShowWithChannels(['frost'])
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'frost' }) })
+    renderInRoot(<DesignTab />)
+    act(() => { buttonWithText('Add Effect').click() })
+    const state = useShowStore.getState()
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].kind).toBe('curve')
+    expect(state.effects[0].attribute).toBe('frost')
+    expect(state.effects[0].name).toBe('Frost Effect')
+    expect(state.effects[0].curveComponents?.[0].component).toBe('frost')
+    expect(state.editingEffectId).toBe(state.effects[0].id)
+    expect(container?.querySelector('[data-testid="effect-editor"]')).not.toBeNull()
+  })
+
+  it('still opens the templates view for a property with templates', () => {
+    // The no-templates jump must not steal the normal path: Dimmer has
+    // templates, so it opens the templates view, not the editor.
+    setShowWithChannels(['frost'])
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[aria-label="Dimmer templates"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Fixture property"]')).toBeNull()
   })
 
   it('offers a pattern for the whole Color property', () => {
@@ -227,6 +339,46 @@ describe('effects chooser', () => {
     expect(state.effects[0].beatMultiplier).toBe(1)
   })
 
+  it('scrolls the templates view to the picked property’s section', () => {
+    // Jake, 21 Nov 2026: opening from the wand menu lands on the picked
+    // property, not the top. jsdom has no real scrolling, so this asserts
+    // the scroll-into-view call and its target, not pixels.
+    const scrollIntoView = vi.fn()
+    const original = Element.prototype.scrollIntoView
+    Element.prototype.scrollIntoView = scrollIntoView as unknown as typeof Element.prototype.scrollIntoView
+    try {
+      setShow()
+      act(() => { useShowStore.setState({ effectChooserAttribute: 'color' }) })
+      renderInRoot(<DesignTab />)
+      const colorSection = container?.querySelector('[aria-label="Color templates"]')
+      expect(colorSection).not.toBeNull()
+      expect(scrollIntoView.mock.instances).toContain(colorSection)
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'start' })
+      act(() => { useShowStore.setState({ effectChooserAttribute: 'iris' }) })
+      const irisSection = container?.querySelector('[aria-label="Iris templates"]')
+      expect(irisSection).not.toBeNull()
+      expect(scrollIntoView.mock.instances).toContain(irisSection)
+    } finally {
+      Element.prototype.scrollIntoView = original
+    }
+  })
+
+  it('adds an Iris template on tile click for an iris fixture', () => {
+    setShowWithIris()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'iris' }) })
+    renderInRoot(<DesignTab />)
+    expect(templateTile('Iris Wave').disabled).toBe(false)
+    act(() => { templateTile('Iris Wave').click() })
+    const state = useShowStore.getState()
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].kind).toBe('curve')
+    expect(state.effects[0].attribute).toBe('iris')
+    expect(state.effects[0].name).toBe('Iris Wave')
+    expect(state.effects[0].curveComponents?.[0].component).toBe('iris')
+    expect(state.editingEffectId).toBe(state.effects[0].id)
+    expect(container?.querySelector('[data-testid="effect-editor"]')).not.toBeNull()
+  })
+
   it('searches templates by name', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
@@ -236,6 +388,117 @@ describe('effects chooser', () => {
     setInputValue(search, 'K.I.T.T.')
     expect(container?.querySelector('[aria-label="K.I.T.T. template"]')).not.toBeNull()
     expect(container?.querySelector('[aria-label="Barn Doors template"]')).toBeNull()
+  })
+
+  it('shows a yellow Edit button on hover over a saved template, and Edit opens it bound to the template', () => {
+    // LightKey Guide ch.9, p.128: hover the preset in the palette and
+    // click Edit. The working copy opens in the editor and the session
+    // binds to the template, so Update can write back to it.
+    setShow()
+    const templateId = seedSavedTemplate()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[aria-label="Your templates"]')).not.toBeNull()
+    const tile = savedTemplateTile('Chase Dimmer')
+    expect(container?.querySelector('[aria-label="Edit Chase Dimmer"]')).toBeNull()
+    act(() => { tile.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
+    const edit = container?.querySelector('[aria-label="Edit Chase Dimmer"]') as HTMLButtonElement | null
+    if (!edit) throw new Error('no Edit button on hover')
+    act(() => { edit.click() })
+    const state = useShowStore.getState()
+    expect(state.editingEffectTemplateId).toBe(templateId)
+    expect(state.editingEffectId).not.toBeNull()
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].name).toBe('Chase Dimmer')
+    expect(container?.querySelector('[data-testid="effect-editor"]')).not.toBeNull()
+  })
+
+  it('shows a yellow Update button on the saved template being edited, and Update writes back', () => {
+    // The row Update is the chooser-side surface for the same action
+    // the header pill offers while editing (Jake's 10.40.51 pm
+    // screenshot). Rendered here directly: the editor takes over the
+    // panel in DesignTab, so the chooser is rendered on its own.
+    setShow()
+    const templateId = seedSavedTemplate()
+    let workingId: string | null = null
+    act(() => { workingId = useShowStore.getState().startEditingEffectTemplate(templateId) })
+    if (!workingId) throw new Error('Edit did not create a working copy')
+    act(() => { useShowStore.getState().updateEffect(workingId, { durationMs: 5000 }) })
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<EffectsChooser />)
+    const update = container?.querySelector('[aria-label="Update Chase Dimmer"]') as HTMLButtonElement | null
+    if (!update) throw new Error('no Update button on the template being edited')
+    act(() => { update.click() })
+    const state = useShowStore.getState()
+    expect(state.show?.effectTemplates?.find((t) => t.id === templateId)?.durationMs).toBe(5000)
+    expect(state.editingEffectTemplateId).toBeNull()
+    // The live effect stays as an ordinary effect after Update.
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].id).toBe(workingId)
+  })
+
+  it('right-clicks a saved template: Apply, Edit, Rename, Duplicate, Delete, New entries — and nothing invented', () => {
+    // LightKey's preset menu (Jake's screenshot, 21 Nov 2026, 10.49.20
+    // pm), mapped to what OpenLights has. Show Properties, Add
+    // Overrides, External Control and the From Selection variants have
+    // no equivalent for an effect template and must not appear.
+    setShow()
+    const templateId = seedSavedTemplate()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<DesignTab />)
+    const tile = savedTemplateTile('Chase Dimmer')
+    const openMenu = () => {
+      act(() => {
+        tile.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 }))
+      })
+      const menu = container?.querySelector('[aria-label$=" actions"]')
+      if (!menu) throw new Error('no template context menu')
+      return menu
+    }
+    let menu = openMenu()
+    for (const label of ['Apply', 'Edit', 'Rename', 'Duplicate', 'Delete', 'New Preset', 'New Preset With Snapshot', 'New Group', 'New Sequence']) {
+      expect(menu.textContent).toContain(label)
+    }
+    for (const label of ['Show Properties', 'Add Overrides', 'External Control', 'From Selection']) {
+      expect(menu.textContent).not.toContain(label)
+    }
+    // Rename: inline input, committed on Enter, reflected in the tile.
+    act(() => { buttonWithText('Rename').click() })
+    const input = container?.querySelector('[aria-label="Rename template"]') as HTMLInputElement | null
+    if (!input) throw new Error('no rename input')
+    setInputValue(input, 'Chase Renamed')
+    pressEnter(input)
+    expect(useShowStore.getState().show?.effectTemplates?.find((t) => t.id === templateId)?.name).toBe('Chase Renamed')
+    expect(container?.querySelector('[aria-label="Chase Renamed template"]')).not.toBeNull()
+    // Duplicate: a second saved template, named "… copy".
+    menu = openMenu()
+    expect(menu.textContent).toContain('Duplicate')
+    act(() => { buttonWithText('Duplicate').click() })
+    const templates = useShowStore.getState().show?.effectTemplates ?? []
+    expect(templates).toHaveLength(2)
+    expect(templates[1].name).toBe('Chase Renamed copy')
+    // New Preset asks the palette to open its composer (the palette
+    // owns it); the event is the wiring.
+    const seen: string[] = []
+    const onComposer = (event: Event) => { seen.push((event as CustomEvent<{ type: string }>).detail.type) }
+    window.addEventListener('openlights-palette-composer', onComposer)
+    try {
+      openMenu()
+      act(() => { buttonWithText('New Preset').click() })
+      expect(seen).toEqual(['preset'])
+    } finally {
+      window.removeEventListener('openlights-palette-composer', onComposer)
+    }
+    // Delete: confirmed, the template is gone.
+    const originalConfirm = window.confirm
+    window.confirm = () => true
+    try {
+      openMenu()
+      act(() => { buttonWithText('Delete').click() })
+    } finally {
+      window.confirm = originalConfirm
+    }
+    expect(useShowStore.getState().show?.effectTemplates).toHaveLength(1)
   })
 })
 
@@ -274,6 +537,52 @@ describe('effect editor', () => {
     expect(container?.textContent).toContain('Steps p. Sample')
     expect(container?.textContent).toContain('Phase')
     expect(container?.textContent).toContain('Time Offset')
+  })
+
+  it('offers only Duration and Beat Multiplier in the timing toggle — no random segment', () => {
+    // Jake, 21 Nov 2026: LightKey's timing toggle is clock/pulse only;
+    // the third shuffle segment is not in LightKey's screenshots (and
+    // underlaps the colour picker panel).
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[aria-label="Fixed duration"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Beat-controlled"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Random timing"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Timing mode"]')?.textContent).not.toContain('Random')
+  })
+
+  it('shows the effect-type dropdown, not the effect name, and no duplicate Design/Live tabs', () => {
+    // Jake, 21 Nov 2026: the editor header shows "Dimmer Effect" /
+    // "Color Effect" (LightKey's screenshots); the name dropdown and
+    // the second Design/Live segmented control do not belong there.
+    // The name lives in the palette; rename is the palette's
+    // right-click menu, not the editor.
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    const editor = container?.querySelector('[data-testid="effect-editor"]')
+    expect(editor).not.toBeNull()
+    const menuButton = container?.querySelector('[aria-label="Effect menu"]') as HTMLButtonElement | null
+    if (!menuButton) throw new Error('no effect menu button')
+    expect(menuButton.textContent).toContain('Dimmer Effect')
+    expect(menuButton.textContent).not.toContain('Chase Dimmer')
+    expect(menuButton.getAttribute('title')).toBeNull()
+    expect(editor?.querySelector('[aria-label="Design or Live"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Effect name"]')).toBeNull()
+    // The dropdown keeps the guide's actions (switch, Duplicate, Save
+    // as Template…, Delete and Keep Values, Delete — Guide pp.173-174).
+    act(() => { menuButton.click() })
+    for (const label of ['Duplicate', 'Save as Template…', 'Delete and Keep Values', 'Delete']) {
+      expect(container?.textContent).toContain(label)
+    }
+    expect(container?.textContent).not.toContain('Rename')
   })
 
   it('shows the full parameter set for each pattern', () => {
@@ -402,5 +711,60 @@ describe('effect store actions', () => {
     const withOrder = useShowStore.getState().show?.effectTemplates?.[1]
     expect(withOrder?.fixtureOrder).toBe('reverse')
     expect(withOrder?.fixtureGrouping).toBe(2)
+  })
+
+  it('edit-update round-trips a saved template, and Update ends the session', () => {
+    // LightKey Guide ch.9, p.128: Edit opens the preset, Update writes
+    // the changes back. The stored name is kept (the editor has no
+    // rename control); the live effect stays as an ordinary effect.
+    setShow()
+    const templateId = seedSavedTemplate()
+    let workingId: string | null = null
+    act(() => { workingId = useShowStore.getState().startEditingEffectTemplate(templateId) })
+    expect(workingId).not.toBeNull()
+    expect(useShowStore.getState().editingEffectTemplateId).toBe(templateId)
+    act(() => { useShowStore.getState().updateEffect(workingId!, { durationMs: 5000, beatMultiplier: 4 }) })
+    act(() => { useShowStore.getState().updateEffectTemplate() })
+    const state = useShowStore.getState()
+    const template = state.show?.effectTemplates?.find((t) => t.id === templateId)
+    expect(template?.durationMs).toBe(5000)
+    expect(template?.beatMultiplier).toBe(4)
+    expect(template?.name).toBe('Chase Dimmer')
+    expect(state.editingEffectTemplateId).toBeNull()
+    expect(state.editingEffectId).toBe(workingId)
+    expect(state.effects).toHaveLength(1)
+  })
+
+  it('cancel discards the working copy and leaves the saved template untouched', () => {
+    setShow()
+    const templateId = seedSavedTemplate()
+    let workingId: string | null = null
+    act(() => { workingId = useShowStore.getState().startEditingEffectTemplate(templateId) })
+    act(() => { useShowStore.getState().updateEffect(workingId!, { durationMs: 9000 }) })
+    act(() => { useShowStore.getState().cancelEditingEffectTemplate() })
+    const state = useShowStore.getState()
+    expect(state.show?.effectTemplates?.find((t) => t.id === templateId)?.durationMs).toBe(2000)
+    expect(state.editingEffectTemplateId).toBeNull()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.effects).toHaveLength(0)
+  })
+
+  it('renames, duplicates and deletes a saved effect template', () => {
+    setShow()
+    const templateId = seedSavedTemplate()
+    act(() => { useShowStore.getState().renameEffectTemplate(templateId, '  Chase Renamed  ') })
+    let templates = useShowStore.getState().show?.effectTemplates ?? []
+    expect(templates).toHaveLength(1)
+    expect(templates[0].name).toBe('Chase Renamed')
+    act(() => { useShowStore.getState().duplicateEffectTemplate(templateId) })
+    templates = useShowStore.getState().show?.effectTemplates ?? []
+    expect(templates).toHaveLength(2)
+    expect(templates[1].name).toBe('Chase Renamed copy')
+    expect(templates[1].id).not.toBe(templateId)
+    expect(templates[1].durationMs).toBe(2000)
+    act(() => { useShowStore.getState().deleteEffectTemplate(templateId) })
+    templates = useShowStore.getState().show?.effectTemplates ?? []
+    expect(templates).toHaveLength(1)
+    expect(templates[0].name).toBe('Chase Renamed copy')
   })
 })

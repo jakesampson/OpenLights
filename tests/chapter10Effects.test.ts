@@ -277,6 +277,29 @@ describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
     expect(patch[channelOf(wash, 'green')]).toBe(0)
     expect(patch[channelOf(wash, 'blue')]).toBe(0)
   })
+
+  it('writes a curve on a generic channel such as Frost', () => {
+    // Frost is a generic fixture-profile attribute (Jake, 21 Nov 2026):
+    // a curve on it reaches the frost channel like any other
+    // single-component property — no hardcoded allowlist in the runtime.
+    const frosty: FixtureDef = {
+      id: 'ff', name: 'Frosty', type: 'moving-head', channelStart: 9, channels: 2,
+      profile: { id: 'test-frost', name: 'Test Frost', manufacturer: 'Test', legacyType: 'moving-head', modes: [{ id: 'default', name: 'Default', channels: [
+        { number: 0, attribute: 'intensity', propertyType: 'intensity', min: 0, max: 255, defaultValue: 0, highlightValue: 255 },
+        { number: 1, attribute: 'frost', propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }
+      ] }] }
+    }
+    const fx = effect({
+      kind: 'curve',
+      attribute: 'frost',
+      fixtureIds: ['ff'],
+      curveComponents: [{ component: 'frost', points: [{ id: 'p0', x: 0, y: 1 }, { id: 'p1', x: 1, y: 1 }], curvedSegments: [false] }],
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    const patch = computeEffectPatch([frosty], [fx], 0.5, 120)
+    expect(patch[channelOf(frosty, 'frost')]).toBe(255)
+  })
 })
 
 describe('movement effects (Guide ch.10, pp.165-171)', () => {
@@ -385,6 +408,22 @@ describe('effectable properties (Guide ch.10, p.146)', () => {
 
   it('offers Dimmer and Color for a par', () => {
     expect(effectableProperties([fixtures[0]]).map((p) => p.attribute)).toEqual(['intensity', 'color'])
+  })
+
+  it('offers uncommon channel properties such as Frost and Focus', () => {
+    // Frost is just a fixture-profile attribute (Jake, 21 Nov 2026) —
+    // any channel a profile has is effectable, not only the well-known ones.
+    const frosty: FixtureDef = {
+      id: 'ff', name: 'Frosty', type: 'moving-head', channelStart: 9, channels: 4,
+      profile: { id: 'test-frost', name: 'Test Frost', manufacturer: 'Test', legacyType: 'moving-head', modes: [{ id: 'default', name: 'Default', channels: [
+        { number: 0, attribute: 'intensity', propertyType: 'intensity', min: 0, max: 255, defaultValue: 0, highlightValue: 255 },
+        { number: 1, attribute: 'focus', propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 },
+        { number: 2, attribute: 'frost', propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 },
+        { number: 3, attribute: 'zoom', propertyType: 'other', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }
+      ] }] }
+    }
+    expect(effectableProperties([frosty]).map((p) => p.attribute)).toEqual(['intensity', 'focus', 'frost', 'zoom'])
+    expect(effectableProperties([frosty]).map((p) => p.label)).toEqual(['Dimmer', 'Focus', 'Frost', 'Zoom'])
   })
 
   it('offers nothing with no fixtures selected', () => {

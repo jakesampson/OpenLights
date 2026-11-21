@@ -87,6 +87,10 @@ describe('Preset Palette — LightKey combined tree', () => {
     // (Guide p.53); otherwise it is the Preset Palette sidebar.
     expect(app).toContain("aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
     expect(app).toContain('openlights-preset-palette-context')
+    // The effects chooser's template menu offers the same New Preset /
+    // Group / Sequence entries; the palette owns the composer, so it
+    // opens on the event the chooser dispatches.
+    expect(panel).toContain('openlights-palette-composer')
     // "External Control" does not exist in OpenLights — it must not be
     // faked as a menu item (the source comment records the omission).
     expect(panel).not.toContain("label: 'External Control'")
