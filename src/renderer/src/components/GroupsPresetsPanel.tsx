@@ -67,6 +67,7 @@ export function GroupsPresetsPanel() {
     activeCueId,
     selectedFixtureIds,
     updateEffect,
+    setEditingEffectId,
     removeEffect,
     capturePreset,
     updatePresetFromCurrent,
@@ -675,8 +676,9 @@ export function GroupsPresetsPanel() {
               <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}>
                 <button type="button" role="treeitem" aria-selected={isSelected(item)}
                   className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${effect.enabled ? 'selected' : 'hover:bg-panel2'}`}
-                  title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'}`}
+                  title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'} · double-click to edit`}
                   onClick={(event) => { selectItem(item, event.shiftKey); updateEffect(effect.id, { enabled: !effect.enabled }) }}
+                  onDoubleClick={() => setEditingEffectId(effect.id)}
                   onContextMenu={(event) => rowContextMenu(event, item)}
                 >
                   <span aria-hidden="true">∿</span>

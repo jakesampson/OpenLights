@@ -31,7 +31,10 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
     setLockDialog(null)
     setPin('')
   }
-  const addEffect = (attribute: string) => state.addEffect({ id: crypto.randomUUID(), name: `${propertyLabel(attribute)} Effect`, fixtureIds: [...state.selectedFixtureIds], attribute, waveform: 'sine', speed: 1, syncToBpm: true, size: 255, offset: 128, phaseSpread: 0, enabled: true })
+  // Add Effect opens the effects chooser (Guide ch.10, pp.148-149) instead
+  // of creating an effect immediately — the chooser picks a template or a
+  // custom effect for the property.
+  const addEffect = (attribute: string) => state.setEffectChooserAttribute(attribute)
   const clearProperty = () => {
     if (!selectedProperty) return
     state.releaseManualOverrides(state.selectedFixtureIds, selectedProperty)

@@ -39,6 +39,7 @@ import type {
   FixtureDef,
   FixturePreset,
   MidiMapping,
+  MovementPathDef,
   PresetDef,
   PresetCategory,
   PreviewTruss,
@@ -60,7 +61,9 @@ import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { effectiveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
-import { allZeroPatch, getCurrentPatch, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
+import { computeEffectPatch } from '../lib/effects'
+import { fixtureChannelMap } from '@shared/fixtureProfiles'
 
 interface ShowState {
   locked: boolean
@@ -380,11 +383,32 @@ interface ShowState {
   addEffect: (effect: EffectDef) => void
   updateEffect: (id: string, patch: Partial<EffectDef>) => void
   removeEffect: (id: string) => void
+  /** Duplicate an effect — the guide's Overlay path (p.173): a second effect
+   *  for the same property, added on top of the first. */
+  duplicateEffect: (id: string) => string | null
+  /** Delete an effect, keeping its current values as static values in the
+   *  owning cue/preset (Guide p.152: "Delete and Keep Values"). */
+  deleteEffectAndKeepValues: (id: string) => void
+  /** The effect open in the visual effect editor (Guide ch.10), below the
+   *  Preview. Session-only: never persisted. */
+  editingEffectId: string | null
+  setEditingEffectId: (id: string | null) => void
+  /** The property the effects chooser (Guide ch.10) is open for, below the
+   *  Preview. Session-only: never persisted. */
+  effectChooserAttribute: string | null
+  setEffectChooserAttribute: (attribute: string | null) => void
   effectClipboard: EffectDef | null
   copyEffect: (id: string) => void
   pasteEffect: () => string | null
-  saveEffectTemplate: (id: string) => void
+  saveEffectTemplate: (id: string, includeFixtureOrder?: boolean) => void
   applyEffectTemplate: (id: string) => string | null
+
+  /** Movement paths (Guide ch.10, pp.165-171): stored independently of effects
+   *  so they can be reused by any movement effect. */
+  addMovementPath: (path: MovementPathDef) => void
+  updateMovementPath: (id: string, patch: Partial<MovementPathDef>) => void
+  removeMovementPath: (id: string) => void
+  duplicateMovementPath: (id: string) => string | null
 
   addCueList: (name?: string) => void
   updateCueList: (id: string, patch: Partial<CueListDef>) => void
@@ -898,6 +922,10 @@ const actions: ShowState = {
   locked: false,
   propertyClipboard: null,
   effectClipboard: null,
+  editingEffectId: null,
+  setEditingEffectId: (id) => set({ editingEffectId: id }),
+  effectChooserAttribute: null,
+  setEffectChooserAttribute: (attribute) => set({ effectChooserAttribute: attribute }),
   selectedBeams: [],
   stageClipboard: [],
   lockApp: (passcode = '') => { if (get().locked) return; sessionPasscode = passcode; set({ locked: true }) },
@@ -1030,6 +1058,8 @@ const actions: ShowState = {
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       effectClipboard: null,
+      editingEffectId: null,
+      effectChooserAttribute: null,
       cueLists: show?.cueLists ?? [],
       midiMappings: show?.midiMappings ?? [],
       master: show?.masterIntensity ?? 255,
@@ -2317,10 +2347,22 @@ const actions: ShowState = {
     return effect.id
   },
 
-  saveEffectTemplate: (id) => {
+  saveEffectTemplate: (id, includeFixtureOrder = true) => {
     const state = get(), effect = state.effects.find((item) => item.id === id)
     if (!effect || !state.show) return
     const template = { ...structuredClone(effect), id: crypto.randomUUID() }
+    if (!includeFixtureOrder) {
+      // Guide p.174: "Include fixture order" — without it the template
+      // keeps only the effect itself, not how it runs across fixtures.
+      delete template.fixtureOrder
+      delete template.customFixtureOrder
+      delete template.fixtureOrderOrigin
+      delete template.fixtureGrouping
+      delete template.fixtureRepeat
+      delete template.considerSpacing
+      delete template.pixelMode
+      delete template.customDirectionAngle
+    }
     const effectTemplates = [...(state.show.effectTemplates ?? []), template]
     set(persistState(state, { effectTemplates }))
   },
@@ -2331,6 +2373,96 @@ const actions: ShowState = {
     const effect = { ...structuredClone(template), id: crypto.randomUUID() }
     get().addEffect(effect)
     return effect.id
+  },
+
+  duplicateEffect: (id) => {
+    const source = get().effects.find((item) => item.id === id)
+    if (!source) return null
+    const effect = { ...structuredClone(source), id: crypto.randomUUID(), name: `${source.name} copy` }
+    get().addEffect(effect)
+    return effect.id
+  },
+
+  deleteEffectAndKeepValues: (id) => {
+    const state = get()
+    const effect = state.effects.find((item) => item.id === id)
+    if (!effect || !state.show) return
+    // Bake the effect's current values into the owning cue/preset (Guide p.152),
+    // or the active cue when the effect is global, so the look stays put.
+    const fixtures = state.show.fixtures ?? []
+    const patch = computeEffectPatch(
+      fixtures,
+      [effect],
+      getEffectTime(),
+      state.bpm,
+      state.master,
+      { movementPaths: state.show.movementPaths ?? [] }
+    )
+    const baked: Record<string, Record<string, number>> = {}
+    for (const [channelKey, value] of Object.entries(patch)) {
+      const channel = Number(channelKey)
+      const fixture = fixtures.find((f) => channel >= f.channelStart && channel < f.channelStart + f.channels)
+      if (!fixture) continue
+      const attribute = Object.entries(fixtureChannelMap(fixture)).find(
+        ([, offset]) => fixture.channelStart + offset === channel
+      )?.[0]
+      if (!attribute) continue
+      if (!baked[fixture.id]) baked[fixture.id] = {}
+      baked[fixture.id][attribute] = value
+    }
+    if (Object.keys(baked).length > 0) {
+      const owner = effect.owner
+      if (owner?.type === 'preset') {
+        const preset = state.show.presets?.find((p) => p.id === owner.id)
+        if (preset) {
+          const fixtureValues = { ...preset.fixtureValues }
+          for (const [fixtureId, values] of Object.entries(baked)) {
+            fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...values }
+          }
+          get().updatePresetContents(preset.id, fixtureValues)
+        }
+      } else {
+        const cueId = owner?.type === 'cue' ? owner.id : state.activeCueId
+        const cue = cueId ? state.cues.find((c) => c.id === cueId) : undefined
+        if (cue) {
+          const fixtureValues = { ...cue.fixtureValues }
+          for (const [fixtureId, values] of Object.entries(baked)) {
+            fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...values }
+          }
+          get().updateCue(cue.id, { fixtureValues })
+        }
+      }
+    }
+    get().removeEffect(id)
+    if (state.editingEffectId === id) set({ editingEffectId: null })
+  },
+
+  addMovementPath: (path) =>
+    set((state) => {
+      const movementPaths = [...(state.show?.movementPaths ?? []), path]
+      return persistState(state, { movementPaths }, {})
+    }),
+
+  updateMovementPath: (id, patch) =>
+    set((state) => {
+      const movementPaths = (state.show?.movementPaths ?? []).map((path) =>
+        path.id === id ? { ...path, ...patch } : path
+      )
+      return persistState(state, { movementPaths }, {})
+    }),
+
+  removeMovementPath: (id) =>
+    set((state) => {
+      const movementPaths = (state.show?.movementPaths ?? []).filter((path) => path.id !== id)
+      return persistState(state, { movementPaths }, {})
+    }),
+
+  duplicateMovementPath: (id) => {
+    const source = get().show?.movementPaths?.find((path) => path.id === id)
+    if (!source) return null
+    const path = { ...structuredClone(source), id: crypto.randomUUID(), name: `${source.name} copy` }
+    get().addMovementPath(path)
+    return path.id
   },
 
   addCueList: (name) =>

@@ -290,6 +290,7 @@ export default function App() {
     configureEffects({
       effects: activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }),
       fixtures: show?.fixtures ?? [],
+      movementPaths: show?.movementPaths ?? [],
       bpm,
       master,
       blackout

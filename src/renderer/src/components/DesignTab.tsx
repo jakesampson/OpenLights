@@ -11,6 +11,7 @@ import { hexToRgb, rgbToHex, colorChannels } from '../lib/colorMix'
 import { displayHsv, hsvToRgb, rgbToHsv } from '../lib/colorWheel'
 import { useShowStore, defaultFixtureValues } from '../stores/showStore'
 import { ColorWheelControl } from './ColorWheelControl'
+import { EffectEditor, EffectIndicator, EffectsChooser } from './EffectEditor'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
 import { positionFractions } from '../lib/position'
@@ -168,6 +169,11 @@ export function DesignTab() {
     manualOverrides,
     updateEditingPresetValues,
     deleteFan,
+    effects,
+    editingEffectId,
+    effectChooserAttribute,
+    setEditingEffectId,
+    setEffectChooserAttribute,
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
   const activeCue = cues.find((cue) => cue.id === activeCueId)
@@ -215,6 +221,30 @@ export function DesignTab() {
     ? commonAttributes.filter((attribute) => attribute !== 'intensity' && !(hasPanTilt && POSITION_ATTRIBUTES.includes(attribute)))
     : []
   const canEdit = Boolean(show && selectedFixtures.length > 0)
+  // An enabled effect controlling a property (Guide ch.10, p.149): the
+  // property's area in Design shows an effect icon instead of its normal
+  // controls. Colour effects own the wheel's channels; Position effects
+  // own pan and tilt; beam attributes match their base (e.g. 'red 2' is
+  // owned by a 'red' effect).
+  const effectForAttribute = (attribute: string) => {
+    const base = attribute.replace(/ ?\d+$/, '')
+    return effects.find((effect) =>
+      effect.enabled &&
+      (effect.attribute === attribute ||
+        effect.attribute === base ||
+        (effect.attribute === 'color' && isColourAttribute(attribute)) ||
+        (effect.attribute === 'position' && (attribute === 'pan' || attribute === 'tilt')))
+    )
+  }
+  // Open the editor for a property's effect, or the chooser to add one.
+  const openEffectFor = (attribute: string) => {
+    const existing = effectForAttribute(attribute)
+    if (existing) setEditingEffectId(existing.id)
+    else setEffectChooserAttribute(attribute)
+  }
+  const dimmerEffect = effectForAttribute('intensity')
+  const colorEffect = effectForAttribute('color')
+  const positionEffect = effectForAttribute('position')
   const dimmerSupported = commonAttributes.includes('intensity')
   const previewOnlyColor = selectedFixtures.length > 0 && selectedFixtures.every((fixture) => fixture.type === 'dimmer')
   const valueFor = (attribute: string) => selectedBeams.length ? Math.round(selectedBeams.reduce((sum, b) => { const f = fixtures.find((f) => f.id === b.fixtureId), key = f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties[attribute]; return sum + (key ? fixtureAttr(b.fixtureId, key, 0) : !isColourAttribute(attribute) && f && fixtureAttributes(f).includes(attribute) ? fixtureAttr(b.fixtureId, attribute, 0) : 0) }, 0) / selectedBeams.length) :
@@ -607,6 +637,23 @@ export function DesignTab() {
     ? Math.round(((valueFor(autoProgram.speedChannel.attribute) - speedRange.min) / (speedRange.max - speedRange.min)) * 255)
     : 0
 
+  // The visual effect editor and the effects chooser (Guide ch.10) take
+  // over the bottom panel — the settings sit below the Preview — while
+  // one is open. Closing either returns to the normal Design controls.
+  if (editingEffectId) {
+    return (
+      <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+        <EffectEditor />
+      </div>
+    )
+  }
+  if (effectChooserAttribute) {
+    return (
+      <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
+        <EffectsChooser />
+      </div>
+    )
+  }
   return (
     <div
       ref={inspectorRef}
@@ -649,11 +696,14 @@ export function DesignTab() {
           <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
             {dimmerFan && <FanDeleteDot label="Dimmer" onDelete={() => deleteFanKeep(dimmerFan)} />}
             Dimmer
+            <button type="button" className="normal-case text-dim hover:text-white" title="Add Dimmer Effect…" aria-label="Add Dimmer Effect…" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openEffectFor('intensity') }}>∿</button>
             {showFanButtons && !dimmerFan && dimmerAvailable && (
               <FanMenuButton label="Dimmer" items={[{ label: 'Add Dimmer Fanning…', onSelect: () => dispatchFanHud({ attribute: 'intensity' }) }]} disabled={!canEdit} />
             )}
           </span>
-          {dimmerFan ? (
+          {dimmerEffect ? (
+            <EffectIndicator effect={dimmerEffect} onEdit={() => setEditingEffectId(dimmerEffect.id)} />
+          ) : dimmerFan ? (
             <div className="flex w-full flex-1 items-stretch">
               <FannedIcon label="Dimmer" onEdit={() => dispatchFanHud({ attribute: 'intensity' })} />
             </div>
@@ -718,6 +768,7 @@ export function DesignTab() {
                 <span aria-hidden="true" className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: '#0A84FF' }} />
                 {colorFan && <FanDeleteDot label="Colour" onDelete={() => deleteFanKeep(colorFan)} />}
                 <span className="truncate">{colorHeaderLabel}</span>
+                <button type="button" className="shrink-0 text-dim hover:text-white" title="Add Color Effect…" aria-label="Add Color Effect…" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openEffectFor('color') }}>∿</button>
                 {showFanButtons && !colorFan && colorSupported && (
                   <FanMenuButton label="Colour" title="Colour options" items={[
                     { label: 'Add Colour Fanning…', onSelect: () => dispatchFanHud({ attribute: 'color' }) },
@@ -731,7 +782,9 @@ export function DesignTab() {
                 <span data-testid="colour-card-header-value" className="shrink-0 text-[13px] text-white">{colorHeaderValue}</span>
               )}
             </div>
-          {colorFan ? (
+          {colorEffect ? (
+            <EffectIndicator effect={colorEffect} onEdit={() => setEditingEffectId(colorEffect.id)} />
+          ) : colorFan ? (
             <div className="flex min-h-0 flex-1 items-center justify-center">
               <FannedIcon label="Colour" onEdit={() => dispatchFanHud({ attribute: 'color' })} />
             </div>
@@ -1068,6 +1121,7 @@ export function DesignTab() {
             <span className="flex items-center gap-1 text-[11px] font-medium uppercase text-dim">
               {positionFan && <FanDeleteDot label="Position" onDelete={() => { deleteFanKeep(panFan); deleteFanKeep(tiltFan) }} />}
               Position
+              <button type="button" className="normal-case text-dim hover:text-white" title="Add Position Effect…" aria-label="Add Position Effect…" disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openEffectFor('position') }}>∿</button>
               {showFanButtons && !positionFan && (
                 <FanMenuButton
                   label="Position"
@@ -1080,7 +1134,9 @@ export function DesignTab() {
                 />
               )}
             </span>
-            {positionFan ? (
+            {positionEffect ? (
+              <EffectIndicator effect={positionEffect} onEdit={() => setEditingEffectId(positionEffect.id)} />
+            ) : positionFan ? (
               <div className="flex h-20 w-28 items-stretch">
                 <FannedIcon label="Position" onEdit={() => dispatchFanHud({ attribute: panFan ? 'pan' : 'tilt' })} />
               </div>
@@ -1115,6 +1171,7 @@ export function DesignTab() {
               // return 0 on their own.
               const value = beam1ValueFor(attribute)
               const channel = channelByAttribute.get(attribute)
+              const beam1Effect = effectForAttribute(attribute)
               return (
                 <div
                   key={`beam1-${attribute}`}
@@ -1125,19 +1182,26 @@ export function DesignTab() {
                 >
                   <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
                     {`${attributeLabel(attribute)} 1`}
+                    <button type="button" className="text-dim hover:text-white" title={`Add ${attributeLabel(attribute)} Effect…`} aria-label={`Add ${attributeLabel(attribute)} Effect…`} disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openEffectFor(attribute) }}>∿</button>
                   </span>
-                  <FillFader
-                    value={value}
-                    onChange={(next) => writeBeam1(attribute, next)}
-                    label={`${attributeLabel(attribute)} 1 for selected fixtures`}
-                    fillColor={channelFillColor(attribute)}
-                    disabled={!canEdit}
-                    trackClassName="design-fill-track"
-                    selected={selectedControl === `beam1:${attribute}`}
-                  />
-                  <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
-                    {value}
-                  </span>
+                  {beam1Effect ? (
+                    <EffectIndicator effect={beam1Effect} onEdit={() => setEditingEffectId(beam1Effect.id)} />
+                  ) : (
+                    <>
+                      <FillFader
+                        value={value}
+                        onChange={(next) => writeBeam1(attribute, next)}
+                        label={`${attributeLabel(attribute)} 1 for selected fixtures`}
+                        fillColor={channelFillColor(attribute)}
+                        disabled={!canEdit}
+                        trackClassName="design-fill-track"
+                        selected={selectedControl === `beam1:${attribute}`}
+                      />
+                      <span className="text-center font-mono text-[11px] leading-none text-zinc-400">
+                        {value}
+                      </span>
+                    </>
+                  )}
                 </div>
               )
             })}
@@ -1149,6 +1213,7 @@ export function DesignTab() {
               // slots and option lists get no fan button.
               const channel = channelByAttribute.get(attribute)
               const isSlider = !channel?.control || channel.control === 'slider'
+              const channelEffect = effectForAttribute(attribute)
               return (
                 <div
                   key={attribute}
@@ -1163,11 +1228,14 @@ export function DesignTab() {
                   <span className="flex items-center justify-center gap-0.5 text-[10px] leading-none text-dim">
                     {fan && <FanDeleteDot label={attributeLabel(attribute)} onDelete={() => deleteFanKeep(fan)} />}
                     {attributeLabel(attribute)}
+                    <button type="button" className="text-dim hover:text-white" title={`Add ${attributeLabel(attribute)} Effect…`} aria-label={`Add ${attributeLabel(attribute)} Effect…`} disabled={!canEdit} onClick={(event) => { event.stopPropagation(); openEffectFor(attribute) }}>∿</button>
                     {showFanButtons && !fan && isSlider && (
                       <FanMenuButton label={attributeLabel(attribute)} items={[{ label: `Add ${attributeLabel(attribute)} Fanning…`, onSelect: () => dispatchFanHud({ attribute }) }]} disabled={!canEdit} />
                     )}
                   </span>
-                  {fan ? (
+                  {channelEffect ? (
+                    <EffectIndicator effect={channelEffect} onEdit={() => setEditingEffectId(channelEffect.id)} />
+                  ) : fan ? (
                     <FannedIcon label={attributeLabel(attribute)} onEdit={() => dispatchFanHud({ attribute })} />
                   ) : (
                     <>

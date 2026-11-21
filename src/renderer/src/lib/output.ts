@@ -7,7 +7,7 @@ import { applyHighlight } from './highlight'
  * without losing what the operator selected. Every write funnels through here.
  */
 
-import type { EffectDef, FixtureDef } from '@shared/types'
+import type { EffectDef, FixtureDef, MovementPathDef } from '@shared/types'
 import { computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
 import { computeCueChannels } from './automationRuntime'
@@ -60,6 +60,7 @@ let thawDuration = 0
 interface EffectRuntime {
   effects: EffectDef[]
   fixtures: FixtureDef[]
+  movementPaths: MovementPathDef[]
   bpm: number
   master: number
   blackout: boolean
@@ -68,6 +69,7 @@ interface EffectRuntime {
 let runtime: EffectRuntime = {
   effects: [],
   fixtures: [],
+  movementPaths: [],
   bpm: 120,
   master: 255,
   blackout: false
@@ -77,6 +79,11 @@ function push(patch: Record<number, number>) {
   if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
   lastOutput = { ...patch }
   window.electronAPI?.setChannels?.(patch)
+}
+
+/** Seconds since the effect loop started — the clock effects animate against. */
+export function getEffectTime(): number {
+  return (performance.now() - effectStartedAt) / 1000
 }
 
 /** Effects are suppressed while the rig is blacked out. */
@@ -89,7 +96,8 @@ function effectPatch(now: number): Record<number, number> {
     runtime.effects,
     time,
     runtime.bpm,
-    runtime.master
+    runtime.master,
+    { movementPaths: runtime.movementPaths ?? [] }
   )
 }
 
