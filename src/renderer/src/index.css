@@ -562,11 +562,46 @@ select optgroup { background: #555658; color: #fff; }
   z-index: 30;
 }
 
+/* Host for the effect editor's type tab (Jake, 21 Nov 2026): the
+   EffectEditor portals its "{Property} Effect ▾" tab here so it joins
+   the Design/Live pill bar while an effect is being edited. A plain
+   flex item sitting immediately left of the ViewSwitch, so the tab +
+   Design + Live centre as one group, exactly as in LightKey's
+   screenshot (11.47.29 pm). Vertically centred on the row; the tab's
+   dropdown menu hangs off the tab's own relative wrapper, not this
+   host. Empty (and unmounted) when no effect editor is open. */
+.bottom-panel-effect-tab {
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+}
+
 .bottom-panel-tools {
   position: absolute;
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
+}
+
+/* The effect editor's right-hand pill-bar tools (the Fixture Order
+ * menu): a flex row inside the absolutely-positioned tools host, so
+ * the pieces sit in one line at the row's right edge. */
+.bottom-panel-effect-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* The effects chooser's swap pill ("Custom Effect" / "Effect
+ * Template"): far left of the Design/Live row, mirroring the tools
+ * host on the right (Jake, 22 Nov 2026; LightKey 12.03.49 am). */
+.bottom-panel-chooser-left {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
 }
 
 .bottom-panel-body {

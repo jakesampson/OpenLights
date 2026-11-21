@@ -416,6 +416,13 @@ interface ShowState {
   /** End a template-edit session, discarding the working copy Edit
    *  created (the saved template is untouched). */
   cancelEditingEffectTemplate: () => void
+  /** Leave the effect editor (and the effects chooser) for Design or
+   *  Live — the Cancel path: a template-edit session discards its
+   *  working copy, an ordinary effect just closes and stays. The
+   *  Design/Live navigation calls this (Jake, 21 Nov 2026: clicking
+   *  Design while the editor is open must return to Design, not
+   *  leave the editor stuck). */
+  exitEffectEditor: () => void
   /** Rename a saved effect template (Guide p.174: Control-click → Rename
    *  in the Effects Chooser). */
   renameEffectTemplate: (id: string, name: string) => void
@@ -944,10 +951,28 @@ const actions: ShowState = {
   propertyClipboard: null,
   effectClipboard: null,
   editingEffectId: null,
-  setEditingEffectId: (id) => set({ editingEffectId: id }),
+  setEditingEffectId: (id) => {
+    // The editor is transient (Jake, 22 Nov 2026): opening a different
+    // effect — or closing the editor — ends a template-edit session
+    // first, Cancel semantics (the working copy is discarded, the
+    // saved template untouched). Without this, switching effects
+    // mid-template-edit would leave the session bound to the old
+    // template while the editor showed another effect — and Update
+    // would write the wrong effect's settings into it.
+    const state = get()
+    if (state.editingEffectTemplateId && id !== state.editingEffectId) state.cancelEditingEffectTemplate()
+    set({ editingEffectId: id })
+  },
   editingEffectTemplateId: null,
   effectChooserAttribute: null,
-  setEffectChooserAttribute: (attribute) => set({ effectChooserAttribute: attribute }),
+  setEffectChooserAttribute: (attribute) => {
+    // Opening the chooser is starting work elsewhere, so it exits the
+    // editor first (Cancel semantics for a template session) — the
+    // chooser and the editor are mutually exclusive views, and leaving
+    // the editor open would hide the chooser behind it.
+    if (attribute) get().exitEffectEditor()
+    set({ effectChooserAttribute: attribute })
+  },
   selectedBeams: [],
   stageClipboard: [],
   lockApp: (passcode = '') => { if (get().locked) return; sessionPasscode = passcode; set({ locked: true }) },
@@ -2351,11 +2376,18 @@ const actions: ShowState = {
       return persistState(state, { effects }, { effects })
     }),
 
-  removeEffect: (id) =>
-    set((state) => {
-      const effects = state.effects.filter((effect) => effect.id !== id)
-      return persistState(state, { effects }, { effects })
-    }),
+  removeEffect: (id) => {
+    // Deleting the effect being edited closes the editor (a template
+    // working copy's session ends with it; the saved template is
+    // untouched) — otherwise the bottom panel would sit blank with a
+    // dangling editor id.
+    const state = get()
+    if (state.editingEffectId === id) set({ editingEffectId: null, editingEffectTemplateId: null })
+    set((s) => {
+      const effects = s.effects.filter((effect) => effect.id !== id)
+      return persistState(s, { effects }, { effects })
+    })
+  },
 
   copyEffect: (id) => {
     const effect = get().effects.find((item) => item.id === id)
@@ -2414,11 +2446,13 @@ const actions: ShowState = {
     if (!template) return
     // The name lives in the palette (the editor has no rename control),
     // so the stored name is kept — only the effect's settings are
-    // written back to the preset.
+    // written back to the preset. Update saves AND exits the editor
+    // (Jake, 22 Nov 2026): the live effect stays as an ordinary
+    // effect, but the editor closes and its tab leaves the pill bar.
     const effectTemplates = (state.show.effectTemplates ?? []).map((item) =>
       item.id === templateId ? { ...structuredClone(effect), id: templateId, name: template.name } : item)
     set(persistState(state, { effectTemplates }))
-    set({ editingEffectTemplateId: null })
+    set({ editingEffectTemplateId: null, editingEffectId: null })
   },
 
   cancelEditingEffectTemplate: () => {
@@ -2427,6 +2461,13 @@ const actions: ShowState = {
     const workingId = state.editingEffectId
     set({ editingEffectTemplateId: null, editingEffectId: null })
     if (workingId) get().removeEffect(workingId)
+  },
+
+  exitEffectEditor: () => {
+    const state = get()
+    if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate()
+    else if (state.editingEffectId) set({ editingEffectId: null })
+    if (state.effectChooserAttribute) set({ effectChooserAttribute: null })
   },
 
   renameEffectTemplate: (id, name) => set((state) => {

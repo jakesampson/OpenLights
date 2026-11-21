@@ -111,6 +111,9 @@ export function GroupsPresetsPanel() {
   const [composerName, setComposerName] = useState('')
   const [composerCategory, setComposerCategory] = useState<PresetCategory>('color')
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  // The palette row the mouse is over, for the yellow hover-Edit
+  // button (LightKey Guide ch.9, p.128; Jake, 21 Nov 2026).
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
   // The header "…" menu and the right-click context menu used to share
   // one ref, so after the first context menu unmounted React left the
   // ref null (it is not re-assigned to the still-mounted header div)
@@ -306,6 +309,7 @@ export function GroupsPresetsPanel() {
   const editItem = (item: PaletteItem) => {
     if (item.kind === 'preset') startEditingPreset(item.id)
     else if (item.kind === 'sequence') setExpandedSequenceId(item.id)
+    else if (item.kind === 'effect') setEditingEffectId(item.id)
     else if (item.kind === 'group') {
       const label = groups.find((g) => g.id === item.id)?.name
       if (label) startRename(item, label)
@@ -501,7 +505,10 @@ export function GroupsPresetsPanel() {
     const editing = editingPresetId === preset.id
     return (
       <div key={preset.id} data-palette-row={`preset:${preset.id}`} tabIndex={-1}
-        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}>
+        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
+        onMouseEnter={() => setHoveredRow(`preset:${preset.id}`)}
+        onMouseLeave={() => setHoveredRow((current) => (current === `preset:${preset.id}` ? null : current))}
+      >
         <div
           className="flex items-center gap-1 pr-1"
           draggable
@@ -525,6 +532,13 @@ export function GroupsPresetsPanel() {
             {renaming?.kind === 'preset' && renaming.id === preset.id ? renameInput(item) : <span className="truncate">{preset.name}</span>}
             {active && !editing && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
           </button>
+          {/* Hovering a preset row shows a yellow Edit button (LightKey
+              Guide ch.9, p.128; Jake, 21 Nov 2026) — the same Edit as
+              the right-click menu. While the preset is being edited the
+              row is yellow with Cancel instead. */}
+          {hoveredRow === `preset:${preset.id}` && !editing && (
+            <button type="button" aria-label={`Edit ${preset.name}`} className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black" onClick={(event) => { event.stopPropagation(); editItem(item) }}>Edit</button>
+          )}
           {editing && <button type="button" aria-label={`Cancel editing ${preset.name}`} className="rounded px-1.5 py-1 text-[10px] font-semibold text-black bg-yellow-400 hover:bg-yellow-300" onClick={(event) => { event.stopPropagation(); cancelEditingPreset() }}>Cancel</button>}
         </div>
         {propertiesId === preset.id && <div className="pl-4 pr-1 pb-1"><PresetContents preset={preset} /></div>}
@@ -687,7 +701,10 @@ export function GroupsPresetsPanel() {
           {effects.filter((effect) => matchesQuery(effect.name)).map((effect) => {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
             return (
-              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}>
+              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}
+                onMouseEnter={() => setHoveredRow(`effect:${effect.id}`)}
+                onMouseLeave={() => setHoveredRow((current) => (current === `effect:${effect.id}` ? null : current))}
+              >
                 <button type="button" role="treeitem" aria-selected={isSelected(item)}
                   className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${effect.enabled ? 'selected' : 'hover:bg-panel2'}`}
                   title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'} · double-click to edit`}
@@ -699,6 +716,13 @@ export function GroupsPresetsPanel() {
                   <span className="truncate">{effect.name}</span>
                   {effect.enabled && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
                 </button>
+                {/* Hovering an effect row shows a yellow Edit button
+                    (LightKey Guide ch.9, p.128; Jake, 21 Nov 2026) —
+                    the same Edit as the right-click menu and
+                    double-click: it opens the effect in the editor. */}
+                {hoveredRow === `effect:${effect.id}` && (
+                  <button type="button" aria-label={`Edit ${effect.name}`} className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black" onClick={(event) => { event.stopPropagation(); setEditingEffectId(effect.id) }}>Edit</button>
+                )}
               </div>
             )
           })}
@@ -835,8 +859,14 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
   return (
     <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
       {target && <>
-        {item('show-properties', 'Show Properties')}
-        {item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
+        {/* Show Properties, Apply and Rename have no meaning for a live
+            effect row (they act on presets/sequences/groups), so they
+            are not offered for effects — a menu item that silently does
+            nothing is worse than no item (Jake, 21 Nov 2026: right-click
+            Edit did nothing for an effect). Edit opens the effect in the
+            editor; Delete removes it. */}
+        {target.kind !== 'effect' && item('show-properties', 'Show Properties')}
+        {target.kind !== 'effect' && item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
         {item('edit', 'Edit')}
         {(target.kind === 'preset' || target.kind === 'sequence') && (
           <div className="relative" onMouseEnter={() => setShowInCueOpen(true)} onMouseLeave={() => setShowInCueOpen(false)}>
@@ -863,7 +893,7 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
         )}
         {target.kind === 'preset' && item('add-overrides', 'Add Overrides')}
         <div className="my-1 border-t border-line" />
-        {item('rename', 'Rename')}
+        {target.kind !== 'effect' && item('rename', 'Rename')}
         {target.kind !== 'group' && target.kind !== 'effect' && item('duplicate', 'Duplicate')}
         {item('delete', 'Delete')}
         <div className="my-1 border-t border-line" />

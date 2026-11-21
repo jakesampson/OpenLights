@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   CurveComponent,
   CurveControlPoint,
@@ -120,28 +121,6 @@ export function parseDurationMs(text: string): number | null {
   return Math.max(50, Math.min(600000, Math.round(seconds * 1000 / 100) * 100))
 }
 
-/** The Design/Live tabs LightKey shows at the top of the effects panel
- *  (Jake's screenshots). They switch the whole lower panel: Design is
- *  where the editor lives, so it is the active tab here; Live switches
- *  away (App listens for `openlights-show-live`, like the existing
- *  `openlights-show-design` event). */
-function EffectPanelTabs() {
-  return (
-    <div className="flex items-center gap-4 text-sm" role="tablist" aria-label="Design or Live">
-      <span role="tab" aria-selected className="font-medium">Design</span>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={false}
-        className="text-dim hover:text-[var(--text)]"
-        onClick={() => window.dispatchEvent(new CustomEvent('openlights-show-live'))}
-      >
-        Live
-      </button>
-    </div>
-  )
-}
-
 /** The pulse glyph LightKey shows on beat-controlled templates. */
 function BeatGlyph() {
   return (
@@ -257,7 +236,7 @@ function TemplateIcon({ template }: { template: LightKeyTemplate }) {
   )
 }
 
-export function EffectsChooser() {
+export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooserLeftHost?: HTMLElement | null; chooserSearchHost?: HTMLElement | null } = {}) {
   const attribute = useShowStore((s) => s.effectChooserAttribute)
   const setEffectChooserAttribute = useShowStore((s) => s.setEffectChooserAttribute)
   const effects = useShowStore((s) => s.effects)
@@ -479,8 +458,37 @@ export function EffectsChooser() {
       className="ml-auto min-w-0 rounded bg-bg px-2 py-1 text-xs sm:w-40"
     />
   )
-  const closeButton = (
-    <button type="button" className="shrink-0 text-xs text-dim" onClick={() => setEffectChooserAttribute(null)}>Close</button>
+  // The mode-swap button and the search live in the panel-level header
+  // row (Jake, 22 Nov 2026; LightKey screenshot 12.03.49 am): the swap
+  // pill far left, Design/Live centred, Search at the right — one
+  // header row, not two. Portalled there when the hosts exist; inline
+  // at the top of the chooser when they don't (standalone tests).
+  // Exiting the chooser is via Design/Live or Esc (App's escape
+  // command) — there is no Close button, as in LightKey.
+  const swapButton = mode === 'templates' ? (
+    <button
+      type="button"
+      className="shrink-0 rounded-full border border-line bg-panel2 px-3 py-1 text-xs font-medium"
+      onClick={() => setMode('template-editor')}
+    >
+      Custom Effect
+    </button>
+  ) : (
+    <button
+      type="button"
+      className="shrink-0 rounded-full border border-line bg-panel2 px-3 py-1 text-xs font-medium"
+      onClick={() => setMode('templates')}
+    >
+      Effect Template
+    </button>
+  )
+  const swapNode = chooserLeftHost ? createPortal(swapButton, chooserLeftHost) : swapButton
+  const searchNode = chooserSearchHost ? createPortal(searchField, chooserSearchHost) : searchField
+  const hasChooserHosts = Boolean(chooserLeftHost && chooserSearchHost)
+  const chooserHeader = hasChooserHosts ? (
+    <>{swapNode}{searchNode}</>
+  ) : (
+    <div className="flex items-center gap-2">{swapNode}{searchNode}</div>
   )
 
   if (mode === 'template-editor') {
@@ -491,14 +499,9 @@ export function EffectsChooser() {
     const properties = effectableProperties(fixtures)
     return (
       <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effects-chooser">
-        <div className="flex items-center gap-2">
-          <span className="w-28 shrink-0" aria-hidden="true" />
-          <EffectPanelTabs />
-          {searchField}
-          {closeButton}
-        </div>
+        {chooserHeader}
         {conflictAlert}
-        <div className="flex flex-1 flex-col items-start gap-5 p-2">
+        <div className="flex flex-1 flex-col items-center justify-center gap-5 p-2">
           <label className="flex items-center gap-2 text-sm">
             <span>Fixture property:</span>
             <select
@@ -515,9 +518,9 @@ export function EffectsChooser() {
               {properties.map((p) => <option key={p.attribute} value={p.attribute}>{p.label}</option>)}
             </select>
           </label>
-          <div>
+          <div className="flex items-center gap-4">
             <span className="text-sm">Effect:</span>
-            <div className="mt-2 flex gap-5" role="radiogroup" aria-label="Effect kind">
+            <div className="flex gap-5" role="radiogroup" aria-label="Effect kind">
               {/* LightKey shows all three kinds and greys out the ones
                   that don't apply to the property (Jake's screenshot, 21
                   Nov 2026, 10.27.26 pm: Pattern and Movement are dimmed
@@ -563,15 +566,6 @@ export function EffectsChooser() {
             </button>
           </div>
         </div>
-        <div className="flex">
-          <button
-            type="button"
-            className="rounded-full border border-line bg-panel2 px-3 py-1 text-xs"
-            onClick={() => setMode('templates')}
-          >
-            Effect Template
-          </button>
-        </div>
       </div>
     )
   }
@@ -616,18 +610,7 @@ export function EffectsChooser() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effects-chooser">
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          className="shrink-0 rounded-full border border-line bg-panel2 px-3 py-1 text-xs font-medium"
-          onClick={() => setMode('template-editor')}
-        >
-          Custom Effect
-        </button>
-        <EffectPanelTabs />
-        {searchField}
-        {closeButton}
-      </div>
+      {chooserHeader}
       {conflictAlert}
       {visibleSections.map((section) => (
         <section
@@ -958,68 +941,270 @@ function TimingColumn({ effect, update }: { effect: EffectDef; update: (patch: P
   )
 }
 
+/** LightKey's Fixture Order menu entries in LightKey's order (Jake's
+ *  screenshot, 11.52.59 pm). The engine values are the same orders the
+ *  runtime already implements (lib/effects.ts); the labels are
+ *  LightKey's own ("By Short Name, Ascending", not our "(A–Z)"). */
+const FIXTURE_ORDER_MENU: { value: EffectFixtureOrder; label: string }[] = [
+  { value: 'left-right', label: 'Left to Right' },
+  { value: 'right-left', label: 'Right to Left' },
+  { value: 'top-bottom', label: 'Top to Bottom' },
+  { value: 'bottom-top', label: 'Bottom to Top' },
+  { value: 'custom-direction', label: 'Custom Direction…' },
+  { value: 'short-name-asc', label: 'By Short Name, Ascending' },
+  { value: 'short-name-desc', label: 'By Short Name, Descending' },
+  { value: 'address-asc', label: 'By Address, Ascending' },
+  { value: 'address-desc', label: 'By Address, Descending' },
+  { value: 'random-fixed', label: 'Random (Fixed)' },
+  { value: 'random-variable', label: 'Random (Variable)' },
+  { value: 'custom', label: 'Custom Order…' }
+]
+
+/** One row of the Fixture Order menu: checkmark column, label, and an
+ *  optional ▸ for a submenu (LightKey's menu, 11.52.59 pm). */
+function FixtureOrderMenuItem({ label, checked, disabled, title, hasSubmenu, onClick }: {
+  label: string
+  checked?: boolean
+  disabled?: boolean
+  title?: string
+  hasSubmenu?: boolean
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      title={title}
+      className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-panel disabled:cursor-not-allowed disabled:opacity-40"
+      onClick={onClick}
+    >
+      <span className="w-4 shrink-0 text-center" aria-hidden="true">{checked ? '✓' : ''}</span>
+      <span className="min-w-0 flex-1">{label}</span>
+      {hasSubmenu && <span aria-hidden="true">›</span>}
+    </button>
+  )
+}
+
+/** Clamp a fixed-position menu into the viewport after it mounts
+ *  (jsdom reports 0 sizes, so this is a no-op there). */
+function useClampedMenu(open: boolean, ref: React.RefObject<HTMLDivElement | null>, pos: { top: number; left: number } | null, setPos: (pos: { top: number; left: number }) => void) {
+  useLayoutEffect(() => {
+    if (!open || !ref.current || !pos) return
+    const el = ref.current
+    const height = el.offsetHeight
+    const width = el.offsetWidth
+    if (!height && !width) return
+    let { top, left } = pos
+    if (top + height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - height - 8)
+    if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+    if (left < 8) left = 8
+    if (top !== pos.top || left !== pos.left) setPos({ top, left })
+  }, [open, pos, ref, setPos])
+}
+
+/** The Fixture Order menu (Guide ch.10, pp.151-152; Jake's screenshot,
+ *  11.52.59 pm): the direction orders, the By Short Name / By Address
+ *  sorts, Random (Fixed) / Random (Variable), Custom Order…, Consider
+ *  Spacing, Select Fixtures / Select Beams, the Origin / Grouping /
+ *  Repeat submenus, and Change Fixtures…. The menu is portalled to the
+ *  document body (fixed) — the bottom panel clips anything that opens
+ *  downward inside it, and this menu is far taller than the panel, so
+ *  it opens over the Preview instead and clamps into the viewport.
+ *
+ *  Honest gaps, flagged (Jake, 21 Nov 2026): Custom Direction's drag
+ *  across fixtures in the Preview is not built — the menu sets the
+ *  order and the angle is edited in the menu's footer (LightKey sets
+ *  it by dragging). Custom Order's number-editing in the Preview is
+ *  not built — the menu sets the order and the numbers have nowhere
+ *  to be edited yet. Change Fixtures… applies the fixtures currently
+ *  selected in the Preview; LightKey opens a picking mode with an OK
+ *  button instead. The Grouping/Repeat submenu contents (a number
+ *  field each) are our own presentation — the guide defines the
+ *  semantics, not the menu. The fixture-order hover preview (Guide
+ *  p.151) is not built. */
 function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const order = effect.fixtureOrder ?? 'forward'
+  const kind = effect.kind ?? 'curve'
+  const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
+  const [submenu, setSubmenu] = useState<{ kind: 'origin' | 'grouping' | 'repeat'; top: number; left: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const submenuRef = useRef<HTMLDivElement>(null)
+  useClampedMenu(menuOpen, menuRef, menuPos, setMenuPos)
+  useClampedMenu(Boolean(submenu), submenuRef, submenu ? { top: submenu.top, left: submenu.left } : null, (pos) => setSubmenu((current) => (current ? { ...current, ...pos } : current)))
+
+  // Close on a click outside the trigger, the menu or the submenu, and
+  // on Escape — the menu is portalled to the body, so the check spans
+  // both trees.
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (triggerRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      if (submenuRef.current?.contains(target)) return
+      setMenuOpen(false)
+      setSubmenu(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setMenuOpen(false); setSubmenu(null) }
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menuOpen])
+
+  const openMenu = () => {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    setMenuPos(rect ? { top: rect.bottom + 4, left: rect.right - 288 } : { top: 8, left: 8 })
+    setSubmenu(null)
+    setMenuOpen(true)
+  }
+  const closeMenu = () => { setMenuOpen(false); setSubmenu(null) }
+  const pickOrder = (value: EffectFixtureOrder) => { update({ fixtureOrder: value }); closeMenu() }
+  const openSubmenu = (event: React.MouseEvent<HTMLButtonElement>, kind: 'origin' | 'grouping' | 'repeat') => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    setSubmenu({ kind, top: rect.top - 4, left: rect.left - 196 })
+  }
+  // The stored order has no LightKey menu entry for the legacy
+  // patch/reverse orders, so no entry is checked for them; the legacy
+  // 'random' is the fixed random (a stable hash), so it checks
+  // Random (Fixed).
+  const orderChecked = (value: EffectFixtureOrder) => order === value || (value === 'random-fixed' && order === 'random')
+  // Guide p.151: Consider Spacing is available for curve and movement
+  // effects only — LightKey greys it for a pattern effect.
+  const spacingDisabled = kind === 'pattern'
+  // Guide p.152: Origin does not apply to random or custom orders.
+  const originDisabled = ['random', 'random-fixed', 'random-variable', 'custom'].includes(order)
+
   return (
-    <div className="flex flex-col gap-2 text-xs">
-      <label className="flex items-center justify-between gap-2">
-        <span className="text-dim">Fixture order</span>
-        <select
+    <>
+      <button
+        type="button"
+        ref={triggerRef}
+        aria-label="Fixture order menu"
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        onClick={() => (menuOpen ? closeMenu() : openMenu())}
+        className="text-sm hover:text-[var(--text)]"
+      >
+        Fixture Order <span aria-hidden="true">⌄</span>
+      </button>
+      {menuOpen && menuPos && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
           aria-label="Fixture order"
-          value={order}
-          onChange={(event) => update({ fixtureOrder: event.target.value as EffectFixtureOrder })}
-          className="rounded bg-bg px-1 py-1 text-xs"
+          className="fixed z-[100] flex w-72 flex-col rounded-lg border border-line bg-panel2 p-1 shadow-xl"
+          style={{ top: menuPos.top, left: menuPos.left, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}
         >
-          {(Object.keys(FIXTURE_ORDER_LABELS) as EffectFixtureOrder[]).map((key) => (
-            <option key={key} value={key}>{FIXTURE_ORDER_LABELS[key]}</option>
+          {FIXTURE_ORDER_MENU.map((entry) => (
+            <FixtureOrderMenuItem
+              key={entry.value}
+              label={entry.label}
+              checked={orderChecked(entry.value)}
+              onClick={() => pickOrder(entry.value)}
+            />
           ))}
-        </select>
-      </label>
-      <label className="flex items-center justify-between gap-2">
-        <span className="text-dim">Origin</span>
-        <select
-          aria-label="Fixture order origin"
-          value={effect.fixtureOrderOrigin ?? 'start-end'}
-          onChange={(event) => update({ fixtureOrderOrigin: event.target.value as EffectDef['fixtureOrderOrigin'] })}
-          className="rounded bg-bg px-1 py-1 text-xs"
-        >
-          <option value="start-end">Start to End</option>
-          <option value="from-center">From Center</option>
-          <option value="to-center">To Center</option>
-        </select>
-      </label>
-      <NumberField label="Grouping" value={effect.fixtureGrouping ?? 1} min={1} max={64} step={1}
-        onChange={(fixtureGrouping) => update({ fixtureGrouping })} />
-      <NumberField label="Repeat" value={effect.fixtureRepeat ?? 0} min={0} max={64} step={1}
-        onChange={(fixtureRepeat) => update({ fixtureRepeat })} />
-      <label className="flex items-center gap-1">
-        <input
-          type="checkbox"
-          checked={effect.considerSpacing ?? false}
-          onChange={(event) => update({ considerSpacing: event.target.checked })}
-        />
-        <span className="text-dim">Consider Spacing</span>
-      </label>
-      <label className="flex items-center justify-between gap-2">
-        <span className="text-dim">Pixels</span>
-        <select
-          aria-label="Pixel mode"
-          value={effect.pixelMode ?? 'beams'}
-          onChange={(event) => update({ pixelMode: event.target.value as EffectDef['pixelMode'] })}
-          className="rounded bg-bg px-1 py-1 text-xs"
-        >
-          <option value="beams">Beams</option>
-          <option value="fixtures">Fixtures</option>
-        </select>
-      </label>
-      {order === 'custom-direction' && (
-        <NumberField label="Direction (°)" value={effect.customDirectionAngle ?? 0} min={0} max={359} step={1}
-          onChange={(customDirectionAngle) => update({ customDirectionAngle })} />
+          <div role="separator" className="my-1 border-t border-line" />
+          <FixtureOrderMenuItem
+            label="Consider Spacing"
+            checked={effect.considerSpacing ?? false}
+            disabled={spacingDisabled}
+            title={spacingDisabled ? 'Consider Spacing is available for curve and movement effects only' : undefined}
+            onClick={() => { update({ considerSpacing: !(effect.considerSpacing ?? false) }); closeMenu() }}
+          />
+          <div role="separator" className="my-1 border-t border-line" />
+          <FixtureOrderMenuItem
+            label="Select Fixtures"
+            checked={(effect.pixelMode ?? 'beams') === 'fixtures'}
+            onClick={() => { update({ pixelMode: 'fixtures' }); closeMenu() }}
+          />
+          <FixtureOrderMenuItem
+            label="Select Beams"
+            checked={(effect.pixelMode ?? 'beams') === 'beams'}
+            onClick={() => { update({ pixelMode: 'beams' }); closeMenu() }}
+          />
+          <div role="separator" className="my-1 border-t border-line" />
+          <FixtureOrderMenuItem
+            label="Origin"
+            hasSubmenu
+            disabled={originDisabled}
+            title={originDisabled ? 'Origin does not apply to random or custom orders' : undefined}
+            onClick={(event) => openSubmenu(event, 'origin')}
+          />
+          <FixtureOrderMenuItem
+            label="Grouping"
+            hasSubmenu
+            onClick={(event) => openSubmenu(event, 'grouping')}
+          />
+          <FixtureOrderMenuItem
+            label="Repeat"
+            hasSubmenu
+            onClick={(event) => openSubmenu(event, 'repeat')}
+          />
+          <div role="separator" className="my-1 border-t border-line" />
+          <FixtureOrderMenuItem
+            label="Change Fixtures…"
+            title="Apply the fixtures currently selected in the Preview as this effect's fixtures"
+            onClick={() => {
+              if (selectedFixtureIds.length) update({ fixtureIds: [...selectedFixtureIds] })
+              closeMenu()
+            }}
+          />
+          {order === 'custom-direction' && (
+            <div className="mt-1 flex items-center justify-between gap-2 border-t border-line px-2 pt-2 text-xs">
+              <NumberField label="Direction (°)" value={effect.customDirectionAngle ?? 0} min={0} max={359} step={1}
+                onChange={(customDirectionAngle) => update({ customDirectionAngle })} />
+            </div>
+          )}
+          {order === 'custom' && (
+            <div className="mt-1 border-t border-line px-2 pt-2 text-[11px] text-dim">
+              Custom Order is set by editing the fixture numbers in the Preview.
+            </div>
+          )}
+        </div>,
+        document.body
       )}
-      {order === 'custom' && (
-        <span className="text-[11px] text-dim">Custom Order is set by editing the fixture numbers in the Preview.</span>
+      {menuOpen && submenu && createPortal(
+        <div
+          ref={submenuRef}
+          role="menu"
+          aria-label={submenu.kind === 'origin' ? 'Origin' : submenu.kind === 'grouping' ? 'Grouping' : 'Repeat'}
+          className="fixed z-[101] flex w-44 flex-col rounded-lg border border-line bg-panel2 p-1 text-xs shadow-xl"
+          style={{ top: submenu.top, left: submenu.left }}
+        >
+          {submenu.kind === 'origin' && (
+            <>
+              <FixtureOrderMenuItem label="Start to End" checked={(effect.fixtureOrderOrigin ?? 'start-end') === 'start-end'} onClick={() => { update({ fixtureOrderOrigin: 'start-end' }); closeMenu() }} />
+              <FixtureOrderMenuItem label="From Center" checked={effect.fixtureOrderOrigin === 'from-center'} onClick={() => { update({ fixtureOrderOrigin: 'from-center' }); closeMenu() }} />
+              <FixtureOrderMenuItem label="To Center" checked={effect.fixtureOrderOrigin === 'to-center'} onClick={() => { update({ fixtureOrderOrigin: 'to-center' }); closeMenu() }} />
+            </>
+          )}
+          {submenu.kind === 'grouping' && (
+            <div className="flex flex-col gap-1 px-2 py-1.5">
+              <NumberField label="Group size" value={effect.fixtureGrouping ?? 1} min={1} max={64} step={1}
+                onChange={(fixtureGrouping) => update({ fixtureGrouping })} />
+              <span className="text-[11px] text-dim">Adjacent pixels act as one.</span>
+            </div>
+          )}
+          {submenu.kind === 'repeat' && (
+            <div className="flex flex-col gap-1 px-2 py-1.5">
+              <NumberField label="Repeat every" value={effect.fixtureRepeat ?? 0} min={0} max={64} step={1}
+                onChange={(fixtureRepeat) => update({ fixtureRepeat })} />
+              <span className="text-[11px] text-dim">Repeat after every Nth pixel (0 = off).</span>
+            </div>
+          )}
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   )
 }
 
@@ -1104,8 +1289,11 @@ const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
 }
 
 /** One parameter row, LightKey style (Jake's screenshots, 9.31.29 /
- *  9.34.46 pm): the label on the left, the value on the right with
- *  steppers; a percentage row's fill is proportional to its value. */
+ *  9.34.46 pm and 11.52.35 pm): a percentage row is a full-width
+ *  slider row — label left, the % value and steppers right, its fill
+ *  proportional to the value (Fringe 50%). A plain-number row is a
+ *  compact boxed field at the right (Length 7, Overshoot 0), the label
+ *  sitting outside it on the left. */
 function ParamRow({ param, value, onChange }: {
   param: PatternParam
   value: number | undefined
@@ -1113,34 +1301,49 @@ function ParamRow({ param, value, onChange }: {
 }) {
   const current = value ?? Number(param.placeholder)
   const clamped = Math.max(param.min, Math.min(param.max, Number.isFinite(current) ? current : Number(param.placeholder)))
+  const input = (
+    <input
+      type="number"
+      aria-label={param.label}
+      value={value ?? ''}
+      min={param.min}
+      max={param.max}
+      step={param.step}
+      placeholder={param.placeholder}
+      onChange={(event) => {
+        const next = Number(event.target.value)
+        if (Number.isFinite(next)) onChange(next)
+      }}
+      className="relative w-14 rounded bg-transparent text-right"
+    />
+  )
+  const steppers = (
+    <StepperButtons
+      upLabel={`Increase ${param.label}`}
+      downLabel={`Decrease ${param.label}`}
+      onUp={() => onChange(Math.min(param.max, clamped + param.step))}
+      onDown={() => onChange(Math.max(param.min, clamped - param.step))}
+    />
+  )
+  if (!param.percent) {
+    return (
+      <div className="flex items-center justify-between gap-2 px-1 py-1 text-xs">
+        <span className="min-w-0 flex-1 truncate text-dim">{param.label}</span>
+        <span className="flex shrink-0 items-center gap-0.5 rounded bg-bg px-1 py-0.5">
+          {input}
+          {param.unit === 's' && <span className="text-dim">s</span>}
+          {steppers}
+        </span>
+      </div>
+    )
+  }
   return (
     <div className="relative flex items-center gap-1 overflow-hidden rounded border border-line bg-panel2 px-2 py-1 text-xs">
-      {param.percent && (
-        <div aria-hidden="true" className="absolute inset-y-0 left-0" style={{ width: `${clamped}%`, backgroundColor: 'rgba(255, 255, 255, 0.14)' }} />
-      )}
+      <div aria-hidden="true" className="absolute inset-y-0 left-0" style={{ width: `${clamped}%`, backgroundColor: 'rgba(255, 255, 255, 0.14)' }} />
       <span className="relative min-w-0 flex-1 truncate">{param.label}</span>
-      <input
-        type="number"
-        aria-label={param.label}
-        value={value ?? ''}
-        min={param.min}
-        max={param.max}
-        step={param.step}
-        placeholder={param.placeholder}
-        onChange={(event) => {
-          const next = Number(event.target.value)
-          if (Number.isFinite(next)) onChange(next)
-        }}
-        className="relative w-14 rounded bg-transparent text-right"
-      />
-      {param.percent && <span className="relative text-dim">%</span>}
-      {param.unit === 's' && <span className="relative text-dim">s</span>}
-      <StepperButtons
-        upLabel={`Increase ${param.label}`}
-        downLabel={`Decrease ${param.label}`}
-        onUp={() => onChange(Math.min(param.max, clamped + param.step))}
-        onDown={() => onChange(Math.max(param.min, clamped - param.step))}
-      />
+      {input}
+      <span className="relative text-dim">%</span>
+      {steppers}
     </div>
   )
 }
@@ -1244,7 +1447,14 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
   const samples = normalizedPatternSamples(effect)
   const [selectedSample, setSelectedSample] = useState(0)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
-  const selected = samples[Math.min(selectedSample, samples.length - 1)]
+  // The sample being edited in the transient popover (click a swatch to
+  // edit it — Guide p.153), and the right-click menu's position.
+  const [editingSample, setEditingSample] = useState<number | null>(null)
+  const [sampleMenu, setSampleMenu] = useState<{ x: number; y: number; index: number } | null>(null)
+  const editorRef = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const selectedIndex = Math.min(selectedSample, samples.length - 1)
+  const selected = samples[selectedIndex]
 
   const setSamples = (next: EffectSample[]) => update({ samples: next })
   const updateSample = (index: number, patch: Partial<EffectSample>) => {
@@ -1261,14 +1471,52 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
     setSelectedSample(to)
   }
 
+  const duplicateSample = (index: number) => {
+    const next = [...samples]
+    next.splice(index + 1, 0, { ...samples[index], id: `sample-${Date.now()}` })
+    setSamples(next)
+    setSelectedSample(index + 1)
+  }
+
+  const deleteSample = (index: number) => {
+    if (samples.length <= 1) return
+    setSamples(samples.filter((_, i) => i !== index))
+    setSelectedSample(Math.max(0, index - 1))
+  }
+
+  // The popover and the right-click menu close on a click outside them
+  // or on Escape (the ViewSwitch menu pattern).
+  useEffect(() => {
+    if (editingSample === null && !sampleMenu) return
+    const close = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (editorRef.current?.contains(target)) return
+      if (menuRef.current?.contains(target)) return
+      setEditingSample(null)
+      setSampleMenu(null)
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setEditingSample(null); setSampleMenu(null) }
+    }
+    window.addEventListener('pointerdown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [editingSample, sampleMenu])
+
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       {/* Sample strip (Guide p.153; Jake's screenshots, 9.31.29 /
-          9.34.46 pm): large rounded squares, the first the background.
-          Drag to reorder; click to edit; the + tile adds a sample. */}
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel2 p-2" role="listbox" aria-label="Pattern samples">
+          9.34.46 pm and 11.47.29 pm): large rounded squares with no
+          labels — LightKey has no "BG" swatch or Background selector;
+          the first colour simply IS the background by position. Drag
+          to reorder; click a swatch to edit it; the + tile adds one.
+          The strip stretches to fill the panel height, as in LightKey. */}
+      <div className="relative flex flex-1 flex-wrap content-start items-start gap-2 rounded-lg border border-line bg-panel2 p-2" role="listbox" aria-label="Pattern samples">
         {samples.map((sample, index) => {
-          const isSelected = index === Math.min(selectedSample, samples.length - 1)
+          const isSelected = index === selectedIndex
           const swatch = isColor
             ? sample.color ?? '#000000'
             : `rgb(${Math.round(((sample.value ?? 0) / 100) * 255)}, ${Math.round(((sample.value ?? 0) / 100) * 255)}, ${Math.round(((sample.value ?? 0) / 100) * 255)})`
@@ -1287,13 +1535,17 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
                 setDragIndex(null)
               }}
               onDragEnd={() => setDragIndex(null)}
-              onClick={() => setSelectedSample(index)}
-              title={index === 0 ? 'Background sample — drag to reorder' : 'Sample — drag to reorder'}
+              onClick={() => { setSelectedSample(index); setEditingSample(index) }}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                event.stopPropagation()
+                setSelectedSample(index)
+                setSampleMenu({ x: event.clientX, y: event.clientY, index })
+              }}
+              title="Sample — drag to reorder"
               className={`flex h-16 w-16 items-center justify-center rounded-lg border text-xs ${isSelected ? 'border-[#0A84FF]' : 'border-line'}`}
               style={{ backgroundColor: swatch, color: isColor ? '#fff' : '#000' }}
-            >
-              {index === 0 ? 'BG' : index}
-            </button>
+            />
           )
         })}
         <button
@@ -1305,56 +1557,90 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
             const next = [...samples, { id: `sample-${Date.now()}`, ...(isColor ? { color: '#ffffff' } : { value: 100 }) }]
             setSamples(next)
             setSelectedSample(next.length - 1)
+            setEditingSample(next.length - 1)
           }}
         >
           +
         </button>
+        {/* Transient sample editor (Guide p.153: click a sample to edit
+            it): the colour picker / dimmer slider and Duplicate /
+            Delete for the selected sample. It floats over the empty
+            space below the swatches and closes on Escape or a click
+            outside it — it never takes layout height, so the strip
+            keeps its full height. */}
+        {editingSample !== null && selected && (
+          <div ref={editorRef} role="dialog" aria-label="Edit sample" className="absolute left-2 top-20 z-20 flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel2 p-2 text-xs shadow-lg">
+            {isColor ? (
+              <label className="flex items-center gap-1">
+                <input
+                  type="color"
+                  aria-label="Sample color"
+                  value={selected.color ?? '#000000'}
+                  onChange={(event) => updateSample(selectedIndex, { color: event.target.value })}
+                  className="h-6 w-8 cursor-pointer rounded bg-bg"
+                />
+                <span className="font-mono">{selected.color ?? '#000000'}</span>
+              </label>
+            ) : (
+              <>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  step={1}
+                  aria-label="Sample value"
+                  value={selected.value ?? 0}
+                  onChange={(event) => updateSample(selectedIndex, { value: Number(event.target.value) })}
+                  className="w-28"
+                />
+                <NumberField label="Value (%)" value={selected.value ?? 0} min={0} max={100} step={1}
+                  onChange={(value) => updateSample(selectedIndex, { value })} />
+              </>
+            )}
+            <button type="button" className="text-xs text-dim" onClick={() => duplicateSample(selectedIndex)}>
+              Duplicate
+            </button>
+            <button
+              type="button"
+              className="text-xs text-dim disabled:opacity-40"
+              disabled={samples.length <= 1}
+              onClick={() => { deleteSample(selectedIndex); setEditingSample(null) }}
+            >
+              Delete
+            </button>
+            <button type="button" className="text-xs text-dim" aria-label="Close sample editor" onClick={() => setEditingSample(null)}>✕</button>
+          </div>
+        )}
       </div>
-      {selected && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <span className="text-dim">{Math.min(selectedSample, samples.length - 1) === 0 ? 'Background' : `Sample ${Math.min(selectedSample, samples.length - 1)}`}</span>
-          {isColor ? (
-            <label className="flex items-center gap-1">
-              <input
-                type="color"
-                aria-label="Sample color"
-                value={selected.color ?? '#000000'}
-                onChange={(event) => updateSample(Math.min(selectedSample, samples.length - 1), { color: event.target.value })}
-                className="h-6 w-8 cursor-pointer rounded bg-bg"
-              />
-              <span className="font-mono">{selected.color ?? '#000000'}</span>
-            </label>
-          ) : (
-            <NumberField label="Value (%)" value={selected.value ?? 0} min={0} max={100} step={1}
-              onChange={(value) => updateSample(Math.min(selectedSample, samples.length - 1), { value })} />
-          )}
+      {/* Right-click a sample (Guide p.153: Control-click → shortcut
+          menu): Duplicate / Delete. */}
+      {sampleMenu && createPortal(
+        <div
+          ref={menuRef}
+          role="menu"
+          aria-label="Sample actions"
+          className="fixed z-[100] flex w-40 flex-col rounded-lg border border-line bg-panel2 p-1 text-xs shadow-xl"
+          style={{ left: Math.max(8, Math.min(sampleMenu.x, window.innerWidth - 168)), top: Math.max(8, Math.min(sampleMenu.y, window.innerHeight - 96)) }}
+        >
           <button
             type="button"
-            className="text-xs text-dim"
-            onClick={() => {
-              const index = Math.min(selectedSample, samples.length - 1)
-              const next = [...samples]
-              next.splice(index + 1, 0, { ...samples[index], id: `sample-${Date.now()}` })
-              setSamples(next)
-              setSelectedSample(index + 1)
-            }}
+            role="menuitem"
+            className="rounded px-2 py-1.5 text-left hover:bg-panel"
+            onClick={() => { duplicateSample(sampleMenu.index); setSampleMenu(null) }}
           >
             Duplicate
           </button>
           <button
             type="button"
-            className="text-xs text-dim"
+            role="menuitem"
             disabled={samples.length <= 1}
-            onClick={() => {
-              const index = Math.min(selectedSample, samples.length - 1)
-              const next = samples.filter((_, i) => i !== index)
-              setSamples(next)
-              setSelectedSample(Math.max(0, index - 1))
-            }}
+            className="rounded px-2 py-1.5 text-left hover:bg-panel disabled:opacity-40"
+            onClick={() => { deleteSample(sampleMenu.index); setSampleMenu(null) }}
           >
             Delete
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
@@ -1364,7 +1650,13 @@ function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: 
 /* Curve editor (Guide ch.10, pp.161-164)                          */
 /* ------------------------------------------------------------------ */
 
-const CURVE_WIDTH = 320
+/* The curve viewBox is wide (640×200, ~3.2:1) to match the panel the
+ * canvas fills: the SVG stretches to its container with
+ * preserveAspectRatio="none", and a wide viewBox keeps the axis
+ * labels from stretching sideways (Jake, 22 Nov 2026: the curve
+ * editor must fit on one page without scrolling). The stored points
+ * are normalised 0–1, so the viewBox size is render-only. */
+const CURVE_WIDTH = 640
 const CURVE_HEIGHT = 200
 const CURVE_PAD = 12
 
@@ -1525,11 +1817,12 @@ function CurveCanvas({ component, durationMs, onChange }: {
   }
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex min-h-0 flex-1 flex-col gap-1">
       <svg
         ref={svgRef}
         viewBox={`0 0 ${CURVE_WIDTH} ${CURVE_HEIGHT}`}
-        className="w-full max-w-xl touch-none select-none rounded border border-line bg-bg"
+        preserveAspectRatio="none"
+        className="min-h-0 w-full flex-1 touch-none select-none rounded border border-line bg-bg"
         role="img"
         aria-label={`Curve for ${component.component}`}
         onPointerDown={onPointerDown}
@@ -1709,7 +2002,7 @@ function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
   }, [isColor, isPosition, model, selectedFixtures, effect.attribute])
 
   return (
-    <div className="flex min-h-0 flex-col gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
       {isColor && (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <label className="flex items-center gap-1">
@@ -1727,6 +2020,11 @@ function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
           </label>
         </div>
       )}
+      {/* One component is not a tab row — a Dimmer curve has only
+          Intensity, and LightKey's curve screen (9.35.05 pm) shows no
+          tabs for it. The row appears only when there is something to
+          switch between. */}
+      {componentNames.length > 1 && (
       <div className="flex flex-wrap gap-1" role="tablist" aria-label="Curve components">
         {componentNames.map((name) => {
           const has = components.some((c) => c.component === name)
@@ -1754,9 +2052,10 @@ function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
           )
         })}
       </div>
+      )}
       {active && (
-        <div className="flex items-stretch gap-1">
-          <div className="min-w-0 flex-1">
+        <div className="flex min-h-0 flex-1 items-stretch gap-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <CurveCanvas
               component={active}
               durationMs={effect.durationMs ?? 2000}
@@ -2178,7 +2477,7 @@ export function EffectIndicator({ effect, onEdit }: { effect: EffectDef; onEdit:
   )
 }
 
-export function EffectEditor() {
+export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null } = {}) {
   const editingEffectId = useShowStore((s) => s.editingEffectId)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const effect = useShowStore((s) => s.effects.find((e) => e.id === s.editingEffectId))
@@ -2214,104 +2513,101 @@ export function EffectEditor() {
     else setEditingEffectId(null)
   }
 
+  // The editor's header lives in the Design/Live pill bar (Jake,
+  // 21 Nov 2026; LightKey screenshots 11.47.29 pm / 9.35.05 pm): the
+  // effect-type tab joins the pill selector on the left (the light
+  // pill — it is the active tab while editing), Fixture Order sits
+  // at the right. Portalled there when the hosts exist; inline at
+  // the top of the editor when they don't (standalone tests). There
+  // is no On toggle and no × here (Jake, 22 Nov 2026): effects are
+  // built into cues and triggered when desired, there is no on/off
+  // switch — and exiting is via Design/Live or Esc, as LightKey does
+  // ("esc End editing"). The dropdown's menu is the guide's
+  // name-menu actions (Guide pp.173-174: switch between effects on
+  // this property, Duplicate, Save as Template…, Delete and Keep
+  // Values, Delete) — the button just shows the type, as LightKey
+  // does. Rename is not in the menu: it lives in the preset
+  // browser's right-click menu (Guide p.174).
+  const effectTypeTab = (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="Effect menu"
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((value) => !value)}
+        className="view-switch-segment on"
+      >
+        {attributeLabel(effect.attribute)} Effect <span className="view-switch-caret" aria-hidden="true">⌄</span>
+      </button>
+      {menuOpen && (
+        <div className="absolute left-0 z-10 mt-1 flex max-h-60 min-w-52 flex-col overflow-y-auto rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
+          {sameProperty.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="menuitem"
+              className="rounded px-2 py-1 text-left hover:bg-panel"
+              onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
+            >
+              {item.name}{item.id === effect.id ? ' ✓' : ''}
+            </button>
+          ))}
+          <hr className="my-1 border-line" />
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left hover:bg-panel"
+            onClick={() => {
+              const id = duplicateEffect(effect.id)
+              setMenuOpen(false)
+              if (id) setEditingEffectId(id)
+            }}
+          >
+            Duplicate
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left hover:bg-panel"
+            onClick={() => {
+              setTemplateName(effect.name)
+              setIncludeFixtureOrder(true)
+              setSavingTemplate(true)
+              setMenuOpen(false)
+            }}
+          >
+            Save as Template…
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left hover:bg-panel"
+            onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
+          >
+            Delete and Keep Values
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
+            onClick={() => { removeEffect(effect.id); close() }}
+          >
+            Delete
+          </button>
+        </div>
+      )}
+    </div>
+  )
+  // Fixture Order is the only tool left in the pill-bar's right-hand
+  // host (no On toggle, no × — see above).
+  const effectTools = <FixtureOrderControls effect={effect} update={update} />
+  const tabNode = effectTabHost ? createPortal(effectTypeTab, effectTabHost) : effectTypeTab
+  const toolsNode = effectToolsHost ? createPortal(effectTools, effectToolsHost) : effectTools
+  const hasHosts = Boolean(effectTabHost && effectToolsHost)
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effect-editor">
-      {/* Header (Jake's screenshots, 9.34.46 / 10.40.51 pm): the
-          effect-type dropdown top-centre ("Color Effect" / "Dimmer
-          Effect" — the property, not the effect's name), Fixture Order
-          top-right. The name does not belong here: in LightKey it lives
-          in the palette (and in the yellow toolbar pill while a preset
-          is being edited). The Design/Live tabs are NOT repeated here —
-          the panel-level tabs above this panel are the only ones.
-          The dropdown's menu is the guide's name-menu actions (Guide
-          pp.173-174: switch between effects on this property,
-          Duplicate, Save as Template…, Delete and Keep Values,
-          Delete) — the button just shows the type, as LightKey does.
-          Rename is not in the menu: it lives in the preset browser's
-          right-click menu (Guide p.174). */}
-      <div className="flex items-center gap-2">
-        <div className="mx-auto flex items-center gap-4">
-          <div className="relative">
-            <button
-              type="button"
-              aria-label="Effect menu"
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen((value) => !value)}
-              className="rounded-full border border-line bg-panel2 px-3 py-1 text-sm font-medium"
-            >
-              {attributeLabel(effect.attribute)} Effect <span aria-hidden="true">⌄</span>
-            </button>
-            {menuOpen && (
-              <div className="absolute left-0 z-10 mt-1 flex min-w-52 flex-col rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
-                {sameProperty.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="menuitem"
-                    className="rounded px-2 py-1 text-left hover:bg-panel"
-                    onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
-                  >
-                    {item.name}{item.id === effect.id ? ' ✓' : ''}
-                  </button>
-                ))}
-                <hr className="my-1 border-line" />
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-left hover:bg-panel"
-                  onClick={() => {
-                    const id = duplicateEffect(effect.id)
-                    setMenuOpen(false)
-                    if (id) setEditingEffectId(id)
-                  }}
-                >
-                  Duplicate
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-left hover:bg-panel"
-                  onClick={() => {
-                    setTemplateName(effect.name)
-                    setIncludeFixtureOrder(true)
-                    setSavingTemplate(true)
-                    setMenuOpen(false)
-                  }}
-                >
-                  Save as Template…
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-left hover:bg-panel"
-                  onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
-                >
-                  Delete and Keep Values
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
-                  onClick={() => { removeEffect(effect.id); close() }}
-                >
-                  Delete
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <details className="relative ml-auto">
-          <summary className="cursor-pointer list-none rounded border border-line bg-panel2 px-2 py-1 text-xs" aria-label="Fixture order menu">Fixture Order ⌄</summary>
-          <div className="absolute right-0 z-10 mt-1 w-64 rounded border border-line bg-panel2 p-2 shadow-lg">
-            <FixtureOrderControls effect={effect} update={update} />
-          </div>
-        </details>
-        <label className="flex items-center gap-1 text-xs">
-          <input
-            type="checkbox"
-            checked={effect.enabled}
-            onChange={(event) => update({ enabled: event.target.checked })}
-          />
-          On
-        </label>
-        <button type="button" className="text-xs text-dim" aria-label="Close effect editor" title="Close effect editor" onClick={close}>✕</button>
-      </div>
+      {hasHosts ? (
+        <>{tabNode}{toolsNode}</>
+      ) : (
+        <div className="flex items-center gap-2">{tabNode}<div className="ml-auto flex items-center gap-2">{toolsNode}</div></div>
+      )}
       {savingTemplate && (
         <div className="flex flex-wrap items-center gap-2 rounded border border-line bg-panel2 p-2 text-xs">
           <strong>Save as Template</strong>
@@ -2346,10 +2642,13 @@ export function EffectEditor() {
       )}
       {/* Body (Jake's screenshots): the timing column on the left, the
           pattern samples / curve canvas / movement path in the centre,
-          and the pattern picker + parameters on the right. */}
+          and the pattern picker + parameters on the right. The centre
+          column is a flex column so the sample strip (pattern) and
+          the canvas (curve) stretch to fill the panel height instead
+          of scrolling. */}
       <div className="flex min-h-0 flex-1 gap-3">
         <TimingColumn effect={effect} update={update} />
-        <div className="min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {kind === 'pattern' && <PatternEditor effect={effect} update={update} />}
           {kind === 'curve' && (
             <CurveEditor

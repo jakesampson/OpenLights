@@ -18,6 +18,14 @@ describe('view switch and Live page manager (2.4a)', () => {
     expect(viewSwitchSegments('Edit')).toEqual({ design: false, live: true })
   })
 
+  it('highlights neither segment while the effect editor or chooser overlays Design', () => {
+    // LightKey's screenshots (11.47.29 pm, 12.03.49 am) show Design/Live
+    // as plain text while the effect tab or template editor is open —
+    // the overlay's own tab/pill is the active one.
+    expect(viewSwitchSegments('Design', true)).toEqual({ design: false, live: false })
+    expect(viewSwitchSegments('Live', true)).toEqual({ design: false, live: true })
+  })
+
   it('exposes the page dropdown only while Live is active and it is open', () => {
     expect(pageManagerVisible('Live', true)).toBe(true)
     expect(pageManagerVisible('Live', false)).toBe(false)

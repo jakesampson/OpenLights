@@ -148,7 +148,7 @@ function colorHex(values: Record<string, number>) {
   return `#${hex('red')}${hex('green')}${hex('blue')}`
 }
 
-export function DesignTab() {
+export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, chooserSearchHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; chooserLeftHost?: HTMLElement | null; chooserSearchHost?: HTMLElement | null } = {}) {
   const {
     show,
     cues,
@@ -643,14 +643,14 @@ export function DesignTab() {
   if (editingEffectId) {
     return (
       <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-        <EffectEditor />
+        <EffectEditor effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} />
       </div>
     )
   }
   if (effectChooserAttribute) {
     return (
       <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-        <EffectsChooser />
+        <EffectsChooser chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} />
       </div>
     )
   }

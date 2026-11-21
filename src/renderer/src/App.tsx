@@ -72,6 +72,7 @@ export default function App() {
     cancelEditingPreset,
     editingEffectId,
     editingEffectTemplateId,
+    effectChooserAttribute,
     updateEffectTemplate,
     cancelEditingEffectTemplate,
     editingCueAdHocId,
@@ -123,6 +124,28 @@ export default function App() {
   }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
+  // Host for the effect editor's type tab (Jake, 21 Nov 2026): in
+  // LightKey the "{Property} Effect ▾" tab sits IN the Design/Live pill
+  // bar while an effect is being edited, and leaves it when the editor
+  // closes. Same portal pattern as liveToolbarHost — the EffectEditor
+  // portals its tab here, and renders it inline in its own header when
+  // there is no host (standalone tests). The host only exists while an
+  // effect editor is open in Design, so the pill bar is back to
+  // Design/Live only the moment the editor closes.
+  const [effectTabHost, setEffectTabHost] = useState<HTMLDivElement | null>(null)
+  // The right-hand host in the same pill-bar row (Jake, 21 Nov 2026):
+  // the EffectEditor portals its Fixture Order menu here, so the
+  // editor has no second header row of its own — the whole editor
+  // header lives in the Design/Live row, LightKey's way. Same
+  // lifetime as the tab host above.
+  const [effectToolsHost, setEffectToolsHost] = useState<HTMLDivElement | null>(null)
+  // The effects chooser's header hosts (Jake, 22 Nov 2026; LightKey
+  // screenshot 12.03.49 am): the chooser portals its mode-swap pill
+  // ("Custom Effect" / "Effect Template") to the far left of the
+  // Design/Live row and its Search field to the far right — one
+  // header row, not two. Only while the chooser is open in Design.
+  const [chooserLeftHost, setChooserLeftHost] = useState<HTMLDivElement | null>(null)
+  const [chooserSearchHost, setChooserSearchHost] = useState<HTMLDivElement | null>(null)
   const setupWizardStep = useShowStore((s) => s.setupWizardStep)
   const welcomeOpen = useShowStore((s) => s.welcomeOpen)
   const newProjectDialogOpen = useShowStore((s) => s.newProjectDialogOpen)
@@ -238,6 +261,7 @@ export default function App() {
       state.selectLivePage(detail.pageId)
       // selectLivePage clears the page-object selection, so select after.
       state.setPageObjectSelection([{ type: 'cue', id: detail.controlId }])
+      state.exitEffectEditor()
       setTab('Live')
       requestAnimationFrame(() => {
         const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(detail.controlId)}"]`)
@@ -252,8 +276,11 @@ export default function App() {
   }, [])
   // Switching to Live while a preset or a cue's ad-hoc layer is open
   // ends the session, keeping the edits (they were written live,
-  // undoable); Cancel is explicit.
-  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
+  // undoable); Cancel is explicit. Switching to Design or Live while
+  // the effect editor (or chooser) is open exits it — Cancel semantics
+  // (a template-edit working copy is discarded) — so clicking Design
+  // never leaves the editor stuck (Jake, 21 Nov 2026).
+  const goTab = (view: Tab) => { useShowStore.getState().exitEffectEditor(); if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
@@ -448,8 +475,8 @@ export default function App() {
       const command = binding.command
       if (command === 'undo' || command === 'redo') state[command]()
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
-      else if (command === 'design') { if (!state.locked) setTab('Design') }
-      else if (command === 'live') setTab('Live')
+      else if (command === 'design') { if (!state.locked) { state.exitEffectEditor(); setTab('Design') } }
+      else if (command === 'live') { state.exitEffectEditor(); setTab('Live') }
       else if (command === 'editPreview') togglePreviewEditing()
       else if (command === 'showOverrides') state.setShowOverrideLabels(!state.showOverrideLabels)
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
@@ -496,9 +523,10 @@ export default function App() {
     return () => window.removeEventListener('openlights-menu-command', onMenuCommand)
   }, [])
 
-  // A click on an override label row opens the fixture in Design.
+  // A click on an override label row opens the fixture in Design —
+  // and leaves the effect editor first (see goTab).
   useEffect(() => {
-    const showDesign = () => setTab('Design')
+    const showDesign = () => { useShowStore.getState().exitEffectEditor(); setTab('Design') }
     window.addEventListener('openlights-show-design', showDesign)
     return () => window.removeEventListener('openlights-show-design', showDesign)
   }, [])
@@ -506,7 +534,7 @@ export default function App() {
   // The effects panel's Design/Live tabs (Jake's screenshots): Live
   // switches the lower panel away from Design, like the ViewSwitch.
   useEffect(() => {
-    const showLive = () => setTab('Live')
+    const showLive = () => { useShowStore.getState().exitEffectEditor(); setTab('Live') }
     window.addEventListener('openlights-show-live', showLive)
     return () => window.removeEventListener('openlights-show-live', showLive)
   }, [])
@@ -571,11 +599,15 @@ export default function App() {
               BottomPlayback with its own playback master. */}
           {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
           <div className="bottom-panel-switch">
-            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+            {editingEffectId && tab === 'Design' && <div ref={setEffectTabHost} className="bottom-panel-effect-tab" />}
+            {effectChooserAttribute && tab === 'Design' && <div ref={setChooserLeftHost} className="bottom-panel-chooser-left" />}
+            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} panelOverlayOpen={Boolean(editingEffectId || effectChooserAttribute) && tab === 'Design'} />
+            {editingEffectId && tab === 'Design' && <div ref={setEffectToolsHost} className="bottom-panel-tools bottom-panel-effect-tools" />}
+            {effectChooserAttribute && tab === 'Design' && <div ref={setChooserSearchHost} className="bottom-panel-tools" />}
             {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback />}
+            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} />}
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
 import { EffectsChooser } from '../src/renderer/src/components/EffectEditor'
+import { GroupsPresetsPanel } from '../src/renderer/src/components/GroupsPresetsPanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import type { EffectDef } from '../src/shared/types'
 
@@ -717,6 +718,8 @@ describe('effect store actions', () => {
     // LightKey Guide ch.9, p.128: Edit opens the preset, Update writes
     // the changes back. The stored name is kept (the editor has no
     // rename control); the live effect stays as an ordinary effect.
+    // Update saves AND exits the editor (Jake, 22 Nov 2026): the
+    // editor closes and its tab leaves the pill bar.
     setShow()
     const templateId = seedSavedTemplate()
     let workingId: string | null = null
@@ -731,8 +734,47 @@ describe('effect store actions', () => {
     expect(template?.beatMultiplier).toBe(4)
     expect(template?.name).toBe('Chase Dimmer')
     expect(state.editingEffectTemplateId).toBeNull()
-    expect(state.editingEffectId).toBe(workingId)
+    expect(state.editingEffectId).toBeNull()
     expect(state.effects).toHaveLength(1)
+  })
+
+  it('switching to another effect cancels a template-edit session (Cancel semantics)', () => {
+    // Jake, 22 Nov 2026: the editor is transient — starting work on
+    // another effect closes the current one, discarding the
+    // uncommitted working copy, and never leaves two editors open.
+    setShow()
+    const templateId = seedSavedTemplate()
+    let workingId: string | null = null
+    act(() => { workingId = useShowStore.getState().startEditingEffectTemplate(templateId) })
+    act(() => { useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-other', name: 'Other Chase' }) })
+    act(() => { useShowStore.getState().setEditingEffectId('e-other') })
+    const state = useShowStore.getState()
+    expect(state.editingEffectTemplateId).toBeNull()
+    expect(state.editingEffectId).toBe('e-other')
+    expect(state.effects.find((e) => e.id === workingId)).toBeUndefined()
+    expect(state.effects.find((e) => e.id === 'e-other')).not.toBeUndefined()
+  })
+
+  it('opening the chooser exits the editor, and deleting the edited effect closes it', () => {
+    // Jake, 22 Nov 2026: starting to add effects to a different
+    // fixture closes the current editor (Cancel semantics) so the
+    // chooser can open; deleting the edited effect must not leave a
+    // dangling editor id behind.
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    act(() => { useShowStore.getState().setEffectChooserAttribute('color') })
+    let state = useShowStore.getState()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.effectChooserAttribute).toBe('color')
+    act(() => { useShowStore.getState().setEffectChooserAttribute(null) })
+    act(() => { useShowStore.setState({ editingEffectId: 'e-chase' }) })
+    act(() => { useShowStore.getState().removeEffect('e-chase') })
+    state = useShowStore.getState()
+    expect(state.editingEffectId).toBeNull()
+    expect(state.effects).toHaveLength(0)
   })
 
   it('cancel discards the working copy and leaves the saved template untouched', () => {
@@ -766,5 +808,311 @@ describe('effect store actions', () => {
     templates = useShowStore.getState().show?.effectTemplates ?? []
     expect(templates).toHaveLength(1)
     expect(templates[0].name).toBe('Chase Renamed copy')
+  })
+})
+
+describe('effect editor pill bar, sample strip, params and fixture order (Jake, Nov 2026)', () => {
+  function curveEffect(): EffectDef {
+    return {
+      ...chaseEffect(),
+      id: 'e-curve',
+      name: 'Curve Dimmer',
+      kind: 'curve',
+      curveComponents: [{
+        component: 'intensity',
+        points: [{ id: 'p1', x: 0, y: 0.5 }, { id: 'p2', x: 0.5, y: 1 }, { id: 'p3', x: 1, y: 0.5 }],
+        curvedSegments: [true, true]
+      }]
+    }
+  }
+
+  function colorCurveEffect(): EffectDef {
+    return {
+      ...chaseEffect(),
+      id: 'e-color-curve',
+      name: 'Curve Color',
+      attribute: 'color',
+      kind: 'curve',
+      curveComponents: ['hue', 'saturation', 'brightness'].map((component) => ({
+        component,
+        points: [{ id: `${component}-1`, x: 0, y: 0.5 }, { id: `${component}-2`, x: 1, y: 0.5 }],
+        curvedSegments: [true]
+      }))
+    }
+  }
+
+  function openChaseWithHosts() {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    const tabHost = document.createElement('div')
+    const toolsHost = document.createElement('div')
+    document.body.appendChild(tabHost)
+    document.body.appendChild(toolsHost)
+    renderInRoot(<DesignTab effectTabHost={tabHost} effectToolsHost={toolsHost} />)
+    return { tabHost, toolsHost }
+  }
+
+  afterEach(() => {
+    document.body.querySelectorAll('[data-test-host]').forEach((el) => el.remove())
+  })
+
+  it('portals the effect tab and Fixture Order into the pill bar, with no On toggle and no ×', () => {
+    const { tabHost, toolsHost } = openChaseWithHosts()
+    tabHost.dataset.testHost = ''
+    toolsHost.dataset.testHost = ''
+    const menuButton = tabHost.querySelector('[aria-label="Effect menu"]') as HTMLButtonElement | null
+    expect(menuButton).not.toBeNull()
+    expect(menuButton?.textContent).toContain('Dimmer Effect')
+    expect(menuButton?.className).toContain('view-switch-segment on')
+    expect(toolsHost.querySelector('[aria-label="Fixture order menu"]')).not.toBeNull()
+    // The tab is not rendered inline in the editor as well.
+    expect(container?.querySelector('[data-testid="effect-editor"] [aria-label="Effect menu"]')).toBeNull()
+    // No On toggle and no close × anywhere in the editor.
+    expect(container?.querySelector('[data-testid="effect-editor"] input[type="checkbox"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Close effect editor"]')).toBeNull()
+    // Closing the editor empties both hosts — the tab leaves the pill bar.
+    act(() => { useShowStore.setState({ editingEffectId: null }) })
+    expect(tabHost.innerHTML).toBe('')
+    expect(toolsHost.innerHTML).toBe('')
+  })
+
+  it('sample strip has no BG label or Background row; click opens the sample editor, right-click offers Duplicate/Delete', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    const editor = container?.querySelector('[data-testid="effect-editor"]')
+    expect(editor?.textContent).not.toContain('BG')
+    expect(editor?.textContent).not.toContain('Background')
+    expect(container?.querySelector('[aria-label="Edit sample"]')).toBeNull()
+    const swatch = container?.querySelector('[role="option"]') as HTMLButtonElement | null
+    if (!swatch) throw new Error('no sample swatch')
+    act(() => { swatch.click() })
+    expect(container?.querySelector('[aria-label="Edit sample"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Sample value"]')).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Value (%)"]')).not.toBeNull()
+    act(() => { swatch.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 10, clientY: 10 })) })
+    const menu = document.body.querySelector('[aria-label="Sample actions"]')
+    expect(menu).not.toBeNull()
+    expect(menu?.textContent).toContain('Duplicate')
+    expect(menu?.textContent).toContain('Delete')
+    const duplicate = Array.from(menu?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Duplicate') as HTMLButtonElement
+    act(() => { duplicate.click() })
+    expect(useShowStore.getState().effects[0].samples).toHaveLength(3)
+  })
+
+  it('clicking a colour sample opens the colour picker in the popover', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect({
+        ...chaseEffect(),
+        id: 'e-color',
+        name: 'Color Chase',
+        attribute: 'color',
+        samples: [{ id: 's1', color: '#000000' }, { id: 's2', color: '#ff0000' }]
+      })
+      useShowStore.setState({ editingEffectId: 'e-color' })
+    })
+    renderInRoot(<DesignTab />)
+    const swatch = container?.querySelector('[role="option"]') as HTMLButtonElement | null
+    if (!swatch) throw new Error('no sample swatch')
+    act(() => { swatch.click() })
+    expect(container?.querySelector('[aria-label="Sample color"]')).not.toBeNull()
+  })
+
+  it('plain-number params render as compact boxed fields, percent params as slider rows', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-scan', name: 'Scanner', pattern: 'scanner' })
+      useShowStore.setState({ editingEffectId: 'e-scan' })
+    })
+    renderInRoot(<DesignTab />)
+    const length = container?.querySelector('[aria-label="Length"]') as HTMLInputElement | null
+    if (!length) throw new Error('no Length input')
+    expect(length.parentElement?.className).toContain('bg-bg')
+    const phase = container?.querySelector('[aria-label="Phase"]') as HTMLInputElement | null
+    if (!phase) throw new Error('no Phase input')
+    expect(phase.closest('div')?.className).toContain('border-line')
+  })
+
+  it('Fixture Order menu lists LightKey entries in order and wires them', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect({ ...chaseEffect(), fixtureIds: [] })
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    const openMenu = () => {
+      // The menu stays open across submenu interactions, so a second
+      // open is a no-op when it is already up (the trigger toggles).
+      const existing = document.body.querySelector('[aria-label="Fixture order"]')
+      if (existing) return existing
+      const trigger = container?.querySelector('[aria-label="Fixture order menu"]') as HTMLButtonElement | null
+      if (!trigger) throw new Error('no Fixture Order trigger')
+      act(() => { trigger.click() })
+      const menu = document.body.querySelector('[aria-label="Fixture order"]')
+      if (!menu) throw new Error('no Fixture Order menu')
+      return menu
+    }
+    const pick = (menu: Element, label: string) => {
+      const button = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined
+      if (!button) throw new Error(`no menu item "${label}"`)
+      act(() => { button.click() })
+    }
+    const menu = openMenu()
+    const text = menu.textContent ?? ''
+    const order = ['Left to Right', 'Right to Left', 'Top to Bottom', 'Bottom to Top', 'Custom Direction…', 'By Short Name, Ascending', 'By Short Name, Descending', 'By Address, Ascending', 'By Address, Descending', 'Random (Fixed)', 'Random (Variable)', 'Custom Order…', 'Consider Spacing', 'Select Fixtures', 'Select Beams', 'Origin', 'Grouping', 'Repeat', 'Change Fixtures…']
+    let last = -1
+    for (const label of order) {
+      const idx = text.indexOf(label)
+      expect(idx).toBeGreaterThan(last)
+      last = idx
+    }
+    // Consider Spacing is greyed for a pattern effect.
+    const spacing = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes('Consider Spacing')) as HTMLButtonElement
+    expect(spacing.disabled).toBe(true)
+    pick(menu, 'Left to Right')
+    expect(useShowStore.getState().effects[0].fixtureOrder).toBe('left-right')
+    pick(openMenu(), 'By Short Name, Ascending')
+    expect(useShowStore.getState().effects[0].fixtureOrder).toBe('short-name-asc')
+    // Origin submenu (guide-defined: Start to End / From Center / To Center).
+    pick(openMenu(), 'Origin')
+    const origin = document.body.querySelector('[aria-label="Origin"]')
+    expect(origin).not.toBeNull()
+    expect(origin?.textContent).toContain('Start to End')
+    expect(origin?.textContent).toContain('From Center')
+    expect(origin?.textContent).toContain('To Center')
+    pick(origin!, 'From Center')
+    expect(useShowStore.getState().effects[0].fixtureOrderOrigin).toBe('from-center')
+    // Grouping submenu takes a number.
+    pick(openMenu(), 'Grouping')
+    const grouping = document.body.querySelector('[aria-label="Grouping"]')
+    const groupInput = grouping?.querySelector('[aria-label="Group size"]') as HTMLInputElement | null
+    if (!groupInput) throw new Error('no Group size input')
+    setInputValue(groupInput, '3')
+    expect(useShowStore.getState().effects[0].fixtureGrouping).toBe(3)
+    // Change Fixtures applies the Preview selection.
+    pick(openMenu(), 'Change Fixtures…')
+    expect(useShowStore.getState().effects[0].fixtureIds).toEqual(['fx1'])
+  })
+
+  it('chooser header is one row: swap pill + search, no duplicate Design/Live, no Close', () => {
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[aria-label="Design or Live"]')).toBeNull()
+    expect(container?.querySelector('[aria-label="Search effects"]')).not.toBeNull()
+    expect(container?.textContent).not.toContain('Close')
+    act(() => { buttonWithText('Custom Effect').click() })
+    expect(buttonWithText('Effect Template')).not.toBeNull()
+    expect(container?.textContent).toContain('Fixture property')
+    expect(container?.textContent).toContain('Add Effect')
+    // The template editor body is centred, not left-aligned.
+    expect(container?.querySelector('[data-testid="effects-chooser"] .items-center.justify-center')).not.toBeNull()
+  })
+
+  it('chooser portals the swap pill and search into the pill-bar hosts', () => {
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    const leftHost = document.createElement('div')
+    const searchHost = document.createElement('div')
+    leftHost.dataset.testHost = ''
+    searchHost.dataset.testHost = ''
+    document.body.appendChild(leftHost)
+    document.body.appendChild(searchHost)
+    renderInRoot(<DesignTab chooserLeftHost={leftHost} chooserSearchHost={searchHost} />)
+    expect(leftHost.querySelector('button')?.textContent).toContain('Custom Effect')
+    expect(searchHost.querySelector('[aria-label="Search effects"]')).not.toBeNull()
+    expect(container?.querySelector('[data-testid="effects-chooser"] [aria-label="Search effects"]')).toBeNull()
+  })
+
+  it('curve canvas fills the panel and a single-component curve shows no tab row', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(curveEffect())
+      useShowStore.setState({ editingEffectId: 'e-curve' })
+    })
+    renderInRoot(<DesignTab />)
+    const svg = container?.querySelector('[role="img"][aria-label^="Curve for"]') as SVGSVGElement | null
+    if (!svg) throw new Error('no curve canvas')
+    expect(svg.getAttribute('preserveAspectRatio')).toBe('none')
+    // The canvas is a flex item (flex-1), not a percentage height: a
+    // percentage height falls back to the svg's intrinsic 640x200 ratio
+    // and overflows the panel in the real app (batch-2 fix, Nov 2026).
+    expect(svg.getAttribute('class')).toContain('flex-1')
+    expect(svg.getAttribute('class')).not.toContain('h-full')
+    expect(container?.querySelector('[aria-label="Curve components"]')).toBeNull()
+  })
+
+  it('a colour curve shows the component tabs', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(colorCurveEffect())
+      useShowStore.setState({ editingEffectId: 'e-color-curve' })
+    })
+    renderInRoot(<DesignTab />)
+    const tabs = container?.querySelector('[aria-label="Curve components"]')
+    expect(tabs).not.toBeNull()
+    expect(tabs?.textContent).toContain('Hue')
+  })
+})
+
+describe('preset palette hover-Edit and right-click Edit (Jake, Nov 2026)', () => {
+  function openPalette() {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({
+        presets: [{ id: 'p1', name: 'Warm Wash', category: 'color', fixtureValues: { fx1: { red: 255 } } }]
+      })
+    })
+    renderInRoot(<GroupsPresetsPanel />)
+  }
+
+  function hover(el: Element) {
+    act(() => { el.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
+  }
+
+  it('shows a yellow Edit button on hover over a preset row, and Edit opens the preset editor', () => {
+    openPalette()
+    const row = container?.querySelector('[data-palette-row="preset:p1"]')
+    expect(row).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Edit Warm Wash"]')).toBeNull()
+    hover(row!)
+    const edit = container?.querySelector('[aria-label="Edit Warm Wash"]') as HTMLButtonElement | null
+    expect(edit).not.toBeNull()
+    act(() => { edit!.click() })
+    expect(useShowStore.getState().editingPresetId).toBe('p1')
+  })
+
+  it('shows a yellow Edit button on hover over an effect row, and Edit opens the effect editor', () => {
+    openPalette()
+    const row = container?.querySelector('[data-palette-row="effect:e-chase"]')
+    expect(row).not.toBeNull()
+    expect(container?.querySelector('[aria-label="Edit Chase Dimmer"]')).toBeNull()
+    hover(row!)
+    const edit = container?.querySelector('[aria-label="Edit Chase Dimmer"]') as HTMLButtonElement | null
+    expect(edit).not.toBeNull()
+    act(() => { edit!.click() })
+    expect(useShowStore.getState().editingEffectId).toBe('e-chase')
+  })
+
+  it('right-click Edit on an effect row opens the effect editor', () => {
+    openPalette()
+    const row = container?.querySelector('[data-palette-row="effect:e-chase"]')
+    const button = row?.querySelector('button') as HTMLButtonElement | null
+    if (!button) throw new Error('no effect row button')
+    act(() => { button.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 20, clientY: 20 })) })
+    const menu = container?.querySelector('[aria-label="Preset palette actions"]')
+    expect(menu).not.toBeNull()
+    const editItem = Array.from(menu?.querySelectorAll('button') ?? []).find((b) => b.textContent === 'Edit') as HTMLButtonElement | undefined
+    expect(editItem).not.toBeUndefined()
+    act(() => { editItem!.click() })
+    expect(useShowStore.getState().editingEffectId).toBe('e-chase')
   })
 })
