@@ -15,7 +15,7 @@ import { StagePreview } from './components/StagePreview'
 import { PreviewEditPanel } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
-import { DmxConnection } from './components/DmxConnection'
+import { DmxAutoConnect, DmxConnection } from './components/DmxConnection'
 import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
@@ -663,12 +663,12 @@ export default function App() {
           >
             <svg viewBox="0 0 28 18" aria-hidden="true"><circle cx="4" cy="5" r="2" /><circle cx="14" cy="9" r="2" /><circle cx="24" cy="14" r="2" /><path d="M6 5.8 12 8m4 2 6 3" /></svg>
           </button>
-          {/* DMX status button (Jake, 20 Nov 2026): this component owns
-              the auto-connect — on mount it re-connects the remembered
-              interface — so it must be mounted with the header, not
-              inside the settings menu: nested there it only ran when
-              the menu was opened, and a fresh launch never connected. */}
-          <DmxConnection />
+          {/* Headless DMX auto-connect (Jake, 21 Nov 2026): the DMX
+              button lives in the settings menu — LightKey's GUI has no
+              DMX button in its header — but the remembered interface
+              must still reconnect at startup, so this renders nothing
+              and just runs the mount-time scan and restore. */}
+          <DmxAutoConnect />
           <div ref={settingsMenuRef} className="relative">
             <button
               type="button"
@@ -694,6 +694,7 @@ export default function App() {
                 <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
                 <label className="px-3 py-2 text-xs">Tempo (BPM)<span className="mt-1 flex gap-1"><input aria-label="Tempo in BPM" type="number" min="30" max="240" value={bpm} onChange={(event) => useShowStore.getState().setBpm(Number(event.target.value))} className="min-w-0 flex-1 rounded bg-panel2 p-1" /><button type="button" className="btn-theme text-xs" onClick={() => { const result = calculateTapTempo(headerTaps.current, performance.now()); headerTaps.current = result.taps; if (result.bpm !== null) useShowStore.getState().setBpm(result.bpm) }}>Tap</button></span></label>
                 <div className="my-1 border-t border-line" />
+                <DmxConnection />
                 <button className="btn-panic rounded px-3 py-2 text-xs" onClick={handleBlackout}>{blackout ? 'Restore output' : 'Blackout'}</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>

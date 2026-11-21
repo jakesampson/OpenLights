@@ -1,12 +1,16 @@
 // @vitest-environment jsdom
 // Jake, 20 Nov 2026: a fresh multifixture showed 0 DMX output — not an
 // output bug, but because the DMX interface had never connected: the
-// auto-connect code (DmxConnection's mount-time scan of the saved
-// default in localStorage) only runs while the component is mounted,
-// and it was rendered inside the settings dropdown, so it never ran at
+// auto-connect code (the mount-time scan of the saved default in
+// localStorage) only runs while its component is mounted, and the DMX
+// button was rendered inside the settings dropdown, so it never ran at
 // startup. Opening the DMX menu mounted it and connected — which is
 // also why the DMX test then worked. The connection must be remembered
 // and re-established on launch, with no menu opened.
+// Jake, 21 Nov 2026: the button itself belongs back in the settings
+// menu — LightKey's GUI has no DMX button in its header — so the
+// auto-connect now lives in the headless DmxAutoConnect, mounted with
+// the header and rendering nothing, while the button stays in the menu.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
@@ -92,9 +96,12 @@ describe('DMX auto-connect on launch', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(setDmxPort).not.toHaveBeenCalled()
-    // The DMX status button is visible in the header, showing the
-    // disconnected state — the manual path (open it, rescan) is there.
-    expect(container?.querySelector('button[title="DMX output settings"]')).not.toBeNull()
+    // No DMX button in the header — the manual path lives in the
+    // settings menu: open it and the button is there.
+    expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
+    act(() => { container?.querySelector('button[aria-label="Layout and settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
   })
 
   it('connects nothing on a first run with no remembered interface', async () => {
@@ -102,6 +109,9 @@ describe('DMX auto-connect on launch', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(setDmxPort).not.toHaveBeenCalled()
-    expect(container?.querySelector('button[title="DMX output settings"]')).not.toBeNull()
+    expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
+    act(() => { container?.querySelector('button[aria-label="Layout and settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
   })
 })
