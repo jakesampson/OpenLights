@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { availableProperties } from '../lib/availableProperties'
+import { availableProperties, effectableProperties } from '../lib/availableProperties'
 import { useShowStore } from '../stores/showStore'
 
 const propertyLabel = (attribute: string) => attribute.replace(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase())
@@ -13,6 +13,10 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
   const toolbarRef = useRef<HTMLDivElement>(null)
   const fixtures = useMemo(() => (state.show?.fixtures ?? []).filter((fixture) => state.selectedFixtureIds.includes(fixture.id)), [state.show?.fixtures, state.selectedFixtureIds])
   const properties = useMemo(() => availableProperties(fixtures), [fixtures])
+  // The effects menu lists whole properties (Guide ch.10, p.146: Dimmer,
+  // Color, Position, …), not individual colour channels — a red chase is
+  // a curve on Color, and a virtual-dimmer fixture still has a Dimmer.
+  const effectProperties = useMemo(() => effectableProperties(fixtures), [fixtures])
   const selectedProperty = property && properties.some((item) => item.attribute === property) ? property : properties[0]?.attribute ?? null
   const openLockDialog = () => {
     setPin('')
@@ -70,7 +74,7 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
       <button disabled={!state.propertyClipboard || !fixtures.length} onClick={() => state.pasteFixtureProperties()}>Paste Properties</button>
       <button disabled={!selectedProperty || !fixtures.length} onClick={clearProperty}>Clear Property</button>
     </div></details>
-    <details className="header-more effects-menu"><summary className="header-icon" aria-label="Add effect" title="Add effect"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 10-10m-7-2 2-2m3 5 2-2m2-5 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" /></svg><span aria-hidden="true">⌄</span></summary><div className="header-more-menu"><strong>Add Effect for:</strong>{properties.map((item) => <button key={item.attribute} onClick={() => addEffect(item.attribute)}>{propertyLabel(item.attribute)}</button>)}{!properties.length && <span>Select fixtures with common properties</span>}</div></details>
+    <details className="header-more effects-menu"><summary className="header-icon" aria-label="Add effect" title="Add effect"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 20 10-10m-7-2 2-2m3 5 2-2m2-5 1-3 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" /></svg><span aria-hidden="true">⌄</span></summary><div className="header-more-menu"><strong>Add Effect for:</strong>{effectProperties.map((item) => <button key={item.attribute} onClick={() => addEffect(item.attribute)}>{item.label}</button>)}{!effectProperties.length && <span>Select fixtures with common properties</span>}</div></details>
     {lockDialog && <div className="header-lock-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLockDialog(null) }}><form className="header-lock-dialog" role="dialog" aria-modal="true" aria-label={lockDialog === 'lock' ? 'Lock OpenLights' : 'Unlock OpenLights'} onSubmit={(event) => { event.preventDefault(); submitLockDialog() }}>
       <strong>{lockDialog === 'lock' ? 'Lock OpenLights' : 'Unlock OpenLights'}</strong>
       <p>{lockDialog === 'lock' ? 'Enter an optional PIN. Leave it blank to unlock without a PIN.' : 'Enter the PIN used when OpenLights was locked.'}</p>

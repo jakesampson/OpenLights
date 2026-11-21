@@ -5,6 +5,7 @@ import {
   effectDurationSeconds,
   orderedEffectPixels,
   writeEffectChannel,
+  writeVirtualDimmer,
   type EffectPixel
 } from './effects'
 import { patternLevel, type PatternEffect } from './patternEffects'
@@ -63,8 +64,58 @@ export function defaultSamples(isColor: boolean): EffectSample[] {
       ]
 }
 
+/**
+ * Whether a pattern effect on this attribute uses colour samples (LightKey
+ * Guide ch.10, p.146: "Pattern effects can be applied to the Dimmer and
+ * Color properties, so the term sample refers to either an intensity value
+ * (0–100%) or a color"). Only the whole Color property takes colour
+ * samples; a single colour channel (red, green, …) is not a pattern
+ * target — its samples are levels of that channel, like Dimmer's.
+ */
 export function isColorAttribute(attribute: string): boolean {
-  return ['color', 'red', 'green', 'blue', 'cyan', 'magenta', 'yellow'].includes(attribute)
+  return attribute === 'color'
+}
+
+/**
+ * Level (0–100) a colour sample carries on one channel — the inverse of
+ * the colour write: RGB takes its own component, CMY the complement,
+ * white the shared floor, amber the warm fold mixColor uses, lime the
+ * green it is mixed from, UV the brightest component. Only for stored
+ * pattern effects made before single-channel patterns were removed (a
+ * red chase stored with a white foreground still chases in red); new
+ * single-channel patterns store levels directly.
+ */
+export function sampleLevelFromColor(color: string | undefined, attribute: string): number {
+  const { r, g, b } = hexToRgb(color ?? '#000000')
+  switch (attribute.replace(/ ?\d+$/, '')) {
+    case 'red': return (r / 255) * 100
+    case 'green': return (g / 255) * 100
+    case 'blue': return (b / 255) * 100
+    case 'cyan': return ((255 - r) / 255) * 100
+    case 'magenta': return ((255 - g) / 255) * 100
+    case 'yellow': return ((255 - b) / 255) * 100
+    case 'white': return (Math.min(r, g, b) / 255) * 100
+    case 'amber': return (Math.min(r, g / 0.45) / 255) * 100
+    case 'lime': return (g / 255) * 100
+    case 'uv': return (Math.max(r, g, b) / 255) * 100
+    default: return 0
+  }
+}
+
+/**
+ * Samples for a pattern effect, with legacy colour samples on a single
+ * channel converted to levels of that channel (see sampleLevelFromColor)
+ * so an old red chase with a white foreground becomes a red chase at
+ * 100% — not a white beam. Colour patterns (attribute 'color') keep
+ * their colours untouched.
+ */
+export function normalizedPatternSamples(effect: EffectDef): EffectSample[] {
+  const color = isColorAttribute(effect.attribute)
+  const samples = effect.samples && effect.samples.length > 0 ? effect.samples : defaultSamples(color)
+  if (color) return samples
+  return samples.map((sample) =>
+    sample.value !== undefined ? sample : { ...sample, value: sampleLevelFromColor(sample.color, effect.attribute) }
+  )
 }
 
 /** Color channel attributes present on a pixel's beam (or the fixture itself). */
@@ -118,10 +169,18 @@ function writeIntensity(
   pixel: EffectPixel,
   value255: number,
   effect: EffectDef,
-  master: number
+  master: number,
+  baseValues?: Record<string, Record<string, number>>
 ): void {
   const { fixture, attribute } = pixel
   const map = fixtureChannelMap(fixture)
+  // No dimmer channel (LightKey virtual dimmer, Piece 12): the level
+  // scales the fixture's LED channels instead — there is no channel
+  // of its own to write.
+  if (attribute === 'intensity' && map[attribute] === undefined) {
+    writeVirtualDimmer(into, fixture, value255, effect, master, baseValues)
+    return
+  }
   const channelOffset = map[attribute]
   if (channelOffset === undefined) return
   const next = scaleAttribute(attribute, value255, fixture.ignoreMasterDimmer ? 255 : master)
@@ -419,12 +478,13 @@ export function computePatternPatch(
   bpm: number,
   master = 255,
   activationSeed = 0,
-  into: Record<number, number> = {}
+  into: Record<number, number> = {},
+  baseValues?: Record<string, Record<string, number>>
 ): Record<number, number> {
   const pattern = effect.pattern
   if (!pattern) return into
   const color = isColorAttribute(effect.attribute)
-  const samples = effect.samples && effect.samples.length > 0 ? effect.samples : defaultSamples(color)
+  const samples = normalizedPatternSamples(effect)
   const duration = effectDurationSeconds(effect, bpm) ?? 1
   // Pixels are ordered by the effect's fixture order; color patterns resolve
   // siblings (green/blue) of the same beam, so build the red pixels.
@@ -439,7 +499,7 @@ export function computePatternPatch(
     if (color && value.color) {
       writeColor(into, pixel, value.color, effect, master)
     } else if (value.intensity !== undefined) {
-      writeIntensity(into, pixel, value.intensity, effect, master)
+      writeIntensity(into, pixel, value.intensity, effect, master, baseValues)
     }
   })
   return into

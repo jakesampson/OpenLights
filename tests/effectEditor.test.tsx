@@ -134,6 +134,35 @@ describe('effects chooser', () => {
     act(() => { buttonWithText('Overlay').click() })
     expect(useShowStore.getState().effects).toHaveLength(2)
   })
+
+  it('offers only curves for a single colour channel, never a pattern', () => {
+    // Guide ch.10, p.146: patterns apply to Dimmer and Color only — red
+    // alone is automated with a curve on Color, so the chooser for red
+    // must not offer a Chase (whose colour samples would light the
+    // fixture white).
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'red' }) })
+    renderInRoot(<DesignTab />)
+    expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
+    expect(container?.textContent).not.toContain('Chase')
+    act(() => { buttonWithText('Sine Wave').click() })
+    const state = useShowStore.getState()
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].kind).toBe('curve')
+    expect(state.effects[0].attribute).toBe('red')
+  })
+
+  it('offers a pattern for the whole Color property', () => {
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'color' }) })
+    renderInRoot(<DesignTab />)
+    act(() => { buttonWithText('Chase').click() })
+    const state = useShowStore.getState()
+    expect(state.effects).toHaveLength(1)
+    expect(state.effects[0].kind).toBe('pattern')
+    expect(state.effects[0].attribute).toBe('color')
+    expect(state.effects[0].samples?.[1]?.color).toBe('#ffffff')
+  })
 })
 
 describe('effect editor', () => {
@@ -161,6 +190,38 @@ describe('effect editor', () => {
     expect(container?.querySelector('[aria-label="Pattern"]')).not.toBeNull()
     expect(container?.querySelector('[aria-label="Pattern samples"]')).not.toBeNull()
     expect(container?.textContent).toContain('Steps per value')
+  })
+
+  it('offers per-component curves for Color, including the extra components', () => {
+    // Guide ch.10, p.146: each component of Color has its own curve —
+    // hue, saturation, brightness (or red, green, blue) plus the extras
+    // the fixture supports (white, amber, ultraviolet on the led-wash).
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'color' }) })
+    renderInRoot(<DesignTab />)
+    act(() => { buttonWithText('Sine Wave').click() })
+    const state = useShowStore.getState()
+    expect(state.effects[0].kind).toBe('curve')
+    expect(state.effects[0].attribute).toBe('color')
+    const tabs = container?.querySelector('[aria-label="Curve components"]')
+    expect(tabs?.textContent).toContain('Hue')
+    expect(tabs?.textContent).toContain('White')
+    expect(tabs?.textContent).toContain('Amber')
+    expect(tabs?.textContent).toContain('Ultraviolet')
+    // Switch to the RGB model: the red, green and blue component curves
+    // appear, with the extras still there.
+    const model = container?.querySelector('[aria-label="Color model"]') as HTMLSelectElement | null
+    if (!model) throw new Error('no color model select')
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
+      setter?.call(model, 'rgb')
+      model.dispatchEvent(new window.Event('change', { bubbles: true }))
+    })
+    const rgbTabs = container?.querySelector('[aria-label="Curve components"]')
+    expect(rgbTabs?.textContent).toContain('Red')
+    expect(rgbTabs?.textContent).toContain('Green')
+    expect(rgbTabs?.textContent).toContain('Blue')
+    expect(rgbTabs?.textContent).toContain('Amber')
   })
 })
 

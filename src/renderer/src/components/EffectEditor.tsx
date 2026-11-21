@@ -10,8 +10,8 @@ import type {
   PatternEffect
 } from '@shared/types'
 import { useShowStore } from '../stores/showStore'
-import { defaultSamples, isColorAttribute } from '../lib/patternRuntime'
-import { colorModelComponents, defaultCurvePoints, evaluateCurve, waveformPoints } from '../lib/curveEffects'
+import { defaultSamples, isColorAttribute, normalizedPatternSamples } from '../lib/patternRuntime'
+import { colorModelComponents, defaultCurvePoints, evaluateCurve, extraColorComponents, waveformPoints } from '../lib/curveEffects'
 import { BUILTIN_MOVEMENT_PATHS, pathPointAt, resolveMovementPath } from '../lib/movementRuntime'
 import { getEffectTime } from '../lib/output'
 import { panTiltRange } from '../lib/calibration'
@@ -85,8 +85,10 @@ function attributeLabel(attribute: string): string {
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
 }
 
-/** Which effect kinds apply to a property (Guide p.147): patterns are Dimmer
- *  and Color; curves are any property; movement is Position. */
+/** Which effect kinds apply to a property (Guide p.146): patterns are Dimmer
+ *  and Color only; curves are any property; movement is Position. A single
+ *  colour channel is not a pattern target — red alone is automated with a
+ *  curve on Color, picking the red component. */
 function kindsForAttribute(attribute: string): ('pattern' | 'curve' | 'movement')[] {
   if (attribute === 'position') return ['curve', 'movement']
   if (attribute === 'intensity' || isColorAttribute(attribute)) return ['pattern', 'curve']
@@ -560,7 +562,10 @@ const PATTERN_PARAMS: Record<PatternEffect, PatternParam[]> = {
 
 function PatternEditor({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const isColor = isColorAttribute(effect.attribute)
-  const samples = effect.samples ?? defaultSamples(isColor)
+  // Legacy single-channel patterns stored colour samples; show (and save
+  // back) the levels of that channel, not a colour picker — a red chase
+  // must not offer a colour that would light the whole fixture white.
+  const samples = normalizedPatternSamples(effect)
   const pattern = effect.pattern ?? 'chase'
   const [selectedSample, setSelectedSample] = useState(0)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
@@ -1001,10 +1006,7 @@ function CurveEditor({ effect, update }: { effect: EffectDef; update: (patch: Pa
 
   const componentNames = useMemo(() => {
     if (isColor) {
-      const extras = selectedFixtures.flatMap((f) => {
-        const attrs = ['cool white', 'warm white', 'amber', 'lime', 'ultraviolet']
-        return attrs.filter((attr) => (f as unknown as Record<string, unknown>)[attr] !== undefined)
-      })
+      const extras = selectedFixtures.flatMap((f) => extraColorComponents(f))
       return [...colorModelComponents(model), ...Array.from(new Set(extras))]
     }
     if (isPosition) return ['pan', 'tilt']

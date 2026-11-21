@@ -1,16 +1,57 @@
-import { fixtureBeams, fixtureChannelMap } from '@shared/fixtureProfiles'
+import { fixtureBeams, fixtureChannelMap, fixtureMode } from '@shared/fixtureProfiles'
 import type { EffectDef, FixtureDef, MovementPathDef } from '@shared/types'
-import { FIXTURE_ATTRIBUTE_MAP, scaleAttribute } from './automationRuntime'
+import { FIXTURE_ATTRIBUTE_MAP, isDimmerAttribute, scaleAttribute } from './automationRuntime'
 import { computePatternPatch } from './patternRuntime'
 import { computeDrawableCurvePatch } from './curveEffects'
 import { computeMovementPatch } from './movementRuntime'
 
 /** Options for the effect patch: movement path lookup, the base look for Relative
- *  effects (Guide pp.164-166), and the activation seed for Random (Variable) orders. */
+ *  effects (Guide pp.164-166), and the activation seed for Random (Variable) orders.
+ *  `baseValues` is the base look in attribute space (cue resolved + active
+ *  presets + overrides, later wins): the colour source for a Dimmer effect
+ *  on a virtual-dimmer fixture, where the effect scales the LED channels
+ *  by the level and a channel patch has already scaled the base dimmer
+ *  away. */
 export interface EffectPatchOptions {
   movementPaths?: MovementPathDef[]
   base?: Record<number, number>
   activationSeed?: number
+  baseValues?: Record<string, Record<string, number>>
+}
+
+/**
+ * Write a Dimmer value for a fixture with no dimmer channel (LightKey
+ * virtual dimmer, Piece 12): the level scales the fixture's LED channels,
+ * driven by the colour from the base look's attribute values (or the
+ * fixture defaults when the base look carries no colour for it — a fresh
+ * fixture still chases in its default blue). A fixture with a physical
+ * dimmer channel never reaches this: its channel is written directly and
+ * the hardware dims. Blend mode and master scaling are honoured.
+ */
+export function writeVirtualDimmer(
+  into: Record<number, number>,
+  fixture: FixtureDef,
+  level255: number,
+  effect: EffectDef,
+  master: number,
+  baseValues?: Record<string, Record<string, number>>
+): void {
+  const map = fixtureChannelMap(fixture)
+  if (map['intensity'] !== undefined) return
+  const values = baseValues?.[fixture.id] ?? {}
+  const level = Math.max(0, Math.min(255, level255))
+  for (const [attr, offset] of Object.entries(map)) {
+    if (!isDimmerAttribute(attr)) continue
+    const channel = fixture.channelStart + offset
+    const colour =
+      typeof values[attr] === 'number'
+        ? values[attr]
+        : fixture.defaultValues?.[attr] ??
+          fixtureMode(fixture)?.channels.find((c) => c.attribute === attr)?.defaultValue ??
+          0
+    const next = scaleAttribute(attr, (Math.max(0, Math.min(255, colour)) * level) / 255, fixture.ignoreMasterDimmer ? 255 : master)
+    writeEffectChannel(into, channel, next, effect.blendMode)
+  }
 }
 
 /** Effect speed in cycles per second, honouring BPM sync.
@@ -287,7 +328,7 @@ export function computeEffectPatch(
     if (targets.length === 0) continue
     const kind = effect.kind ?? 'curve'
     if (kind === 'pattern' && effect.pattern) {
-      computePatternPatch(targets, effect, timeSeconds, bpm, master, options.activationSeed ?? 0, channels)
+      computePatternPatch(targets, effect, timeSeconds, bpm, master, options.activationSeed ?? 0, channels, options.baseValues)
       continue
     }
     if (kind === 'movement' && effect.movementPathId) {
@@ -315,7 +356,6 @@ export function computeEffectPatch(
       if (fixture.disabled) return
       const map = fixtureChannelMap(fixture)
       const channelOffset = map[attribute]
-      if (channelOffset === undefined) return
 
       const phase =
         timeSeconds * frequency +
@@ -324,6 +364,12 @@ export function computeEffectPatch(
       const value = effect.minValue !== undefined || effect.maxValue !== undefined
         ? Math.max(0, Math.min(255, effect.minValue ?? 0)) + ((wave + 1) / 2) * (Math.max(0, Math.min(255, effect.maxValue ?? 255)) - Math.max(0, Math.min(255, effect.minValue ?? 0)))
         : offset + wave * size
+      // No dimmer channel (LightKey virtual dimmer, Piece 12): the level
+      // scales the fixture's LED channels instead.
+      if (channelOffset === undefined) {
+        if (attribute === 'intensity') writeVirtualDimmer(channels, fixture, value, effect, master, options.baseValues)
+        return
+      }
       const channel = fixture.channelStart + channelOffset
       // Ignore Master Dimmer (LightKey Fixture Options, Guide p.62): the
       // master fader never scales this fixture — effects included.

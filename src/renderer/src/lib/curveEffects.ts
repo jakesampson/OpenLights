@@ -6,6 +6,7 @@ import {
   orderedEffectPixels,
   waveformValue,
   writeEffectChannel,
+  writeVirtualDimmer,
   type EffectPatchOptions,
   type EffectPixel
 } from './effects'
@@ -103,18 +104,27 @@ export function colorModelComponents(colorModel: 'hsb' | 'rgb' | 'cmy'): string[
   return ['red', 'green', 'blue']
 }
 
-/** Extra color components a fixture supports (Guide p.161): cool white, warm white,
- *  amber, lime, ultraviolet — as channel attributes when present. */
+/** Extra color components a fixture supports (Guide p.146, p.161): cool white, warm white,
+ *  amber, lime, ultraviolet — as channel attributes when present. Built-in
+ *  profiles spell white 'white' and ultraviolet 'uv'. */
 export function extraColorComponents(fixture: FixtureDef): string[] {
   const map = fixtureChannelMap(fixture)
   const candidates: [string, string][] = [
     ['cool white', 'cool white'],
     ['warm white', 'warm white'],
+    ['white', 'white'],
     ['amber', 'amber'],
     ['lime', 'lime'],
-    ['ultraviolet', 'ultraviolet']
+    ['ultraviolet', 'uv']
   ]
   return candidates.filter(([, attr]) => map[attr] !== undefined).map(([name]) => name)
+}
+
+/** Channel attribute a colour-component curve writes (Guide p.146: the
+ *  extra components are cool white, warm white, amber, lime, ultraviolet —
+ *  the built-in profiles spell ultraviolet 'uv'). */
+function colorComponentAttribute(component: string): string {
+  return component === 'ultraviolet' ? 'uv' : component
 }
 
 function writePixelChannel(
@@ -123,14 +133,21 @@ function writePixelChannel(
   value: number,
   effect: EffectDef,
   master: number,
-  base?: Record<number, number>
+  options: EffectPatchOptions = {}
 ): void {
   const { fixture, attribute } = pixel
   const map = fixtureChannelMap(fixture)
   const channelOffset = map[attribute]
-  if (channelOffset === undefined) return
+  // No dimmer channel (LightKey virtual dimmer, Piece 12): the level
+  // scales the fixture's LED channels instead — there is no channel
+  // of its own to write.
+  if (channelOffset === undefined) {
+    if (attribute === 'intensity') writeVirtualDimmer(into, fixture, value, effect, master, options.baseValues)
+    return
+  }
   const channel = fixture.channelStart + channelOffset
   let next = scaleAttribute(attribute, value, fixture.ignoreMasterDimmer ? 255 : master)
+  const base = options.base
   if (effect.relative && base !== undefined && base[channel] !== undefined) {
     // Relative (Guide pp.164-166): the curve's values are added to the values
     // defined elsewhere. The curve's midpoint (0.5) adds nothing.
@@ -206,9 +223,9 @@ export function computeDrawableCurvePatch(
         const s = saturation ? evaluateCurve(saturation.points, saturation.curvedSegments, t) : 1
         const v = brightness ? evaluateCurve(brightness.points, brightness.curvedSegments, t) : 1
         const { r, g, b } = hsvToRgb({ h, s, v })
-        writePixelChannel(into, pixel, r, effect, master, options.base)
-        writePixelChannel(into, siblingPixel(pixel, 'green'), g, effect, master, options.base)
-        writePixelChannel(into, siblingPixel(pixel, 'blue'), b, effect, master, options.base)
+        writePixelChannel(into, pixel, r, effect, master, options)
+        writePixelChannel(into, siblingPixel(pixel, 'green'), g, effect, master, options)
+        writePixelChannel(into, siblingPixel(pixel, 'blue'), b, effect, master, options)
       })
       return into
     }
@@ -220,18 +237,18 @@ export function computeDrawableCurvePatch(
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
         const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
-        writePixelChannel(into, pixel, value, effect, master, options.base)
+        writePixelChannel(into, pixel, value, effect, master, options)
       })
     }
-    // Extra components (cool white, warm white, amber, lime, ultraviolet).
-    for (const component of ['cool white', 'warm white', 'amber', 'lime', 'ultraviolet']) {
+    // Extra components (cool white, warm white, white, amber, lime, ultraviolet).
+    for (const component of ['cool white', 'warm white', 'white', 'amber', 'lime', 'ultraviolet']) {
       const curve = byComponent.get(component)
       if (!curve) continue
-      const pixels = orderedEffectPixels(effect, fixtures, component, options.activationSeed ?? 0)
+      const pixels = orderedEffectPixels(effect, fixtures, colorComponentAttribute(component), options.activationSeed ?? 0)
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
         const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
-        writePixelChannel(into, pixel, value, effect, master, options.base)
+        writePixelChannel(into, pixel, value, effect, master, options)
       })
     }
     return into
@@ -246,7 +263,7 @@ export function computeDrawableCurvePatch(
         if (pixel.fixture.disabled) return
         const raw = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel))
         const value = applyMirror(pixel, component, raw) * 255
-        writePixelChannel(into, pixel, value, effect, master, options.base)
+        writePixelChannel(into, pixel, value, effect, master, options)
       })
     }
     return into
@@ -259,7 +276,7 @@ export function computeDrawableCurvePatch(
   pixels.forEach((pixel) => {
     if (pixel.fixture.disabled) return
     const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
-    writePixelChannel(into, pixel, value, effect, master, options.base)
+    writePixelChannel(into, pixel, value, effect, master, options)
   })
   return into
 }

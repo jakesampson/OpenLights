@@ -95,6 +95,28 @@ export default function App() {
       manualOverrides
     })
   }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
+  /** The base look in attribute space (the active cue's resolved values,
+   *  then manually activated presets, then Design overrides — later
+   *  wins): the effect runtime's colour source for virtual-dimmer
+   *  fixtures, where a Dimmer effect scales the LED channels by the
+   *  effect level and needs the colour the base look carries (a channel
+   *  patch has already scaled it away by the base dimmer). */
+  const baseAttributeValues = useMemo(() => {
+    const values: Record<string, Record<string, number>> = {}
+    const take = (patch: Record<string, Record<string, number>>) => {
+      for (const [fixtureId, attrs] of Object.entries(patch)) {
+        values[fixtureId] = { ...(values[fixtureId] ?? {}), ...attrs }
+      }
+    }
+    const activeCue = cues.find((item) => item.id === activeCueId)
+    if (activeCue) take(resolveCueValues(activeCue, presets, show?.fixtures ?? []))
+    for (const id of activePresetIds) {
+      const preset = presets.find((item) => item.id === id)
+      if (preset) take(preset.fixtureValues ?? {})
+    }
+    take(manualOverrides)
+    return values
+  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
   const setupWizardStep = useShowStore((s) => s.setupWizardStep)
@@ -293,9 +315,10 @@ export default function App() {
       movementPaths: show?.movementPaths ?? [],
       bpm,
       master,
-      blackout
+      blackout,
+      baseValues: baseAttributeValues
     })
-  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout])
+  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout, baseAttributeValues])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active

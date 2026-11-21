@@ -64,6 +64,9 @@ interface EffectRuntime {
   bpm: number
   master: number
   blackout: boolean
+  /** Base look in attribute space (cue + presets + overrides): the
+   *  colour source for a Dimmer effect on a virtual-dimmer fixture. */
+  baseValues?: Record<string, Record<string, number>>
 }
 
 let runtime: EffectRuntime = {
@@ -97,7 +100,7 @@ function effectPatch(now: number): Record<number, number> {
     time,
     runtime.bpm,
     runtime.master,
-    { movementPaths: runtime.movementPaths ?? [] }
+    { movementPaths: runtime.movementPaths ?? [], baseValues: runtime.baseValues }
   )
 }
 

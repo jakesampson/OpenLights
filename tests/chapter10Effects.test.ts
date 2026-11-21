@@ -7,9 +7,10 @@ import {
   effectDurationSeconds,
   orderedEffectPixels
 } from '../src/renderer/src/lib/effects'
-import { defaultSamples, patternPixelValue } from '../src/renderer/src/lib/patternRuntime'
-import { defaultCurvePoints, evaluateCurve, waveformPoints } from '../src/renderer/src/lib/curveEffects'
+import { defaultSamples, normalizedPatternSamples, patternPixelValue, sampleLevelFromColor } from '../src/renderer/src/lib/patternRuntime'
+import { defaultCurvePoints, evaluateCurve, extraColorComponents, waveformPoints } from '../src/renderer/src/lib/curveEffects'
 import { BUILTIN_MOVEMENT_PATHS, pathPointAt, resolveMovementPath } from '../src/renderer/src/lib/movementRuntime'
+import { effectableProperties } from '../src/renderer/src/lib/availableProperties'
 
 const fixtures: FixtureDef[] = [
   { id: 'f1', name: 'Front', type: 'par', channelStart: 1, channels: 4 },
@@ -101,6 +102,84 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
       { id: 'sample-1', value: 0 }
     ])
   })
+
+  it('runs a legacy single-channel colour pattern as levels of that channel', () => {
+    // A red chase made before single-channel patterns were removed stored
+    // colour samples (black background, white foreground). It must chase
+    // in red only — the white foreground is 100% of red, not a white beam.
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    const fx = effect({
+      kind: 'pattern',
+      pattern: 'chase',
+      attribute: 'red',
+      samples: [{ id: 'sample-bg', color: '#000000' }, { id: 'sample-1', color: '#ffffff' }],
+      timeOffset: 100,
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    expect(normalizedPatternSamples(fx)).toEqual([
+      { id: 'sample-bg', color: '#000000', value: 0 },
+      { id: 'sample-1', color: '#ffffff', value: 100 }
+    ])
+    const patch = computeEffectPatch([wash], [fx], 0, 120)
+    expect(patch[channelOf(wash, 'red')]).toBe(0)
+    expect(patch[channelOf(wash, 'green')]).toBeUndefined()
+    expect(patch[channelOf(wash, 'blue')]).toBeUndefined()
+    // One step later the chase is on the foreground: red full, still no green/blue.
+    const later = computeEffectPatch([wash], [fx], 1, 120)
+    expect(later[channelOf(wash, 'red')]).toBe(255)
+    expect(later[channelOf(wash, 'green')]).toBeUndefined()
+    expect(later[channelOf(wash, 'blue')]).toBeUndefined()
+  })
+
+  it('derives a channel level from a stored colour sample', () => {
+    expect(sampleLevelFromColor('#ffffff', 'red')).toBe(100)
+    expect(sampleLevelFromColor('#000000', 'red')).toBe(0)
+    expect(sampleLevelFromColor('#ff0000', 'cyan')).toBe(0)
+    expect(sampleLevelFromColor('#00ffff', 'cyan')).toBe(100)
+    expect(sampleLevelFromColor('#ffffff', 'white')).toBe(100)
+    expect(sampleLevelFromColor('#000000', 'amber')).toBe(0)
+  })
+
+  it('drives a Dimmer pattern on a virtual-dimmer fixture from the base look', () => {
+    // The Q12BT has no dimmer channel (Piece 12, virtual dimmer): a Dimmer
+    // chase scales its LED channels by the effect level, in the colour the
+    // base look carries — a red cue chases in red, even at dimmer 0.
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    const fx = effect({
+      kind: 'pattern',
+      pattern: 'chase',
+      samples: [{ id: 'sample-bg', value: 100 }, { id: 'sample-1', value: 0 }],
+      timeOffset: 100,
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    const baseValues = { w1: { red: 255, green: 0, blue: 0, amber: 0 } }
+    const patch = computeEffectPatch([wash], [fx], 0, 120, 255, { baseValues })
+    expect(patch[channelOf(wash, 'red')]).toBe(255)
+    expect(patch[channelOf(wash, 'green')]).toBe(0)
+    expect(patch[channelOf(wash, 'blue')]).toBe(0)
+    // One step later the chase is on the foreground (0%): the beam is out.
+    const later = computeEffectPatch([wash], [fx], 1, 120, 255, { baseValues })
+    expect(later[channelOf(wash, 'red')]).toBe(0)
+  })
+
+  it('drives a Dimmer pattern on a virtual-dimmer fixture in its default colour', () => {
+    // With no colour in the base look, the fixture defaults carry it — a
+    // fresh Q12BT chases in its default blue, like raising its dimmer.
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    const fx = effect({
+      kind: 'pattern',
+      pattern: 'chase',
+      samples: [{ id: 'sample-bg', value: 100 }, { id: 'sample-1', value: 0 }],
+      timeOffset: 100,
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    const patch = computeEffectPatch([wash], [fx], 0, 120)
+    expect(patch[channelOf(wash, 'red')]).toBe(0)
+    expect(patch[channelOf(wash, 'blue')]).toBe(255)
+  })
 })
 
 describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
@@ -143,6 +222,23 @@ describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
     })
     const patch = computeEffectPatch(fixtures, [fx], 0.7, 120)
     expect(patch[channelOf(fixtures[0], 'intensity')]).toBe(128)
+  })
+
+  it('drives a Dimmer curve on a virtual-dimmer fixture from the base look', () => {
+    // A flat Dimmer curve at half value on the Q12BT scales its LEDs to
+    // half of the base look's colour — a red cue at half red.
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    const fx = effect({
+      kind: 'curve',
+      curveComponents: [{ component: 'intensity', points: defaultCurvePoints(), curvedSegments: [false] }],
+      durationMs: 2000,
+      timingMode: 'fixed'
+    })
+    const baseValues = { w1: { red: 255, green: 0, blue: 0, amber: 0 } }
+    const patch = computeEffectPatch([wash], [fx], 0.7, 120, 255, { baseValues })
+    expect(patch[channelOf(wash, 'red')]).toBe(128)
+    expect(patch[channelOf(wash, 'green')]).toBe(0)
+    expect(patch[channelOf(wash, 'blue')]).toBe(0)
   })
 })
 
@@ -218,5 +314,39 @@ describe('effect timing and fixture order (Guide ch.10, pp.150-152)', () => {
     expect(computeEffectPatch(fixtures, [fx], 0, 120)[1]).toBe(128)
     expect(computeEffectPatch(fixtures, [fx], 0.25, 120)[1]).toBe(255)
     expect(computeEffectPatch(fixtures, [fx], 0.75, 120)[1]).toBe(0)
+  })
+})
+
+describe('effectable properties (Guide ch.10, p.146)', () => {
+  it('offers Dimmer and Color for a virtual-dimmer fixture, not single channels', () => {
+    // The Q12BT has no dimmer channel, but Dimmer is still a property of
+    // the fixture (virtual dimmer) — and red/green/blue are components of
+    // Color, not properties of their own.
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    expect(effectableProperties([wash]).map((p) => p.attribute)).toEqual(['intensity', 'color'])
+    expect(effectableProperties([wash]).map((p) => p.label)).toEqual(['Dimmer', 'Color'])
+  })
+
+  it('offers Dimmer, Color, Position and the other channel properties for a moving head', () => {
+    const head = fixtures[1]
+    expect(effectableProperties([head]).map((p) => p.attribute)).toEqual(['intensity', 'color', 'position', 'gobo', 'strobe'])
+  })
+
+  it('offers Dimmer and Color for a par', () => {
+    expect(effectableProperties([fixtures[0]]).map((p) => p.attribute)).toEqual(['intensity', 'color'])
+  })
+
+  it('offers nothing with no fixtures selected', () => {
+    expect(effectableProperties([])).toEqual([])
+  })
+
+  it('lists the extra colour components a fixture supports', () => {
+    // Guide p.146: cool white, warm white, amber, lime, ultraviolet — as
+    // the fixture's own channels (white, amber, uv in the built-ins).
+    const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'led-wash', channelStart: 1, channels: 7 }
+    expect(extraColorComponents(wash)).toEqual(['white', 'amber', 'ultraviolet'])
+    const bar: FixtureDef = { id: 'b1', name: 'Bar', type: 'rgba-4ch', channelStart: 1, channels: 4 }
+    expect(extraColorComponents(bar)).toEqual(['amber'])
+    expect(extraColorComponents(fixtures[0])).toEqual([])
   })
 })
