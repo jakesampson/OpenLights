@@ -15,13 +15,14 @@ import { StagePreview } from './components/StagePreview'
 import { PreviewEditPanel } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
-import { DmxConnection } from './components/DmxConnection'
+import { DmxAutoConnect, DmxConnection } from './components/DmxConnection'
 import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
-import { effectiveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
+import { effectiveIntensityLevels, liveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
+import { completePresetBaseColour } from './lib/presetColor'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -70,6 +71,14 @@ export default function App() {
     editingPresetId,
     saveEditingPreset,
     cancelEditingPreset,
+    editingEffectId,
+    editingEffectTemplateId,
+    editingLiveEffectId,
+    effectChooserAttribute,
+    updateEffectTemplate,
+    cancelEditingEffectTemplate,
+    saveEditingLiveEffect,
+    cancelEditingLiveEffect,
     editingCueAdHocId,
     saveEditingCueAdHoc,
     cancelEditingCueAdHoc,
@@ -84,19 +93,72 @@ export default function App() {
   // 20 Nov 2026): the colour a look carries resolves against the
   // dimmer the fixture is actually at — the active cue, an active
   // preset, or the Design overrides — so a dimmer drag brings up blue
-  // without the wheel being touched. Sequences and Live controls are
-  // deliberately not sources (see effectiveIntensity.ts).
+  // without the wheel being touched. Since Jake's call of 22 Nov 2026
+  // the pressed Live pads count too: a Live dimmer pad lifts an
+  // active palette preset, and a dimmer alone raises the default
+  // colour. Sequences are deliberately not sources (see
+  // effectiveIntensity.ts).
+  const liveLevels = useMemo(() => {
+    const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
+    const controls = orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)
+    return liveIntensityLevels({ controls, levels: outputLevels, presets, cues, fixtures: show?.fixtures ?? [] })
+  }, [show?.livePages, activeLiveValues, liveActivationOrder, presets, cues, show?.fixtures])
   const effectiveLevels = useMemo(() => {
     const activeCue = cues.find((item) => item.id === activeCueId)
     return effectiveIntensityLevels({
       cueValues: activeCue ? resolveCueValues(activeCue, presets, show?.fixtures ?? []) : {},
       activePresetIds,
       presets,
-      manualOverrides
+      manualOverrides,
+      liveLevels
     })
+  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures, liveLevels])
+  /** The base look in attribute space (the active cue's resolved values,
+   *  then manually activated presets, then Design overrides — later
+   *  wins): the effect runtime's colour source for virtual-dimmer
+   *  fixtures, where a Dimmer effect scales the LED channels by the
+   *  effect level and needs the colour the base look carries (a channel
+   *  patch has already scaled it away by the base dimmer). */
+  const baseAttributeValues = useMemo(() => {
+    const values: Record<string, Record<string, number>> = {}
+    const take = (patch: Record<string, Record<string, number>>) => {
+      for (const [fixtureId, attrs] of Object.entries(patch)) {
+        values[fixtureId] = { ...(values[fixtureId] ?? {}), ...attrs }
+      }
+    }
+    const activeCue = cues.find((item) => item.id === activeCueId)
+    if (activeCue) take(resolveCueValues(activeCue, presets, show?.fixtures ?? []))
+    for (const id of activePresetIds) {
+      const preset = presets.find((item) => item.id === id)
+      if (preset) take(preset.fixtureValues ?? {})
+    }
+    take(manualOverrides)
+    return values
   }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
+  // Host for the effect editor's type tab (Jake, 21 Nov 2026): in
+  // LightKey the "{Property} Effect ▾" tab sits IN the Design/Live pill
+  // bar while an effect is being edited, and leaves it when the editor
+  // closes. Same portal pattern as liveToolbarHost — the EffectEditor
+  // portals its tab here, and renders it inline in its own header when
+  // there is no host (standalone tests). The host only exists while an
+  // effect editor is open in Design, so the pill bar is back to
+  // Design/Live only the moment the editor closes.
+  const [effectTabHost, setEffectTabHost] = useState<HTMLDivElement | null>(null)
+  // The right-hand host in the same pill-bar row (Jake, 21 Nov 2026):
+  // the EffectEditor portals its Fixture Order menu here, so the
+  // editor has no second header row of its own — the whole editor
+  // header lives in the Design/Live row, LightKey's way. Same
+  // lifetime as the tab host above.
+  const [effectToolsHost, setEffectToolsHost] = useState<HTMLDivElement | null>(null)
+  // The effects chooser's header hosts (Jake, 22 Nov 2026; LightKey
+  // screenshot 12.03.49 am): the chooser portals its mode-swap pill
+  // ("Custom Effect" / "Effect Template") to the far left of the
+  // Design/Live row and its Search field to the far right — one
+  // header row, not two. Only while the chooser is open in Design.
+  const [chooserLeftHost, setChooserLeftHost] = useState<HTMLDivElement | null>(null)
+  const [chooserSearchHost, setChooserSearchHost] = useState<HTMLDivElement | null>(null)
   const setupWizardStep = useShowStore((s) => s.setupWizardStep)
   const welcomeOpen = useShowStore((s) => s.welcomeOpen)
   const newProjectDialogOpen = useShowStore((s) => s.newProjectDialogOpen)
@@ -190,6 +252,17 @@ export default function App() {
   const editingPreset = editingPresetId ? presets.find((p) => p.id === editingPresetId) : undefined
   // In-place preset editing opens in Design (LightKey, Guide ch.9).
   useEffect(() => { if (editingPresetId) setTab('Design') }, [editingPresetId])
+  // The saved effect template being edited (LightKey Guide ch.9, p.128):
+  // its name appears in the toolbar with Update, as for presets.
+  const editingEffectTemplate = editingEffectTemplateId
+    ? show?.effectTemplates?.find((t) => t.id === editingEffectTemplateId)
+    : undefined
+  // The live effect being edited from the Preset Palette (Jake,
+  // 22 Nov 2026): its name appears in the toolbar with Update/Cancel,
+  // exactly like a template session.
+  const editingLiveEffect = editingLiveEffectId
+    ? effects.find((e) => e.id === editingLiveEffectId)
+    : undefined
   const editingCueAdHoc = editingCueAdHocId ? cues.find((c) => c.id === editingCueAdHocId) : undefined
   // In-place cue ad-hoc editing opens in Design (Guide ch.11, p.201).
   useEffect(() => { if (editingCueAdHocId) setTab('Design') }, [editingCueAdHocId])
@@ -207,6 +280,7 @@ export default function App() {
       state.selectLivePage(detail.pageId)
       // selectLivePage clears the page-object selection, so select after.
       state.setPageObjectSelection([{ type: 'cue', id: detail.controlId }])
+      state.exitEffectEditor()
       setTab('Live')
       requestAnimationFrame(() => {
         const target = document.querySelector<HTMLElement>(`[data-project-id="${CSS.escape(detail.controlId)}"]`)
@@ -221,8 +295,11 @@ export default function App() {
   }, [])
   // Switching to Live while a preset or a cue's ad-hoc layer is open
   // ends the session, keeping the edits (they were written live,
-  // undoable); Cancel is explicit.
-  const goTab = (view: Tab) => { if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
+  // undoable); Cancel is explicit. Switching to Design or Live while
+  // the effect editor (or chooser) is open exits it — Cancel semantics
+  // (a template-edit working copy is discarded) — so clicking Design
+  // never leaves the editor stuck (Jake, 21 Nov 2026).
+  const goTab = (view: Tab) => { useShowStore.getState().exitEffectEditor(); if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
@@ -290,11 +367,13 @@ export default function App() {
     configureEffects({
       effects: activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }),
       fixtures: show?.fixtures ?? [],
+      movementPaths: show?.movementPaths ?? [],
       bpm,
       master,
-      blackout
+      blackout,
+      baseValues: baseAttributeValues
     })
-  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout])
+  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout, baseAttributeValues])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active
@@ -313,8 +392,11 @@ export default function App() {
       if (!preset) continue
       // A preset's colour is the fixture's colour (Jake, 19 Nov
       // 2026): applying it live fans the bare colour out to every
-      // beam, so a red preset lights all four cells of a 4Bar.
-      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, master))
+      // beam, so a red preset lights all four cells of a 4Bar — and
+      // the whole base colour (completePresetBaseColour), so the
+      // lifted default blue cannot leak through the channels the
+      // preset never wrote (Jake, 22 Nov 2026).
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), effectiveLevels) }, master))
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master, effectiveLevels])
@@ -322,20 +404,30 @@ export default function App() {
   useEffect(() => {
     const patch: Record<number, number> = {}
     const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
-    for (const control of orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)) {
+    const controls = orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)
+    // A Live pad's dimmer is a property of the fixture, like a palette
+    // preset's (Jake, 22 Nov 2026): a Full On pad must lift a Red pad's
+    // colour on a virtual-dimmer fixture, which has no dimmer channel
+    // for the Full On pad to write — so the two pads never meet at the
+    // channel level. Every pad's colours resolve against the effective
+    // levels, which already carry the pressed pads (liveLevels above).
+    // Hardware-dimmer fixtures are unaffected — their pads already
+    // write the intensity channel.
+    const levels = effectiveLevels
+    for (const control of controls) {
       const level = outputLevels[control.id] ?? 0
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
       if (cue && !cue.blackout) {
         const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
-        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, effectiveLevels) }, scaledMaster))
+        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, levels) }, scaledMaster))
       }
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), levels) }, scaledMaster))
       }
-      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, effectiveLevels) }, scaledMaster))
+      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, levels) }, scaledMaster))
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId
@@ -415,8 +507,8 @@ export default function App() {
       const command = binding.command
       if (command === 'undo' || command === 'redo') state[command]()
       else if (['save', 'saveAs', 'open', 'new', 'close'].includes(command)) window.dispatchEvent(new CustomEvent('openlights-project-command', { detail: command }))
-      else if (command === 'design') { if (!state.locked) setTab('Design') }
-      else if (command === 'live') setTab('Live')
+      else if (command === 'design') { if (!state.locked) { state.exitEffectEditor(); setTab('Design') } }
+      else if (command === 'live') { state.exitEffectEditor(); setTab('Live') }
       else if (command === 'editPreview') togglePreviewEditing()
       else if (command === 'showOverrides') state.setShowOverrideLabels(!state.showOverrideLabels)
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
@@ -432,7 +524,7 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate(); else if (state.editingLiveEffectId) state.cancelEditingLiveEffect(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
@@ -463,18 +555,27 @@ export default function App() {
     return () => window.removeEventListener('openlights-menu-command', onMenuCommand)
   }, [])
 
-  // A click on an override label row opens the fixture in Design.
+  // A click on an override label row opens the fixture in Design —
+  // and leaves the effect editor first (see goTab).
   useEffect(() => {
-    const showDesign = () => setTab('Design')
+    const showDesign = () => { useShowStore.getState().exitEffectEditor(); setTab('Design') }
     window.addEventListener('openlights-show-design', showDesign)
     return () => window.removeEventListener('openlights-show-design', showDesign)
+  }, [])
+
+  // The effects panel's Design/Live tabs (Jake's screenshots): Live
+  // switches the lower panel away from Design, like the ViewSwitch.
+  useEffect(() => {
+    const showLive = () => { useShowStore.getState().exitEffectEditor(); setTab('Live') }
+    window.addEventListener('openlights-show-live', showLive)
+    return () => window.removeEventListener('openlights-show-live', showLive)
   }, [])
 
   // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots) live in
   // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
   // one contextual list per state — see that file for why the Live-edit
   // rows are never concatenated with the palette rows.
-  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })
+  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })
   const closeToolPanel = () => setToolPanel(null)
   // The Design workspace (Preview + side panel + bottom panel) renders
   // either under the header in the normal flow, or inside the setup wizard
@@ -530,11 +631,15 @@ export default function App() {
               BottomPlayback with its own playback master. */}
           {tab === 'Live' && <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />}
           <div className="bottom-panel-switch">
-            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} />
+            {editingEffectId && tab === 'Design' && <div ref={setEffectTabHost} className="bottom-panel-effect-tab" />}
+            {effectChooserAttribute && tab === 'Design' && <div ref={setChooserLeftHost} className="bottom-panel-chooser-left" />}
+            <ViewSwitch view={tab} onView={(view) => { if (view !== 'Edit') goTab(view) }} panelOverlayOpen={Boolean(editingEffectId || effectChooserAttribute) && tab === 'Design'} />
+            {editingEffectId && tab === 'Design' && <div ref={setEffectToolsHost} className="bottom-panel-tools bottom-panel-effect-tools" />}
+            {effectChooserAttribute && tab === 'Design' && <div ref={setChooserSearchHost} className="bottom-panel-tools" />}
             {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback />}
+            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} />}
           </div>
         </div>
 
@@ -662,12 +767,12 @@ export default function App() {
           >
             <svg viewBox="0 0 28 18" aria-hidden="true"><circle cx="4" cy="5" r="2" /><circle cx="14" cy="9" r="2" /><circle cx="24" cy="14" r="2" /><path d="M6 5.8 12 8m4 2 6 3" /></svg>
           </button>
-          {/* DMX status button (Jake, 20 Nov 2026): this component owns
-              the auto-connect — on mount it re-connects the remembered
-              interface — so it must be mounted with the header, not
-              inside the settings menu: nested there it only ran when
-              the menu was opened, and a fresh launch never connected. */}
-          <DmxConnection />
+          {/* Headless DMX auto-connect (Jake, 21 Nov 2026): the DMX
+              button lives in the settings menu — LightKey's GUI has no
+              DMX button in its header — but the remembered interface
+              must still reconnect at startup, so this renders nothing
+              and just runs the mount-time scan and restore. */}
+          <DmxAutoConnect />
           <div ref={settingsMenuRef} className="relative">
             <button
               type="button"
@@ -693,6 +798,7 @@ export default function App() {
                 <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
                 <label className="px-3 py-2 text-xs">Tempo (BPM)<span className="mt-1 flex gap-1"><input aria-label="Tempo in BPM" type="number" min="30" max="240" value={bpm} onChange={(event) => useShowStore.getState().setBpm(Number(event.target.value))} className="min-w-0 flex-1 rounded bg-panel2 p-1" /><button type="button" className="btn-theme text-xs" onClick={() => { const result = calculateTapTempo(headerTaps.current, performance.now()); headerTaps.current = result.taps; if (result.bpm !== null) useShowStore.getState().setBpm(result.bpm) }}>Tap</button></span></label>
                 <div className="my-1 border-t border-line" />
+                <DmxConnection />
                 <button className="btn-panic rounded px-3 py-2 text-xs" onClick={handleBlackout}>{blackout ? 'Restore output' : 'Blackout'}</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
                 <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
@@ -729,6 +835,22 @@ export default function App() {
               <span className="max-w-40 truncate">{editingPreset.name}</span>
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingPreset}>Save</button>
               <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingPreset}>Cancel</button>
+            </span>
+          )}
+          {editingEffectTemplate && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">{editingEffectTemplate.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={updateEffectTemplate}>Update</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingEffectTemplate}>Cancel</button>
+            </span>
+          )}
+          {editingLiveEffect && (
+            <span role="status" className="mr-3 inline-flex items-center gap-2 rounded-full bg-yellow-400 px-3 py-1 text-xs font-semibold text-black">
+              <span aria-hidden="true">✎</span>
+              <span className="max-w-40 truncate">{editingLiveEffect.name}</span>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={saveEditingLiveEffect}>Update</button>
+              <button type="button" className="rounded-full bg-black/15 px-2 py-0.5 hover:bg-black/25" onClick={cancelEditingLiveEffect}>Cancel</button>
             </span>
           )}
           {editingCueAdHoc && (

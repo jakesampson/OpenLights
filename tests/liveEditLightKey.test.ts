@@ -139,7 +139,7 @@ describe('Live Edit — LightKey layout', () => {
     const shortcuts = readFileSync(resolve(root, 'src/renderer/src/lib/shortcuts.ts'), 'utf8')
     expect(shortcuts).toContain('Nudge')
     expect(shortcuts).toContain('Clear selection')
-    expect(app).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })')
+    expect(app).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })')
     expect(workspace).toContain('moveSelectedPageObjects')
     expect(workspace).toContain('stopImmediatePropagation')
   })

@@ -1,11 +1,11 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
 import { findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '../lib/presetPalette'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
-import type { PresetCategory, PresetGroup } from '@shared/types'
+import type { PresetGroup } from '@shared/types'
 
 // LightKey Preset Palette (18 Nov 2026, Jake's screenshots): ONE combined
 // tree in the right sidebar — presets of every kind (colour, movement,
@@ -37,9 +37,12 @@ import type { PresetCategory, PresetGroup } from '@shared/types'
 //   leaf rows at the tree root (no heading), click to toggle.
 // - Export JSON / Import JSON / Convert cues to presets — kept, in the header
 //   "⋯" menu; LightKey has no such buttons in its palette.
-// - "New Preset" / "New Preset With Snapshot" / "New Sequence" — new UI
-//   wired to the existing capturePreset / updatePresetFromCurrent /
-//   createSequence store actions (there was no "new preset" UI before).
+// - "New Preset" / "New Preset With Snapshot" / "New Sequence" —
+//   presets are created immediately from the current look, LightKey's
+//   way (Jake, 22 Nov 2026): no name/category form, LightKey's auto-name,
+//   the row left in rename mode. Groups and sequences still ask for a
+//   name (the composer below). The capture itself is
+//   capturePresetFromLook in the store.
 
 /** Drag format for moving palette items between groups (palette-internal). */
 const PALETTE_DRAG_MIME = 'application/x-openlights-palette-item'
@@ -47,13 +50,6 @@ const PALETTE_DRAG_MIME = 'application/x-openlights-palette-item'
 type PaletteItemKind = 'preset' | 'sequence' | 'group' | 'effect'
 interface PaletteItem { kind: PaletteItemKind; id: string }
 interface PaletteDrag { kind: 'preset' | 'sequence' | 'group'; id: string }
-
-const CATEGORY_LABELS: { value: PresetCategory; label: string }[] = [
-  { value: 'color', label: 'Colour' },
-  { value: 'position', label: 'Position' },
-  { value: 'intensity', label: 'Intensity' },
-  { value: 'other', label: 'Other' }
-]
 
 export function GroupsPresetsPanel() {
   const {
@@ -64,12 +60,13 @@ export function GroupsPresetsPanel() {
     activeSequenceIds,
     togglePreset,
     effects,
-    activeCueId,
     selectedFixtureIds,
     updateEffect,
+    startEditingLiveEffect,
     removeEffect,
-    capturePreset,
-    updatePresetFromCurrent,
+    capturePresetFromLook,
+    previewPresetId,
+    setPreviewPresetId,
     editingPresetId,
     startEditingPreset,
     cancelEditingPreset,
@@ -106,10 +103,15 @@ export function GroupsPresetsPanel() {
   const [expandedSequenceId, setExpandedSequenceId] = useState<string | null>(null)
   const [headerMenu, setHeaderMenu] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; target: PaletteItem | null } | null>(null)
-  const [composer, setComposer] = useState<{ type: 'preset' | 'preset-snapshot' | 'group' | 'sequence'; fromSelection?: boolean; parentGroupId?: string | null } | null>(null)
+  // The composer now asks for a name only for groups and sequences.
+  // Presets are created immediately, LightKey's way (Jake, 22 Nov 2026)
+  // — see createPresetNow below.
+  const [composer, setComposer] = useState<{ type: 'group' | 'sequence'; fromSelection?: boolean; parentGroupId?: string | null } | null>(null)
   const [composerName, setComposerName] = useState('')
-  const [composerCategory, setComposerCategory] = useState<PresetCategory>('color')
   const [dragOverId, setDragOverId] = useState<string | null>(null)
+  // The palette row the mouse is over, for the yellow hover-Edit
+  // button (LightKey Guide ch.9, p.128; Jake, 21 Nov 2026).
+  const [hoveredRow, setHoveredRow] = useState<string | null>(null)
   // The header "…" menu and the right-click context menu used to share
   // one ref, so after the first context menu unmounted React left the
   // ref null (it is not re-assigned to the still-mounted header div)
@@ -119,8 +121,31 @@ export function GroupsPresetsPanel() {
   const headerMenuRef = useRef<HTMLDivElement>(null)
   const contextMenuRef = useRef<HTMLDivElement>(null)
   const treeRef = useRef<HTMLDivElement>(null)
-  const composerInputRef = useRef<HTMLInputElement>(null)
-  const renameInputRef = useRef<HTMLInputElement>(null)
+  const composerInputRef = useRef<HTMLInputElement | null>(null)
+  const renameInputRef = useRef<HTMLInputElement | null>(null)
+  // Focus an input the moment its node mounts — not only when the state
+  // that opened it changes (Jake, 22 Nov 2026: the rename box sometimes
+  // stayed unfocused so typing went nowhere). The layout effect below
+  // covers the same-commit mount; the callback ref covers the late
+  // mount — a preset created into a collapsed group (or behind a search
+  // filter) mounts its input only when the row becomes visible, long
+  // after the effect already ran against a null ref. Stable identity,
+  // so it runs on mount/unmount only — never again on a keystroke
+  // re-render, which would re-select the text and eat the next char.
+  const focusComposerInput = useCallback((el: HTMLInputElement | null) => {
+    composerInputRef.current = el
+    if (el) el.focus()
+  }, [])
+  const focusRenameInput = useCallback((el: HTMLInputElement | null) => {
+    renameInputRef.current = el
+    if (el) {
+      // LightKey leaves a new preset's auto-name selected, ready to type
+      // over (Jake, 22 Nov 2026) — select-all, not just focus, so the
+      // first keystroke replaces the name instead of appending to it.
+      el.focus()
+      el.select()
+    }
+  }, [])
 
   useEffect(() => {
     if (!contextMenu && !headerMenu) return
@@ -138,11 +163,60 @@ export function GroupsPresetsPanel() {
       const detail = (event as CustomEvent<{ x: number; y: number }>).detail
       if (!detail) return
       setSelected([])
+      setPreviewPresetId(null)
       setHeaderMenu(false)
       setContextMenu({ x: detail.x, y: detail.y, target: null })
     }
     window.addEventListener('openlights-preset-palette-context', open)
     return () => window.removeEventListener('openlights-preset-palette-context', open)
+  }, [])
+
+  // --- immediate preset creation (LightKey, Jake 22 Nov 2026) -----------
+  // Right-click → New Preset creates at once from whatever was touched
+  // in Design — no name box, no property dropdown, no Create/Cancel.
+  // LightKey auto-names it from the colour (or the dimmer percentage)
+  // and leaves the name editable: the new row opens in rename mode
+  // with the name selected, ready to type over. Snapshot captures the
+  // combined look (applied presets + overrides) instead of just the
+  // touches; both file into the right-clicked group when there is one.
+  const createPresetNow = (snapshot: boolean, parentGroupId?: string | null) => {
+    if (!selectedFixtureIds.length) {
+      setPaletteNote('Select fixtures in Design first, then capture a preset from the current look.')
+      return
+    }
+    const created = capturePresetFromLook(snapshot, parentGroupId ?? null)
+    if (!created) {
+      setPaletteNote(snapshot
+        ? 'Nothing to snapshot — the selected fixtures have no values in the current look.'
+        : 'Nothing has been touched on the selected fixtures — adjust dimmer or colour in Design first.')
+      return
+    }
+    setPaletteNote(`Preset “${created.name}” created.`)
+    // The rename box only mounts when its row renders: a preset created
+    // into a collapsed group — or behind a search that does not match
+    // its auto-name — would open a rename with no visible input, so
+    // typing went nowhere and Enter did nothing (Jake, 22 Nov 2026).
+    // Make the new row visible first; the focus callback on the input
+    // then lands the caret as soon as it mounts.
+    if (parentGroupId) setCollapsed((prev) => ({ ...prev, [parentGroupId]: false }))
+    if (search.trim() && !created.name.toLowerCase().includes(search.trim().toLowerCase())) setSearch('')
+    startRename({ kind: 'preset', id: created.id }, created.name)
+  }
+
+  // The effects chooser's template menu offers the same New Preset /
+  // Group / Sequence entries as the palette menu (LightKey's preset
+  // menu). Presets are created immediately (createPresetNow above);
+  // groups and sequences still open the name composer.
+  useEffect(() => {
+    const openComposer = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: 'preset' | 'preset-snapshot' | 'group' | 'sequence' }>).detail
+      if (!detail || !['preset', 'preset-snapshot', 'group', 'sequence'].includes(detail.type)) return
+      if (detail.type === 'preset' || detail.type === 'preset-snapshot') { createPresetNow(detail.type === 'preset-snapshot'); return }
+      setComposer({ type: detail.type })
+      setComposerName('')
+    }
+    window.addEventListener('openlights-palette-composer', openComposer)
+    return () => window.removeEventListener('openlights-palette-composer', openComposer)
   }, [])
 
   // Focus the composer / rename input synchronously when it opens (19 Nov
@@ -155,7 +229,13 @@ export function GroupsPresetsPanel() {
     if (composer) composerInputRef.current?.focus()
   }, [composer])
   useLayoutEffect(() => {
-    if (renaming) renameInputRef.current?.focus()
+    if (renaming) {
+      // LightKey leaves a new preset's auto-name selected, ready to type
+      // over (Jake, 22 Nov 2026) — select-all, not just focus, so the
+      // first keystroke replaces the name instead of appending to it.
+      renameInputRef.current?.focus()
+      renameInputRef.current?.select()
+    }
   }, [renaming])
 
   // --- "Show in Cue" (LightKey Guide p.144) --------------------------------
@@ -180,9 +260,17 @@ export function GroupsPresetsPanel() {
   const toggleCollapsed = (id: string) => setCollapsed((prev) => ({ ...prev, [id]: !prev[id] }))
   const isSelected = (item: PaletteItem) => selected.some((s) => s.kind === item.kind && s.id === item.id)
   const selectItem = (item: PaletteItem, additive: boolean) => {
-    setSelected((prev) => additive
-      ? isSelected(item) ? prev.filter((s) => !(s.kind === item.kind && s.id === item.id)) : [...prev, item]
-      : [item])
+    const next = additive
+      ? isSelected(item) ? selected.filter((s) => !(s.kind === item.kind && s.id === item.id)) : [...selected, item]
+      : [item]
+    setSelected(next)
+    // The Preview labels follow the selected preset (Jake, 22 Nov
+    // 2026): they clear when the preset leaves the selection — e.g.
+    // clicking a sequence or effect row. A preset row sets its own
+    // label after this, in its onClick.
+    if (!next.some((s) => s.kind === 'preset' && s.id === useShowStore.getState().previewPresetId)) {
+      setPreviewPresetId(null)
+    }
   }
 
   // --- palette file exchange (header menu) --------------------------------
@@ -213,29 +301,12 @@ export function GroupsPresetsPanel() {
     }
   }
 
-  // --- creation ------------------------------------------------------------
+  // --- creation (groups and sequences only — presets are immediate,
+  // see createPresetNow above) -----------------------------------------
   const createFromComposer = () => {
     const name = composerName.trim()
     if (!composer || !name) return
-    if (composer.type === 'preset' || composer.type === 'preset-snapshot') {
-      if (!activeCueId || !selectedFixtureIds.length) {
-        setPaletteNote('Select fixtures in Design first, then capture a preset from the current look.')
-        return
-      }
-      // capturePreset silently does nothing when no fixture value passes
-      // the category filter, so only claim success when a preset was
-      // actually added — the old code always said "created".
-      const before = useShowStore.getState().presets.length
-      capturePreset(name, composerCategory)
-      if (composer.type === 'preset-snapshot') {
-        // "New Preset With Snapshot": capture, then snapshot the current
-        // look into the preset just created (it is appended last).
-        const created = useShowStore.getState().presets.at(-1)
-        if (created) updatePresetFromCurrent(created.id)
-      }
-      if (useShowStore.getState().presets.length > before) setPaletteNote(`Preset “${name}” created.`)
-      else setPaletteNote(`Could not capture a preset — the selected fixtures have no values for this category.`)
-    } else if (composer.type === 'group') {
+    if (composer.type === 'group') {
       createPresetGroup(name, composer.parentGroupId ?? null)
       setPaletteNote(`Group “${name}” created.`)
       if (composer.fromSelection) {
@@ -277,6 +348,26 @@ export function GroupsPresetsPanel() {
     }
     setRenaming(null)
   }
+  // Clicking off a rename commits it (Jake, 22 Nov 2026: clicking off
+  // did nothing and the rename stayed stuck). The input's own blur
+  // covers the ordinary click — but not a pointerdown that calls
+  // preventDefault, which never moves focus and so never fires blur:
+  // the Preview canvas does exactly that (its pan/drag handlers), so a
+  // click onto the Preview left the rename open with focus still in the
+  // input. Commit on any pointerdown outside the input instead — the
+  // blur path stays as the backstop for keyboard-driven focus moves.
+  // The listener re-registers when the typed value changes so the
+  // closure always commits the current text, not the auto-name.
+  useEffect(() => {
+    if (!renaming) return
+    const onPointerDown = (event: PointerEvent) => {
+      if (renameInputRef.current?.contains(event.target as Node)) return
+      commitRename()
+    }
+    window.addEventListener('pointerdown', onPointerDown, true)
+    return () => window.removeEventListener('pointerdown', onPointerDown, true)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renaming, renameValue])
   const openProperties = (item: PaletteItem) => {
     if (item.kind === 'preset') setPropertiesId((prev) => prev === item.id ? null : item.id)
     else if (item.kind === 'sequence') setExpandedSequenceId((prev) => prev === item.id ? null : item.id)
@@ -285,12 +376,15 @@ export function GroupsPresetsPanel() {
   // Right-click → Edit (LightKey, Guide ch.9): a preset opens in place in
   // Design — top bar shows its name with Save/Cancel, the preview shows
   // the look, the bottom panel edits its values. A sequence opens its
-  // existing SequenceEditor; a group renames inline (LightKey's Return =
-  // Rename). Nothing here opens a menu. "Show Properties" (openProperties
-  // above) still expands the inline contents list for presets.
+  // existing SequenceEditor; an effect opens in the effect editor with
+  // a draft session (Update/Cancel in the toolbar — Jake, 22 Nov 2026);
+  // a group renames inline (LightKey's Return = Rename). Nothing here
+  // opens a menu. "Show Properties" (openProperties above) still
+  // expands the inline contents list for presets.
   const editItem = (item: PaletteItem) => {
     if (item.kind === 'preset') startEditingPreset(item.id)
     else if (item.kind === 'sequence') setExpandedSequenceId(item.id)
+    else if (item.kind === 'effect') startEditingLiveEffect(item.id)
     else if (item.kind === 'group') {
       const label = groups.find((g) => g.id === item.id)?.name
       if (label) startRename(item, label)
@@ -393,13 +487,20 @@ export function GroupsPresetsPanel() {
   const onTreeKeyDown = (event: React.KeyboardEvent) => {
     const target = event.target as HTMLElement | null
     if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return
+    // A rename is already open but focus is not in its input (it never
+    // landed there, or Tab moved it out): Return must commit the typed
+    // name, not start a fresh rename from the stored name — that would
+    // silently throw the typed text away (Jake, 22 Nov 2026). Escape
+    // keeps its existing cancel path below.
+    if (renaming && event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); commitRename(); return }
     const mod = event.ctrlKey || event.metaKey
     const key = event.key.toLowerCase()
     if (mod && key === 'n' && !event.shiftKey) {
       // Cmd/Ctrl+N is "New project" globally; inside the palette it is
-      // LightKey's "New preset". Stop it reaching the global handler.
+      // LightKey's "New preset" — created immediately, no form.
+      // Stop it reaching the global handler.
       event.preventDefault(); event.stopPropagation()
-      setComposer({ type: 'preset' })
+      createPresetNow(false)
       return
     }
     if (mod && key === 'n' && event.shiftKey) {
@@ -416,7 +517,7 @@ export function GroupsPresetsPanel() {
     if (event.key === 'Escape') {
       // Stop here so the global Esc handler does not also stop a cue.
       event.preventDefault(); event.stopPropagation()
-      setSelected([]); setContextMenu(null); setComposer(null); setRenaming(null)
+      setSelected([]); setPreviewPresetId(null); setContextMenu(null); setComposer(null); setRenaming(null)
       return
     }
     if (event.key === 'Enter' && selected.length === 1) {
@@ -464,7 +565,7 @@ export function GroupsPresetsPanel() {
 
   const renameInput = (item: PaletteItem) => (
     <input
-      ref={renameInputRef}
+      ref={focusRenameInput}
       aria-label={`Rename ${item.kind}`}
       value={renameValue}
       onChange={(event) => setRenameValue(event.target.value)}
@@ -486,7 +587,10 @@ export function GroupsPresetsPanel() {
     const editing = editingPresetId === preset.id
     return (
       <div key={preset.id} data-palette-row={`preset:${preset.id}`} tabIndex={-1}
-        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}>
+        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
+        onMouseEnter={() => setHoveredRow(`preset:${preset.id}`)}
+        onMouseLeave={() => setHoveredRow((current) => (current === `preset:${preset.id}` ? null : current))}
+      >
         <div
           className="flex items-center gap-1 pr-1"
           draggable
@@ -498,7 +602,39 @@ export function GroupsPresetsPanel() {
           onDragOver={(event) => { if (allowPaletteDrop(event)) setDragOverId(preset.id) }}
           onDragLeave={(event) => clearDragOver(event, preset.id)}
           onDrop={(event) => dropOntoItem(event, item, parentGroupId)}
-          onClick={(event) => { selectItem(item, event.shiftKey); if (!editing) togglePreset(preset.id) }}
+          onClick={(event) => {
+            // A plain click toggles the preset (Jake, 22 Nov 2026):
+            // the second click turns it off AND lets go of the
+            // selection, so the row highlight and the Preview labels
+            // go with it. The old code always re-selected on a plain
+            // click, so after the second click the row stayed
+            // highlighted and labelled even though the preset was off.
+            // Shift-click keeps the additive multi-select behaviour.
+            if (editing) {
+              selectItem(item, event.shiftKey)
+              setPreviewPresetId(preset.id)
+              return
+            }
+            const wasActive = activePresetIds.includes(preset.id)
+            if (event.shiftKey) {
+              const wasSelected = isSelected(item)
+              selectItem(item, true)
+              togglePreset(preset.id)
+              setPreviewPresetId(wasSelected ? null : preset.id)
+              return
+            }
+            if (wasActive) {
+              setSelected([])
+              togglePreset(preset.id)
+              setPreviewPresetId(null)
+              return
+            }
+            selectItem(item, false)
+            togglePreset(preset.id)
+            // Clicking a preset shows its saved values as labels on
+            // the fixtures in the Preview (LightKey, Jake 22 Nov 2026).
+            setPreviewPresetId(preset.id)
+          }}
           onDoubleClick={() => openProperties(item)}
           onContextMenu={(event) => rowContextMenu(event, item)}
           role="treeitem"
@@ -510,6 +646,13 @@ export function GroupsPresetsPanel() {
             {renaming?.kind === 'preset' && renaming.id === preset.id ? renameInput(item) : <span className="truncate">{preset.name}</span>}
             {active && !editing && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
           </button>
+          {/* Hovering a preset row shows a yellow Edit button (LightKey
+              Guide ch.9, p.128; Jake, 21 Nov 2026) — the same Edit as
+              the right-click menu. While the preset is being edited the
+              row is yellow with Cancel instead. */}
+          {hoveredRow === `preset:${preset.id}` && !editing && (
+            <button type="button" aria-label={`Edit ${preset.name}`} className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black" onClick={(event) => { event.stopPropagation(); editItem(item) }}>Edit</button>
+          )}
           {editing && <button type="button" aria-label={`Cancel editing ${preset.name}`} className="rounded px-1.5 py-1 text-[10px] font-semibold text-black bg-yellow-400 hover:bg-yellow-300" onClick={(event) => { event.stopPropagation(); cancelEditingPreset() }}>Cancel</button>}
         </div>
         {propertiesId === preset.id && <div className="pl-4 pr-1 pb-1"><PresetContents preset={preset} /></div>}
@@ -610,7 +753,7 @@ export function GroupsPresetsPanel() {
   return (
     <div aria-label="Preset palette panel" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1" onClick={() => setHeaderMenu(false)} onContextMenu={(event) => {
       if ((event.target as Element).closest('[data-palette-row]')) return
-      event.preventDefault(); event.stopPropagation(); setSelected([]); setHeaderMenu(false); setContextMenu({ x: event.clientX, y: event.clientY, target: null })
+      event.preventDefault(); event.stopPropagation(); setSelected([]); setPreviewPresetId(null); setHeaderMenu(false); setContextMenu({ x: event.clientX, y: event.clientY, target: null })
     }}>
       <div className="flex gap-1 px-1 pb-2">
         <input type="search" aria-label="Search palette" placeholder="Search palette" value={search} onChange={(event) => setSearch(event.target.value)} className="min-w-0 flex-1 rounded border border-line bg-bg/50 px-2 py-1 text-xs text-text placeholder:text-dim" />
@@ -618,8 +761,8 @@ export function GroupsPresetsPanel() {
           <button type="button" aria-label="Preset palette menu" title="Preset palette menu" aria-expanded={headerMenu} className="rounded border border-line bg-panel2 px-2 py-1 text-sm text-text" onClick={(event) => { event.stopPropagation(); setHeaderMenu((open) => !open); setContextMenu(null) }}>⋯</button>
           {headerMenu && (
             <div role="menu" aria-label="Preset palette menu" className="absolute right-0 top-full z-[300] mt-1 min-w-52 rounded border border-line bg-panel p-1 shadow-xl">
-              <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'preset' }) }}>New preset</button>
-              <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'preset-snapshot' }) }}>New preset with snapshot</button>
+              <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); createPresetNow(false) }}>New preset</button>
+              <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); createPresetNow(true) }}>New preset with snapshot</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'group' }) }}>New group</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'sequence' }) }}>New sequence</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { setHeaderMenu(false); setComposer({ type: 'sequence' }); setComposerName('Sequence') }}>Capture sequence</button>
@@ -640,12 +783,7 @@ export function GroupsPresetsPanel() {
       )}
       {composer && (
         <div className="mx-1 flex flex-wrap items-center gap-1 rounded border border-line bg-panel2 p-2">
-          <input ref={composerInputRef} aria-label={composer.type === 'group' ? 'New group name' : composer.type === 'sequence' ? 'New sequence name' : 'New preset name'} placeholder={composer.type === 'group' ? 'Group name' : composer.type === 'sequence' ? 'Sequence name' : 'Preset name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
-          {(composer.type === 'preset' || composer.type === 'preset-snapshot') && (
-            <select aria-label="Preset category" value={composerCategory} onChange={(event) => setComposerCategory(event.target.value as PresetCategory)} className="rounded bg-bg px-1 py-1 text-xs">
-              {CATEGORY_LABELS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          )}
+          <input ref={focusComposerInput} aria-label={composer.type === 'group' ? 'New group name' : 'New sequence name'} placeholder={composer.type === 'group' ? 'Group name' : 'Sequence name'} value={composerName} onChange={(event) => setComposerName(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') createFromComposer(); else if (event.key === 'Escape') { setComposer(null); setComposerName('') } }} className="min-w-0 flex-1 rounded bg-bg px-2 py-1 text-xs" />
           <button type="button" className="btn-theme text-xs" disabled={!composerName.trim()} onClick={createFromComposer}>Create</button>
           <button type="button" className="text-xs text-dim" onClick={() => { setComposer(null); setComposerName('') }}>Cancel</button>
           {composer.fromSelection && <span className="w-full text-[10px] text-dim">From the {selected.length} selected item{selected.length === 1 ? '' : 's'}.</span>}
@@ -672,17 +810,30 @@ export function GroupsPresetsPanel() {
           {effects.filter((effect) => matchesQuery(effect.name)).map((effect) => {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
             return (
-              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}>
+              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}
+                onMouseEnter={() => setHoveredRow(`effect:${effect.id}`)}
+                onMouseLeave={() => setHoveredRow((current) => (current === `effect:${effect.id}` ? null : current))}
+              >
                 <button type="button" role="treeitem" aria-selected={isSelected(item)}
                   className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${effect.enabled ? 'selected' : 'hover:bg-panel2'}`}
-                  title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'}`}
+                  title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'} · double-click to edit`}
                   onClick={(event) => { selectItem(item, event.shiftKey); updateEffect(effect.id, { enabled: !effect.enabled }) }}
+                  onDoubleClick={() => startEditingLiveEffect(effect.id)}
                   onContextMenu={(event) => rowContextMenu(event, item)}
                 >
                   <span aria-hidden="true">∿</span>
                   <span className="truncate">{effect.name}</span>
                   {effect.enabled && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
                 </button>
+                {/* Hovering an effect row shows a yellow Edit button
+                    (LightKey Guide ch.9, p.128; Jake, 21 Nov 2026) —
+                    the same Edit as the right-click menu and
+                    double-click: it opens the effect in the editor with
+                    a draft session (Update/Cancel in the toolbar),
+                    not a live edit. */}
+                {hoveredRow === `effect:${effect.id}` && (
+                  <button type="button" aria-label={`Edit ${effect.name}`} className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black" onClick={(event) => { event.stopPropagation(); startEditingLiveEffect(effect.id) }}>Edit</button>
+                )}
               </div>
             )
           })}
@@ -736,8 +887,8 @@ export function GroupsPresetsPanel() {
             setPaletteNote(total === 0 ? 'No unused items in the search scope.' : `Selected ${total} unused item${total === 1 ? '' : 's'}.`)
             return
           }
-          if (action === 'new-preset') setComposer({ type: 'preset', parentGroupId: target?.kind === 'group' ? target.id : undefined })
-          else if (action === 'new-preset-snapshot') setComposer({ type: 'preset-snapshot', parentGroupId: target?.kind === 'group' ? target.id : undefined })
+          if (action === 'new-preset') createPresetNow(false, target?.kind === 'group' ? target.id : undefined)
+          else if (action === 'new-preset-snapshot') createPresetNow(true, target?.kind === 'group' ? target.id : undefined)
           else if (action === 'new-group') setComposer({ type: 'group', parentGroupId: target?.kind === 'group' ? target.id : undefined })
           else if (action === 'new-group-from-selection') newGroupFromSelection()
           else if (action === 'new-sequence') setComposer({ type: 'sequence' })
@@ -798,16 +949,36 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
   // The submenu opens on hover or click, to the left — the palette is the
   // right sidebar, so a right-opening submenu would run off-screen.
   const [showInCueOpen, setShowInCueOpen] = useState(false)
+  // A menu opened at the click point can run off the bottom of the
+  // window when the row is low in the palette; clamp it into the
+  // viewport after mount so every item stays clickable.
+  const [pos, setPos] = useState({ left: x, top: y })
+  useLayoutEffect(() => {
+    const el = contextMenuRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setPos({
+      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))
+    })
+  }, [x, y, contextMenuRef])
   const item = (action: PaletteMenuAction, label: string, disabled = false) => (
     <button key={action} type="button" role="menuitem" disabled={disabled}
       className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40"
       onClick={() => onAction(action)}>{label}</button>
   )
   return (
-    <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: x, top: y }}>
+    <div ref={contextMenuRef} role="menu" aria-label="Preset palette actions" className="fixed z-[300] min-w-56 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
       {target && <>
-        {item('show-properties', 'Show Properties')}
-        {item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
+        {/* Show Properties, Apply and Rename have no meaning for a live
+            effect row (they act on presets/sequences/groups), so they
+            are not offered for effects — a menu item that silently does
+            nothing is worse than no item (Jake, 21 Nov 2026: right-click
+            Edit did nothing for an effect). Edit opens the effect in the
+            editor with a draft session (Update/Cancel in the toolbar);
+            Delete removes it. */}
+        {target.kind !== 'effect' && item('show-properties', 'Show Properties')}
+        {target.kind !== 'effect' && item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
         {item('edit', 'Edit')}
         {(target.kind === 'preset' || target.kind === 'sequence') && (
           <div className="relative" onMouseEnter={() => setShowInCueOpen(true)} onMouseLeave={() => setShowInCueOpen(false)}>
@@ -834,7 +1005,7 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
         )}
         {target.kind === 'preset' && item('add-overrides', 'Add Overrides')}
         <div className="my-1 border-t border-line" />
-        {item('rename', 'Rename')}
+        {target.kind !== 'effect' && item('rename', 'Rename')}
         {target.kind !== 'group' && target.kind !== 'effect' && item('duplicate', 'Duplicate')}
         {item('delete', 'Delete')}
         <div className="my-1 border-t border-line" />

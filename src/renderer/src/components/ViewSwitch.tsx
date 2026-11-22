@@ -14,6 +14,10 @@ import { ManageLivePages, pageKindIcon } from './ManageLivePages'
 interface Props {
   view: WorkspaceView
   onView: (view: WorkspaceView) => void
+  /** The effect editor or the effects chooser is open: its tab or swap
+   *  pill joins the pill bar as the active segment and Design is not
+   *  highlighted (LightKey). */
+  panelOverlayOpen?: boolean
 }
 
 /**
@@ -30,13 +34,13 @@ interface Props {
  * Selecting a page switches to it. The manager itself is the separate
  * ManageLivePages modal (Guide ch.11, p.176).
  */
-export function ViewSwitch({ view, onView }: Props) {
+export function ViewSwitch({ view, onView, panelOverlayOpen = false }: Props) {
   const { show, cueLists, activeLivePageId, setLivePages, selectLivePage, locked } = useShowStore()
   const [open, setOpen] = useState(false)
   const [managerOpen, setManagerOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
   const pages = show?.livePages ?? []
-  const segments = viewSwitchSegments(view)
+  const segments = viewSwitchSegments(view, panelOverlayOpen)
   const menuVisible = pageManagerVisible(view, open)
 
   useEffect(() => {

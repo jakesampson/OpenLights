@@ -3,8 +3,13 @@ import type { LivePage } from '@shared/types'
 export type WorkspaceView = 'Design' | 'Live' | 'Edit'
 
 /** Which side of the two-segment switch is highlighted for a view. */
-export function viewSwitchSegments(view: WorkspaceView): { design: boolean; live: boolean } {
-  return { design: view === 'Design', live: view !== 'Design' }
+export function viewSwitchSegments(view: WorkspaceView, panelOverlayOpen = false): { design: boolean; live: boolean } {
+  // While the effect editor or the effects chooser is open, its tab or
+  // swap pill is the active thing in the pill bar — LightKey's
+  // screenshots (11.47.29 pm, 12.03.49 am) show Design/Live as plain
+  // text with no pill highlighted — so Design is not highlighted even
+  // though the tab is Design.
+  return { design: view === 'Design' && !panelOverlayOpen, live: view !== 'Design' }
 }
 
 /** The Live side only exposes the page menu while the Live view is active. */

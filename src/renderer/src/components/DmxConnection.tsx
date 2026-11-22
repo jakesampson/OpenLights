@@ -17,6 +17,35 @@ function findSavedDevice(ports: DmxPortInfo[], saved: UsbDefault): DmxPortInfo |
   return ports.find((p) => p.path === saved.path && (!saved.vendorId || p.vendorId === saved.vendorId) && (!saved.productId || p.productId === saved.productId))
 }
 
+/** Headless auto-connect (Jake, 21 Nov 2026): the DMX button belongs in
+ *  the settings menu, not the header — LightKey's GUI has no DMX button
+ *  in its header — but the remembered interface must still reconnect at
+ *  startup. This mounts with the header, runs the same mount-time scan
+ *  and restore as the dialog, and renders nothing. Silent on failure:
+ *  a missing device just stays disconnected, no error spam. */
+export function DmxAutoConnect() {
+  const ran = useRef(false)
+  useEffect(() => {
+    if (ran.current) return
+    ran.current = true
+    void (async () => {
+      try {
+        const result: unknown = await window.electronAPI.getDmxPorts()
+        if (!isDmxPortInfoList(result)) return
+        const saved = readDefault()
+        if (!saved) return
+        const device = findSavedDevice(result, saved)
+        if (!device) return
+        const current = await window.electronAPI.getDmxStatus()
+        if (!current.connected || current.port !== device.path || current.serialProtocol !== saved.protocol) {
+          await window.electronAPI.setDmxPort(device.path, saved.protocol)
+        }
+      } catch { /* stays disconnected */ }
+    })()
+  }, [])
+  return null
+}
+
 export function DmxConnection() {
   const [open, setOpen] = useState(false)
   const [ports, setPorts] = useState<DmxPortInfo[]>([])

@@ -188,6 +188,58 @@ export interface CueListDef {
 
 export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random' | 'cosine' | 'pulse' | 'smooth'
 
+/** LightKey Guide ch.10, pp.146-175: the three kinds of effects. */
+export type EffectKind = 'pattern' | 'curve' | 'movement'
+
+export type PatternEffect = 'chase' | 'scanner' | 'yo-yo' | 'fill' | 'rain' | 'meteor' | 'sparkle' | 'fire' | 'jellyfish' | 'snakes'
+
+/** One sample of a pattern effect (Guide p.153): an intensity value (0-100%) or a color. */
+export interface EffectSample {
+  id: string
+  /** Intensity sample, 0-100. */
+  value?: number
+  /** Color sample, hex RGB (e.g. '#ff0000'). */
+  color?: string
+}
+
+/** One control point of a drawable curve effect (Guide pp.161-164): x is time 0-1 across the
+ *  effect duration, y is the property value 0-1. */
+export interface CurveControlPoint {
+  id: string
+  x: number
+  y: number
+}
+
+/** One component curve of a curve effect (Guide p.161): Color has one curve per color-model
+ *  component, Position has pan and tilt curves, other properties have a single curve. */
+export interface CurveComponent {
+  component: string
+  points: CurveControlPoint[]
+  /** Segment i (between point i and point i+1) is curved when true, straight when false. */
+  curvedSegments: boolean[]
+}
+
+/** A movement path (Guide pp.165-171): two or more control points in normalized pan/tilt
+ *  coordinates (-1..1). Paths are stored independently of effects so they can be reused.
+ *  Built-in paths are Circle, Figure Eight and Line; editing a built-in path duplicates it. */
+export interface MovementPathDef {
+  id: string
+  name: string
+  builtIn?: boolean
+  type: 'smooth' | 'line' | 'points'
+  points: { pan: number; tilt: number }[]
+}
+
+/** LightKey Guide ch.10, p.150: timing modes for effects. */
+export type EffectTimingMode = 'fixed' | 'beat' | 'random'
+
+/** LightKey Guide ch.10, pp.151-152: fixture (pixel) order for an effect. */
+export type EffectFixtureOrder =
+  | 'forward' | 'reverse' | 'random' | 'custom'
+  | 'left-right' | 'right-left' | 'top-bottom' | 'bottom-top'
+  | 'short-name-asc' | 'short-name-desc' | 'address-asc' | 'address-desc'
+  | 'random-fixed' | 'random-variable' | 'custom-direction'
+
 export interface EffectDef {
   id: string
   name: string
@@ -198,13 +250,119 @@ export interface EffectDef {
   syncToBpm: boolean
   size: number // depth, 0-255
   offset: number // centre value, 0-255
+  /** Guide ch.10: the kind of effect. Absent = 'curve' (the legacy waveform model). */
+  kind?: EffectKind
+  /** Pattern effects: which pattern (Guide pp.154-160). */
+  pattern?: PatternEffect
+  /** Pattern effects: the samples (Guide p.153). Samples[0] is the background. */
+  samples?: EffectSample[]
+  /** Pattern effects, Guide pp.154-160 — all optional, per-pattern. */
+  stepsPerValue?: number
+  /** Manual timing, percent of the effect duration (Guide pp.154-166). */
+  phase?: number
+  /** Time offset between consecutive pixels, percent of the sample duration (Guide pp.154-166). */
+  timeOffset?: number
+  /** Delay between consecutive pixels, percent of the sample duration (Guide pp.154-155). */
+  delay?: number
+  /** Chase smoothness, 0-100 (Guide p.155): blends between consecutive samples. */
+  smoothness?: number
+  /** Scanner/Rain/Meteor/Snakes length in pixels (Guide pp.156-160). */
+  length?: number
+  /** Scanner overshoot in pixels (Guide p.156). */
+  overshoot?: number
+  /** Scanner/Rain/Sparkle/Jellyfish/Snakes fringe, 0-100 (Guide pp.156-160). */
+  fringe?: number
+  /** Scanner/Rain/Sparkle/Snakes noise (Guide pp.156-160). */
+  noise?: number
+  /** Yo-yo center, 0-100 (Guide p.157): ratio between filling and clearing. */
+  center?: number
+  /** Yo-yo steepness, 0-100 (Guide p.157): pacing of the pattern. */
+  steepness?: number
+  /** Rain/Meteor/Snakes distance in pixels (Guide pp.157-160). */
+  distance?: number
+  /** Meteor trail (Guide p.158; Jake's LightKey screenshot, 9.34.46 pm, shows
+   *  "Trail 60%"): the length of the meteor's trail, as a percent of the
+   *  pixel count. The guide gives no unit — the percent's reference is an
+   *  interpretation to confirm against LightKey. */
+  trail?: number
+  /** Meteor/Sparkle/Jellyfish: use samples (except background) as a palette (Guide pp.158-160). */
+  usePalette?: boolean
+  /** Sparkle interval in seconds (Guide p.159). */
+  interval?: number
+  /** Sparkle lifetime in seconds (Guide p.159). */
+  lifetime?: number
+  /** Fire speed (Guide p.160): a multiplier, 1 = normal speed. The
+   *  editor shows it as LightKey's percentage (50% = 1). */
+  fireSpeed?: number
+  /** Fire sparking: how fast a flame cools down (Guide p.160). */
+  sparking?: number
+  /** Fire cooling: how often a new spark ignites (Guide p.160). */
+  cooling?: number
+  /** Jellyfish count: max jellyfish visible at a time (Guide p.160). */
+  jellyfishCount?: number
+  /** Jellyfish size (Guide p.160). */
+  jellyfishSize?: number
+  /** Jellyfish speed (Guide p.160): how fast the jellyfish move. A
+   *  multiplier, 1 = normal speed (shown as 50% in the editor, as for
+   *  fireSpeed). Stored separately from fireSpeed, which the runtime
+   *  used to share for all three (fire/jellyfish/snakes) — older
+   *  effects fall back to it. */
+  jellyfishSpeed?: number
+  /** Snakes length range (Guide p.160): [min, max] pixels. */
+  lengthRange?: [number, number]
+  /** Snakes distance range (Guide p.160): [min, max] pixels. */
+  distanceRange?: [number, number]
+  /** Snakes speed (Guide p.160): how fast the snakes creep. A
+   *  multiplier, 1 = normal speed (shown as 50% in the editor, as for
+   *  fireSpeed). Falls back to fireSpeed on effects stored before this
+   *  field existed. */
+  snakeSpeed?: number
+  /** Fixed duration in milliseconds (Guide p.150). Absent = derived from speed. */
+  durationMs?: number
+  /** Timing mode (Guide p.150). Absent = legacy: beat when syncToBpm, fixed otherwise. */
+  timingMode?: EffectTimingMode
+  /** Beat-controlled timing (Guide p.150): beats per cycle (÷2 repeats twice per beat). */
+  beatMultiplier?: number
+  /** Drawable curve effects (Guide pp.161-164): one curve per component. Present = drawn
+   *  curve; absent = the waveform oscillator. */
+  curveComponents?: CurveComponent[]
+  /** Curve effects on Color (Guide p.161): the color model of the component curves. */
+  colorModel?: 'hsb' | 'rgb' | 'cmy'
+  /** Movement effects (Guide pp.165-171): the path id in show.movementPaths, or a built-in
+   *  path name ('Circle' | 'Figure Eight' | 'Line'). */
+  movementPathId?: string
+  /** Movement effects (Guide p.166): pan/tilt offset in degrees between consecutive fixtures. */
+  panOffset?: number
+  tiltOffset?: number
+  /** Curve Position options / movement options (Guide pp.164-166). */
+  mirrorPan?: boolean
+  mirrorTilt?: boolean
+  /** The effect's values are added to the values from lower-priority cues (Guide pp.164-166). */
+  relative?: boolean
+  /** Fixture order (Guide pp.151-152). Absent = 'forward' (patch order). */
+  fixtureOrder?: EffectFixtureOrder
+  customFixtureOrder?: string[]
+  /** Fixture order origin (Guide p.152). */
+  fixtureOrderOrigin?: 'start-end' | 'from-center' | 'to-center'
+  /** Fixture order grouping: treat N adjacent pixels as one (Guide p.152). */
+  fixtureGrouping?: number
+  /** Fixture order repeat: repeat the effect after every Nth pixel (Guide p.152). */
+  fixtureRepeat?: number
+  /** Fixture order: consider pixel distances in the Preview (Guide pp.151-152). */
+  considerSpacing?: boolean
+  /** Fixture order: treat all beams of a fixture as a single pixel ('fixtures') or each
+   *  individually controllable beam group as a pixel ('beams'). Default 'beams'. */
+  pixelMode?: 'fixtures' | 'beams'
+  /** Custom direction angle in degrees (Guide p.152): pixels are passed through along this
+   *  direction as they appear in the Preview. */
+  customDirectionAngle?: number
   owner?: { type: 'preset' | 'sequence' | 'cue'; id: string }
   phaseSpread: number // degrees of fan-out across targeted fixtures
-  fixtureOrder?: 'forward' | 'reverse' | 'random' | 'custom'
-  customFixtureOrder?: string[]
   minValue?: number
   maxValue?: number
-  blendMode?: 'replace' | 'add' | 'max'
+  /** Overlay effects (Guide p.173): multiple effects for one property add their values;
+   *  colors use the 'screen' blend mode. */
+  blendMode?: 'replace' | 'add' | 'max' | 'screen'
   enabled: boolean
 }
 
@@ -317,6 +475,9 @@ export interface ShowDef {
   midiMappings?: MidiMapping[]
   effects?: EffectDef[]
   effectTemplates?: EffectDef[]
+  /** Movement paths (Guide ch.10, pp.165-171): stored independently of effects so they
+   *  can be reused. Built-in paths (Circle, Figure Eight, Line) are not stored here. */
+  movementPaths?: MovementPathDef[]
   masterIntensity?: number // 0-255
   bpm?: number
   audioPath?: string

@@ -53,7 +53,7 @@ describe('Shortcuts panel list (Jake, 20 Nov 2026)', () => {
   })
 
   it('App renders the builder list with section-qualified keys', () => {
-    expect(appSource).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId) })')
+    expect(appSource).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })')
     expect(appSource).toContain('key={`${s.section}:${s.key}:${s.label}`}')
     expect(appSource).not.toContain('paletteShortcuts')
     expect(appSource).not.toContain("key={s.key + s.label}")

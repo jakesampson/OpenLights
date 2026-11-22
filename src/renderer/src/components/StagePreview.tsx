@@ -90,7 +90,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, highlightMode, toggleHighlightMode, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, highlightMode, toggleHighlightMode, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -397,22 +397,43 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // instance only for a Count fixture — LightKey shows one label per
   // fixture, Guide ch.11 p.116).
   const labelledFixtures = fixtureViews.filter((f) => f.instance === 0 && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0)
+  // The preset selected in the palette, if any: its fixtures get the
+  // same callouts, one row per SAVED property (Jake, 22 Nov 2026 —
+  // LightKey's "Dimmer Shutter" callouts on the selected preset).
+  const previewPreset = previewPresetId ? presets.find((p) => p.id === previewPresetId) : undefined
+  const presetLabelFixtures = previewPreset
+    ? fixtureViews.filter((f) => f.instance === 0 && previewPreset.fixtureValues[f.id] && Object.keys(previewPreset.fixtureValues[f.id]).length > 0)
+    : []
   // De-collided label positions (Jake, 20 Nov 2026): labels anchored
   // close together are shifted down only as far as needed to clear each
-  // other; the box sizes are the ones the render below draws.
+  // other; the box sizes are the ones the render below draws. Override
+  // and preset labels share one layout pass so a fixture carrying both
+  // never draws them on top of each other.
   const overrideLabelPositions = useMemo(() => {
-    const boxes = labelledFixtures.map((f) => {
-      const groups = overridePropertyGroups(manualOverrides[f.id])
-      return {
-        id: f.id,
-        x: f.pos.x + 12,
-        y: f.pos.y + 14,
-        width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
-        height: groups.length * 12 + 6,
-      }
-    })
+    const boxes = [
+      ...labelledFixtures.map((f) => {
+        const groups = overridePropertyGroups(manualOverrides[f.id])
+        return {
+          id: `override:${f.id}`,
+          x: f.pos.x + 12,
+          y: f.pos.y + 14,
+          width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
+          height: groups.length * 12 + 6,
+        }
+      }),
+      ...presetLabelFixtures.map((f) => {
+        const groups = overridePropertyGroups(previewPreset!.fixtureValues[f.id])
+        return {
+          id: `preset:${f.id}`,
+          x: f.pos.x + 12,
+          y: f.pos.y + 14,
+          width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
+          height: groups.length * 12 + 6,
+        }
+      })
+    ]
     return layoutOverrideLabels(boxes)
-  }, [labelledFixtures, manualOverrides])
+  }, [labelledFixtures, manualOverrides, presetLabelFixtures, previewPreset])
 
   // Newly patched fixtures appear with a short fade/scale-in when they
   // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a
@@ -812,7 +833,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const width = Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18
           const height = groups.length * 12 + 6
           // De-collided position (same anchor when nothing overlaps).
-          const { x: lx, y: ly } = overrideLabelPositions.get(f.id) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
+          const { x: lx, y: ly } = overrideLabelPositions.get(`override:${f.id}`) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
           return <g key={`overrides-${f.key}`} data-override-label={f.id}>
             <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
@@ -823,6 +844,30 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               return <g key={group.name} onMouseEnter={() => setHoveredLabelRow(key)} onMouseLeave={() => setHoveredLabelRow((current) => current === key ? null : current)} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-show-design')) }} style={{ cursor: 'pointer' }}>
                 <text x={lx + 5} y={rowY} fontSize={9} fill={hovered ? '#0A84FF' : '#111111'}>{group.name}</text>
                 {hovered && <text x={lx + width - 4} y={rowY} fontSize={10} textAnchor="end" fill="#0A84FF" aria-label={`Clear ${group.name} override on ${f.name}`} onClick={(event) => { event.stopPropagation(); releaseManualOverrides(event.altKey ? undefined : [f.id], group.attributes) }}>×</text>}
+              </g>
+            })}
+          </g>
+        })}
+
+        {/* Preset labels (Jake, 22 Nov 2026): while a preset is
+            selected in the palette, the Preview shows the same white
+            callouts on its fixtures, one row per saved property —
+            LightKey's "Dimmer Shutter" callouts. Same box and pointer
+            arrow as the override labels, but no ✕: there is no override
+            to clear. Clicking a row selects the fixture and opens it
+            in Design, like an override row. */}
+        {presetLabelFixtures.map((f) => {
+          const groups = overridePropertyGroups(previewPreset!.fixtureValues[f.id])
+          const width = Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18
+          const height = groups.length * 12 + 6
+          const { x: lx, y: ly } = overrideLabelPositions.get(`preset:${f.id}`) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
+          return <g key={`preset-label-${f.key}`} data-preset-label={f.id}>
+            <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            {groups.map((group, i) => {
+              const rowY = ly + 12 + i * 12
+              return <g key={group.name} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-show-design')) }} style={{ cursor: 'pointer' }}>
+                <text x={lx + 5} y={rowY} fontSize={9} fill="#111111">{group.name}</text>
               </g>
             })}
           </g>
