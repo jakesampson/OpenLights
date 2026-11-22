@@ -13,7 +13,7 @@ describe('Live / Live Edit parity', () => {
 
   it('renders one shared cue activation body in both modes, not a drag-only edit button', () => {
     // One cueBody helper owns toggle / flash / fader activation.
-    expect(workspace).toContain('const cueBody = (control: LiveControl, level: number)')
+    expect(workspace).toContain('const cueBody = (control: LiveControl, level: number, textColor: string)')
     expect(workspace).toContain('setLiveValue(control.id, level ? 0 : 255)')
     expect(workspace).toContain('setLiveValue(control.id, 255)')
     expect(workspace).toContain('type="range"')
@@ -23,15 +23,33 @@ describe('Live / Live Edit parity', () => {
     expect(workspace).not.toContain('className="w-full cursor-grab rounded bg-bg px-2 py-2 text-left"')
     // The activation handlers are written once, in cueBody, and the cue
     // render calls it unconditionally (no `editing ?` around activation).
-    const cueBodyUses = workspace.split('cueBody(control, level)').length - 1
+    const cueBodyUses = workspace.split('cueBody(control, level, textColor)').length - 1
     expect(cueBodyUses).toBe(1)
   })
 
-  it('moves cues only from an edit-mode drag grip, never from the activation body', () => {
-    expect(workspace).toContain('aria-label={`Drag ${control.name}`}')
-    expect(workspace).toContain('↕ drag')
-    // The grip is the only beginDrag caller on a cue; the body has no drag.
-    expect(workspace).toContain('onPointerDown={(e) => beginDrag(e, ref, x, y)}')
+  it('moves cues by dragging the whole button in Edit mode — no drag bar — and a click still fires', () => {
+    // Jake, 22 Nov 2026: the button is draggable anywhere; the "↕ drag"
+    // bar is gone. A press only arms the drag; movement past the
+    // threshold starts it, so a click without movement still fires.
+    expect(workspace).not.toContain('↕ drag')
+    expect(workspace).not.toContain('aria-label={`Drag ${control.name}`}')
+    expect(workspace).toContain('const DRAG_THRESHOLD = 4')
+    expect(workspace).toContain('armedDrag.current = { ref, startX: event.clientX, startY: event.clientY, x, y }')
+    expect(workspace).toContain('Math.hypot(event.clientX - armed.startX, event.clientY - armed.startY) <= DRAG_THRESHOLD')
+    expect(workspace).toContain('onControlPointerDown')
+    expect(workspace).toContain('onControlPointerMove')
+    expect(workspace).toContain('onControlPointerUp')
+    expect(workspace).toContain('onControlClickCapture')
+    // The press must never preventDefault (that cancels the click) and
+    // capture is taken only once the drag starts (taking it on press
+    // would retarget the click to the wrapper and break firing).
+    const press = workspace.slice(workspace.indexOf('const onControlPointerDown'), workspace.indexOf('const onControlPointerMove'))
+    expect(press).not.toContain('preventDefault')
+    expect(press).not.toContain('setPointerCapture')
+    // A fader's slider keeps its own behaviour — a press on it never arms a drag.
+    expect(workspace).toContain(".closest('input, select, textarea')")
+    // A flash button pressed to start a drag is released when the move starts.
+    expect(workspace).toContain("if (control?.type === 'flash' && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)")
   })
 
   it('shows the cuelist transport in both modes', () => {
@@ -44,7 +62,7 @@ describe('Live / Live Edit parity', () => {
 
   it('selects the pressed cue button or cue list in both modes, so the inspector follows it', () => {
     expect(workspace).toContain('const selectRef = (ref: Selection)')
-    expect(workspace).toContain('onPointerDown={() => selectRef(ref)}')
+    expect(workspace).toContain('onPointerDown={(e) => onControlPointerDown(e, ref, x, y)}')
     expect(workspace).toContain('onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }}')
     // Selection is visible in both modes, not only while editing.
     expect(workspace).not.toContain("isSelected(ref) && editing ? 'border-accent'")

@@ -594,7 +594,7 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
     useShowStore.getState().resizePageObject({ type: 'cue', id: 'c1' }, 213, 5000)
     expect(page().controls[0]).toMatchObject({ width: 210, height: 900 })
     useShowStore.getState().undo()
-    expect(page().controls[0]).toMatchObject({ width: 160, height: 90 })
+    expect(page().controls[0]).toMatchObject({ width: 120, height: 40 }) // LIVE_CUE_SIZE, filled in by the migration for a sizeless control
     useShowStore.getState().redo()
     expect(page().controls[0]).toMatchObject({ width: 210, height: 900 })
   })

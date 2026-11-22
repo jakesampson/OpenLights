@@ -17,7 +17,10 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).toContain('openPropertiesPopup')
     expect(workspace).toContain('onDoubleClick={() => openPropertiesPopup(ref)}')
     // Single click still only selects (move/resize), it never opens the popup.
-    expect(workspace).toContain('onPointerDown={() => selectRef(ref)}')
+    // The press handler is onControlPointerDown now (drag-anywhere, Jake
+    // 22 Nov 2026) — it selects first, then arms the drag in Edit mode.
+    expect(workspace).toContain('onPointerDown={(e) => onControlPointerDown(e, ref, x, y)}')
+    expect(workspace).toContain('selectRef(ref)')
     expect(workspace).not.toContain('onClick={() => openPropertiesPopup')
   })
 

@@ -101,7 +101,7 @@ describe('dropping on a page (7.10)', () => {
     expect(page.controls.slice(2).map((cue) => cue.name)).toEqual(['Blue', 'Red', 'Chase'])
     expect(page.controls.slice(2).map((cue) => cue.presetIds.length + (cue.sequenceIds ?? []).length)).toEqual([1, 1, 1])
     expect(refs).toEqual(page.controls.slice(2).map((cue) => ({ type: 'cue', id: cue.id })))
-    expect(page.controls[3].x).toBe(270) // second item offset to the right
+    expect(page.controls[3].x).toBe(230) // second item offset to the right (LIVE_CUE_STEP.x)
   })
 
   it('keeps all split cues inside a frame', () => {

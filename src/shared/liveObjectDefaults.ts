@@ -1,7 +1,13 @@
 import type { FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle } from './types'
 
 /** Default and bounds for Live page object sizes (in page pixels). */
-export const LIVE_CUE_SIZE = { width: 160, height: 90 }
+export const LIVE_CUE_SIZE = { width: 120, height: 40 }
+/** Placement pitch for new cue buttons (LightKey: 132x48px pitch, 13px
+ *  gaps — Jake's screenshot 22 Nov 2026: 238x70 device px at 2x, i.e.
+ *  119x35 CSS px buttons, 264 device px column pitch, 96 device px row
+ *  pitch. 120x40 is the nearest 10px-grid step; the pitch leaves the
+ *  same ~10px gaps LightKey does. */
+export const LIVE_CUE_STEP = { x: 130, y: 50 }
 export const LIVE_LIST_SIZE = { width: 240, height: 150 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }

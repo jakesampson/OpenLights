@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
-import { clampModifier, clampLiveSize, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
+import { clampModifier, clampLiveSize, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
   decodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
 } from '../lib/liveDrops'
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
+import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor } from '../lib/liveButtonColor'
 import {
   isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectLabel, positionedObjects,
   type PageObjectRef, type Rect
@@ -19,6 +20,11 @@ import { XfadeSlider } from './XfadeSlider'
 
 type Selection = PageObjectRef
 const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.floor(index / 4) * 90 })
+// New cue buttons land on the LightKey grid (LIVE_CUE_STEP): 130x50 pitch
+// for the 120x40 buttons, so a row of fresh buttons sits with ~10px gaps
+// the way LightKey's do. Cue-list widgets keep position() — at 240x150
+// they need the wider pitch.
+const cuePosition = (index: number) => ({ x: 20 + (index % 4) * LIVE_CUE_STEP.x, y: 20 + Math.floor(index / 4) * LIVE_CUE_STEP.y })
 // Canvas object space: the grid canvas is 900x520 and objects snap to 10px.
 const clampCanvasPoint = (x: number, y: number) => ({
   x: Math.max(0, Math.min(740, Math.round(x / 10) * 10)),
@@ -69,6 +75,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   const editing = liveEditing
   const [draft, setDraft] = useState<{ id: string; x: number; y: number } | null>(null)
   const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
+  // Drag-anywhere (Jake, 22 Nov 2026): the whole button is the drag handle —
+  // there is no drag bar any more. A press only arms a drag; the move
+  // starts once the pointer has travelled past DRAG_THRESHOLD, so a plain
+  // click/tap still fires the button. A drag that did move swallows the
+  // click that follows its pointerup (see onControlClickCapture).
+  const DRAG_THRESHOLD = 4
+  const armedDrag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
+  const suppressClick = useRef(false)
   const [marqueeRect, setMarqueeRect] = useState<Rect | null>(null)
   const marquee = useRef<{ startX: number; startY: number } | null>(null)
   const resize = useRef<{ ref: PageObjectRef; startX: number; startY: number; width: number; height: number } | null>(null)
@@ -151,10 +165,16 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
 
   // The cue activation control is identical in Live and Live Edit: one code
   // path renders the toggle / flash / fader body, so a cue fires, flashes,
-  // fades and shows its lit state the same way in both modes. In Edit mode a
-  // drag grip above it moves the cue; the body itself never drags.
-  const cueBody = (control: LiveControl, level: number) =>
-    control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={css(control.style)}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={css(control.style)} className={`pad w-full flex-1 rounded p-2 ${level ? 'active' : ''}`} onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>
+  // fades and shows its lit state the same way in both modes. In Edit mode
+  // the whole button is the drag handle (drag-anywhere, Jake 22 Nov 2026):
+  // a press arms a drag and only movement past the threshold starts it,
+  // so a click still fires; the body itself carries no drag bar. The
+  // button's own background is transparent — its colour lives on the
+  // outer control div (see the controls map below) — so the old `.pad`
+  // active accent never paints over the light colour, and the 44px
+  // min-height from `.pad` is overridden to fit the 40px button.
+  const cueBody = (control: LiveControl, level: number, textColor: string) =>
+    control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>
 
   const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
     <label className="text-dim">Attached to
@@ -222,7 +242,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   const addControl = (at?: { x: number; y: number }) => {
     if (!page) return
-    const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
+    const point = at ?? cuePosition(page.controls.length + (page.cueListWidgets?.length ?? 0))
     const control = newCueObject(crypto.randomUUID(), point.x, point.y, page.defaultStyles, {
       presetIds: [...activePresetIds],
       adHocValues: Object.fromEntries(Object.entries(manualOverrides).map(([id, values]) => [id, { ...values }]))
@@ -308,6 +328,52 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       if (dx || dy) moveSelectedPageObjects(dx, dy)
     }
     drag.current = null; setDraft(null)
+  }
+
+  // Drag-anywhere for cue buttons (Jake, 22 Nov 2026): the whole button is
+  // the handle — there is no drag bar. A press arms a drag; only movement
+  // past DRAG_THRESHOLD starts one, so a click (no movement) still fires
+  // the button, and a drag swallows the click that follows its pointerup.
+  // Pointer capture is taken only once the drag starts: taking it on press
+  // would retarget the pointerup/click to this div and break firing, and
+  // the press must never preventDefault either (that cancels the click).
+  // Inputs inside a button (the fader slider) keep their own behaviour —
+  // a press on one never arms a drag.
+  const onControlPointerDown = (event: React.PointerEvent, ref: Selection, x: number, y: number) => {
+    if (event.shiftKey && editing && !locked) { togglePageObjectSelection(ref); return }
+    selectRef(ref)
+    if (!editing || locked || event.button !== 0) return
+    if ((event.target as HTMLElement).closest('input, select, textarea')) return
+    armedDrag.current = { ref, startX: event.clientX, startY: event.clientY, x, y }
+  }
+  const onControlPointerMove = (event: React.PointerEvent) => {
+    if (drag.current) { moveDrag(event); return }
+    const armed = armedDrag.current
+    if (!armed) return
+    if (Math.hypot(event.clientX - armed.startX, event.clientY - armed.startY) <= DRAG_THRESHOLD) return
+    event.currentTarget.setPointerCapture(event.pointerId)
+    drag.current = armed
+    armedDrag.current = null
+    // A flash button pressed to start this drag was already lit by its own
+    // pointerdown — release it now that the press has become a move.
+    const control = page?.controls.find((item) => item.id === armed.ref.id)
+    if (control?.type === 'flash' && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)
+    moveDrag(event)
+  }
+  const onControlPointerUp = () => {
+    if (drag.current) { endDrag(); suppressClick.current = true }
+    armedDrag.current = null
+  }
+  const onControlPointerCancel = () => {
+    armedDrag.current = null
+    drag.current = null
+    setDraft(null)
+  }
+  const onControlClickCapture = (event: React.MouseEvent) => {
+    if (!suppressClick.current) return
+    suppressClick.current = false
+    event.preventDefault()
+    event.stopPropagation()
   }
 
   const beginMarquee = (event: React.PointerEvent) => {
@@ -436,12 +502,23 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           const cw = control.width ?? LIVE_CUE_SIZE.width, ch = control.height ?? LIVE_CUE_SIZE.height
           const w = resizeDraft?.id === control.id ? resizeDraft.width : cw, h = resizeDraft?.id === control.id ? resizeDraft.height : ch
           const level = activeLiveValues[control.id] ?? 0
+          // A button takes on its light colour (Jake, 22 Nov 2026): a colour
+          // preset colours it, a dimmer-only button is white. Off it is a
+          // translucent tint (the LightKey look); lit it is solid. An
+          // explicit text colour on the object wins over the
+          // contrast-derived one; the selection border still wins over
+          // the colour border. The whole button is the drag handle — the
+          // press arms a drag, movement past the threshold starts it, and
+          // a plain click still fires (see onControlPointerDown).
           // Double-click opens the properties popup; it does not fire the
           // cue: a toggle cue is clicked twice (on then off — or off then
           // on), a flash cue is momentary, and a fader ignores double-click,
           // so the cue's level is unchanged by opening the popup.
-          return <div key={control.id} data-project-id={control.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-1 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onPointerDown={() => selectRef(ref)} onDoubleClick={() => openPropertiesPopup(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
-            <div className="flex h-full flex-col">{editing && !locked && <button type="button" aria-label={`Drag ${control.name}`} className="cursor-grab rounded bg-bg px-2 py-0.5 text-left text-[10px] text-dim" onPointerDown={(e) => beginDrag(e, ref, x, y)} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>↕ drag</button>}{cueBody(control, level)}</div>
+          const buttonColor = liveControlButtonColor(control, presets, cues) ?? '#ffffff'
+          const buttonActive = level > 0
+          const textColor = control.style?.color && control.style.color.toLowerCase() !== '#e5e7eb' ? control.style.color : liveButtonTextColor(buttonColor, buttonActive)
+          return <div key={control.id} data-project-id={control.id} className={`absolute select-none rounded border p-1 text-xs ${editing && !locked ? 'cursor-grab' : ''}`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden', backgroundColor: liveButtonBackground(buttonColor, buttonActive), borderColor: isSelected(ref) ? 'var(--accent)' : buttonColor, color: textColor }} onPointerDown={(e) => onControlPointerDown(e, ref, x, y)} onPointerMove={onControlPointerMove} onPointerUp={onControlPointerUp} onPointerCancel={onControlPointerCancel} onClickCapture={onControlClickCapture} onDoubleClick={() => openPropertiesPopup(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
+            <div className="flex h-full flex-col">{cueBody(control, level, textColor)}</div>
             {resizeHandle(ref, cw, ch)}
           </div>
         })}

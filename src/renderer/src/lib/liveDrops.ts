@@ -1,5 +1,5 @@
 import type { LiveControl, LiveDefaultStyles, LivePage } from '@shared/types'
-import { LIVE_CUE_SIZE } from '@shared/liveObjectDefaults'
+import { LIVE_CUE_SIZE, LIVE_CUE_STEP } from '@shared/liveObjectDefaults'
 import { newCueObject, type PageObjectRef } from './livePageObjects'
 
 /** Clipboard/DRAG format shared by the palette and all three drop targets. */
@@ -160,8 +160,8 @@ export function applyLiveDrop(
   units.forEach((unit, index) => {
     const step = split ? index : 0
     const at = dropPosition(
-      target.x + (step % 4) * 170,
-      target.y + Math.floor(step / 4) * 100,
+      target.x + (step % 4) * LIVE_CUE_STEP.x,
+      target.y + Math.floor(step / 4) * LIVE_CUE_STEP.y,
       frame, LIVE_CUE_SIZE.width, LIVE_CUE_SIZE.height
     )
     const control = newCueObject(makeId(), at.x, at.y, defaults, {

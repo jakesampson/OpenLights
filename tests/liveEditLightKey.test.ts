@@ -97,7 +97,7 @@ describe('Live Edit — LightKey layout', () => {
   })
 
   it('keeps the Live / Live Edit parity fix: one shared cueBody', () => {
-    expect(workspace).toContain('cueBody(control, level)')
+    expect(workspace).toContain('cueBody(control, level, textColor)')
     expect(workspace).toContain('Go')
     expect(workspace).toContain('Back')
     expect(workspace).toContain('Stop')
