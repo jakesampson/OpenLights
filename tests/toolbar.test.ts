@@ -72,10 +72,13 @@ describe('toolbar dispatch', () => {
     expect(styles).toContain('.project-search.open')
     expect(styles).not.toContain('.project-search:hover > input')
     // Search expands by flex reflow, not by overlay: it is an in-flow item,
-    // the right cluster is pinned by an auto margin on Edit, and no
+    // the right cluster (search, view options) is pinned by an auto margin
+    // on the search field, and Edit — ordered just before it — sits
+    // immediately right of the effects wand (Jake, 23 Nov 2026). No
     // :has() transform nudges remain (they moved paint, not layout, and
     // let the open field paint over Edit).
-    expect(styles).toContain('.top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }')
+    expect(styles).toContain('.project-search { order: 8; display: flex; width: 32px; flex: 0 0 32px; margin-left: auto;')
+    expect(styles).not.toContain('.top-bar > .flex:first-child > :nth-child(3) { margin-left: auto; }')
     expect(styles).not.toContain('.project-search { position: absolute')
     expect(styles).not.toContain(':nth-child(5) { position: absolute')
     expect(styles).not.toContain(':has(.project-search.open)')
