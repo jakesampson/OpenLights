@@ -11,6 +11,9 @@
 // menu — LightKey's GUI has no DMX button in its header — so the
 // auto-connect now lives in the headless DmxAutoConnect, mounted with
 // the header and rendering nothing, while the button stays in the menu.
+// Jake, 23 Nov 2026: the view-options menu holds only the three view
+// toggles now, so the DMX settings live in the Settings dialog's DMX
+// Output tab (Cmd+,) instead.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
@@ -96,12 +99,19 @@ describe('DMX auto-connect on launch', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(setDmxPort).not.toHaveBeenCalled()
-    // No DMX button in the header — the manual path lives in the
-    // header view-options menu: open it and the button is there.
+    // No DMX button in the header or the view-options menu — the manual
+    // path lives in the Settings dialog's DMX Output tab (Cmd+,).
     expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
     act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
+    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).toBeNull()
+    act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true, cancelable: true })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    const dmxTab = [...(container?.querySelectorAll('[role="tab"]') ?? [])].find((b) => b.textContent?.trim() === 'DMX Output')
+    expect(dmxTab).not.toBeUndefined()
+    act(() => { dmxTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(container?.querySelector('[role="listbox"][aria-label="DMX output methods"]')).not.toBeNull()
   })
 
   it('connects nothing on a first run with no remembered interface', async () => {
@@ -112,6 +122,13 @@ describe('DMX auto-connect on launch', () => {
     expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
     act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
-    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
+    expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).toBeNull()
+    act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true, cancelable: true })) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    const dmxTab = [...(container?.querySelectorAll('[role="tab"]') ?? [])].find((b) => b.textContent?.trim() === 'DMX Output')
+    expect(dmxTab).not.toBeUndefined()
+    act(() => { dmxTab?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    expect(container?.querySelector('[role="listbox"][aria-label="DMX output methods"]')).not.toBeNull()
   })
 })

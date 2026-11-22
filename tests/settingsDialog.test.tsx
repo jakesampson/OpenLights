@@ -17,6 +17,8 @@ import type { ShowDef } from '../src/shared/types'
 const PORT_INFO = { path: '/dev/ttyUSB0', manufacturer: 'FTDI', serialNumber: 'SN1', vendorId: '0403', productId: '6001' }
 const DISCONNECTED = { connected: false, port: null, baudRate: 250000, lastFrameAt: null, frameCount: 0, universe: 1, error: null, mode: 'virtual' }
 
+const openLiveWindowMock = vi.fn(() => Promise.resolve({ id: 'live-1', pageId: null, width: 1000, height: 700 }))
+
 ;(window as unknown as { electronAPI: unknown }).electronAPI = {
   onMenuCommand: () => () => {},
   listShows: () => Promise.resolve([]),
@@ -26,7 +28,8 @@ const DISCONNECTED = { connected: false, port: null, baudRate: 250000, lastFrame
   setDmxPort: () => Promise.resolve({ success: true, status: DISCONNECTED }),
   disconnectDmx: () => Promise.resolve({ success: true, status: DISCONNECTED }),
   setChannels: () => {},
-  getChannels: () => Promise.resolve([])
+  getChannels: () => Promise.resolve([]),
+  openLiveWindow: openLiveWindowMock
 }
 
 let container: HTMLDivElement | undefined
@@ -63,6 +66,7 @@ beforeEach(() => {
   state.setNewProjectDialogOpen(false)
   state.setNewProjectTemplate(null)
   window.localStorage.clear()
+  openLiveWindowMock.mockClear()
   vi.useFakeTimers()
   renderInRoot(<App />)
 })
@@ -90,6 +94,17 @@ describe('header view-options menu', () => {
     clickAriaButton('View options')
     expect(text()).toContain('Show Shortcuts')
     expect(text()).not.toContain('Hide Shortcuts')
+    // Jake, 23 Nov 2026: the view menu holds ONLY the three toggles —
+    // the action rows moved out (DMX/MIDI to Settings, Blackout to the
+    // Live menu and B, Full screen to the Window menu and F11, Open Live
+    // window to the Window menu, Automation… to the View menu).
+    const menuText = container?.querySelector('[data-header-settings-menu]')?.textContent ?? ''
+    expect(menuText).not.toContain('Blackout')
+    expect(menuText).not.toContain('Open Live window')
+    expect(menuText).not.toContain('Full screen')
+    expect(menuText).not.toContain('Automation')
+    expect(menuText).not.toContain('MIDI')
+    expect(menuText).not.toContain('DMX')
   })
 
   it('hides the Shortcuts panel when Shortcuts is off', async () => {
@@ -155,6 +170,16 @@ describe('tabbed Settings dialog', () => {
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
     expect(container?.querySelector('[role="dialog"][aria-labelledby="settings-title"]')).toBeNull()
   })
+
+  it('reopens on the last-used tab', async () => {
+    await openSettings()
+    clickButton('DMX Output')
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(container?.querySelector('[role="dialog"][aria-labelledby="settings-title"]')).toBeNull()
+    await openSettings()
+    const dmxTab = [...(container?.querySelectorAll('[role="tab"]') ?? [])].find((b) => b.textContent?.trim() === 'DMX Output')
+    expect(dmxTab?.getAttribute('aria-selected')).toBe('true')
+  })
 })
 
 describe('header Edit button', () => {
@@ -169,5 +194,25 @@ describe('header Edit button', () => {
     // header rule's #767678 border and the .btn-theme 1px border stand.
     expect(styles).not.toContain('.header-edit-button { border: 0')
     expect(styles).not.toContain('.header-edit-button{border:0')
+  })
+})
+
+describe('actions re-homed from the view menu (Jake, 23 Nov 2026)', () => {
+  const dispatchMenuCommand = (command: string) => {
+    act(() => { window.dispatchEvent(new CustomEvent('openlights-menu-command', { detail: { command } })) })
+  }
+
+  it('opens a Live window from the native menu command', async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    dispatchMenuCommand('openLiveWindow')
+    expect(openLiveWindowMock).toHaveBeenCalledTimes(1)
+    expect(openLiveWindowMock).toHaveBeenCalledWith(useShowStore.getState().activeLivePageId)
+  })
+
+  it('opens the Automation panel from the native menu command', async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(container?.querySelector('[role="dialog"][aria-label="Automation"]')).toBeNull()
+    dispatchMenuCommand('automation')
+    expect(container?.querySelector('[role="dialog"][aria-label="Automation"]')).not.toBeNull()
   })
 })

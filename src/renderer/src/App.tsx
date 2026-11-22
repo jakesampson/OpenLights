@@ -15,7 +15,7 @@ import { StagePreview } from './components/StagePreview'
 import { PreviewEditPanel } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
-import { DmxAutoConnect, DmxConnection } from './components/DmxConnection'
+import { DmxAutoConnect } from './components/DmxConnection'
 import { SettingsDialog, type SettingsTabId } from './components/SettingsDialog'
 import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
@@ -303,8 +303,8 @@ export default function App() {
   const goTab = (view: Tab) => { useShowStore.getState().exitEffectEditor(); if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
   // The Settings dialog's tab persists across opens (LightKey reopens on
-  // the last-used tab); Cmd+, opens it, the DMX gear and the MIDI row
-  // jump straight to their tab.
+  // the last-used tab): the dialog reports tab switches back through
+  // onTabChange, and Cmd+, reopens on that tab.
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general')
   // The far-right header button is a view-options menu (Jake, 22 Nov
   // 2026), not a settings menu: it shows/hides Preview, Preset Palette
@@ -520,8 +520,7 @@ export default function App() {
       else if (command === 'live') { state.exitEffectEditor(); setTab('Live') }
       else if (command === 'editPreview') togglePreviewEditing()
       // Settings (LightKey: Command-Comma) opens the tabbed Settings
-      // dialog on the last-used tab; the DMX gear and the MIDI row jump
-      // straight to their tab instead.
+      // dialog on the last-used tab.
       else if (command === 'settings') setSettingsOpen(true)
       else if (command === 'showOverrides') state.setShowOverrideLabels(!state.showOverrideLabels)
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
@@ -558,6 +557,8 @@ export default function App() {
       const { command, selectedOnly } = (event as CustomEvent<{ command: string; selectedOnly?: boolean }>).detail
       const state = useShowStore.getState()
       if (command === 'addOverrides') state.addOverridesToCues(undefined, selectedOnly ?? false)
+      else if (command === 'openLiveWindow') void window.electronAPI.openLiveWindow(state.activeLivePageId)
+      else if (command === 'automation') setToolPanel('Automation')
       else if (command === 'editAdHocProperties') {
         const target = editAdHocTarget(state)
         if (target && 'cueId' in target) state.startEditingCueAdHoc(target.cueId)
@@ -812,42 +813,17 @@ export default function App() {
                 {/* View options (LightKey, Jake 22 Nov 2026): the far-right
                     header button shows/hides Preview, Preset Palette and
                     Shortcuts — each label flips to Hide or Show with the
-                    panel's state. The rows below the divider are the header
-                    actions that are not settings: the DMX gear opens
-                    Settings on the DMX Output tab, and the rest stay
-                    reachable from this menu. */}
+                    panel's state. Nothing else lives here (Jake, 23 Nov
+                    2026): DMX and MIDI settings are in the Settings dialog
+                    (Cmd+,), Blackout is in the Live menu and on B, Full
+                    screen is in the Window menu and on F11, Open Live
+                    window is in the Window menu, Automation… is in the
+                    View menu. */}
                 {(['preview', 'palette', 'shortcuts'] as const).map((panel) => {
                   const visible = show?.layout?.[panel] ?? true
                   const label = panel === 'preview' ? 'Preview' : panel === 'palette' ? 'Preset Palette' : 'Shortcuts'
                   return <button key={panel} type="button" className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2" onClick={() => { setLayoutPanel(panel, !visible); setViewMenuOpen(false) }}>{visible ? `Hide ${label}` : `Show ${label}`}</button>
                 })}
-                <div className="my-1 border-t border-line" />
-                <DmxConnection onOpenSettings={() => { setSettingsTab('dmx'); setSettingsOpen(true); setViewMenuOpen(false) }} />
-                <button className="btn-panic rounded px-3 py-2 text-xs" onClick={() => { void handleBlackout(); setViewMenuOpen(false) }}>{blackout ? 'Restore output' : 'Blackout'}</button>
-                <button className="btn-theme text-xs" onClick={() => { void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId); setViewMenuOpen(false) }}>Open Live window</button>
-                <button className="btn-theme text-xs" onClick={() => { void window.electronAPI.toggleFullscreen(); setViewMenuOpen(false) }}>Full screen · F11</button>
-                <div className="my-1 border-t border-line" />
-                <button
-                  type="button"
-                  className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
-                  onClick={() => {
-                    setToolPanel('Automation')
-                    setViewMenuOpen(false)
-                  }}
-                >
-                  Automation…
-                </button>
-                <button
-                  type="button"
-                  className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
-                  onClick={() => {
-                    setSettingsTab('external')
-                    setSettingsOpen(true)
-                    setViewMenuOpen(false)
-                  }}
-                >
-                  MIDI…
-                </button>
               </div>
             )}
           </div>
@@ -924,7 +900,7 @@ export default function App() {
           </section>
         </div>
       )}
-      {settingsOpen && !setupWizardStep && <SettingsDialog initialTab={settingsTab} adaptiveBackground={adaptiveBackground} onAdaptiveBackgroundChange={setAdaptiveBackground} onTapTempo={tapTempo} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && !setupWizardStep && <SettingsDialog initialTab={settingsTab} onTabChange={setSettingsTab} adaptiveBackground={adaptiveBackground} onAdaptiveBackgroundChange={setAdaptiveBackground} onTapTempo={tapTempo} onClose={() => setSettingsOpen(false)} />}
       {welcomeOpen && <WelcomeScreen />}
       {newProjectDialogOpen && <NewProjectDialog template={newProjectTemplate} onSave={createProject} onClose={() => { const state = useShowStore.getState(); state.setNewProjectDialogOpen(false); state.setNewProjectTemplate(null) }} />}
     </div>

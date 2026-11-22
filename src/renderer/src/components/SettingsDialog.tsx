@@ -40,8 +40,11 @@ function SettingsRow({ label, children }: { label: string; children: ReactNode }
   </div>
 }
 
-export function SettingsDialog({ initialTab, adaptiveBackground, onAdaptiveBackgroundChange, onTapTempo, onClose }: {
+export function SettingsDialog({ initialTab, onTabChange, adaptiveBackground, onAdaptiveBackgroundChange, onTapTempo, onClose }: {
   initialTab: SettingsTabId
+  // Reports tab switches back so the opener can reopen on the
+  // last-used tab (LightKey behaviour); optional.
+  onTabChange?: (tab: SettingsTabId) => void
   adaptiveBackground: boolean
   onAdaptiveBackgroundChange: (value: boolean) => void
   onTapTempo: () => void
@@ -87,7 +90,7 @@ export function SettingsDialog({ initialTab, adaptiveBackground, onAdaptiveBackg
       </header>
       <div className="flex justify-center gap-1 border-b border-line px-4 py-2" role="tablist" aria-label="Settings sections">
         {TABS.map((item) => (
-          <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => setTab(item.id)} className={`flex w-[110px] flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs ${tab === item.id ? 'bg-white/10 text-[#6db3ff]' : 'text-dim hover:bg-white/5 hover:text-text'}`}>
+          <button key={item.id} type="button" role="tab" aria-selected={tab === item.id} onClick={() => { setTab(item.id); onTabChange?.(item.id) }} className={`flex w-[110px] flex-col items-center gap-1 rounded-lg px-2 py-2 text-xs ${tab === item.id ? 'bg-white/10 text-[#6db3ff]' : 'text-dim hover:bg-white/5 hover:text-text'}`}>
             <span className="[&>svg]:h-[22px] [&>svg]:w-[22px] [&>svg]:fill-none [&>svg]:stroke-current [&>svg]:stroke-[1.7] [&>svg]:stroke-linecap-round [&>svg]:stroke-linejoin-round">{item.icon}</span>
             {item.label}
           </button>
