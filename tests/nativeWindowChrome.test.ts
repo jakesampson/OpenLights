@@ -64,6 +64,42 @@ describe('Windows/Linux caption buttons match the header', () => {
     expect(preload).toContain('setTitleBarOverlay')
     expect(app).toContain('setTitleBarOverlay')
   })
+
+  it('switches the overlay to the app background while the Project Browser is open', () => {
+    // The welcome screen is the app background purple, not the header
+    // grey — the native buttons must blend with it, or they sit in a
+    // grey strip over the purple (Jake, 23 Nov 2026, screenshot
+    // image-ff69c11b.png). The welcome preset is the default --bg
+    // #2a1233, never the header grey; the renderer reports the surface
+    // over IPC as a mode ('main' | 'wizard' | 'welcome') and the main
+    // process falls back to the grey for anything unknown.
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WELCOME[^}]*color: '#2a1233'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WELCOME[^}]*symbolColor: '#d2d2d2'/s)
+    expect(overlay).toMatch(/TITLE_BAR_OVERLAY_WELCOME[^}]*height: 50/s)
+    expect(overlay).toContain('titleBarOverlayForScreen')
+    expect(main).toContain('titleBarOverlayForScreen')
+    expect(preload).toContain("setTitleBarOverlay: (mode: 'main' | 'wizard' | 'welcome')")
+    // The wizard is a full-window modal over the welcome screen, so it
+    // wins when both are set; otherwise the welcome screen wins over
+    // the main window.
+    expect(app).toContain("setupWizardStep ? 'wizard' : welcomeOpen ? 'welcome' : 'main'")
+  })
+
+  it('gives the welcome screen a draggable top 50px, with its close button excluded', () => {
+    // No header exists on the welcome screen to drag from, so its top
+    // 50px — the normal header height — is a drag strip of its own
+    // (Jake, 23 Nov 2026, screenshot image-ff69c11b.png). The strip
+    // scrolls away with the content when the list is tall instead of
+    // sitting fixed over the cards, and the close button paints above
+    // it and is excluded from dragging, or the strip would swallow its
+    // clicks when the header row reaches the top 50px.
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*position: absolute/s)
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*top: 0/s)
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*height: 50px/s)
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*-webkit-app-region: drag/s)
+    expect(css).toMatch(/\.welcome-close-button \{[^}]*position: relative/s)
+    expect(css).toMatch(/\.welcome-close-button \{[^}]*-webkit-app-region: no-drag/s)
+  })
 })
 
 describe('no window controls are drawn by the renderer', () => {

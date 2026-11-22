@@ -4,7 +4,7 @@ import { usbOnlyStatus } from '../shared/outputSettings'
 import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
 import { normalizeLiveWindows, LIVE_WINDOW_COMMANDS, type LiveWindowSpec } from '../shared/liveWindows'
 import { autoUpdater } from 'electron-updater'
-import { TITLE_BAR_OVERLAY_MAIN, titleBarOverlayForWizard } from './titleBarOverlay'
+import { TITLE_BAR_OVERLAY_MAIN, titleBarOverlayForScreen, type TitleBarOverlayMode } from './titleBarOverlay'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
 import * as fs from 'fs'
@@ -297,12 +297,18 @@ ipcMain.on('window:close', () => mainWindow?.close())
 // The setup wizard is a full-window modal whose page is purple, not the
 // main window's grey header — so while it is open the native caption
 // buttons must blend with the wizard page (see titleBarOverlay.ts). The
-// renderer reports the wizard state; on macOS this is a no-op (the native
-// traffic lights cannot be recoloured and the wizard bar clears them with
-// padding instead).
-ipcMain.on('window:set-titlebar-overlay', (_event, wizardOpen: unknown) => {
+// Project Browser is the same shape: a full-window modal over the app
+// background purple, so while it is open the buttons must blend with
+// that instead (Jake, 23 Nov 2026, screenshot image-ff69c11b.png — the
+// grey strip over the purple welcome screen). The renderer reports which
+// surface is showing; on macOS this is a no-op (the native traffic
+// lights cannot be recoloured and the wizard bar clears them with
+// padding instead). An unknown mode falls back to the main grey inside
+// titleBarOverlayForScreen, so a stray value can never leave the
+// window without an overlay.
+ipcMain.on('window:set-titlebar-overlay', (_event, mode: unknown) => {
   if (process.platform === 'darwin' || !mainWindow) return
-  mainWindow.setTitleBarOverlay(titleBarOverlayForWizard(wizardOpen === true))
+  mainWindow.setTitleBarOverlay(titleBarOverlayForScreen(mode as TitleBarOverlayMode))
 })
 
 app.whenReady().then(async () => {

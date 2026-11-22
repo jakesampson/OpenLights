@@ -182,11 +182,17 @@ export default function App() {
   // While the setup wizard is open the native caption buttons must blend
   // with the wizard page, not the main window's grey header (Jake, 20 Nov
   // 2026, screenshot image-25.png — the grey strip covered the wizard's
-  // Back button). The main process restores the grey when the wizard
-  // closes; on macOS this is a no-op (native traffic lights).
+  // Back button). While the Project Browser is open they must blend with
+  // the app background purple instead (Jake, 23 Nov 2026, screenshot
+  // image-ff69c11b.png — the grey strip over the purple welcome screen).
+  // The wizard is a full-window modal over the welcome screen, so it wins
+  // when both are set (startSetupWizard already closes the welcome screen,
+  // this is just the ordering). The main process restores the grey when
+  // both close; on macOS this is a no-op (native traffic lights).
   useEffect(() => {
-    window.electronAPI?.setTitleBarOverlay?.(Boolean(setupWizardStep))
-  }, [setupWizardStep])
+    const mode = setupWizardStep ? 'wizard' : welcomeOpen ? 'welcome' : 'main'
+    window.electronAPI?.setTitleBarOverlay?.(mode)
+  }, [setupWizardStep, welcomeOpen])
   // The OFL library is the migration's second source (Jake, 20 Nov 2026,
   // image-18): without it, a show's OFL fixtures keep their stale inline
   // snapshots and the Dimmer brings up black. Load it once at startup so

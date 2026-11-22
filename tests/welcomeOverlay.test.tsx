@@ -85,4 +85,24 @@ describe('Project Browser overlay', () => {
     act(() => { el?.dispatchEvent(event) })
     expect(event.defaultPrevented).toBe(true)
   })
+
+  it('has a drag strip across the top 50px, and its close button is excluded from dragging', () => {
+    // Jake, 23 Nov 2026, screenshot image-ff69c11b.png: the welcome
+    // screen has no header to drag the window from, so its top 50px —
+    // the normal header height — is a drag strip. The strip is the
+    // scrim's first child so it sits at the top of the scroll content;
+    // the close button carries the class that paints it above the strip
+    // and excludes it from dragging, or the strip would swallow its
+    // clicks when the header row reaches the top 50px.
+    renderWelcome()
+    const el = overlay()
+    expect(el).not.toBeNull()
+    const strip = el?.querySelector('.welcome-drag-strip')
+    expect(strip).not.toBeNull()
+    expect(el?.firstElementChild).toBe(strip)
+    expect(strip?.getAttribute('aria-hidden')).toBe('true')
+    const close = container?.querySelector('[aria-label="Close Project Browser"]')
+    expect(close).not.toBeNull()
+    expect(close?.classList.contains('welcome-close-button')).toBe(true)
+  })
 })

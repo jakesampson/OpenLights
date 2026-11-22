@@ -162,8 +162,34 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
    covers the whole window, including the header's `-webkit-app-region:
    drag` strip underneath — without this the drag rect eats clicks in
    the top 50px regardless of z-index, and a drag starting on the scrim
-   would move the window instead of doing nothing. */
+   would move the window instead of doing nothing. The Project
+   Browser's own drag strip (`.welcome-drag-strip` below) is the one
+   exception: its top 50px deliberately drags the window. */
 .modal-scrim {
+  -webkit-app-region: no-drag;
+}
+
+/* Project Browser window drag strip (Jake, 23 Nov 2026, screenshot
+   image-ff69c11b.png): the top 50px — the normal header height — drags
+   the window on the welcome screen, where there is no header to drag
+   from. Absolutely positioned, so it scrolls away with the content when
+   the project list is tall instead of sitting fixed over the cards.
+   Transparent: only a hit area over the purple background. */
+.welcome-drag-strip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 50px;
+  -webkit-app-region: drag;
+}
+
+/* The Project Browser's close button sits in the header row, which can
+   reach the top 50px when the list is tall and scrolled to the top — so
+   it must paint above the drag strip (positioned, and later in the DOM)
+   and be excluded from dragging, or the strip would swallow its clicks. */
+.welcome-close-button {
+  position: relative;
   -webkit-app-region: no-drag;
 }
 

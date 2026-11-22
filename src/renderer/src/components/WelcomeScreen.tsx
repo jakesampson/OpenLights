@@ -74,6 +74,15 @@ export function WelcomeScreen() {
   // top 50px regardless of z-index.
   return (
     <div className="modal-scrim fixed inset-0 z-[70] select-none overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
+      {/* Window drag strip (Jake, 23 Nov 2026, screenshot
+          image-ff69c11b.png): the top 50px of the welcome screen — the
+          normal header height — drags the window, like the in-app header.
+          It is absolutely positioned so it scrolls away with the content
+          when the list is tall, instead of sitting fixed over the cards.
+          The scrim itself stays no-drag (`.modal-scrim`) so a drag here
+          can neither select text nor reach the header's drag region
+          underneath — the strip is the only draggable part. */}
+      <div className="welcome-drag-strip" aria-hidden="true" />
       <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-[720px]">
         <header className="flex items-start justify-between">
@@ -83,7 +92,7 @@ export function WelcomeScreen() {
             </h1>
             <p className="mt-2 text-sm text-dim">Project Browser</p>
           </div>
-          <button type="button" className="btn-theme" onClick={() => useShowStore.getState().setWelcomeOpen(false)} aria-label="Close Project Browser" title="Close Project Browser">×</button>
+          <button type="button" className="btn-theme welcome-close-button" onClick={() => useShowStore.getState().setWelcomeOpen(false)} aria-label="Close Project Browser" title="Close Project Browser">×</button>
         </header>
 
         <div className="mt-6 flex gap-2">
