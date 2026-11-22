@@ -321,6 +321,10 @@ interface ShowState {
    *  2026): a plain palette click selects one preset alone, so the list
    *  is replaced rather than toggled. Unknown ids are dropped. */
   setActivePresets: (ids: string[]) => void
+  /** Set the enabled effect list wholesale (Jake 22 Nov 2026): a plain
+   *  palette click selects one effect alone, so the list is replaced
+   *  rather than toggled. Unknown ids are dropped. */
+  setActiveEffects: (ids: string[]) => void
   clearPresets: () => void
   renamePreset: (id: string, name: string) => void
   updatePresetContents: (id: string, values: PresetDef['fixtureValues']) => void
@@ -1904,6 +1908,14 @@ const actions: ShowState = {
       return { activePresetIds: ids.filter((id) => valid.has(id)) }
     })
     get().refreshBaseOutput()
+  },
+  setActiveEffects: (ids) => {
+    set((state) => {
+      const valid = new Set(state.effects.map((effect) => effect.id))
+      const wanted = new Set(ids.filter((id) => valid.has(id)))
+      const effects = state.effects.map((effect) => ({ ...effect, enabled: wanted.has(effect.id) }))
+      return persistState(state, { effects }, { effects })
+    })
   },
   toggleSequence: (id) => set((state) => state.show?.sequences?.some((s) => s.id === id) ? { activeSequenceIds: state.activeSequenceIds.includes(id) ? state.activeSequenceIds.filter((item) => item !== id) : [...state.activeSequenceIds, id] } : state),
   stopSequences: () => set({ activeSequenceIds: [] }),

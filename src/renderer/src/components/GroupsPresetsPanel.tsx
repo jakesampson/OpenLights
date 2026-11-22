@@ -61,6 +61,7 @@ export function GroupsPresetsPanel() {
     activeSequenceIds,
     togglePreset,
     setActivePresets,
+    setActiveEffects,
     clearPresets,
     effects,
     selectedFixtureIds,
@@ -275,11 +276,14 @@ export function GroupsPresetsPanel() {
   }
 
   // Clicking blank space in the palette clears the whole selection
-  // (Jake, 22 Nov 2026): the active presets go off with the local
-  // selection and the Preview labels. Escape does the same.
+  // (Jake, 22 Nov 2026): the active presets go off with the enabled
+  // effects and any running sequences, plus the local selection and
+  // the Preview labels. Escape does the same.
   const clearPaletteSelection = () => {
     setSelected([])
     clearPresets()
+    setActiveEffects([])
+    stopSequences()
     setPreviewPresetId(null)
   }
 
@@ -527,10 +531,11 @@ export function GroupsPresetsPanel() {
     if (event.key === 'Escape') {
       // Stop here so the global Esc handler does not also stop a cue.
       // Escape clears the whole palette selection (Jake, 22 Nov 2026):
-      // the active presets go off with the local selection and the
-      // Preview labels, the same as clicking blank space.
+      // the active presets go off with the enabled effects, any running
+      // sequences, the local selection and the Preview labels, the same
+      // as clicking blank space.
       event.preventDefault(); event.stopPropagation()
-      setSelected([]); clearPresets(); setPreviewPresetId(null); setContextMenu(null); setComposer(null); setRenaming(null)
+      clearPaletteSelection(); setContextMenu(null); setComposer(null); setRenaming(null)
       return
     }
     if (event.key === 'Enter' && selected.length === 1) {
@@ -620,11 +625,12 @@ export function GroupsPresetsPanel() {
             // IS the indicator — there is no ON badge. A plain click
             // selects the preset alone: it replaces the selection and
             // drives the output, and the look stays lit until clicked
-            // off (another preset, blank space, or the preset again).
-            // Shift/Cmd/Ctrl-click toggles that preset's membership in
-            // the selection, so several presets combine as before, with
-            // the most recent colour winning and the Preview labels
-            // following it.
+            // off (another row, blank space, or the preset again).
+            // Enabled effects go off with it — the whole palette shares
+            // one selection. Shift/Cmd/Ctrl-click toggles that preset's
+            // membership in the selection, so several presets combine
+            // as before, with the most recent colour winning and the
+            // Preview labels following it.
             if (editing) {
               selectItem(item, event.shiftKey)
               setPreviewPresetId(preset.id)
@@ -638,7 +644,7 @@ export function GroupsPresetsPanel() {
               setPreviewPresetId(next.length ? next[next.length - 1] : null)
               return
             }
-            const only = activePresetIds.length === 1 && activePresetIds[0] === preset.id
+            const only = activePresetIds.length === 1 && activePresetIds[0] === preset.id && !effects.some((effect) => effect.enabled)
             if (only) {
               setActivePresets([])
               setSelected([])
@@ -646,6 +652,7 @@ export function GroupsPresetsPanel() {
               return
             }
             setActivePresets([preset.id])
+            setActiveEffects([])
             setSelected([item])
             // Clicking a preset shows its saved values as labels on
             // the fixtures in the Preview (LightKey, Jake 22 Nov 2026).
@@ -840,14 +847,37 @@ export function GroupsPresetsPanel() {
           {effects.filter((effect) => matchesQuery(effect.name)).map((effect) => {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
             return (
-              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) ? 'bg-panel2' : ''}`}
+              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) || effect.enabled ? 'bg-panel2' : ''}`}
                 onMouseEnter={() => setHoveredRow(`effect:${effect.id}`)}
                 onMouseLeave={() => setHoveredRow((current) => (current === `effect:${effect.id}` ? null : current))}
               >
                 <button type="button" role="treeitem" aria-selected={isSelected(item)}
                   className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${effect.enabled ? 'selected' : 'hover:bg-panel2'}`}
-                  title={`${effect.attribute} · ${effect.waveform} — click to ${effect.enabled ? 'disable' : 'enable'} · double-click to edit`}
-                  onClick={(event) => { selectItem(item, event.shiftKey); updateEffect(effect.id, { enabled: !effect.enabled }) }}
+                  title={`${effect.attribute} · ${effect.waveform} — click to select alone · Shift/Cmd-click to add · double-click to edit`}
+                  onClick={(event) => {
+                    // The unified palette selection (Jake, 22 Nov 2026):
+                    // a plain click selects the effect alone — it replaces
+                    // the selection (the active presets go off, the other
+                    // effects stop) and the effect runs until clicked off.
+                    // Shift/Cmd/Ctrl-click toggles just this effect on top
+                    // of what is already selected, as before.
+                    const additive = event.shiftKey || event.metaKey || event.ctrlKey
+                    if (additive) {
+                      updateEffect(effect.id, { enabled: !effect.enabled })
+                      selectItem(item, true)
+                      return
+                    }
+                    const only = effect.enabled && !effects.some((other) => other.enabled && other.id !== effect.id) && activePresetIds.length === 0
+                    if (only) {
+                      setActiveEffects([])
+                      setSelected([])
+                      return
+                    }
+                    setActiveEffects([effect.id])
+                    setActivePresets([])
+                    setSelected([item])
+                    setPreviewPresetId(null)
+                  }}
                   onDoubleClick={() => startEditingLiveEffect(effect.id)}
                   onContextMenu={(event) => rowContextMenu(event, item)}
                 >

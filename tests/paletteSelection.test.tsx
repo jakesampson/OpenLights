@@ -1,9 +1,12 @@
 // Jake, 22 Nov 2026 — LightKey's palette: no ON badge, the row
-// highlight IS the indicator; a plain click selects one preset alone
+// highlight IS the indicator; a plain click selects one row alone
 // (it drives the output until clicked off), Shift/Cmd/Ctrl-click
 // toggles membership in the selection, and clicking blank space in
-// the palette clears the whole selection. Each row's dot is the
-// preset's actual colour (a dimmer-only preset shows a sun icon).
+// the palette clears the whole selection. Each preset row's dot is
+// the preset's actual colour (a dimmer-only preset shows a sun
+// icon). Effects share the same selection as presets — a plain
+// click on an effect selects it alone, so the presets go off and
+// the other effects stop.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import React from 'react'
@@ -51,6 +54,17 @@ function seedPresets() {
   })
 }
 
+function seedEffects() {
+  act(() => {
+    useShowStore.setState({
+      effects: [
+        { id: 'kitt', name: 'K.I.T.T.', fixtureIds: ['fx1'], attribute: 'intensity', waveform: 'sine', speed: 1, syncToBpm: false, size: 255, offset: 128, enabled: false },
+        { id: 'fire', name: 'Fire', fixtureIds: ['fx1'], attribute: 'intensity', waveform: 'sine', speed: 1, syncToBpm: false, size: 255, offset: 128, enabled: false }
+      ]
+    })
+  })
+}
+
 function presetRow(id: string) {
   const row = container?.querySelector(`[data-palette-row="preset:${id}"] [role="treeitem"]`) as HTMLElement | null
   if (!row) throw new Error(`preset row ${id} not rendered`)
@@ -67,6 +81,40 @@ function rowHighlighted(id: string) {
 
 function clickPreset(id: string, opts: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {}) {
   act(() => { presetRow(id).dispatchEvent(new window.MouseEvent('click', { bubbles: true, ...opts })) })
+}
+
+function effectRow(id: string) {
+  const row = container?.querySelector(`[data-palette-row="effect:${id}"] [role="treeitem"]`) as HTMLElement | null
+  if (!row) throw new Error(`effect row ${id} not rendered`)
+  return row
+}
+
+function effectRowOuter(id: string) {
+  return container?.querySelector(`[data-palette-row="effect:${id}"]`) as HTMLElement | null
+}
+
+function effectHighlighted(id: string) {
+  return effectRowOuter(id)?.className.includes('bg-panel2') ?? false
+}
+
+function effectEnabled(id: string) {
+  return useShowStore.getState().effects.find((effect) => effect.id === id)?.enabled ?? false
+}
+
+function clickEffect(id: string, opts: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {}) {
+  act(() => { effectRow(id).dispatchEvent(new window.MouseEvent('click', { bubbles: true, ...opts })) })
+}
+
+function clickBlankSpace() {
+  const tree = container?.querySelector('[role="tree"]') as HTMLElement | null
+  if (!tree) throw new Error('palette tree not rendered')
+  act(() => { tree.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+}
+
+function pressEscape() {
+  const tree = container?.querySelector('[role="tree"]') as HTMLElement | null
+  if (!tree) throw new Error('palette tree not rendered')
+  act(() => { tree.dispatchEvent(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, key: 'Escape' })) })
 }
 
 beforeEach(() => { useShowStore.getState().setShow(null) })
@@ -196,5 +244,118 @@ describe('palette selection (LightKey)', () => {
     expect(container?.querySelector('button[aria-label="Edit Red"]')).toBeNull()
     act(() => { rowOuter('red')?.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
     expect(container?.querySelector('button[aria-label="Edit Red"]')).not.toBeNull()
+  })
+})
+
+describe('palette selection — effects share the preset selection', () => {
+  it('plain click on an effect selects it alone and releases the presets', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+    const s = () => useShowStore.getState()
+
+    clickPreset('red')
+    expect(s().activePresetIds).toEqual(['red'])
+
+    // The effect replaces the preset — it does not stack on top of it.
+    clickEffect('kitt')
+    expect(s().activePresetIds).toEqual([])
+    expect(s().previewPresetId).toBeNull()
+    expect(effectEnabled('kitt')).toBe(true)
+    expect(effectEnabled('fire')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(true)
+    expect(rowHighlighted('red')).toBe(false)
+  })
+
+  it('plain click on a preset stops the enabled effects', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+    const s = () => useShowStore.getState()
+
+    clickEffect('kitt')
+    expect(effectEnabled('kitt')).toBe(true)
+
+    clickPreset('red')
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(false)
+    expect(s().activePresetIds).toEqual(['red'])
+    expect(rowHighlighted('red')).toBe(true)
+  })
+
+  it('plain click on another effect replaces the first', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+
+    clickEffect('kitt')
+    expect(effectEnabled('kitt')).toBe(true)
+    clickEffect('fire')
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectEnabled('fire')).toBe(true)
+    expect(effectHighlighted('kitt')).toBe(false)
+    expect(effectHighlighted('fire')).toBe(true)
+  })
+
+  it('clicking the selected effect again deselects it', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+
+    clickEffect('kitt')
+    expect(effectEnabled('kitt')).toBe(true)
+    clickEffect('kitt')
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(false)
+  })
+
+  it('shift-click adds an effect on top of a preset, cmd-click drops it out', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+    const s = () => useShowStore.getState()
+
+    clickPreset('red', { shiftKey: true })
+    clickEffect('kitt', { shiftKey: true })
+    expect(s().activePresetIds).toEqual(['red'])
+    expect(effectEnabled('kitt')).toBe(true)
+    expect(rowHighlighted('red')).toBe(true)
+    expect(effectHighlighted('kitt')).toBe(true)
+
+    clickEffect('kitt', { metaKey: true })
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(false)
+    expect(s().activePresetIds).toEqual(['red'])
+    expect(rowHighlighted('red')).toBe(true)
+  })
+
+  it('clicking blank space clears the effects too', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+    const s = () => useShowStore.getState()
+
+    clickPreset('red', { shiftKey: true })
+    clickEffect('kitt', { shiftKey: true })
+    expect(s().activePresetIds).toEqual(['red'])
+    expect(effectEnabled('kitt')).toBe(true)
+
+    clickBlankSpace()
+    expect(s().activePresetIds).toEqual([])
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(false)
+    expect(rowHighlighted('red')).toBe(false)
+  })
+
+  it('Escape clears the effects too', () => {
+    seedPresets()
+    seedEffects()
+    renderInRoot(<GroupsPresetsPanel />)
+
+    clickEffect('kitt')
+    expect(effectEnabled('kitt')).toBe(true)
+    pressEscape()
+    expect(effectEnabled('kitt')).toBe(false)
+    expect(effectHighlighted('kitt')).toBe(false)
   })
 })
