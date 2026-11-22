@@ -173,7 +173,7 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
     }
   })
   if (record(doc.startup).mode !== 'restore' && record(doc.startup).mode !== 'none') doc.startup = { ...record(doc.startup), mode: 'none' }
-  doc.layout = { preview: true, palette: true, inspector: true, ...record(doc.layout) }
+  doc.layout = { preview: true, palette: true, inspector: true, shortcuts: true, ...record(doc.layout) }
   doc.preferences = { defaultFadeMs: 1000, pageFadeMs: 500, theme: 'dark', dmxProtocol: 'open-dmx-usb', ...record(doc.preferences) }
   if (!Array.isArray(doc.stageObjects)) doc.stageObjects = (Array.isArray(doc.previewTrusses) ? doc.previewTrusses : []).map((raw) => { const truss = record(raw); return { ...truss, kind: 'truss', trussShape: truss.shape, fill: 'none', opacity: 1 } })
   // Short names (LightKey Guide p.30): fixtures stored before schema v3

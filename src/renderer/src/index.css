@@ -207,6 +207,19 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   color: #fff;
 }
 .top-bar > .flex:first-child > button:not(.lightkey-action):not(.lightkey-project):hover { background: #6d6d6f; }
+/* The header Edit button (Jake, 22 Nov 2026): smaller than the other
+   header buttons, on the header's own grey, sitting close to the
+   effects wand — but it keeps its border, so it still reads as a
+   pressable button. The background is transparent rather than the
+   sampled header grey: the header grey shows through exactly, and the
+   preview-edit test requires that sampled grey to appear once in the
+   stylesheet (the top bar itself). It stays nth-child(3) with
+   margin-left: auto (the toolbar test pins that rule); the Overrides
+   field's flex-grow above is what moves it next to the wand. This rule
+   must stay above the blue .on rule for Done below — same specificity,
+   later wins. */
+.top-bar > .flex:first-child > button.btn-theme.header-edit-button { min-height: 26px; padding: 3px 10px; font-size: 12px; background: transparent; }
+.top-bar > .flex:first-child > button.btn-theme.header-edit-button:hover { background: #555658; }
 .top-bar details > summary { list-style: none; }
 .top-bar details > summary::-webkit-details-marker { display: none; }
 
@@ -258,8 +271,16 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   align-items: center;
   gap: 7px;
   min-width: 240px;
-  max-width: 434px;
-  flex: 0 1 434px;
+  /* The Overrides field grows to absorb the header's free space (Jake,
+     22 Nov 2026: the Edit button should sit close to the effects wand).
+     Edit keeps its margin-left: auto — the toolbar test pins it, and it
+     is what pins the right cluster — so the space has to go somewhere:
+     the field stretches (LightKey's own "No overrides" field stretches
+     the same way) and the wand slides right up to Edit. Capped at
+     640px so the pill never sprawls on a very wide window; past that
+     the auto margin takes the rest, as before. */
+  max-width: 640px;
+  flex: 1 1 434px;
   height: 34px;
   padding: 0 10px;
   border-radius: 8px;

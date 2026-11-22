@@ -455,7 +455,7 @@ export interface ShowDef {
   fixtureProfiles?: FixtureProfile[]
   favoriteProfileIds?: string[]
   stageObjects?: StageObject[]
-  layout?: { preview: boolean; palette: boolean; inspector: boolean }
+  layout?: { preview: boolean; palette: boolean; inspector: boolean; shortcuts: boolean }
   /** When true, switching Live pages releases cues instead of restoring that page's active levels. */
   deactivateOnPageSwitch?: boolean
   startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; cueId?: string | null }

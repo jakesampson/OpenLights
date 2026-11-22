@@ -97,9 +97,9 @@ describe('DMX auto-connect on launch', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(setDmxPort).not.toHaveBeenCalled()
     // No DMX button in the header — the manual path lives in the
-    // settings menu: open it and the button is there.
+    // header view-options menu: open it and the button is there.
     expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
-    act(() => { container?.querySelector('button[aria-label="Layout and settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
   })
@@ -110,7 +110,7 @@ describe('DMX auto-connect on launch', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(setDmxPort).not.toHaveBeenCalled()
     expect(container?.querySelector('button[title^="DMX output settings"]')).toBeNull()
-    act(() => { container?.querySelector('button[aria-label="Layout and settings"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
+    act(() => { container?.querySelector('button[aria-label="View options"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true })) })
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     expect(container?.querySelector('[data-header-settings-menu] button[title^="DMX output settings"]')).not.toBeNull()
   })

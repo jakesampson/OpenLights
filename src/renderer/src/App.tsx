@@ -16,6 +16,7 @@ import { PreviewEditPanel } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxAutoConnect, DmxConnection } from './components/DmxConnection'
+import { SettingsDialog, type SettingsTabId } from './components/SettingsDialog'
 import { ViewSwitch } from './components/ViewSwitch'
 import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
@@ -301,6 +302,14 @@ export default function App() {
   // never leaves the editor stuck (Jake, 21 Nov 2026).
   const goTab = (view: Tab) => { useShowStore.getState().exitEffectEditor(); if (view === 'Live' && editingPresetId) saveEditingPreset(); if (view === 'Live' && editingCueAdHocId) saveEditingCueAdHoc(); setTab(view) }
   const [settingsOpen, setSettingsOpen] = useState(false)
+  // The Settings dialog's tab persists across opens (LightKey reopens on
+  // the last-used tab); Cmd+, opens it, the DMX gear and the MIDI row
+  // jump straight to their tab.
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general')
+  // The far-right header button is a view-options menu (Jake, 22 Nov
+  // 2026), not a settings menu: it shows/hides Preview, Preset Palette
+  // and Shortcuts, and carries the header actions that are not settings.
+  const [viewMenuOpen, setViewMenuOpen] = useState(false)
   const [adaptiveBackground, setAdaptiveBackground] = useState(() => localStorage.getItem('openlights.adaptiveBackground') !== 'false')
   const [toolPanel, setToolPanel] = useState<ToolPanel | null>(null)
   const headerTaps = useRef<number[]>([])
@@ -308,11 +317,11 @@ export default function App() {
   useEffect(() => {
     const closeHeaderMenus = (event: PointerEvent) => {
       const target = event.target as Node | null
-      if (!target || !settingsMenuRef.current?.contains(target)) setSettingsOpen(false)
+      if (!target || !settingsMenuRef.current?.contains(target)) setViewMenuOpen(false)
     }
     const closeHeaderMenusOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      setSettingsOpen(false)
+      setViewMenuOpen(false)
     }
     window.addEventListener('pointerdown', closeHeaderMenus)
     window.addEventListener('keydown', closeHeaderMenusOnEscape)
@@ -510,6 +519,10 @@ export default function App() {
       else if (command === 'design') { if (!state.locked) { state.exitEffectEditor(); setTab('Design') } }
       else if (command === 'live') { state.exitEffectEditor(); setTab('Live') }
       else if (command === 'editPreview') togglePreviewEditing()
+      // Settings (LightKey: Command-Comma) opens the tabbed Settings
+      // dialog on the last-used tab; the DMX gear and the MIDI row jump
+      // straight to their tab instead.
+      else if (command === 'settings') setSettingsOpen(true)
       else if (command === 'showOverrides') state.setShowOverrideLabels(!state.showOverrideLabels)
       else if (command.startsWith('zoom')) window.dispatchEvent(new CustomEvent('openlights-preview-zoom', { detail: ({ zoomIn: 'in', zoomOut: 'out', zoomFit: 'fit', zoomSelection: 'selection' } as Record<string, string>)[command] }))
       else if (command === 'fullscreen') void window.electronAPI.toggleFullscreen()
@@ -524,12 +537,12 @@ export default function App() {
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
-      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate(); else if (state.editingLiveEffectId) state.cancelEditingLiveEffect(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
+      else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate(); else if (state.editingLiveEffectId) state.cancelEditingLiveEffect(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (viewMenuOpen) setViewMenuOpen(false); else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
       else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab, setupWizardStep])
+  }, [toolPanel, settingsOpen, viewMenuOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab, setupWizardStep])
 
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)
@@ -577,6 +590,16 @@ export default function App() {
   // rows are never concatenated with the palette rows.
   const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })
   const closeToolPanel = () => setToolPanel(null)
+  // The view-options menu's panel toggles (Jake, 22 Nov 2026): Preview,
+  // Preset Palette and Shortcuts. The merge keeps every layout key, so
+  // toggling one panel can never drop another — updateProject replaces
+  // the whole layout object. (The old Inspector toggle wrote a flag
+  // nothing read: the Inspector is the side panel in Preview-edit mode,
+  // so its visibility already follows the Preset Palette column.)
+  const setLayoutPanel = (panel: 'preview' | 'palette' | 'shortcuts', value: boolean) => {
+    const state = useShowStore.getState()
+    state.updateProject({ layout: { preview: true, palette: true, inspector: true, shortcuts: true, ...state.show?.layout, [panel]: value } })
+  }
   // The Design workspace (Preview + side panel + bottom panel) renders
   // either under the header in the normal flow, or inside the setup wizard
   // modal for its preview / groups / directions steps — one JSX tree, used
@@ -619,7 +642,7 @@ export default function App() {
           in the wrong place entirely. The row is flex-none, so it never
           scrolls away with the Live canvas below it, and the switch works
           identically in Design, Live and Live Edit. */}
-      <div className="bottom-grid">
+      <div className="bottom-grid" style={show?.layout?.shortcuts === false ? { gridTemplateColumns: '1fr' } : undefined}>
         <div className="panel bottom-panel-shell">
           {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
               10.12.28 / 10.17.25): rendered here, as a child of the bottom
@@ -643,7 +666,7 @@ export default function App() {
           </div>
         </div>
 
-        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col">
+        <div className="panel overflow-hidden p-2 min-h-0 flex flex-col" style={show?.layout?.shortcuts === false ? { display: 'none' } : undefined}>
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">
             Shortcuts · {tab}
           </div>
@@ -751,7 +774,7 @@ export default function App() {
               The toggle is disabled only while the project is locked. */}
           <button
             type="button"
-            className={`btn-theme ${previewEditing ? 'on' : ''}`}
+            className={`btn-theme header-edit-button ${previewEditing ? 'on' : ''}`}
             aria-pressed={previewEditing}
             aria-label="Edit preview"
             title="Edit preview (LightKey Guide p.53)"
@@ -776,52 +799,54 @@ export default function App() {
           <div ref={settingsMenuRef} className="relative">
             <button
               type="button"
-              className={`lightkey-action ${settingsOpen ? 'on' : ''}`}
-              aria-label="Layout and settings"
-              title="Layout and settings"
-              aria-expanded={settingsOpen}
-              onClick={() => setSettingsOpen((open) => !open)}
+              className={`lightkey-action ${viewMenuOpen ? 'on' : ''}`}
+              aria-label="View options"
+              title="View options"
+              aria-expanded={viewMenuOpen}
+              onClick={() => setViewMenuOpen((open) => !open)}
             >
               <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M15 9v11"/></svg>
             </button>
-            {settingsOpen && (
+            {viewMenuOpen && (
               <div data-header-settings-menu className="absolute right-0 top-full z-50 mt-1 flex w-56 flex-col rounded-lg border border-line bg-panel p-1 shadow-xl">
-                <label className="flex cursor-pointer items-center justify-between gap-3 rounded px-3 py-2 text-xs text-text hover:bg-panel2">
-                  <span>Adaptive background colour</span>
-                  <input type="checkbox" checked={adaptiveBackground} onChange={(event) => setAdaptiveBackground(event.target.checked)} />
-                </label>
-                <label className="px-3 py-2 text-xs">On project open<select aria-label="Project startup state" value={show?.startup?.mode ?? 'none'} onChange={(event) => useShowStore.getState().setStartupMode(event.target.value as 'none' | 'restore')} className="mt-1 w-full rounded bg-panel2 p-1"><option value="none">No active looks</option><option value="restore">Restore saved looks</option></select></label>
-                <label className="px-3 py-2 text-xs">Default fade (ms)<input aria-label="Default fade milliseconds" type="number" min="0" value={show?.preferences?.defaultFadeMs ?? 1000} onChange={(event) => useShowStore.getState().updatePreferences({ defaultFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
-                <label className="px-3 py-2 text-xs">Page fade (ms)<input aria-label="Page fade milliseconds" type="number" min="0" value={show?.preferences?.pageFadeMs ?? 500} onChange={(event) => useShowStore.getState().updatePreferences({ pageFadeMs: Math.max(0, Number(event.target.value)) })} className="mt-1 w-full rounded bg-panel2 p-1" /></label>
-                <label className="px-3 py-2 text-xs">Appearance<select aria-label="Application appearance" value={show?.preferences?.theme ?? 'dark'} onChange={(event) => useShowStore.getState().updatePreferences({ theme: event.target.value as 'dark' | 'system' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="dark">Dark</option><option value="system">System</option></select></label>
-                <label className="px-3 py-2 text-xs">Default USB DMX interface<select aria-label="Default USB DMX interface" value={show?.preferences?.dmxProtocol ?? 'open-dmx-usb'} onChange={(event) => useShowStore.getState().updatePreferences({ dmxProtocol: event.target.value as 'open-dmx-usb' | 'enttec-usb-pro' })} className="mt-1 w-full rounded bg-panel2 p-1"><option value="open-dmx-usb">Open DMX USB</option><option value="enttec-usb-pro">DMX USB Pro</option></select></label>
-                <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs"><span>Deactivate cues on page switch</span><input type="checkbox" checked={show?.deactivateOnPageSwitch === true} onChange={(event) => useShowStore.getState().setPageSwitchMode(event.target.checked)} /></label>
-                <label className="px-3 py-2 text-xs">Tempo (BPM)<span className="mt-1 flex gap-1"><input aria-label="Tempo in BPM" type="number" min="30" max="240" value={bpm} onChange={(event) => useShowStore.getState().setBpm(Number(event.target.value))} className="min-w-0 flex-1 rounded bg-panel2 p-1" /><button type="button" className="btn-theme text-xs" onClick={() => { const result = calculateTapTempo(headerTaps.current, performance.now()); headerTaps.current = result.taps; if (result.bpm !== null) useShowStore.getState().setBpm(result.bpm) }}>Tap</button></span></label>
+                {/* View options (LightKey, Jake 22 Nov 2026): the far-right
+                    header button shows/hides Preview, Preset Palette and
+                    Shortcuts — each label flips to Hide or Show with the
+                    panel's state. The rows below the divider are the header
+                    actions that are not settings: the DMX gear opens
+                    Settings on the DMX Output tab, and the rest stay
+                    reachable from this menu. */}
+                {(['preview', 'palette', 'shortcuts'] as const).map((panel) => {
+                  const visible = show?.layout?.[panel] ?? true
+                  const label = panel === 'preview' ? 'Preview' : panel === 'palette' ? 'Preset Palette' : 'Shortcuts'
+                  return <button key={panel} type="button" className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2" onClick={() => { setLayoutPanel(panel, !visible); setViewMenuOpen(false) }}>{visible ? `Hide ${label}` : `Show ${label}`}</button>
+                })}
                 <div className="my-1 border-t border-line" />
-                <DmxConnection />
-                <button className="btn-panic rounded px-3 py-2 text-xs" onClick={handleBlackout}>{blackout ? 'Restore output' : 'Blackout'}</button>
-                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId)}>Open Live window</button>
-                <button className="btn-theme text-xs" onClick={() => void window.electronAPI.toggleFullscreen()}>Full screen · F11</button>
-                {(['preview', 'palette', 'inspector'] as const).map((panel) => <label key={panel} className="flex items-center justify-between px-3 py-1 text-xs capitalize">{panel}<input type="checkbox" aria-label={`Show ${panel}`} checked={show?.layout?.[panel] ?? true} onChange={(event) => useShowStore.getState().updateProject({ layout: { preview: true, palette: true, inspector: true, ...show?.layout, [panel]: event.target.checked } })} /></label>)}
+                <DmxConnection onOpenSettings={() => { setSettingsTab('dmx'); setSettingsOpen(true); setViewMenuOpen(false) }} />
+                <button className="btn-panic rounded px-3 py-2 text-xs" onClick={() => { void handleBlackout(); setViewMenuOpen(false) }}>{blackout ? 'Restore output' : 'Blackout'}</button>
+                <button className="btn-theme text-xs" onClick={() => { void window.electronAPI.openLiveWindow(useShowStore.getState().activeLivePageId); setViewMenuOpen(false) }}>Open Live window</button>
+                <button className="btn-theme text-xs" onClick={() => { void window.electronAPI.toggleFullscreen(); setViewMenuOpen(false) }}>Full screen · F11</button>
+                <div className="my-1 border-t border-line" />
                 <button
                   type="button"
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
                   onClick={() => {
                     setToolPanel('Automation')
-                    setSettingsOpen(false)
+                    setViewMenuOpen(false)
                   }}
                 >
-                  Automation
+                  Automation…
                 </button>
                 <button
                   type="button"
                   className="rounded px-3 py-2 text-left text-xs text-text hover:bg-panel2"
                   onClick={() => {
-                    setToolPanel('MIDI')
-                    setSettingsOpen(false)
+                    setSettingsTab('external')
+                    setSettingsOpen(true)
+                    setViewMenuOpen(false)
                   }}
                 >
-                  MIDI
+                  MIDI…
                 </button>
               </div>
             )}
@@ -899,6 +924,7 @@ export default function App() {
           </section>
         </div>
       )}
+      {settingsOpen && !setupWizardStep && <SettingsDialog initialTab={settingsTab} adaptiveBackground={adaptiveBackground} onAdaptiveBackgroundChange={setAdaptiveBackground} onTapTempo={tapTempo} onClose={() => setSettingsOpen(false)} />}
       {welcomeOpen && <WelcomeScreen />}
       {newProjectDialogOpen && <NewProjectDialog template={newProjectTemplate} onSave={createProject} onClose={() => { const state = useShowStore.getState(); state.setNewProjectDialogOpen(false); state.setNewProjectTemplate(null) }} />}
     </div>
