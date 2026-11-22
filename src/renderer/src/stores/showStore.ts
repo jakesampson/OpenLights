@@ -317,6 +317,10 @@ interface ShowState {
   capturePresetFromLook: (snapshot: boolean, groupId?: string | null) => { id: string; name: string } | null
   convertCuesToPresets: () => number
   togglePreset: (id: string) => void
+  /** Set the active preset list wholesale (LightKey palette, Jake 22 Nov
+   *  2026): a plain palette click selects one preset alone, so the list
+   *  is replaced rather than toggled. Unknown ids are dropped. */
+  setActivePresets: (ids: string[]) => void
   clearPresets: () => void
   renamePreset: (id: string, name: string) => void
   updatePresetContents: (id: string, values: PresetDef['fixtureValues']) => void
@@ -1892,6 +1896,13 @@ const actions: ShowState = {
     // fixtures are actually at: a dimmer preset toggled on must raise
     // the default blue, and toggled off must drop it again (Jake,
     // 22 Nov 2026).
+    get().refreshBaseOutput()
+  },
+  setActivePresets: (ids) => {
+    set((state) => {
+      const valid = new Set(state.presets.map((preset) => preset.id))
+      return { activePresetIds: ids.filter((id) => valid.has(id)) }
+    })
     get().refreshBaseOutput()
   },
   toggleSequence: (id) => set((state) => state.show?.sequences?.some((s) => s.id === id) ? { activeSequenceIds: state.activeSequenceIds.includes(id) ? state.activeSequenceIds.filter((item) => item !== id) : [...state.activeSequenceIds, id] } : state),

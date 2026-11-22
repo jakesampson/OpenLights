@@ -4,6 +4,7 @@ import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
 import { findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '../lib/presetPalette'
+import { getPresetDotColor } from '../lib/presetColor'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
 import type { PresetGroup } from '@shared/types'
 
@@ -59,6 +60,8 @@ export function GroupsPresetsPanel() {
     activePresetIds,
     activeSequenceIds,
     togglePreset,
+    setActivePresets,
+    clearPresets,
     effects,
     selectedFixtureIds,
     updateEffect,
@@ -264,13 +267,20 @@ export function GroupsPresetsPanel() {
       ? isSelected(item) ? selected.filter((s) => !(s.kind === item.kind && s.id === item.id)) : [...selected, item]
       : [item]
     setSelected(next)
-    // The Preview labels follow the selected preset (Jake, 22 Nov
-    // 2026): they clear when the preset leaves the selection — e.g.
-    // clicking a sequence or effect row. A preset row sets its own
-    // label after this, in its onClick.
-    if (!next.some((s) => s.kind === 'preset' && s.id === useShowStore.getState().previewPresetId)) {
-      setPreviewPresetId(null)
-    }
+    // The Preview labels follow the ACTIVE presets (LightKey palette,
+    // Jake 22 Nov 2026), not this local selection — the preset click
+    // handler sets previewPresetId from the new active list, so
+    // clicking a sequence, effect or group row must not clear the
+    // labels of a preset that is still driving the output.
+  }
+
+  // Clicking blank space in the palette clears the whole selection
+  // (Jake, 22 Nov 2026): the active presets go off with the local
+  // selection and the Preview labels. Escape does the same.
+  const clearPaletteSelection = () => {
+    setSelected([])
+    clearPresets()
+    setPreviewPresetId(null)
   }
 
   // --- palette file exchange (header menu) --------------------------------
@@ -516,8 +526,11 @@ export function GroupsPresetsPanel() {
     }
     if (event.key === 'Escape') {
       // Stop here so the global Esc handler does not also stop a cue.
+      // Escape clears the whole palette selection (Jake, 22 Nov 2026):
+      // the active presets go off with the local selection and the
+      // Preview labels, the same as clicking blank space.
       event.preventDefault(); event.stopPropagation()
-      setSelected([]); setPreviewPresetId(null); setContextMenu(null); setComposer(null); setRenaming(null)
+      setSelected([]); clearPresets(); setPreviewPresetId(null); setContextMenu(null); setComposer(null); setRenaming(null)
       return
     }
     if (event.key === 'Enter' && selected.length === 1) {
@@ -587,7 +600,7 @@ export function GroupsPresetsPanel() {
     const editing = editingPresetId === preset.id
     return (
       <div key={preset.id} data-palette-row={`preset:${preset.id}`} tabIndex={-1}
-        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
+        className={`group flex flex-col rounded ${isSelected(item) || active ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
         onMouseEnter={() => setHoveredRow(`preset:${preset.id}`)}
         onMouseLeave={() => setHoveredRow((current) => (current === `preset:${preset.id}` ? null : current))}
       >
@@ -603,34 +616,37 @@ export function GroupsPresetsPanel() {
           onDragLeave={(event) => clearDragOver(event, preset.id)}
           onDrop={(event) => dropOntoItem(event, item, parentGroupId)}
           onClick={(event) => {
-            // A plain click toggles the preset (Jake, 22 Nov 2026):
-            // the second click turns it off AND lets go of the
-            // selection, so the row highlight and the Preview labels
-            // go with it. The old code always re-selected on a plain
-            // click, so after the second click the row stayed
-            // highlighted and labelled even though the preset was off.
-            // Shift-click keeps the additive multi-select behaviour.
+            // LightKey's palette (Jake, 22 Nov 2026): the row highlight
+            // IS the indicator — there is no ON badge. A plain click
+            // selects the preset alone: it replaces the selection and
+            // drives the output, and the look stays lit until clicked
+            // off (another preset, blank space, or the preset again).
+            // Shift/Cmd/Ctrl-click toggles that preset's membership in
+            // the selection, so several presets combine as before, with
+            // the most recent colour winning and the Preview labels
+            // following it.
             if (editing) {
               selectItem(item, event.shiftKey)
               setPreviewPresetId(preset.id)
               return
             }
-            const wasActive = activePresetIds.includes(preset.id)
-            if (event.shiftKey) {
-              const wasSelected = isSelected(item)
-              selectItem(item, true)
+            const additive = event.shiftKey || event.metaKey || event.ctrlKey
+            if (additive) {
               togglePreset(preset.id)
-              setPreviewPresetId(wasSelected ? null : preset.id)
+              selectItem(item, true)
+              const next = useShowStore.getState().activePresetIds
+              setPreviewPresetId(next.length ? next[next.length - 1] : null)
               return
             }
-            if (wasActive) {
+            const only = activePresetIds.length === 1 && activePresetIds[0] === preset.id
+            if (only) {
+              setActivePresets([])
               setSelected([])
-              togglePreset(preset.id)
               setPreviewPresetId(null)
               return
             }
-            selectItem(item, false)
-            togglePreset(preset.id)
+            setActivePresets([preset.id])
+            setSelected([item])
             // Clicking a preset shows its saved values as labels on
             // the fixtures in the Preview (LightKey, Jake 22 Nov 2026).
             setPreviewPresetId(preset.id)
@@ -642,9 +658,16 @@ export function GroupsPresetsPanel() {
           title={`${preset.category} · ${Object.keys(preset.fixtureValues).length} fixtures — drag onto a Live page in Edit mode to add a button, or onto a folder to move it there`}
         >
           <button type="button" className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${editing ? 'bg-yellow-400 font-semibold text-black' : active ? 'selected' : 'hover:bg-panel2'}`}>
-            <span className="dot" style={{ backgroundColor: editing ? '#111' : preset.category === 'color' ? '#f2aaee' : '#a4c4f6' }} />
+            {/* The dot is the preset's actual colour (LightKey, Jake
+                22 Nov 2026); a dimmer-only preset shows a sun icon
+                instead, as in LightKey's "100%" row. */}
+            {(() => {
+              const dotColor = getPresetDotColor(preset)
+              return dotColor
+                ? <span className="dot" style={{ backgroundColor: editing ? '#111' : dotColor }} />
+                : <span aria-hidden="true" className="w-[10px] shrink-0 text-center text-[11px] leading-none text-dim">☀</span>
+            })()}
             {renaming?.kind === 'preset' && renaming.id === preset.id ? renameInput(item) : <span className="truncate">{preset.name}</span>}
-            {active && !editing && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
           </button>
           {/* Hovering a preset row shows a yellow Edit button (LightKey
               Guide ch.9, p.128; Jake, 21 Nov 2026) — the same Edit as
@@ -800,6 +823,13 @@ export function GroupsPresetsPanel() {
           aria-label="Preset palette"
           tabIndex={0}
           onKeyDown={onTreeKeyDown}
+          onClick={(event) => {
+            // Blank space in the palette clears the selection (Jake,
+            // 22 Nov 2026). Row clicks bubble up here too, so only
+            // clear when the click landed outside every row.
+            if ((event.target as Element).closest('[data-palette-row]')) return
+            clearPaletteSelection()
+          }}
           onDragOver={(event) => { allowPaletteDrop(event) }}
           onDrop={(event) => dropOntoGroup(event, null)}
           className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 py-1 outline-none"
@@ -823,7 +853,6 @@ export function GroupsPresetsPanel() {
                 >
                   <span aria-hidden="true">∿</span>
                   <span className="truncate">{effect.name}</span>
-                  {effect.enabled && <span className="ml-auto text-[9px] uppercase tracking-wider text-dim">on</span>}
                 </button>
                 {/* Hovering an effect row shows a yellow Edit button
                     (LightKey Guide ch.9, p.128; Jake, 21 Nov 2026) —
