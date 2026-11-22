@@ -7,7 +7,7 @@
   "icon": "assets/branding/openlights-icon.png",
   "mac": {
     "target": "dmg",
-    "icon": "assets/branding/openlights-icon.png",
+    "icon": "assets/branding/openlights-icon.icns",
     "identity": null,
     "gatekeeperAssess": false,
     "hardenedRuntime": true,

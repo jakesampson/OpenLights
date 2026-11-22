@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { useShowStore, defaultShow } from '../stores/showStore'
 import { demoShowTemplate, deleteUserTemplate, listUserTemplates, type ShowTemplate } from '../lib/templates'
 import type { ShowMeta } from '../global'
+import lockupUrl from '../assets/openlights-lockup-on-dark.svg'
 
 export function WelcomeScreen() {
   const [recents, setRecents] = useState<ShowMeta[]>([])
@@ -77,8 +78,10 @@ export function WelcomeScreen() {
       <div className="w-full max-w-[720px]">
         <header className="flex items-start justify-between">
           <div>
-            <h1 id="welcome-title" className="text-2xl font-semibold">OpenLights</h1>
-            <p className="mt-1 text-sm text-dim">Project Browser</p>
+            <h1 id="welcome-title">
+              <img src={lockupUrl} alt="OpenLights" className="h-[25vh] w-auto max-w-full" draggable={false} />
+            </h1>
+            <p className="mt-2 text-sm text-dim">Project Browser</p>
           </div>
           <button type="button" className="btn-theme" onClick={() => useShowStore.getState().setWelcomeOpen(false)} aria-label="Close Project Browser" title="Close Project Browser">×</button>
         </header>
