@@ -1,6 +1,23 @@
 import type { CueDef, PresetDef } from '@shared/types'
 import { resolveCueValues } from '@shared/cueResolution'
 
+/**
+ * A preset's base colour is the fixture's whole base colour (Jake,
+ * 22 Nov 2026) — the shared rule in @shared/cueResolution.ts, which
+ * the cue layer resolves too: when a preset names any part of a
+ * fixture's base colour — RGB, or CMY where the fixture has all three
+ * — the parts it does not name are 0, not "whatever the layer
+ * underneath says". Without this, a Red preset over the lifted default
+ * blue (a dimmer alone raises blue, Jake 22 Nov 2026) comes out
+ * magenta: the base blue leaks through the blue channel the preset
+ * never wrote. White / Amber / UV / Lime are separate LEDs and
+ * independent properties (Guide p.85), so they are never filled and
+ * never trigger the fill. A preset that names no base colour at all (a
+ * dimmer preset) is untouched. Apply after fanPresetFixtureValues, so
+ * the fill covers every beam of a multipart fixture.
+ */
+export { completeBaseColour as completePresetBaseColour } from '@shared/cueResolution'
+
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
 /** The cue's representative colour — from its resolved look (Piece 8),

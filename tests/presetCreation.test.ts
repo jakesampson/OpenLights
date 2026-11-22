@@ -134,7 +134,9 @@ describe('capturePresetFromLook (New Preset With Snapshot)', () => {
     // Cue red 10 + override intensity 230: the cue's colour survives,
     // the override wins the dimmer. Red 10/255 is essentially black,
     // so the auto-name is Black — the point is the values, not the name.
-    expect(s().presets[0].fixtureValues).toEqual({ a: { intensity: 230, red: 10 } })
+    // The snapshot carries the whole base colour (Jake, 22 Nov 2026):
+    // green and blue are 0 in the combined look, so they are written.
+    expect(s().presets[0].fixtureValues).toEqual({ a: { intensity: 230, red: 10, green: 0, blue: 0 } })
     expect(created?.name).toBe('Black')
   })
   it('snapshots without an active cue from presets + overrides alone', () => {

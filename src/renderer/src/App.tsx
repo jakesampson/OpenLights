@@ -22,6 +22,7 @@ import { configureSequences, configureEffects, configurePresetOutput, configureL
 import { computeCueChannels } from './lib/automationRuntime'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
 import { effectiveIntensityLevels, liveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
+import { completePresetBaseColour } from './lib/presetColor'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
@@ -92,17 +93,26 @@ export default function App() {
   // 20 Nov 2026): the colour a look carries resolves against the
   // dimmer the fixture is actually at — the active cue, an active
   // preset, or the Design overrides — so a dimmer drag brings up blue
-  // without the wheel being touched. Sequences and Live controls are
-  // deliberately not sources (see effectiveIntensity.ts).
+  // without the wheel being touched. Since Jake's call of 22 Nov 2026
+  // the pressed Live pads count too: a Live dimmer pad lifts an
+  // active palette preset, and a dimmer alone raises the default
+  // colour. Sequences are deliberately not sources (see
+  // effectiveIntensity.ts).
+  const liveLevels = useMemo(() => {
+    const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
+    const controls = orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)
+    return liveIntensityLevels({ controls, levels: outputLevels, presets, cues, fixtures: show?.fixtures ?? [] })
+  }, [show?.livePages, activeLiveValues, liveActivationOrder, presets, cues, show?.fixtures])
   const effectiveLevels = useMemo(() => {
     const activeCue = cues.find((item) => item.id === activeCueId)
     return effectiveIntensityLevels({
       cueValues: activeCue ? resolveCueValues(activeCue, presets, show?.fixtures ?? []) : {},
       activePresetIds,
       presets,
-      manualOverrides
+      manualOverrides,
+      liveLevels
     })
-  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
+  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures, liveLevels])
   /** The base look in attribute space (the active cue's resolved values,
    *  then manually activated presets, then Design overrides — later
    *  wins): the effect runtime's colour source for virtual-dimmer
@@ -382,8 +392,11 @@ export default function App() {
       if (!preset) continue
       // A preset's colour is the fixture's colour (Jake, 19 Nov
       // 2026): applying it live fans the bare colour out to every
-      // beam, so a red preset lights all four cells of a 4Bar.
-      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), effectiveLevels) }, master))
+      // beam, so a red preset lights all four cells of a 4Bar — and
+      // the whole base colour (completePresetBaseColour), so the
+      // lifted default blue cannot leak through the channels the
+      // preset never wrote (Jake, 22 Nov 2026).
+      Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), effectiveLevels) }, master))
     }
     configurePresetOutput(patch)
   }, [presets, activePresetIds, show?.fixtures, master, effectiveLevels])
@@ -396,12 +409,11 @@ export default function App() {
     // preset's (Jake, 22 Nov 2026): a Full On pad must lift a Red pad's
     // colour on a virtual-dimmer fixture, which has no dimmer channel
     // for the Full On pad to write — so the two pads never meet at the
-    // channel level. Resolve every pad's colours against the
-    // intensities the pressed pads carry (liveIntensityLevels), riding
-    // on top of the base look's effective levels. Hardware-dimmer
-    // fixtures are unaffected — their pads already write the intensity
-    // channel.
-    const levels = { ...effectiveLevels, ...liveIntensityLevels({ controls, levels: outputLevels, presets, cues, fixtures: show?.fixtures ?? [] }) }
+    // channel level. Every pad's colours resolve against the effective
+    // levels, which already carry the pressed pads (liveLevels above).
+    // Hardware-dimmer fixtures are unaffected — their pads already
+    // write the intensity channel.
+    const levels = effectiveLevels
     for (const control of controls) {
       const level = outputLevels[control.id] ?? 0
       if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
@@ -413,7 +425,7 @@ export default function App() {
       }
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), levels) }, scaledMaster))
+        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), levels) }, scaledMaster))
       }
       if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, levels) }, scaledMaster))
     }

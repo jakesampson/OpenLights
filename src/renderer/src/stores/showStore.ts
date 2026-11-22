@@ -4,6 +4,7 @@ import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cu
 import { fanColourToBeams } from '@shared/fixtureProfiles'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
+import { orderedLiveControls } from '../lib/cuePriority'
 import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
@@ -61,7 +62,8 @@ import { mixColor, baseColorChannels, colorChannels, normalizeColorFavorite, typ
 import { mapCopiedProperties } from '../lib/copyProperties'
 import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
-import { effectiveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
+import { completePresetBaseColour } from '../lib/presetColor'
+import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
 import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
 import { computeEffectPatch } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
@@ -639,8 +641,25 @@ export function defaultFixtureValues(fixture: FixtureDef): Record<string, number
   return values
 }
 
+/**
+ * The intensities the pressed Live pads carry, for the base look
+ * (Jake, 22 Nov 2026): a Live dimmer pad lifts an active palette
+ * preset and raises the default colour, so the base look resolves
+ * against them like any other intensity source. Shares the App's
+ * live-layer computation (liveOutputLevels + orderedLiveControls +
+ * liveIntensityLevels) so the base and the layers never disagree.
+ */
+function liveLevelsForState(
+  state: Pick<ShowState, 'show' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>
+): Record<string, number> {
+  const fixtures = state.show?.fixtures ?? []
+  const outputLevels = liveOutputLevels(state.show?.livePages, state.activeLiveValues ?? {})
+  const controls = orderedLiveControls(state.show?.livePages, outputLevels, state.liveActivationOrder ?? {})
+  return liveIntensityLevels({ controls, levels: outputLevels, presets: state.show?.presets ?? [], cues: state.cues ?? [], fixtures })
+}
+
 function cuePatch(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>,
   cue: CueDef
 ): Record<number, number> {
   // The cue resolves through its preset references first (Piece 8): a
@@ -663,7 +682,8 @@ function cuePatch(
     cueValues: resolved.fixtureValues,
     activePresetIds: state.activePresetIds ?? [],
     presets: state.show?.presets ?? [],
-    manualOverrides: state.manualOverrides ?? {}
+    manualOverrides: state.manualOverrides ?? {},
+    liveLevels: liveLevelsForState(state)
   })
   return computeCueChannels(fixtures, { ...resolved, fixtureValues: withEffectiveIntensity(values, levels) }, state.master, true)
 }
@@ -673,21 +693,26 @@ function cuePatch(
  * default (Guide pp.85, 114 — normally blue, dimmer 0), with the
  * default colour scaled by the dimmer the fixture is actually at, so
  * a dimmer drag on a fresh fixture brings up blue instead of nothing.
- * This replaces the all-zero patch the no-cue paths used to send —
- * zeros latch the previous look's colours off and the defaults layer
- * in the output composer is masked by the full-frame base, so the
- * default blue never reached the frame any other way (Jake,
- * 20 Nov 2026). Blackout and project-close still send zeros.
+ * The dimmer's sources are the cue, an active preset, a Design
+ * override — and, since Jake's call of 22 Nov 2026, a pressed Live
+ * pad: a dimmer alone, from any of them, brings up the default blue
+ * on a virtual-dimmer fixture. This replaces the all-zero patch the
+ * no-cue paths used to send — zeros latch the previous look's colours
+ * off and the defaults layer in the output composer is masked by the
+ * full-frame base, so the default blue never reached the frame any
+ * other way (Jake, 20 Nov 2026). Blackout and project-close still
+ * send zeros.
  */
 function defaultsPatch(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'activeCueId' | 'cues'>
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'activeCueId' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>
 ): Record<number, number> {
   const fixtures = state.show?.fixtures ?? []
   const levels = effectiveIntensityLevels({
     cueValues: resolvedActiveCueValues(state.cues ?? [], state.show?.presets ?? [], state.activeCueId ?? null, fixtures),
     activePresetIds: state.activePresetIds ?? [],
     presets: state.show?.presets ?? [],
-    manualOverrides: state.manualOverrides ?? {}
+    manualOverrides: state.manualOverrides ?? {},
+    liveLevels: liveLevelsForState(state)
   })
   const values: Record<string, Record<string, number>> = {}
   for (const fixture of fixtures) values[fixture.id] = defaultFixtureValues(fixture)
@@ -700,7 +725,7 @@ function defaultsPatch(
  * leave the last values latched on the DMX interface.
  */
 function cueOutput(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>,
   cue: CueDef
 ): Record<number, number> {
   suppressPresetsForCue(Boolean(cue.blackout))
@@ -1233,23 +1258,30 @@ const actions: ShowState = {
   }),
   updateProject: (patch) => set((state) => persistState(state, patch)),
   updatePreferences: (patch) => set((state) => persistState(state, { preferences: { defaultFadeMs: 1000, pageFadeMs: 500, theme: 'dark', dmxProtocol: 'open-dmx-usb', ...state.show?.preferences, ...patch } })),
-  setLiveValue: (id, value) => set((state) => {
-    const level = clamp(value)
-    const activeLiveValues = { ...state.activeLiveValues, [id]: level }
-    // Activating a cue in an exclusive frame releases the frame's other cues.
-    if (level > 0) for (const page of state.show?.livePages ?? []) {
-      if (!page.controls.some((cue) => cue.id === id)) continue
-      if (page.controls.find((cue) => cue.id === id)?.appearance?.releaseOthers) for (const cue of page.controls) if (cue.id !== id) delete activeLiveValues[cue.id]
-      for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
-      // Activating a cue in a touching-button group releases the group's
-      // other cues (Guide ch.11, pp.183–184 "Attach buttons": only one
-      // attached button can be active at a time).
-      for (const sibling of touchingGroupSiblings(page, id)) delete activeLiveValues[sibling]
-    }
-    const liveActivationCounter = level > 0 ? state.liveActivationCounter + 1 : state.liveActivationCounter
-    const liveActivationOrder = level > 0 ? { ...state.liveActivationOrder, [id]: liveActivationCounter } : state.liveActivationOrder
-    return { activeLiveValues, liveActivationOrder, liveActivationCounter }
-  }),
+  setLiveValue: (id, value) => {
+    set((state) => {
+      const level = clamp(value)
+      const activeLiveValues = { ...state.activeLiveValues, [id]: level }
+      // Activating a cue in an exclusive frame releases the frame's other cues.
+      if (level > 0) for (const page of state.show?.livePages ?? []) {
+        if (!page.controls.some((cue) => cue.id === id)) continue
+        if (page.controls.find((cue) => cue.id === id)?.appearance?.releaseOthers) for (const cue of page.controls) if (cue.id !== id) delete activeLiveValues[cue.id]
+        for (const sibling of exclusiveSiblings(page, id)) delete activeLiveValues[sibling]
+        // Activating a cue in a touching-button group releases the group's
+        // other cues (Guide ch.11, pp.183–184 "Attach buttons": only one
+        // attached button can be active at a time).
+        for (const sibling of touchingGroupSiblings(page, id)) delete activeLiveValues[sibling]
+      }
+      const liveActivationCounter = level > 0 ? state.liveActivationCounter + 1 : state.liveActivationCounter
+      const liveActivationOrder = level > 0 ? { ...state.liveActivationOrder, [id]: liveActivationCounter } : state.liveActivationOrder
+      return { activeLiveValues, liveActivationOrder, liveActivationCounter }
+    })
+    // A Live pad changes the dimmer the fixtures are actually at, so
+    // the base look must re-resolve against it (Jake, 22 Nov 2026):
+    // a pressed Full On pad lifts an active palette preset and raises
+    // the default blue, and releasing it drops both again.
+    get().refreshBaseOutput()
+  },
   getLiveOutputLevels: () => {
     const state = get()
     return liveOutputLevels(state.show?.livePages, state.activeLiveValues)
@@ -1405,6 +1437,13 @@ const actions: ShowState = {
     }
     return { manualOverrides }
   }),
+  // Jake, 22 Nov 2026 (correction of the batch-6 call): Clear
+  // Overrides clears only the manual Design overrides — a palette
+  // preset that is switched on stays on, and is released by clicking
+  // it again. This is LightKey's behaviour too (guide ch.8, p.80:
+  // the brush clears overridden fixture properties only). The base
+  // is re-sent by the App effect, which runs on every
+  // manualOverrides change, so no refresh is needed here.
   clearManualOverrides: () => set({ manualOverrides: {} }),
   releaseManualOverrides: (fixtureIds, property) => set((state) => ({ manualOverrides: releaseOverrides(state.manualOverrides, fixtureIds, property) })),
   copyFixtureProperties: (property) => {
@@ -1813,8 +1852,16 @@ const actions: ShowState = {
         if (entries.length) fixtureValues[fixture.id] = Object.fromEntries(entries)
       }
       if (!Object.keys(fixtureValues).length) return state
-      const name = uniquePresetName(autoPresetName(fixtureValues, state.selectedFixtureIds) ?? 'Preset', state.presets.map((p) => p.name))
-      const preset: PresetDef = { id: crypto.randomUUID(), name, category: derivePresetCategory(fixtureValues), fixtureValues }
+      // Jake, 22 Nov 2026: a newly captured preset carries the whole
+      // base colour in the file itself — a red capture writes the other
+      // colour values as zero, so the preset means red everywhere it is
+      // applied (palette, Live pad, cue) instead of relying on each
+      // layer to complete it. White / Amber / UV / Lime are never
+      // filled and never trigger the fill (separate LEDs, Guide p.85),
+      // and a dimmer-only capture is untouched.
+      const completed = completePresetBaseColour(fixtureValues, fixtures)
+      const name = uniquePresetName(autoPresetName(completed, state.selectedFixtureIds) ?? 'Preset', state.presets.map((p) => p.name))
+      const preset: PresetDef = { id: crypto.randomUUID(), name, category: derivePresetCategory(completed), fixtureValues: completed }
       created = { id: preset.id, name }
       const presets = [...state.presets, preset]
       const presetGroups = groupId && state.show?.presetGroups?.some((g) => g.id === groupId)
@@ -1835,14 +1882,24 @@ const actions: ShowState = {
     })
     return converted.length
   },
-  togglePreset: (id) => set((state) => {
-    if (!state.presets.some((preset) => preset.id === id)) return state
-    const activePresetIds = activateGroupedPreset(state.activePresetIds, id, state.show?.presetGroups ?? [])
-    return { activePresetIds }
-  }),
+  togglePreset: (id) => {
+    set((state) => {
+      if (!state.presets.some((preset) => preset.id === id)) return state
+      const activePresetIds = activateGroupedPreset(state.activePresetIds, id, state.show?.presetGroups ?? [])
+      return { activePresetIds }
+    })
+    // The base look resolves its colours against the dimmer the
+    // fixtures are actually at: a dimmer preset toggled on must raise
+    // the default blue, and toggled off must drop it again (Jake,
+    // 22 Nov 2026).
+    get().refreshBaseOutput()
+  },
   toggleSequence: (id) => set((state) => state.show?.sequences?.some((s) => s.id === id) ? { activeSequenceIds: state.activeSequenceIds.includes(id) ? state.activeSequenceIds.filter((item) => item !== id) : [...state.activeSequenceIds, id] } : state),
   stopSequences: () => set({ activeSequenceIds: [] }),
-  clearPresets: () => set({ activePresetIds: [] }),
+  clearPresets: () => {
+    set({ activePresetIds: [] })
+    get().refreshBaseOutput()
+  },
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
     const activeCue = state.cues.find((s) => s.id === state.activeCueId)
@@ -1942,11 +1999,16 @@ const actions: ShowState = {
     })
     return persistState(state, { presets }, { presets })
   }),
-  updatePresetContents: (id, values) => set((state) => {
-    const presets = state.presets.map((preset) => preset.id === id ? { ...preset, fixtureValues: structuredClone(values) } : preset)
-    resendActiveCueForPreset(state, id, presets)
-    return persistState(state, { presets }, { presets })
-  }),
+  updatePresetContents: (id, values) => {
+    set((state) => {
+      const presets = state.presets.map((preset) => preset.id === id ? { ...preset, fixtureValues: structuredClone(values) } : preset)
+      resendActiveCueForPreset(state, id, presets)
+      return persistState(state, { presets }, { presets })
+    })
+    // A preset's intensity may have changed while it is active, so
+    // the base look must re-resolve (same staleness as togglePreset).
+    get().refreshBaseOutput()
+  },
   // In-place preset editing, LightKey style (Guide ch.9, and Jake's
   // 18 Nov screenshot 4): the preset opens in Design with its fixtures
   // selected and the preset itself active, so the preview shows the look
@@ -2094,11 +2156,14 @@ const actions: ShowState = {
     const presets = state.presets.map((preset) => preset.id === id ? { ...preset, name: name.trim() } : preset)
     return persistState(state, { presets }, { presets })
   }),
-  deletePreset: (id) => set((state) => {
-    const presets = state.presets.filter((preset) => preset.id !== id)
-    resendActiveCueForPreset(state, id, presets)
-    return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
-  }),
+  deletePreset: (id) => {
+    set((state) => {
+      const presets = state.presets.filter((preset) => preset.id !== id)
+      resendActiveCueForPreset(state, id, presets)
+      return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
+    })
+    get().refreshBaseOutput()
+  },
 
   addCue: () => {
     let newCue: CueDef | undefined

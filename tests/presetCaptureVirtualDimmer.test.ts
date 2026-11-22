@@ -71,7 +71,22 @@ describe('virtual-dimmer preset capture', () => {
     const created = captureColour()
     expect(created?.name).toBe('Red')
     const preset = useShowStore.getState().presets.find((p) => p.id === created?.id)
-    expect(preset?.fixtureValues.q1).toEqual({ red: 255 })
+    // Jake, 22 Nov 2026: a red capture writes the other colour values
+    // as zero in the file itself — the preset means red, not "red plus
+    // whatever the layer underneath says". Amber is a separate LED and
+    // is not filled.
+    expect(preset?.fixtureValues.q1).toEqual({ red: 255, green: 0, blue: 0 })
+    expect('amber' in (preset?.fixtureValues.q1 ?? {})).toBe(false)
+  })
+
+  it('an amber-only capture does not zero the base colour', () => {
+    act(() => {
+      useShowStore.setState({ manualOverrides: { q1: { amber: 200 } } })
+    })
+    const created = useShowStore.getState().capturePresetFromLook(false)
+    expect(created?.name).toBe('Amber')
+    const preset = useShowStore.getState().presets.find((p) => p.id === created?.id)
+    expect(preset?.fixtureValues.q1).toEqual({ amber: 200 })
   })
 
   it('Red + Full On combine to red at full on the virtual-dimmer fixture', () => {
@@ -102,12 +117,13 @@ describe('virtual-dimmer preset capture', () => {
     )
     // computeCueChannels returns a sparse record keyed by 1-based
     // channel number. Par: intensity channel 1, red channel 2.
-    // Q12BT: red is channel 20; its green/blue/amber are unwritten.
+    // Q12BT: red is channel 20; green and blue are explicit zeros now
+    // (the captured red preset carries them), amber stays unwritten.
     expect(frame[1]).toBe(255)
     expect(frame[2]).toBe(255)
     expect(frame[20]).toBe(255)
-    expect(frame[21]).toBeUndefined()
-    expect(frame[22]).toBeUndefined()
+    expect(frame[21]).toBe(0)
+    expect(frame[22]).toBe(0)
     expect(frame[23]).toBeUndefined()
   })
 
@@ -119,8 +135,8 @@ describe('virtual-dimmer preset capture', () => {
     })
     const created = useShowStore.getState().capturePresetFromLook(true)
     const preset = useShowStore.getState().presets.find((p) => p.id === created?.id)
-    expect(preset?.fixtureValues.q1).toEqual({ red: 255, intensity: 230 })
-    expect(preset?.fixtureValues.p1).toEqual({ red: 255, intensity: 230 })
+    expect(preset?.fixtureValues.q1).toEqual({ red: 255, green: 0, blue: 0, intensity: 230 })
+    expect(preset?.fixtureValues.p1).toEqual({ red: 255, green: 0, blue: 0, intensity: 230 })
   })
 
   it('the old cue-based capture also keeps the virtual dimmer', () => {

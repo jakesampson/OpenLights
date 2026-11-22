@@ -57,8 +57,13 @@ describe('Live / Live Edit parity', () => {
     // not check the lock or any mode.
     expect(store).toContain('liveEditing: boolean')
     expect(store).toContain('setLiveEditing: (editing) => set({ liveEditing: editing })')
-    expect(store).toContain('setLiveValue: (id, value) => set((state) => {')
-    expect(store).not.toContain('setLiveValue: (id, value) => set((state) => {\n    if (state.locked)')
+    // setLiveValue is a block body since the base-look refresh (Jake,
+    // 22 Nov 2026: a Live press re-resolves the base against the pads),
+    // but it still takes no lock or mode check — activation is the
+    // same store path in both modes.
+    const at = store.indexOf('setLiveValue: (id, value) => {')
+    expect(at).toBeGreaterThan(-1)
+    expect(store.slice(at, at + 1600)).not.toContain('locked')
   })
 
   it('leaves layout editing as edit-only affordances that do not change output', () => {
