@@ -45,22 +45,28 @@ export function resolveCueValues(
   presets: PresetDef[],
   fixtures: FixtureDef[] = []
 ): Record<string, Record<string, number>> {
-  // Preset contributions first, merged in list order, then completed:
-  // a preset that names part of a fixture's base colour names the
-  // whole of it (completeBaseColour) — otherwise the default blue
-  // leaks through the channels the preset never wrote. Completing the
-  // merged contributions — not each preset alone — keeps two presets
-  // combining per-property: a Red preset plus a Green preset resolves
-  // to red+green, not green with red zeroed by the second preset's fill.
+  // Preset contributions first, merged in list order. Each preset's
+  // fanned patch is completed (completeBaseColour) BEFORE merging —
+  // the most recently listed colour preset wins entirely, mirroring
+  // the palette layer (App.tsx presets effect): a preset that names
+  // part of a fixture's base colour names the whole of it, so Red
+  // then Green resolves green-only, not red+green (Jake, 22 Nov
+  // 2026 — the most recently turned-on colour preset overrides
+  // everything else; otherwise a forgotten first preset gives weird
+  // colours that are hard to chase down live). Different properties
+  // still combine: a dimmer-only preset names no base colour, so the
+  // fill leaves it untouched and it lifts whatever colour preset is
+  // under it.
   const presetValues: Record<string, Record<string, number>> = {}
   for (const id of cue.presetIds ?? []) {
     const preset = presets.find((p) => p.id === id)
     if (!preset) continue
-    for (const [fixtureId, patch] of Object.entries(fanPresetFixtureValues(preset.fixtureValues ?? {}, fixtures))) {
+    const completed = completeBaseColour(fanPresetFixtureValues(preset.fixtureValues ?? {}, fixtures), fixtures)
+    for (const [fixtureId, patch] of Object.entries(completed)) {
       presetValues[fixtureId] = { ...presetValues[fixtureId], ...patch }
     }
   }
-  const values: Record<string, Record<string, number>> = completeBaseColour(presetValues, fixtures)
+  const values: Record<string, Record<string, number>> = presetValues
   // Ad-hoc properties last, exactly as written: the operator's values
   // win over any preset, and resolution must not invent values the cue
   // never programmed (a per-beam ad-hoc red stays beam-1-only). A
@@ -115,9 +121,12 @@ function baseColourAttributes(attributes: string[]): string[] {
  * (lib/presetColor.ts `completePresetBaseColour`, which re-exports this
  * function); resolving it here, in the cue, is what stops a cue
  * referencing a colour-only preset from leaking the default blue
- * through `computeCueChannels`' zero-missing fill. Newly captured
- * presets carry the zeros in the file itself (showStore.ts
- * capturePresetFromLook), so the file says what the engine does.
+ * through `computeCueChannels`' zero-missing fill. resolveCueValues
+ * applies it to each preset's fanned patch before merging in list
+ * order, so the most recently listed colour preset wins entirely
+ * (Jake, 22 Nov 2026). Newly captured presets carry the zeros in the
+ * file itself (showStore.ts capturePresetFromLook), so the file says
+ * what the engine does.
  */
 export function completeBaseColour(
   fixtureValues: Record<string, Record<string, number>>,

@@ -21,16 +21,21 @@ describe('resolveCueValues', () => {
     expect(values).toEqual({ f1: { intensity: 200, red: 10 } })
   })
 
-  it('applies presets in list order, later presets winning per property', () => {
+  it('the most recently listed colour preset wins entirely', () => {
+    // Jake, 22 Nov 2026 (LightKey stacking): the most recently
+    // turned-on colour preset overrides everything else — Red then
+    // Green gives green-only, not red+green. p2 only names green, so
+    // its completion zeroes red and blue before merging, and the later
+    // preset wins every channel of the base colour.
     const values = resolveCueValues(
       cue({ presetIds: ['p1', 'p2'], fixtureValues: {} }),
       [
         preset('p1', { f1: { red: 255, green: 0, blue: 0 } }),
         preset('p2', { f1: { green: 200 } })
-      ]
+      ],
+      [{ id: 'f1', name: 'Par 1', type: 'par', channelStart: 1, channels: 4 }] as FixtureDef[]
     )
-    // p2 only defines green, so red stays p1's 255 while green is p2's 200.
-    expect(values).toEqual({ f1: { red: 255, green: 200, blue: 0 } })
+    expect(values).toEqual({ f1: { red: 0, green: 200, blue: 0 } })
   })
 
   it('lets the cue’s ad-hoc values win over any preset', () => {
@@ -139,6 +144,48 @@ describe('base-colour completion', () => {
       fixtures
     )
     expect(values.q1).toEqual({ red: 255, green: 200, blue: 0 })
+  })
+
+  it('old-style partial presets stack most-recent-wins: Red then Green is green-only', () => {
+    // Jake, 22 Nov 2026 (LightKey stacking): the presets carry no
+    // zeros in the file, so the per-preset completion in
+    // resolveCueValues is what makes the later preset win entirely.
+    const values = resolveCueValues(
+      cue({ presetIds: ['p1', 'p2'], fixtureValues: {} }),
+      [
+        preset('p1', { q1: { red: 255 } }),
+        preset('p2', { q1: { green: 255 } })
+      ],
+      fixtures
+    )
+    expect(values.q1).toEqual({ red: 0, green: 255, blue: 0 })
+  })
+
+  it('old-style partial presets stack most-recent-wins: Green then Red is red-only', () => {
+    const values = resolveCueValues(
+      cue({ presetIds: ['p1', 'p2'], fixtureValues: {} }),
+      [
+        preset('p1', { q1: { green: 255 } }),
+        preset('p2', { q1: { red: 255 } })
+      ],
+      fixtures
+    )
+    expect(values.q1).toEqual({ red: 255, green: 0, blue: 0 })
+  })
+
+  it('a colour preset plus a dimmer preset still combine', () => {
+    // Different properties still combine (Jake, 22 Nov 2026): the
+    // dimmer-only preset names no base colour, so the fill leaves it
+    // untouched and it lifts the colour preset under it.
+    const values = resolveCueValues(
+      cue({ presetIds: ['p1', 'p2'], fixtureValues: {} }),
+      [
+        preset('p1', { q1: { red: 255 } }),
+        preset('p2', { q1: { intensity: 255 } })
+      ],
+      fixtures
+    )
+    expect(values.q1).toEqual({ red: 255, green: 0, blue: 0, intensity: 255 })
   })
 
   it('a fixture the cue never mentions stays out of the result', () => {
