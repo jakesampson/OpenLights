@@ -3,19 +3,22 @@
  * feed (Jake, 23 Nov 2026). The feed's screen sits on the Preview as a
  * draggable object; each edge region feeds the fixtures nearest to it.
  *
- * Ambience is an explicit live mode owned by this panel: Start takes
- * over the mapped fixtures, Stop hands the rig back to cues, presets
- * and Live. Closing the panel stops Ambience — like the DMX test panel,
+ * Ambience is an explicit live mode: Start takes over the mapped
+ * fixtures, Stop hands the rig back to cues, presets and Live. The
+ * session state itself lives in lib/ndiSession, shared with the
+ * preset-palette entry and the Live button — the panel, the Settings
+ * tab's copy of it and a Live button all read and drive the same
+ * session, so two open panels never disagree about whether Ambience is
+ * running. Closing the panel stops Ambience — like the DMX test panel,
  * it never leaves output running behind your back — unless
  * `stopOnUnmount` is false: the Settings dialog's NDI Ambience tab
  * (Jake, 23 Nov 2026 — the Windows route to this panel, since the
  * native menu bar is unreachable on a frameless window) embeds the
  * panel with stopOnUnmount={false}, so closing Settings leaves a
- * running session alone. Either way the panel picks up the live state
- * on mount (isAmbienceActive), so the two routes never disagree about
- * whether Ambience is running.
+ * running session alone. Closing the panel never stops a session a lit
+ * Live button owns — the button is the authority there.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import {
   DEFAULT_SCREEN_HEIGHT,
@@ -26,14 +29,19 @@ import {
   type NdiRegionColour,
   type NdiSourceInfo
 } from '@shared/ndiAmbience'
+import { configureAmbienceFixtures, getAmbienceStats, type NdiAmbienceStats } from '../lib/ndiAmbience'
 import {
-  configureAmbienceFixtures,
-  getAmbienceStats,
-  isAmbienceActive,
-  setAmbienceActive,
-  setAmbienceRegions,
-  type NdiAmbienceStats
-} from '../lib/ndiAmbience'
+  getNdiSessionState,
+  initNdiSession,
+  refreshNdiSources,
+  selectNdiSource,
+  setNdiDirectAddress,
+  setSessionActive,
+  startNdiSession,
+  stopNdiSession,
+  useNdiRegions,
+  useNdiSession
+} from '../lib/ndiSession'
 
 function regionLabel(index: number): string {
   const anchor = edgeRegionAnchors()[index]
@@ -44,96 +52,48 @@ function regionLabel(index: number): string {
   return anchor.y < 0.5 ? 'Left top' : 'Left bottom'
 }
 
+/** A Live button currently driving Ambience — the panel must not stop it. */
+function liveButtonOwnsSession(): boolean {
+  const { show, activeLiveValues } = useShowStore.getState()
+  return (show?.livePages ?? []).some((page) =>
+    page.controls.some((control) => control.ndiAmbience && (activeLiveValues[control.id] ?? 0) > 0)
+  )
+}
+
 export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boolean }) {
   const { show, master, addStageObject, removeStageObjects } = useShowStore()
-  const [sources, setSources] = useState<NdiSourceInfo[]>([])
-  const [selectedName, setSelectedName] = useState<string | null>(null)
-  const [directAddress, setDirectAddress] = useState('')
+  const session = useNdiSession()
+  const regions = useNdiRegions()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [version, setVersion] = useState<string | null>(null)
-  const [available, setAvailable] = useState<boolean | null>(null)
-  const [regions, setRegions] = useState<NdiRegionColour[] | null>(null)
-  const [running, setRunning] = useState(() => isAmbienceActive())
   const [stats, setStats] = useState<NdiAmbienceStats>(getAmbienceStats())
-  const runningRef = useRef(isAmbienceActive())
+
+  const { sources, selectedName, directAddress, available, version, error } = session
+  const running = session.connected && session.active
 
   const screen = findNdiScreen(show?.stageObjects)
   const fixtures = show?.fixtures ?? []
 
   const stop = async () => {
-    runningRef.current = false
-    setRunning(false)
-    setAmbienceActive(false)
-    try {
-      await window.electronAPI?.ndiStop()
-    } catch { /* Worker already gone — output is already cleared. */ }
+    // A lit Live button would re-start the session via App's effect —
+    // turn the buttons off first, so Stop means stopped everywhere.
+    const { show: currentShow, activeLiveValues, setLiveValue } = useShowStore.getState()
+    for (const page of currentShow?.livePages ?? []) {
+      for (const control of page.controls) {
+        if (control.ndiAmbience && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)
+      }
+    }
+    await stopNdiSession()
   }
 
-  // Own the ambience session: subscribe to the worker, feed the mapper,
-  // and stop everything when the panel closes.
+  // Own the ambience session: the shared module subscribes to the worker,
+  // and this panel stops everything when it closes (unless it is the
+  // Settings tab, or a Live button owns the session).
   useEffect(() => {
-    let alive = true
-    const offRegions = window.electronAPI?.onNdiRegions?.((next) => {
-      if (!alive) return
-      setAmbienceRegions(next)
-      setRegions(next)
-      setStats(getAmbienceStats())
-    })
-    const offStatus = window.electronAPI?.onNdiStatus?.((status) => {
-      if (!alive) return
-      if (status.state === 'error') {
-        setError(status.message ?? 'NDI error')
-        runningRef.current = false
-        setRunning(false)
-        setAmbienceActive(false)
-      } else if (status.state === 'stopped') {
-        // Another route to this panel stopped the session — follow it,
-        // so two open panels never disagree about the running state.
-        runningRef.current = false
-        setRunning(false)
-        setAmbienceActive(false)
-      } else if (status.state === 'receiving') {
-        runningRef.current = true
-        setRunning(true)
-      }
-    })
-    void window.electronAPI
-      ?.ndiVersion()
-      .then((result) => {
-        if (!alive) return
-        setAvailable(result.available)
-        setVersion(result.version ?? null)
-        if (!result.available) setError(result.error ?? 'NDI is unavailable.')
-      })
-      .catch((e: unknown) => {
-        if (alive) {
-          setAvailable(false)
-          setError(e instanceof Error ? e.message : String(e))
-        }
-      })
-    void window.electronAPI
-      ?.ndiListSources()
-      .then((result) => {
-        if (!alive) return
-        setSources(result.sources)
-        if (result.error) setError(result.error)
-      })
-      .catch((e: unknown) => {
-        if (alive) setError(e instanceof Error ? e.message : String(e))
-      })
+    initNdiSession()
     return () => {
-      alive = false
-      offRegions?.()
-      offStatus?.()
-      // The tool-panel route stops the session on close; the Settings
-      // tab route leaves a running session alone (stopOnUnmount false)
-      // — closing Settings must not kill Ambience.
-      if (runningRef.current && stopOnUnmount) {
-        runningRef.current = false
-        setAmbienceActive(false)
-        void window.electronAPI?.ndiStop().catch(() => {})
-      }
+      if (!stopOnUnmount || liveButtonOwnsSession()) return
+      const current = getNdiSessionState()
+      if (current.connected || current.active) void stopNdiSession()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -145,15 +105,15 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [show?.fixtures, show?.stageObjects, master])
 
+  // Fresh stats when new edge colours arrive.
+  useEffect(() => {
+    setStats(getAmbienceStats())
+  }, [regions])
+
   const refreshSources = async () => {
     setBusy(true)
-    setError(null)
     try {
-      const result = await window.electronAPI.ndiListSources()
-      setSources(result.sources)
-      if (result.error) setError(result.error)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      await refreshNdiSources()
     } finally {
       setBusy(false)
     }
@@ -177,36 +137,15 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
 
   const removeScreen = async () => {
     if (!screen) return
-    if (runningRef.current) await stop()
+    if (running) await stop()
     removeStageObjects([screen.id])
   }
 
   const start = async () => {
-    const address = directAddress.trim()
-    const source: NdiSourceInfo | undefined = address
-      ? { name: `direct ${address}`, urlAddress: address }
-      : sources.find((s) => s.name === selectedName) ?? sources[0]
-    if (!source) {
-      setError('Choose a source, or enter an address to connect directly.')
-      return
-    }
-    if (!screen) {
-      setError('Place the screen on the Preview first — ambience has nothing to map to without it.')
-      return
-    }
     setBusy(true)
-    setError(null)
     try {
-      const result = await window.electronAPI.ndiStart(source)
-      if (!result.success) {
-        setError(result.error ?? 'Could not connect to the NDI source.')
-        return
-      }
-      runningRef.current = true
-      setRunning(true)
-      setAmbienceActive(true)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      const ok = await startNdiSession(Boolean(screen))
+      if (ok) setSessionActive(true, 'panel')
     } finally {
       setBusy(false)
     }
@@ -266,10 +205,7 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
               type="radio"
               name="ndi-source"
               checked={(selectedName ?? sources[0]?.name) === source.name}
-              onChange={() => {
-                setSelectedName(source.name)
-                setDirectAddress('')
-              }}
+              onChange={() => selectNdiSource(source.name)}
             />
             <span>
               {source.name}
@@ -289,7 +225,7 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
             type="text"
             value={directAddress}
             placeholder="127.0.0.1:5961"
-            onChange={(e) => setDirectAddress(e.target.value)}
+            onChange={(e) => setNdiDirectAddress(e.target.value)}
             className="w-64 rounded bg-panel2 p-1.5"
           />
         </label>

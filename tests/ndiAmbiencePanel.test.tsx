@@ -10,6 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { NdiAmbiencePanel } from '../src/renderer/src/components/NdiAmbiencePanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { isAmbienceActive, resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
+import { resetNdiSession } from '../src/renderer/src/lib/ndiSession'
 import type { NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -82,6 +83,7 @@ beforeEach(() => {
     useShowStore.setState({ show, master: 255 })
   })
   resetAmbienceState()
+  resetNdiSession()
   ndiStartMock.mockClear()
   ndiStopMock.mockClear()
   regionsCallback = null
@@ -102,6 +104,7 @@ afterEach(() => {
     useShowStore.setState({ show: defaultShow })
   })
   resetAmbienceState()
+  resetNdiSession()
 })
 
 describe('NdiAmbiencePanel', () => {

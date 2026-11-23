@@ -30,6 +30,9 @@ import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { activeCueSequenceIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
+import { configureAmbienceFixtures } from './lib/ndiAmbience'
+import { ensureNdiSession, getNdiSessionState, initNdiSession, setSessionActive, useNdiSession } from './lib/ndiSession'
+import { findNdiScreen } from '@shared/ndiAmbience'
 import { activeOwnedEffects } from './lib/effectOwnership'
 import { ContextMenu } from './components/ContextMenu'
 import { OverridesField } from './components/OverridesField'
@@ -483,6 +486,47 @@ export default function App() {
 
   useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
   useEffect(() => startLiveWindowBridge(), [])
+
+  // NDI Ambience (Jake, 23 Nov 2026): the shared session lives here,
+  // in the always-mounted App, so the Live button works even when the
+  // NDI panel never opened — the panel is one way to drive it, not the
+  // only one. The session is initialised once, the edge mapper is kept
+  // in step with the show, and a lit NDI Ambience Live button owns the
+  // activation: pressing it connects the worker (with the remembered
+  // source) and turns the output layer on; pressing it again lifts the
+  // override and the rig goes back to the presets/cues underneath.
+  // The main window owns the session — a live window only mirrors the
+  // buttons, and its presses reach this effect through the bridge.
+  const ndiSession = useNdiSession()
+  useEffect(() => { initNdiSession() }, [])
+  useEffect(() => {
+    configureAmbienceFixtures(show?.fixtures ?? [], show?.stageObjects, master)
+  }, [show?.fixtures, show?.stageObjects, master])
+  useEffect(() => {
+    if (isLiveWindow()) return
+    const lit = (show?.livePages ?? [])
+      .flatMap((page) => page.controls)
+      .filter((control) => control.ndiAmbience && (activeLiveValues[control.id] ?? 0) > 0)
+    if (!lit.length) {
+      // Only release an activation the Live layer owns — a panel-driven
+      // session stays up when the button goes off.
+      if (getNdiSessionState().activeBy === 'live') setSessionActive(false)
+      return
+    }
+    let cancelled = false
+    const hasScreen = Boolean(findNdiScreen(show?.stageObjects))
+    void (async () => {
+      const ok = await ensureNdiSession(hasScreen)
+      if (cancelled) return
+      // A quick off-press while the worker was connecting must not
+      // re-activate: re-check the store before touching the output.
+      const stillLit = lit.some((control) => (useShowStore.getState().activeLiveValues[control.id] ?? 0) > 0)
+      if (!stillLit) return
+      if (ok) setSessionActive(true, 'live')
+      else lit.forEach((control) => useShowStore.getState().setLiveValue(control.id, 0))
+    })()
+    return () => { cancelled = true }
+  }, [show?.livePages, show?.stageObjects, activeLiveValues, ndiSession.connected, ndiSession.active])
 
 
   const blackoutDMX = async () => {

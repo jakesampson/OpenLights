@@ -11,14 +11,22 @@ const MAX_X = 740
 const MAX_Y = 440
 const snap = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value / 10) * 10))
 
-/** What is being dragged: any mix of presets and sequences. */
+/** What is being dragged: any mix of presets and sequences, or the NDI
+ *  Ambience entry (Jake, 23 Nov 2026) — a standalone Live button with no
+ *  presets or sequences attached. */
 export interface LiveDropPayload {
   presetIds: string[]
   sequenceIds: string[]
   /** Names used only to derive a sensible cue label. */
   presetNames?: Record<string, string>
   sequenceNames?: Record<string, string>
+  ndiAmbience?: boolean
 }
+
+/** The button colour for an NDI Ambience Live button: the screen's own
+ *  blue (#0A84FF), so the button shows its on/off state in NDI colours
+ *  rather than taking on a light colour (it has no light of its own). */
+export const NDI_AMBIENCE_BUTTON_COLOR = '#0A84FF'
 
 export type LiveDropTarget =
   | { kind: 'page'; x: number; y: number }
@@ -34,7 +42,12 @@ const uniqueIds = (ids: string[] | undefined): string[] =>
 
 /** Drop payloads are normalised once so every target sees deduplicated ids. */
 export function normalizeDropPayload(payload: LiveDropPayload): LiveDropPayload {
-  return { ...payload, presetIds: uniqueIds(payload.presetIds), sequenceIds: uniqueIds(payload.sequenceIds) }
+  return {
+    ...payload,
+    presetIds: uniqueIds(payload.presetIds),
+    sequenceIds: uniqueIds(payload.sequenceIds),
+    ndiAmbience: payload.ndiAmbience === true ? true : undefined
+  }
 }
 
 export function encodeLiveDrop(payload: LiveDropPayload): string {
@@ -58,7 +71,8 @@ export function decodeLiveDrop(text: string): LiveDropPayload | null {
       presetIds: value.presetIds as string[],
       sequenceIds: value.sequenceIds as string[],
       presetNames: names(value.presetNames),
-      sequenceNames: names(value.sequenceNames)
+      sequenceNames: names(value.sequenceNames),
+      ndiAmbience: value.ndiAmbience === true ? true : undefined
     })
   } catch {
     return null
@@ -68,6 +82,7 @@ export function decodeLiveDrop(text: string): LiveDropPayload | null {
 /** A readable label for a new cue built from the dragged items. */
 export function dropLabel(payload: LiveDropPayload): string {
   const { presetIds, sequenceIds, presetNames, sequenceNames } = normalizeDropPayload(payload)
+  if (payload.ndiAmbience) return 'NDI Ambience'
   const total = presetIds.length + sequenceIds.length
   if (!total) return 'New cue'
   if (total === 1) {
@@ -126,9 +141,12 @@ export function applyLiveDrop(
   split = false
 ): LiveDropResult {
   const clean = normalizeDropPayload(payload)
-  if (!clean.presetIds.length && !clean.sequenceIds.length) return { page, refs: [] }
+  if (!clean.presetIds.length && !clean.sequenceIds.length && !clean.ndiAmbience) return { page, refs: [] }
 
   if (target.kind === 'cue') {
+    // An ambience button is standalone — it never joins a cue, and
+    // dropping it onto one does nothing rather than corrupting it.
+    if (clean.ndiAmbience) return { page, refs: [] }
     const cue = page.controls.find((item) => item.id === target.cueId)
     if (!cue) return { page, refs: [] }
     const updated = {
@@ -149,12 +167,15 @@ export function applyLiveDrop(
   if (target.kind === 'frame' && !frame) return { page, refs: [] }
   // By default all dragged items land in one cue. Holding Ctrl on Windows (the
   // guide's Command key) creates one cue per item, laid out in a grid.
-  const units: LiveDropPayload[] = split
-    ? [
-        ...clean.presetIds.map((id): LiveDropPayload => ({ presetIds: [id], sequenceIds: [], presetNames: clean.presetNames })),
-        ...clean.sequenceIds.map((id): LiveDropPayload => ({ presetIds: [], sequenceIds: [id], sequenceNames: clean.sequenceNames }))
-      ]
-    : [clean]
+  // An NDI Ambience drop is always one standalone button — never split.
+  const units: LiveDropPayload[] = clean.ndiAmbience
+    ? [clean]
+    : split
+      ? [
+          ...clean.presetIds.map((id): LiveDropPayload => ({ presetIds: [id], sequenceIds: [], presetNames: clean.presetNames })),
+          ...clean.sequenceIds.map((id): LiveDropPayload => ({ presetIds: [], sequenceIds: [id], sequenceNames: clean.sequenceNames }))
+        ]
+      : [clean]
   const controls: LiveControl[] = []
   const refs: PageObjectRef[] = []
   units.forEach((unit, index) => {
@@ -164,11 +185,19 @@ export function applyLiveDrop(
       target.y + Math.floor(step / 4) * LIVE_CUE_STEP.y,
       frame, LIVE_CUE_SIZE.width, LIVE_CUE_SIZE.height
     )
-    const control = newCueObject(makeId(), at.x, at.y, defaults, {
-      name: dropLabel(unit),
-      presetIds: unit.presetIds,
-      sequenceIds: unit.sequenceIds
-    })
+    const control = newCueObject(makeId(), at.x, at.y, defaults, unit.ndiAmbience
+      ? {
+          name: 'NDI Ambience',
+          type: 'toggle',
+          presetIds: [],
+          ndiAmbience: true,
+          appearance: { color: NDI_AMBIENCE_BUTTON_COLOR, releaseOthers: false }
+        }
+      : {
+          name: dropLabel(unit),
+          presetIds: unit.presetIds,
+          sequenceIds: unit.sequenceIds
+        })
     controls.push(control)
     refs.push({ type: 'cue' as const, id: control.id })
   })

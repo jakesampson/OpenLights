@@ -2,7 +2,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
 import { useShowStore } from '../stores/showStore'
-import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload } from '../lib/liveDrops'
+import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, NDI_AMBIENCE_BUTTON_COLOR, type LiveDropPayload } from '../lib/liveDrops'
+import { ndiAmbienceAvailability, useNdiSession } from '../lib/ndiSession'
+import { findNdiScreen } from '@shared/ndiAmbience'
 import { findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '../lib/presetPalette'
 import { getPresetDotColor } from '../lib/presetColor'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
@@ -780,6 +782,47 @@ export function GroupsPresetsPanel() {
   const empty = !groups.length && !presets.length && !sequences.length && !effects.length
   const runningCount = activeSequenceIds.length
 
+  // NDI Ambience (Jake, 23 Nov 2026): the bottom row of the preset
+  // palette, dragged FROM here INTO the Live panel to create the on/off
+  // button. The palette is shared between Design and Live, so the row
+  // shows in both — the drag only lands on a Live page, and the row is
+  // the same entry in either tab. A plain click opens the NDI Ambience
+  // panel to set up the connection and the screen. The row is only
+  // draggable once the NDI connection is set up AND the screen is on
+  // the canvas; otherwise it says why, and a click still opens the
+  // panel so the missing piece can be fixed there.
+  const ndiSession = useNdiSession()
+  const ndiScreen = findNdiScreen(show?.stageObjects)
+  const ndiAvailability = ndiAmbienceAvailability(ndiSession, Boolean(ndiScreen))
+  const ndiAmbienceRow = () => {
+    if (!matchesQuery('NDI Ambience')) return null
+    const { usable, reason } = ndiAvailability
+    return (
+      <div key="ndi-ambience" data-palette-row="ndi-ambience" tabIndex={-1}
+        className={`flex flex-col rounded ${usable ? '' : 'opacity-70'}`}>
+        <div
+          className="flex items-center gap-1 pr-1"
+          draggable={usable}
+          onDragStart={usable ? (event) => {
+            event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop({ presetIds: [], sequenceIds: [], ndiAmbience: true }))
+            event.dataTransfer.effectAllowed = 'copy'
+          } : undefined}
+          onClick={() => window.dispatchEvent(new CustomEvent('openlights-menu-command', { detail: { command: 'ndiAmbience' } }))}
+          onContextMenu={(event) => event.preventDefault()}
+          role="treeitem"
+          aria-selected={false}
+          title={usable ? 'Drag onto a Live page in Edit mode to add an NDI Ambience button — or click to open the NDI Ambience panel' : (reason ?? 'NDI Ambience is unavailable')}
+        >
+          <button type="button" className="min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-panel2">
+            <span className="dot" style={{ backgroundColor: NDI_AMBIENCE_BUTTON_COLOR }} />
+            <span className="truncate">NDI Ambience</span>
+          </button>
+        </div>
+        {!usable && reason && <p className="px-2 pb-1 text-[11px] text-dim">{reason}</p>}
+      </div>
+    )
+  }
+
   return (
     <div aria-label="Preset palette panel" className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto py-1" onClick={() => setHeaderMenu(false)} onContextMenu={(event) => {
       if ((event.target as Element).closest('[data-palette-row]')) return
@@ -822,6 +865,7 @@ export function GroupsPresetsPanel() {
       {empty ? (
         <div className="px-2 py-3 text-[11px] text-dim">
           No presets yet. Right-click here to create a group, preset or sequence — folders are yours to make, none are built in.
+          {ndiAmbienceRow()}
         </div>
       ) : (
         <div
@@ -896,6 +940,7 @@ export function GroupsPresetsPanel() {
               </div>
             )
           })}
+          {ndiAmbienceRow()}
         </div>
       )}
       {contextMenu && <PaletteContextMenu

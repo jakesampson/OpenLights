@@ -121,7 +121,15 @@ function flush(now = performance.now()) {
     output = interpolateOutputFrame(thawFrom, output, progress)
     if (progress >= 1) thawFrom = null
   }
-  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now))].map(Number))
+  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now)), ...Object.keys(ambience)].map(Number))
+  // Ambience channels are tracked here too (Jake, 23 Nov 2026): when
+  // Ambience stops — or its mapping changes — a channel it drove that
+  // the underlying look does not drive must be sent an explicit zero on
+  // the next frame, not left latched at its last ambience value on the
+  // interface. Without this, stopping Ambience only re-sends the
+  // underlying look's channels, and an ambience-only channel keeps
+  // glowing. The defaults layer covers most fixture channels in
+  // practice, but this is what makes the override airtight.
   // Beam-direction calibration (Piece 4, Guide p.60): limits hold on
   // output and a reversed yoke mirrors pan. Applied to the composed
   // output so every source (cues, live, effects) is clamped the same way.

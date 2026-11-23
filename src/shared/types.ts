@@ -430,6 +430,11 @@ export interface LiveControl {
    *  Ignored when the startup mode restores the last state, as the guide
    *  requires. Only cues on the visible page are activated. */
   activateAtStartup?: boolean
+  /** NDI Ambience button (Jake, 23 Nov 2026): a toggle that turns the
+   *  ambience output layer on/off. It carries no cue, presets or
+   *  sequences — the Live layer contributes nothing for it, and App's
+   *  ambience effect translates its level into the NDI session. */
+  ndiAmbience?: boolean
 }
 
 export type FadeCurve = 'linear' | 'ease-in' | 'ease-out' | 'ease-in-out' | 's-curve'
