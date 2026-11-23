@@ -4,7 +4,7 @@
  * region→fixture mapping. Synthetic frames are exact, so assertions are
  * exact here; NDI compression loss only applies to real frames.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import {
   DEFAULT_SCREEN_HEIGHT,
   DEFAULT_SCREEN_WIDTH,
@@ -18,7 +18,20 @@ import {
   type NdiFrame,
   type NdiRgb
 } from '@shared/ndiAmbience'
-import { computeAmbiencePatch, resolvedFixturePosition, resetAmbienceState } from '@renderer/lib/ndiAmbience'
+import { DMXEngine } from '../src/shared/dmx'
+import {
+  computeAmbiencePatch,
+  configureAmbienceFixtures,
+  getAmbienceTransitionMs,
+  interpolateAmbiencePatch,
+  isAmbienceActive,
+  NDI_DEFAULT_TRANSITION_MS,
+  resolvedFixturePosition,
+  resetAmbienceState,
+  setAmbienceActive,
+  setAmbienceRegions,
+  setAmbienceTransitionMs
+} from '@renderer/lib/ndiAmbience'
 import type { FixtureDef, StageObject } from '@shared/types'
 
 function solidFrame(width: number, height: number, colour: NdiRgb): NdiFrame {
@@ -46,6 +59,20 @@ function splitFrame(width: number, height: number, top: NdiRgb, bottom: NdiRgb):
     }
   }
   return { xres: width, yres: height, lineStrideBytes: width * 4, data }
+}
+
+/** Paint a solid rectangle onto a frame (white base, for band tests). */
+function paintRect(frame: NdiFrame, x0: number, y0: number, x1: number, y1: number, colour: NdiRgb) {
+  const { lineStrideBytes, data } = frame
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = y * lineStrideBytes + x * 4
+      data[i] = colour.b
+      data[i + 1] = colour.g
+      data[i + 2] = colour.r
+      data[i + 3] = 255
+    }
+  }
 }
 
 const RED: NdiRgb = { r: 255, g: 0, b: 0 }
@@ -159,6 +186,48 @@ describe('sampleEdgeRegions', () => {
 
   it('returns null for a degenerate frame', () => {
     expect(sampleEdgeRegions({ xres: 0, yres: 0, lineStrideBytes: 0, data: Buffer.alloc(0) })).toHaveLength(NDI_REGION_COUNT)
+  })
+
+  it('samples the top and bottom bands 30% into the frame', () => {
+    // A red stripe at 22–27% of the height sits inside the 30% top
+    // band but outside the old 12% band: the top regions must see it.
+    const topStripe = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    paintRect(topStripe, 0, 40, 320, 48, RED)
+    const top = sampleEdgeRegions(topStripe)
+    expect(top[0].rgb).toEqual(RED)
+    expect(top[1].rgb).toEqual(RED)
+    expect(top[4].rgb).toBeNull()
+    expect(top[5].rgb).toBeNull()
+    // A stripe at 33–39% is past the 30% band: the top regions must not see it.
+    const pastTop = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    paintRect(pastTop, 0, 60, 320, 70, RED)
+    const past = sampleEdgeRegions(pastTop)
+    expect(past[0].rgb).toBeNull()
+    expect(past[1].rgb).toBeNull()
+    // A red stripe at 73–78% of the height is inside the bottom band.
+    const bottomStripe = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    paintRect(bottomStripe, 0, 132, 320, 140, RED)
+    const bottom = sampleEdgeRegions(bottomStripe)
+    expect(bottom[4].rgb).toEqual(RED)
+    expect(bottom[5].rgb).toEqual(RED)
+    expect(bottom[0].rgb).toBeNull()
+    expect(bottom[1].rgb).toBeNull()
+  })
+
+  it('keeps the side bands at 12% of the frame width', () => {
+    // A red stripe at 12.5–15% of the width sits outside the 12% side
+    // bands: no region must see it (a 30% side band would catch it).
+    const outside = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    paintRect(outside, 40, 70, 48, 110, RED)
+    expect(sampleEdgeRegions(outside).every((r) => r.rgb === null)).toBe(true)
+    // Control: the same stripe at 3–6% of the width is inside the band.
+    const inside = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    paintRect(inside, 10, 70, 20, 110, RED)
+    const seen = sampleEdgeRegions(inside)
+    expect(seen[6].rgb).toEqual(RED)
+    expect(seen[7].rgb).toEqual(RED)
+    expect(seen[2].rgb).toBeNull()
+    expect(seen[3].rgb).toBeNull()
   })
 })
 
@@ -281,5 +350,161 @@ describe('computeAmbiencePatch', () => {
     const { patch } = computeAmbiencePatch(fixtures, screen, regions, Array(NDI_REGION_COUNT).fill(null), 128)
     expect(patch[20]).toBeGreaterThan(0)
     expect(patch[20]).toBeLessThan(255)
+  })
+})
+
+describe('interpolateAmbiencePatch', () => {
+  it('returns the start values at 0 and the target at 1', () => {
+    expect(interpolateAmbiencePatch({ 20: 255, 22: 0 }, { 20: 0, 22: 255 }, 0)).toEqual({ 20: 255, 22: 0 })
+    expect(interpolateAmbiencePatch({ 20: 255, 22: 0 }, { 20: 0, 22: 255 }, 1)).toEqual({ 20: 0, 22: 255 })
+  })
+
+  it('passes through the midpoint at 0.5', () => {
+    expect(interpolateAmbiencePatch({ 20: 255 }, { 20: 0 }, 0.5)).toEqual({ 20: 128 })
+    expect(interpolateAmbiencePatch({ 20: 0 }, { 20: 255 }, 0.5)).toEqual({ 20: 128 })
+  })
+
+  it('fades a newly mapped channel in from 0', () => {
+    expect(interpolateAmbiencePatch({}, { 20: 200 }, 0.5)).toEqual({ 20: 100 })
+  })
+
+  it('drops channels that leave the patch instead of dipping them to zero', () => {
+    expect(interpolateAmbiencePatch({ 20: 255, 21: 100 }, { 20: 0 }, 0.5)).toEqual({ 20: 128 })
+  })
+
+  it('clamps progress outside 0–1', () => {
+    expect(interpolateAmbiencePatch({ 20: 0 }, { 20: 100 }, -1)).toEqual({ 20: 0 })
+    expect(interpolateAmbiencePatch({ 20: 0 }, { 20: 100 }, 2)).toEqual({ 20: 100 })
+  })
+})
+
+describe('ambience transition setting', () => {
+  it('defaults to 500 ms and clamps to 0–2000 ms', () => {
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+    expect(getAmbienceTransitionMs()).toBe(500)
+    setAmbienceTransitionMs(5000)
+    expect(getAmbienceTransitionMs()).toBe(2000)
+    setAmbienceTransitionMs(-100)
+    expect(getAmbienceTransitionMs()).toBe(0)
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+  })
+})
+
+describe('colour smoothing (glide)', () => {
+  let engine: DMXEngine
+  let frames: FrameRequestCallback[] = []
+  let cancelMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    engine = new DMXEngine()
+    frames = []
+    cancelMock = vi.fn()
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = {
+      setChannels: (values: Record<number, number>) => engine.setChannels(values)
+    }
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frames.push(cb)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', cancelMock)
+    resetAmbienceState()
+    setAmbienceTransitionMs(500)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI
+    resetAmbienceState()
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+  })
+
+  const redRegions = () => sampleEdgeRegions(solidFrame(320, 180, RED))
+  const blueRegions = () => sampleEdgeRegions(solidFrame(320, 180, BLUE))
+
+  function startWithRed() {
+    const fixtures = [rgbaFixture('f1', 20, { x: 320, y: 60 })]
+    configureAmbienceFixtures(fixtures, [screenObject()], 255)
+    setAmbienceActive(true)
+    setAmbienceRegions(redRegions())
+    expect(engine.snapshot()[19]).toBe(255)
+    expect(engine.snapshot()[21]).toBe(0)
+  }
+
+  it('glides between sampled colours over the transition time instead of jumping', () => {
+    startWithRed()
+    const start = performance.now()
+    setAmbienceRegions(blueRegions())
+    expect(frames.length).toBe(1)
+    frames.shift()!(start + 250)
+    const mid = engine.snapshot()
+    expect(mid[19]).toBeGreaterThan(90)
+    expect(mid[19]).toBeLessThan(165)
+    expect(mid[21]).toBeGreaterThan(90)
+    expect(mid[21]).toBeLessThan(165)
+    frames.shift()!(start + 600)
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[21]).toBe(255)
+    expect(frames.length).toBe(0)
+  })
+
+  it('retargets mid-glide from the current values without jumping', () => {
+    startWithRed()
+    const start = performance.now()
+    setAmbienceRegions(blueRegions())
+    frames.shift()!(start + 250)
+    expect(engine.snapshot()[19]).toBeGreaterThan(90)
+    expect(engine.snapshot()[19]).toBeLessThan(165)
+    // A new sample arrives mid-glide (green): the glide restarts from
+    // the interpolated values, so red never jumps back up.
+    const greenRegions = sampleEdgeRegions(solidFrame(320, 180, GREEN))
+    setAmbienceRegions(greenRegions)
+    const retarget = performance.now()
+    frames.shift()!(retarget + 600)
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[20]).toBe(255)
+    expect(engine.snapshot()[21]).toBe(0)
+  })
+
+  it('repeated samples mid-glide do not restart the clock — the glide lands on the original deadline', () => {
+    startWithRed()
+    const start = performance.now()
+    setAmbienceRegions(blueRegions())
+    frames.shift()!(start + 250)
+    expect(engine.snapshot()[19]).toBeGreaterThan(90)
+    expect(engine.snapshot()[19]).toBeLessThan(165)
+    // The worker re-posts the same colour every ~200 ms; mid-glide the
+    // current (interpolated) patch still differs from it, so each sample
+    // retargets. The retarget must keep the original start time, or the
+    // glide would creep toward the target forever and never land.
+    setAmbienceRegions(blueRegions())
+    setAmbienceRegions(blueRegions())
+    frames.shift()!(start + 500)
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[21]).toBe(255)
+    frames.shift()!(start + 600)
+    expect(frames.length).toBe(0)
+  })
+
+  it('applies new samples instantly with a 0 ms transition', () => {
+    setAmbienceTransitionMs(0)
+    startWithRed()
+    setAmbienceRegions(blueRegions())
+    expect(frames.length).toBe(0)
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[21]).toBe(255)
+  })
+
+  it('stopping mid-glide cancels the glide and hands the rig back', () => {
+    startWithRed()
+    setAmbienceRegions(blueRegions())
+    expect(frames.length).toBe(1)
+    setAmbienceActive(false)
+    expect(isAmbienceActive()).toBe(false)
+    expect(cancelMock).toHaveBeenCalled()
+    // The composed output now carries explicit zeroes for the released
+    // ambience channels (previousChannels), so the rig goes dark rather
+    // than holding the last glide value.
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[21]).toBe(0)
   })
 })

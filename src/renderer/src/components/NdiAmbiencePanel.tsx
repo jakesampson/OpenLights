@@ -30,7 +30,7 @@ import {
   type NdiRegionColour,
   type NdiSourceInfo
 } from '@shared/ndiAmbience'
-import { configureAmbienceFixtures, getAmbienceStats, type NdiAmbienceStats } from '../lib/ndiAmbience'
+import { configureAmbienceFixtures, getAmbienceStats, getAmbienceTransitionMs, setAmbienceTransitionMs, NDI_TRANSITION_MAX_MS, NDI_TRANSITION_MIN_MS, type NdiAmbienceStats } from '../lib/ndiAmbience'
 import {
   currentNdiSource,
   getNdiSessionState,
@@ -77,6 +77,10 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
   const health = useNdiReceiveHealth()
   const [busy, setBusy] = useState(false)
   const [stats, setStats] = useState<NdiAmbienceStats>(getAmbienceStats())
+  // Colour-transition time (Jake, 23 Nov 2026): how quickly the lights
+  // glide to a new sampled colour. Local panel state mirrors the
+  // renderer module's setting.
+  const [transitionMs, setTransitionMs] = useState(getAmbienceTransitionMs())
 
   const { sources, selectedName, directAddress, available, version, error } = session
   const running = session.connected && session.active
@@ -176,7 +180,7 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
     <div className="flex flex-col gap-4 text-sm">
       <p className="text-dim">
         Ambient lighting from an NDI video feed, like HyperHDR for a TV: the colours around the edge of the
-        screen drive the lights nearest to each edge. Slow is fine — regions update about once a second.
+        screen drive the lights nearest to each edge. Regions update about five times a second.
       </p>
 
       {available === false && (
@@ -277,6 +281,32 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
         </p>
       )}
 
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-dim">Colour smoothing</h3>
+        <label className="flex items-center gap-2">
+          <span className="text-dim">Transition</span>
+          <input
+            aria-label="Colour transition time"
+            type="range"
+            min={NDI_TRANSITION_MIN_MS}
+            max={NDI_TRANSITION_MAX_MS}
+            step={50}
+            value={transitionMs}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              setTransitionMs(next)
+              setAmbienceTransitionMs(next)
+            }}
+            className="flex-1 accent-[var(--accent)]"
+          />
+          <span className="w-20 text-right">{transitionMs === 0 ? 'Instant' : `${transitionMs} ms`}</span>
+        </label>
+        <p className="text-dim">
+          How quickly the lights glide to a new sampled colour — a sudden slide change fades instead of
+          jumping.
+        </p>
+      </section>
+
       {stalled && (
         <p className="rounded border border-amber-400/40 bg-amber-500/10 p-2 text-amber-200">
           No video frames have arrived from {activeSource?.name ?? 'the source'}
@@ -321,7 +351,7 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
       <p className="text-dim">
         {stopOnUnmount
           ? 'Closing this panel stops Ambience and hands the rig back to your cues.'
-          : 'Closing Settings leaves Ambience running — stop it here or from the View menu’s NDI Ambience panel.'}
+          : 'Closing Settings leaves Ambience running — stop it here or from the preset palette’s NDI Ambience row.'}
       </p>
     </div>
   )

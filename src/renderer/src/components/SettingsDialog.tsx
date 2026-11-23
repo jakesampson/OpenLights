@@ -17,9 +17,10 @@ export type SettingsTabId = 'general' | 'timing' | 'gestures' | 'dmx' | 'externa
 // (Page fade stays 500 ms even though LightKey's screenshot shows 00:00.3).
 // Settings apply immediately — there is no Apply step. A sixth tab, NDI
 // Ambience, is OpenLights' own (LightKey has no NDI): it hosts the same
-// panel as the View menu's NDI Ambience…, and it is the Windows route to
-// the feature — the native menu bar is unreachable on a frameless window
-// (Jake, 23 Nov 2026), so the View menu entry alone wasn't enough.
+// panel as the preset palette's bottom row, and it is the Windows route
+// to the feature — the native menu bar is unreachable on a frameless
+// window (Jake, 23 Nov 2026). The View-menu entry is gone (Jake, 23 Nov
+// 2026): Settings (Ctrl+,) and the palette row are the only routes.
 const TABS: { id: SettingsTabId; label: string; icon: ReactNode }[] = [
   { id: 'general', label: 'General', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" /></svg> },
   { id: 'timing', label: 'Timing', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.5 2" /></svg> },
@@ -164,11 +165,12 @@ export function SettingsDialog({ initialTab, onTabChange, adaptiveBackground, on
           </SettingsRow>
           <MidiPanel />
         </div>}
-        {/* NDI Ambience lives here as well as in the View menu: the
-            Settings tab is the Windows route to it. The panel is
-            embedded with stopOnUnmount={false} — closing Settings (or
-            switching tabs) must not stop a running session; the user
-            stops it from this tab or from the View menu's panel. */}
+        {/* NDI Ambience lives here and in the preset palette's bottom row
+            (its plain click opens the panel): the Settings tab is the
+            Windows route to it. The panel is embedded with
+            stopOnUnmount={false} — closing Settings (or switching tabs)
+            must not stop a running session; the user stops it from this
+            tab or from the palette row's panel. */}
         {tab === 'ndi' && <NdiAmbiencePanel stopOnUnmount={false} />}
       </div>
       <footer className="flex items-center justify-between border-t border-line px-6 py-3">

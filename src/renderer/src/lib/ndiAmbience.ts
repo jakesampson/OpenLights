@@ -47,6 +47,109 @@ let lastStats: NdiAmbienceStats = { ...EMPTY_STATS }
  * jumping its fixtures to black. */
 let lastColourByRegion: Array<NdiRgb | null> = Array.from({ length: NDI_REGION_COUNT }, () => null)
 
+/** Colour-transition time between sampled values (Jake, 23 Nov 2026):
+ * a dramatic slide change glides instead of jumping. Default 500 ms,
+ * adjustable in the panel, 0 = instant (the old behaviour). */
+export const NDI_DEFAULT_TRANSITION_MS = 500
+export const NDI_TRANSITION_MIN_MS = 0
+export const NDI_TRANSITION_MAX_MS = 2000
+let transitionMs = NDI_DEFAULT_TRANSITION_MS
+/** The ambience patch currently driving the output — the glide starts
+ * from here, so a new sample mid-glide retargets without jumping. */
+let currentPatch: Record<number, number> = {}
+let glideFrom: Record<number, number> = {}
+let glideTarget: Record<number, number> = {}
+let glideStartedAt = 0
+let glideFrame: number | null = null
+
+export function getAmbienceTransitionMs(): number {
+  return transitionMs
+}
+
+/** Clamped to 0–2000 ms; 0 means new samples apply instantly. */
+export function setAmbienceTransitionMs(ms: number) {
+  transitionMs = Math.max(NDI_TRANSITION_MIN_MS, Math.min(NDI_TRANSITION_MAX_MS, Math.round(ms)))
+}
+
+function smoothstep(t: number): number {
+  const clamped = Math.max(0, Math.min(1, t))
+  return clamped * clamped * (3 - 2 * clamped)
+}
+
+function patchesEqual(a: Record<number, number>, b: Record<number, number>): boolean {
+  const aKeys = Object.keys(a)
+  if (aKeys.length !== Object.keys(b).length) return false
+  return aKeys.every((key) => a[Number(key)] === b[Number(key)])
+}
+
+/**
+ * Interpolate one ambience patch toward another, channel by channel.
+ * Pure — exported for tests. Channels in `to` glide from their `from`
+ * value (0 when newly mapped — they fade in); channels only in `from`
+ * are dropped, so they hand back to the underlying look immediately
+ * instead of dipping toward zero first.
+ */
+export function interpolateAmbiencePatch(
+  from: Record<number, number>,
+  to: Record<number, number>,
+  progress: number
+): Record<number, number> {
+  const t = Math.max(0, Math.min(1, progress))
+  const out: Record<number, number> = {}
+  for (const key of Object.keys(to)) {
+    const channel = Number(key)
+    const a = from[channel] ?? 0
+    out[channel] = Math.round(a + (to[channel] - a) * t)
+  }
+  return out
+}
+
+function cancelGlide() {
+  if (glideFrame !== null) {
+    cancelAnimationFrame(glideFrame)
+    glideFrame = null
+  }
+}
+
+const glideTick = (now: number) => {
+  const t = Math.min(1, (now - glideStartedAt) / transitionMs)
+  currentPatch = interpolateAmbiencePatch(glideFrom, glideTarget, smoothstep(t))
+  setAmbienceOutput(currentPatch)
+  if (t < 1) {
+    glideFrame = requestAnimationFrame(glideTick)
+  } else {
+    glideFrame = null
+    currentPatch = { ...glideTarget }
+  }
+}
+
+/**
+ * Apply a freshly computed patch: instantly when the transition is 0,
+ * when nothing is driving yet (first sample after starting — no dip
+ * from dark), or when the patch is unchanged; otherwise glide from the
+ * currently applied values to the new ones over `transitionMs`.
+ */
+function applyPatch(patch: Record<number, number>) {
+  if (transitionMs <= 0 || Object.keys(currentPatch).length === 0 || patchesEqual(currentPatch, patch)) {
+    cancelGlide()
+    currentPatch = { ...patch }
+    setAmbienceOutput(patch)
+    return
+  }
+  glideFrom = { ...currentPatch }
+  glideTarget = { ...patch }
+  if (glideFrame === null) {
+    // No glide in flight — start a fresh one.
+    glideStartedAt = performance.now()
+    glideFrame = requestAnimationFrame(glideTick)
+  }
+  // Otherwise a glide is already running: retarget it (new from/target)
+  // but keep its original start time. Samples arrive every ~200 ms, so
+  // restarting the clock on every sample would never let the glide
+  // finish — it would creep toward the target forever instead of
+  // landing `transitionMs` after the first new sample.
+}
+
 export function isAmbienceActive(): boolean {
   return active
 }
@@ -132,7 +235,7 @@ function recompute() {
   const { patch, stats, lastColours } = computeAmbiencePatch(fixtures, screen, regions, lastColourByRegion, master)
   lastColourByRegion = lastColours
   lastStats = stats
-  setAmbienceOutput(patch)
+  applyPatch(patch)
 }
 
 /** Stats from the last recompute (mapped / colourless / disabled / in storage). */
@@ -156,6 +259,8 @@ export function setAmbienceActive(nextActive: boolean) {
   if (nextActive === active) return
   active = nextActive
   if (!active) {
+    cancelGlide()
+    currentPatch = {}
     clearAmbienceOutput()
     return
   }
@@ -164,6 +269,8 @@ export function setAmbienceActive(nextActive: boolean) {
 
 /** Test hook: forget held region colours (fresh session). */
 export function resetAmbienceState() {
+  cancelGlide()
+  currentPatch = {}
   active = false
   fixtures = []
   screen = null

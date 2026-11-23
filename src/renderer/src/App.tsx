@@ -610,6 +610,9 @@ export default function App() {
       if (command === 'addOverrides') state.addOverridesToCues(undefined, selectedOnly ?? false)
       else if (command === 'openLiveWindow') void window.electronAPI.openLiveWindow(state.activeLivePageId)
       else if (command === 'automation') setToolPanel('Automation')
+      // 'ndiAmbience' is no longer a native menu command (Jake, 23 Nov
+      // 2026 — the View-menu entry is gone); the preset palette's bottom
+      // row still opens the panel by dispatching this command.
       else if (command === 'ndiAmbience') setToolPanel('NDI Ambience')
       else if (command === 'editAdHocProperties') {
         const target = editAdHocTarget(state)

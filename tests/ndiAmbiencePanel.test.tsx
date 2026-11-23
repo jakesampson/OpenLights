@@ -9,7 +9,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { NdiAmbiencePanel } from '../src/renderer/src/components/NdiAmbiencePanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
-import { isAmbienceActive, resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
+import { isAmbienceActive, resetAmbienceState, getAmbienceTransitionMs, setAmbienceTransitionMs, NDI_DEFAULT_TRANSITION_MS } from '../src/renderer/src/lib/ndiAmbience'
 import { resetNdiSession, getNdiReceiveHealth } from '../src/renderer/src/lib/ndiSession'
 import type { NdiReceiveHealth, NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
 
@@ -289,5 +289,22 @@ describe('NdiAmbiencePanel', () => {
       healthCallback?.({ framesReceived: 12, connections: 1, lastFrameAt: Date.now(), startedAt: Date.now() - 20_000 })
     })
     expect(text()).not.toContain('No video frames have arrived')
+  })
+
+  it('offers an adjustable colour transition, default 500 ms', async () => {
+    renderPanel()
+    await act(async () => {})
+    const slider = container?.querySelector('input[aria-label="Colour transition time"]') as HTMLInputElement | null
+    expect(slider).not.toBeNull()
+    expect(slider?.value).toBe('500')
+    expect(text()).toContain('500 ms')
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setter?.call(slider, '1000')
+      slider?.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    expect(text()).toContain('1000 ms')
+    expect(getAmbienceTransitionMs()).toBe(1000)
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
   })
 })

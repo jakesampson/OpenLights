@@ -50,7 +50,7 @@ const initialState: NdiSessionState = {
 let state: NdiSessionState = { ...initialState }
 const listeners = new Set<() => void>()
 
-// Sampled edge colours arrive about once a second while Ambience runs.
+// Sampled edge colours arrive about five times a second while Ambience runs.
 // They ride a separate subscription so the ~1 Hz updates only re-render
 // the panel's swatches — App and the palette subscribe to the session
 // state above and would otherwise re-render every second too.

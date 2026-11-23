@@ -4,19 +4,27 @@
  * Preview; the edges of the placed screen map to the nearest lights, so
  * each part of the room follows the edge of the screen nearest to it —
  * not one colour for the whole rig. NDI latency is fine: this is ambient,
- * not beat-synced, so regions are sampled about once a second.
+ * not beat-synced, so regions are sampled about five times a second.
  *
  * Pure logic only — no Node, Electron or DOM imports — so the sampling
  * can run in the NDI worker, the mapping in the renderer, and both in
- * unit tests. The worker posts small per-region colour sets; the frame
- * itself never leaves the worker.
+ * unit tests. The worker posts small per-region colour sets about five
+ * times a second; the frame itself never leaves the worker.
  */
 import type { StageObject } from './types'
 
 /** Edge regions around the frame perimeter. 8 = two per edge. */
 export const NDI_REGION_COUNT = 8
-/** How far into the frame the edge band reaches (fraction of the frame). */
-export const NDI_EDGE_BAND = 0.12
+/** How far into the frame the top and bottom edge bands reach
+ * (fraction of the frame height). 30%, not 12% (Jake, 23 Nov 2026):
+ * the outer edge of a worship screen is often dark, and a 12% band
+ * can come back dark with nothing usable in it — sampling deeper
+ * catches the colour of the slide behind the dark edge. */
+export const NDI_EDGE_BAND_VERTICAL = 0.3
+/** How far into the frame the left and right edge bands reach
+ * (fraction of the frame width). Stays at 12% — Jake specified top
+ * and bottom only. */
+export const NDI_EDGE_BAND_HORIZONTAL = 0.12
 /** Most-saturated thresholds, as proven by the standalone spike
  * (~/workspace/ndi-spike/spike.js): pixels at either extreme carry no
  * useful colour for lighting, so they are skipped when picking the
@@ -94,14 +102,19 @@ function hexOf(rgb: NdiRgb): string {
 
 /**
  * Sample the edges of a BGRA frame into per-region colours. Each region
- * samples the edge band (the outer 12% of the frame) over its stretch of
- * the perimeter, and reports its most-saturated pixel — the same measure
- * the spike proved on real slides, where the dominant colour just comes
- * out white. A region with no usable colour reports rgb null.
+ * samples its edge band over its stretch of the perimeter — the top and
+ * bottom bands reach 30% into the frame, the side bands 12% — and
+ * reports its most-saturated pixel — the same measure the spike proved
+ * on real slides, where the dominant colour just comes out white. A
+ * region with no usable colour reports rgb null.
  */
 export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUNT): NdiRegionColour[] {
   const { xres: w, yres: h, lineStrideBytes, data } = frame
-  const band = NDI_EDGE_BAND
+  // Top/bottom bands reach 30% into the frame vertically; side bands
+  // 12% horizontally (Jake, 23 Nov 2026 — worship-screen edges are
+  // often dark, so the top/bottom bands sample deeper).
+  const bandV = NDI_EDGE_BAND_VERTICAL
+  const bandH = NDI_EDGE_BAND_HORIZONTAL
   const regions: NdiRegionColour[] = []
   for (let i = 0; i < regionCount; i++) {
     const s0 = (i / regionCount) * 4
@@ -116,13 +129,16 @@ export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUN
       const edge = edgeOf(s0)
       const a = s0 - edge
       const b = s1 - edge
-      if (edge === 0) rect = { x: a * w, y: 0, w: (b - a) * w, h: band * h }
-      else if (edge === 1) rect = { x: (1 - band) * w, y: a * h, w: band * w, h: (b - a) * h }
-      else if (edge === 2) rect = { x: (1 - b) * w, y: (1 - band) * h, w: (b - a) * w, h: band * h }
-      else rect = { x: 0, y: (1 - b) * h, w: band * w, h: (b - a) * h }
+      if (edge === 0) rect = { x: a * w, y: 0, w: (b - a) * w, h: bandV * h }
+      else if (edge === 1) rect = { x: (1 - bandH) * w, y: a * h, w: bandH * w, h: (b - a) * h }
+      else if (edge === 2) rect = { x: (1 - b) * w, y: (1 - bandV) * h, w: (b - a) * w, h: bandV * h }
+      else rect = { x: 0, y: (1 - b) * h, w: bandH * w, h: (b - a) * h }
     } else {
       const anchor = edgeRegionAnchors(regionCount)[i]
-      const side = band * Math.min(w, h) * 2
+      // Corner-straddling stretch (only when the count is not a multiple
+      // of 4): square around the anchor, sized by the band of its edge.
+      const onTopOrBottom = anchor.y === 0 || anchor.y === 1
+      const side = (onTopOrBottom ? bandV : bandH) * Math.min(w, h) * 2
       rect = { x: anchor.x * w - side / 2, y: anchor.y * h - side / 2, w: side, h: side }
     }
     const x0 = Math.max(0, Math.floor(rect.x))

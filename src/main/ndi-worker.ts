@@ -5,7 +5,7 @@
  * It is deliberately dumb: discover sources, connect to a chosen one,
  * receive BGRA frames at Normal latency and sample the EDGES of each
  * frame into per-region colours (see src/shared/ndiAmbience.ts). Only
- * the small colour set leaves this process, about once a second — the
+ * the small colour set leaves this process, about five times a second — the
  * frame itself never does. The main process forwards messages between
  * this worker and the renderer; the renderer owns the mapping of regions
  * to fixtures and the output.
@@ -15,7 +15,7 @@
  *   in  { type: 'start', source }               → out { type: 'started', source } / { type: 'error', message }
  *   in  { type: 'stop' }                        → out { type: 'stopped' }
  *   out { type: 'ready', version }              on load (grandi initialised)
- *   out { type: 'regions', regions, at }        ~once a second while receiving
+ *   out { type: 'regions', regions, at }        ~five times a second while receiving
  *   out { type: 'receive-status', framesReceived, connections, lastFrameAt, startedAt }
  *                                               every 2 s while receiving — even
  *                                               when no frames arrive, so a
@@ -39,7 +39,10 @@ function post(message: unknown) {
 
 const DISCOVERY_WAIT_MS = 5_000
 const FRAME_TIMEOUT_MS = 1_000
-const POST_INTERVAL_MS = 1_000
+/** Region sets are posted ~5 times a second (Jake, 23 Nov 2026): fast
+ * enough to follow a slide change promptly, slow enough that the
+ * renderer-side smoothing has time to glide between samples. */
+const POST_INTERVAL_MS = 200
 const STATUS_INTERVAL_MS = 2_000
 
 type GrandiApi = Awaited<ReturnType<typeof loadGrandi>>
