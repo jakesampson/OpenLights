@@ -85,7 +85,7 @@ function ensureNdiWorker(): UtilityProcess {
     timer.unref()
     worker.on('message', (message: unknown) => {
       if (!message || typeof message !== 'object') return
-      const m = message as { type?: string; version?: string; message?: string; regions?: NdiRegionColour[]; sources?: NdiSourceInfo[]; at?: number; source?: NdiSourceInfo; framesReceived?: number; connections?: number; lastFrameAt?: number | null; startedAt?: number }
+      const m = message as { type?: string; version?: string; message?: string; regions?: NdiRegionColour[]; sources?: NdiSourceInfo[]; at?: number; source?: NdiSourceInfo; framesReceived?: number; connections?: number; lastFrameAt?: number | null; startedAt?: number; width?: number; height?: number; data?: Uint8Array }
       if (m.type === 'ready') {
         clearTimeout(timer)
         ndiLastVersion = m.version ?? ''
@@ -105,6 +105,21 @@ function ensureNdiWorker(): UtilityProcess {
         mainWindow?.webContents.send('ndi:status', { state: 'stopped' })
       } else if (m.type === 'regions') {
         mainWindow?.webContents.send('ndi:regions', m.regions ?? [], m.at ?? Date.now())
+      } else if (m.type === 'frame') {
+        // Live video preview on the Screen (Jake, 23 Nov 2026):
+        // JPEG-encode the 360p BGRA thumbnail and hand the renderer a
+        // data URL — a few tens of KB, five times a second. A bad
+        // thumbnail is dropped silently: the region colours above are
+        // the lighting, the picture is a bonus.
+        try {
+          const width = m.width ?? 0
+          const height = m.height ?? 0
+          const data = m.data
+          if (data && width > 0 && height > 0 && data.length >= width * height * 4) {
+            const jpeg = nativeImage.createFromBitmap(Buffer.from(data), { width, height }).toJPEG(70)
+            mainWindow?.webContents.send('ndi:frame', `data:image/jpeg;base64,${jpeg.toString('base64')}`)
+          }
+        } catch { /* Drop the frame; the next tick sends another. */ }
       } else if (m.type === 'receive-status') {
         mainWindow?.webContents.send('ndi:receive-status', {
           framesReceived: m.framesReceived ?? 0,

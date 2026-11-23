@@ -9,6 +9,9 @@ import {
   DEFAULT_SCREEN_HEIGHT,
   DEFAULT_SCREEN_WIDTH,
   NDI_REGION_COUNT,
+  NDI_THUMBNAIL_MAX_HEIGHT,
+  NDI_THUMBNAIL_MAX_WIDTH,
+  downscaleFrame,
   edgeRegionAnchors,
   findNdiScreen,
   mapRegionsToFixtures,
@@ -506,5 +509,66 @@ describe('colour smoothing (glide)', () => {
     // than holding the last glide value.
     expect(engine.snapshot()[19]).toBe(0)
     expect(engine.snapshot()[21]).toBe(0)
+  })
+})
+
+describe('downscaleFrame (live video preview thumbnail)', () => {
+  // Bytes are BGRA (the order Electron's createFromBitmap expects):
+  // byte 0 is blue, byte 2 is red.
+  const pixel = (thumb: ReturnType<typeof downscaleFrame>, x: number, y: number) => {
+    const i = (y * thumb.width + x) * 4
+    return { r: thumb.data[i + 2], g: thumb.data[i + 1], b: thumb.data[i], a: thumb.data[i + 3] }
+  }
+
+  it('halves a 1280x720 frame to 640x360 and keeps red red (stays BGRA)', () => {
+    const thumb = downscaleFrame(solidFrame(1280, 720, RED))
+    expect(thumb.width).toBe(640)
+    expect(thumb.height).toBe(360)
+    expect(pixel(thumb, 0, 0)).toEqual({ r: 255, g: 0, b: 0, a: 255 })
+    expect(pixel(thumb, 639, 359)).toEqual({ r: 255, g: 0, b: 0, a: 255 })
+    // Raw order pin: byte 0 is B (0), byte 2 is R (255). Swapping
+    // these two is exactly what would turn a red feed blue on the
+    // Screen (caught by the real-app probe, 23 Nov 2026).
+    expect(thumb.data[0]).toBe(0)
+    expect(thumb.data[1]).toBe(0)
+    expect(thumb.data[2]).toBe(255)
+    expect(thumb.data[3]).toBe(255)
+  })
+
+  it('keeps top/bottom colours in the right rows on a split frame', () => {
+    const thumb = downscaleFrame(splitFrame(1280, 720, RED, BLUE))
+    expect(thumb.width).toBe(640)
+    expect(thumb.height).toBe(360)
+    expect(pixel(thumb, 0, 0)).toEqual({ r: 255, g: 0, b: 0, a: 255 })
+    expect(pixel(thumb, 0, 359)).toEqual({ r: 0, g: 0, b: 255, a: 255 })
+  })
+
+  it('caps at 360p, preserves aspect, and never upscales a small frame', () => {
+    expect(downscaleFrame(solidFrame(1920, 1080, RED))).toMatchObject({ width: 640, height: 360 })
+    expect(downscaleFrame(solidFrame(1000, 1000, RED))).toMatchObject({ width: 360, height: 360 })
+    expect(downscaleFrame(solidFrame(320, 180, RED))).toMatchObject({ width: 320, height: 180 })
+    expect(NDI_THUMBNAIL_MAX_WIDTH).toBe(640)
+    expect(NDI_THUMBNAIL_MAX_HEIGHT).toBe(360)
+  })
+
+  it('respects a stride wider than the row (padding bytes are not pixels)', () => {
+    const width = 4
+    const height = 2
+    const stride = 24 // 4 px = 16 bytes of pixels + 8 bytes padding
+    const data = Buffer.alloc(stride * height)
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const i = y * stride + x * 4
+        data[i] = 0 // B
+        data[i + 1] = 0 // G
+        data[i + 2] = 255 // R
+        data[i + 3] = 255
+      }
+    }
+    const thumb = downscaleFrame({ xres: width, yres: height, lineStrideBytes: stride, data }, 2, 1)
+    expect(thumb.width).toBe(2)
+    expect(thumb.height).toBe(1)
+    expect(pixel(thumb, 0, 0)).toEqual({ r: 255, g: 0, b: 0, a: 255 })
+    expect(pixel(thumb, 1, 0)).toEqual({ r: 255, g: 0, b: 0, a: 255 })
   })
 })

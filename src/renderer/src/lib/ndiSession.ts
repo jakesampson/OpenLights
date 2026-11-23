@@ -57,6 +57,30 @@ const listeners = new Set<() => void>()
 let regions: NdiRegionColour[] | null = null
 const regionListeners = new Set<() => void>()
 
+// Live video preview: the latest JPEG data URL from the worker, at the
+// sample cadence (~5 Hz). Separate subscription like regions, so only
+// the Screen re-renders. The last frame is kept when Ambience stops —
+// it fades out rather than vanishing — and replaced by the next run's
+// frames.
+let frame: string | null = null
+const frameListeners = new Set<() => void>()
+
+export function getNdiFrame(): string | null {
+  return frame
+}
+
+export function useNdiFrame(): string | null {
+  return useSyncExternalStore(
+    (onChange) => {
+      frameListeners.add(onChange)
+      return () => {
+        frameListeners.delete(onChange)
+      }
+    },
+    () => frame
+  )
+}
+
 // Receive health, same pattern as regions: the worker reports it every
 // 2 s while a session runs, even when no frames arrive. The panel reads
 // it to say whether the feed is actually delivering video — a session
@@ -141,6 +165,10 @@ export function initNdiSession() {
     receiveHealth = next
     receiveHealthListeners.forEach((listener) => listener())
   })
+  const offFrame = api?.onNdiFrame?.((next) => {
+    frame = next
+    frameListeners.forEach((listener) => listener())
+  })
   const offStatus = api?.onNdiStatus?.((status) => {
     if (status.state === 'error') {
       setAmbienceActive(false)
@@ -154,7 +182,7 @@ export function initNdiSession() {
       setState({ connected: true })
     }
   })
-  unsubscribers = [offRegions, offReceiveHealth, offStatus].filter((fn): fn is () => void => typeof fn === 'function')
+  unsubscribers = [offRegions, offReceiveHealth, offFrame, offStatus].filter((fn): fn is () => void => typeof fn === 'function')
   void api
     ?.ndiVersion?.()
     ?.then((result) => {
@@ -174,6 +202,7 @@ export function resetNdiSession() {
   initialized = false
   state = { ...initialState }
   regions = null
+  frame = null
   receiveHealth = null
 }
 

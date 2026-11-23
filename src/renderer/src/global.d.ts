@@ -60,6 +60,7 @@ declare global {
       ndiStop: () => Promise<{ success: boolean }>
       onNdiRegions: (callback: (regions: import('@shared/ndiAmbience').NdiRegionColour[], at: number) => void) => () => void
       onNdiReceiveStatus: (callback: (status: NdiReceiveHealth) => void) => () => void
+      onNdiFrame: (callback: (dataUrl: string) => void) => () => void
       onNdiStatus: (callback: (status: { state: 'ready' | 'receiving' | 'stopped' | 'error'; message?: string; source?: import('@shared/ndiAmbience').NdiSourceInfo }) => void) => () => void
       setTitleBarOverlay: (mode: 'main' | 'wizard' | 'welcome') => void
       closeWindow: () => void

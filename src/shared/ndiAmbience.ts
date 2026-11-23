@@ -75,6 +75,60 @@ export interface NdiFrame {
   data: Uint8Array
 }
 
+/** Live video preview on the Screen (Jake, 23 Nov 2026): the worker
+ * downscales each sampled frame to a small thumbnail — 360p at most
+ * (Jake: 480p or even 360p is fine) — and main JPEG-encodes it for the
+ * renderer. Full frames never leave the worker. */
+export const NDI_THUMBNAIL_MAX_WIDTH = 640
+export const NDI_THUMBNAIL_MAX_HEIGHT = 360
+
+/** A downscaled frame in BGRA byte order, ready for
+ * `nativeImage.createFromBitmap` in the main process — Electron's
+ * bitmap format is the `toBitmap()` format (BGRA on this platform),
+ * i.e. the same order the NDI frame arrives in, so no channel
+ * swapping is needed (and swapping it is exactly what would turn a
+ * red feed blue on the Screen). */
+export interface NdiThumbnail {
+  width: number
+  height: number
+  data: Uint8Array
+}
+
+/**
+ * Downscale a BGRA frame to a thumbnail, preserving aspect ratio and
+ * never upscaling. Nearest-neighbour: at the usual 2x step (1280x720 →
+ * 640x360) that is every second pixel, and a preview needs no more.
+ * Bytes stay BGRA (grandi hands us BGRA; Electron's createFromBitmap
+ * wants BGRA). Respects lineStrideBytes — the stride can be wider
+ * than the row.
+ */
+export function downscaleFrame(
+  frame: NdiFrame,
+  maxWidth = NDI_THUMBNAIL_MAX_WIDTH,
+  maxHeight = NDI_THUMBNAIL_MAX_HEIGHT
+): NdiThumbnail {
+  const { xres: w, yres: h, lineStrideBytes, data } = frame
+  if (w <= 0 || h <= 0) return { width: 1, height: 1, data: new Uint8Array([0, 0, 0, 255]) }
+  const scale = Math.min(1, maxWidth / w, maxHeight / h)
+  const outW = Math.max(1, Math.round(w * scale))
+  const outH = Math.max(1, Math.round(h * scale))
+  const out = new Uint8Array(outW * outH * 4)
+  for (let y = 0; y < outH; y++) {
+    const srcY = Math.min(h - 1, Math.floor(y / scale))
+    const row = srcY * lineStrideBytes
+    for (let x = 0; x < outW; x++) {
+      const srcX = Math.min(w - 1, Math.floor(x / scale))
+      const src = row + srcX * 4
+      const dst = (y * outW + x) * 4
+      out[dst] = data[src] // B
+      out[dst + 1] = data[src + 1] // G
+      out[dst + 2] = data[src + 2] // R
+      out[dst + 3] = 255
+    }
+  }
+  return { width: outW, height: outH, data: out }
+}
+
 /**
  * Unit-frame anchors of the edge regions, clockwise from the top-left
  * corner: two per edge for 8 regions — top (0.25, 0) and (0.75, 0),

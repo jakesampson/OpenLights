@@ -5,10 +5,11 @@
  * It is deliberately dumb: discover sources, connect to a chosen one,
  * receive BGRA frames at Normal latency and sample the EDGES of each
  * frame into per-region colours (see src/shared/ndiAmbience.ts). Only
- * the small colour set leaves this process, about five times a second — the
- * frame itself never does. The main process forwards messages between
- * this worker and the renderer; the renderer owns the mapping of regions
- * to fixtures and the output.
+ * the small colour set — plus a 360p thumbnail for the live video
+ * preview on the Screen — leaves this process, about five times a
+ * second. The main process forwards messages between this worker and
+ * the renderer; the renderer owns the mapping of regions to fixtures
+ * and the output.
  *
  * Protocol (parentPort messages):
  *   in  { type: 'list' }                        → out { type: 'sources', sources }
@@ -16,6 +17,10 @@
  *   in  { type: 'stop' }                        → out { type: 'stopped' }
  *   out { type: 'ready', version }              on load (grandi initialised)
  *   out { type: 'regions', regions, at }        ~five times a second while receiving
+ *   out { type: 'frame', width, height, data }  ~five times a second while receiving —
+ *                                               a 360p BGRA thumbnail for the live
+ *                                               video preview on the Screen (Jake,
+ *                                               23 Nov 2026); never a full frame
  *   out { type: 'receive-status', framesReceived, connections, lastFrameAt, startedAt }
  *                                               every 2 s while receiving — even
  *                                               when no frames arrive, so a
@@ -23,7 +28,7 @@
  *                                               instead of silently "driving"
  *   out { type: 'error', message }              on any failure
  */
-import { NDI_STALL_WARN_MS, sampleEdgeRegions, type NdiRegionColour, type NdiSourceInfo } from '../shared/ndiAmbience'
+import { NDI_STALL_WARN_MS, downscaleFrame, sampleEdgeRegions, type NdiRegionColour, type NdiSourceInfo } from '../shared/ndiAmbience'
 import type { Finder, Receiver } from 'grandi'
 
 // The forked script runs as a Node process, not an Electron module, so
@@ -151,6 +156,13 @@ async function main() {
         continue
       }
       post({ type: 'regions', regions, at: now })
+      // Live video preview on the Screen (Jake, 23 Nov 2026): a 360p
+      // thumbnail at the same cadence — never a full frame. A thumbnail
+      // failure must not break the regions above, so it is guarded.
+      try {
+        const thumb = downscaleFrame(frame)
+        post({ type: 'frame', width: thumb.width, height: thumb.height, data: Buffer.from(thumb.data) })
+      } catch { /* Regions already posted; the preview just stays still. */ }
     }
   }
 
