@@ -23,6 +23,7 @@ import { useShowStore } from '../stores/showStore'
 import {
   DEFAULT_SCREEN_HEIGHT,
   DEFAULT_SCREEN_WIDTH,
+  NDI_STALL_WARN_MS,
   edgeRegionAnchors,
   findNdiScreen,
   rgbHex,
@@ -31,6 +32,7 @@ import {
 } from '@shared/ndiAmbience'
 import { configureAmbienceFixtures, getAmbienceStats, type NdiAmbienceStats } from '../lib/ndiAmbience'
 import {
+  currentNdiSource,
   getNdiSessionState,
   initNdiSession,
   refreshNdiSources,
@@ -39,6 +41,7 @@ import {
   setSessionActive,
   startNdiSession,
   stopNdiSession,
+  useNdiReceiveHealth,
   useNdiRegions,
   useNdiSession
 } from '../lib/ndiSession'
@@ -60,15 +63,33 @@ function liveButtonOwnsSession(): boolean {
   )
 }
 
+/** True when an address is in Tailscale's 100.64.0.0/10 range — only a
+ * machine running Tailscale can reach it. */
+function isTailscaleAddress(address: string | undefined): boolean {
+  if (!address) return false
+  return /^100\.(64|6[5-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\./.test(address)
+}
+
 export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boolean }) {
   const { show, master, addStageObject, removeStageObjects } = useShowStore()
   const session = useNdiSession()
   const regions = useNdiRegions()
+  const health = useNdiReceiveHealth()
   const [busy, setBusy] = useState(false)
   const [stats, setStats] = useState<NdiAmbienceStats>(getAmbienceStats())
 
   const { sources, selectedName, directAddress, available, version, error } = session
   const running = session.connected && session.active
+  const activeSource = currentNdiSource()
+  // "Driving" means colours are actually arriving — a session can be
+  // connected with zero frames (Mac, 23 Nov 2026), and the old label
+  // claimed it was driving with no colours at all.
+  const stalled =
+    running &&
+    !regions &&
+    health !== null &&
+    health.framesReceived === 0 &&
+    Date.now() - health.startedAt > NDI_STALL_WARN_MS
 
   const screen = findNdiScreen(show?.stageObjects)
   const fixtures = show?.fixtures ?? []
@@ -242,9 +263,30 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
           </button>
         )}
         <span className="text-dim">
-          {running ? 'Ambience is driving the mapped fixtures.' : 'Stopped — cues, presets and Live are in charge.'}
+          {running && regions
+            ? 'Ambience is driving the mapped fixtures.'
+            : running
+              ? `Connected to ${activeSource?.name ?? 'the source'} — waiting for the first video frame…`
+              : 'Stopped — cues, presets and Live are in charge.'}
         </span>
       </section>
+
+      {running && !regions && health && (
+        <p className="text-dim">
+          Frames received: {health.framesReceived} · Receiver connections: {health.connections}
+        </p>
+      )}
+
+      {stalled && (
+        <p className="rounded border border-amber-400/40 bg-amber-500/10 p-2 text-amber-200">
+          No video frames have arrived from {activeSource?.name ?? 'the source'}
+          {activeSource?.urlAddress ? ` (${activeSource.urlAddress})` : ''} in over{' '}
+          {NDI_STALL_WARN_MS / 1000} seconds. Check this computer can reach that address.
+          {activeSource?.urlAddress && isTailscaleAddress(activeSource.urlAddress)
+            ? ' That address is a Tailscale address — this computer needs Tailscale running to reach it. Otherwise connect directly to the feed machine’s local-network address in the field above.'
+            : ''}
+        </p>
+      )}
 
       {error && (
         <p className="rounded border border-red-400/40 bg-red-500/10 p-2 text-red-200">{error}</p>

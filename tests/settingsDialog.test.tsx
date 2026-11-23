@@ -219,7 +219,7 @@ describe('tabbed Settings dialog', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
     clickButton('Place screen on Preview')
     await act(async () => { clickButton('Start Ambience') })
-    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(text()).toContain('waiting for the first video frame')
     expect(isAmbienceActive()).toBe(true)
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
     expect(container?.querySelector('[role="dialog"][aria-labelledby="settings-title"]')).toBeNull()

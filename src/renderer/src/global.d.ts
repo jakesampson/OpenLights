@@ -1,4 +1,5 @@
 import type { DmxPortInfo, DmxStatus, SerialDmxProtocol } from '@shared/types'
+import type { NdiReceiveHealth } from '@shared/ndiAmbience'
 
 export {}
 
@@ -58,6 +59,7 @@ declare global {
       ndiStart: (source: import('@shared/ndiAmbience').NdiSourceInfo) => Promise<{ success: boolean; error?: string }>
       ndiStop: () => Promise<{ success: boolean }>
       onNdiRegions: (callback: (regions: import('@shared/ndiAmbience').NdiRegionColour[], at: number) => void) => () => void
+      onNdiReceiveStatus: (callback: (status: NdiReceiveHealth) => void) => () => void
       onNdiStatus: (callback: (status: { state: 'ready' | 'receiving' | 'stopped' | 'error'; message?: string; source?: import('@shared/ndiAmbience').NdiSourceInfo }) => void) => () => void
       setTitleBarOverlay: (mode: 'main' | 'wizard' | 'welcome') => void
       closeWindow: () => void

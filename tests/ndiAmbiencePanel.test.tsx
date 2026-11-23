@@ -10,8 +10,8 @@ import { createRoot, type Root } from 'react-dom/client'
 import { NdiAmbiencePanel } from '../src/renderer/src/components/NdiAmbiencePanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { isAmbienceActive, resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
-import { resetNdiSession } from '../src/renderer/src/lib/ndiSession'
-import type { NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
+import { resetNdiSession, getNdiReceiveHealth } from '../src/renderer/src/lib/ndiSession'
+import type { NdiReceiveHealth, NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -21,6 +21,7 @@ const RED_REGIONS: NdiRegionColour[] = Array.from({ length: 8 }, (_, i) => ({ in
 const ndiStartMock = vi.fn(() => Promise.resolve({ success: true }))
 const ndiStopMock = vi.fn(() => Promise.resolve({ success: true }))
 let regionsCallback: ((regions: NdiRegionColour[]) => void) | null = null
+let healthCallback: ((health: NdiReceiveHealth) => void) | null = null
 
 ;(window as unknown as { electronAPI: unknown }).electronAPI = {
   setChannels: () => {},
@@ -33,6 +34,12 @@ let regionsCallback: ((regions: NdiRegionColour[]) => void) | null = null
     regionsCallback = cb
     return () => {
       regionsCallback = null
+    }
+  },
+  onNdiReceiveStatus: (cb: (health: NdiReceiveHealth) => void) => {
+    healthCallback = cb
+    return () => {
+      healthCallback = null
     }
   },
   onNdiStatus: () => () => {}
@@ -87,6 +94,7 @@ beforeEach(() => {
   ndiStartMock.mockClear()
   ndiStopMock.mockClear()
   regionsCallback = null
+  healthCallback = null
 })
 
 afterEach(() => {
@@ -131,12 +139,16 @@ describe('NdiAmbiencePanel', () => {
       clickButton('Start Ambience')
     })
     expect(ndiStartMock).toHaveBeenCalledWith(SOURCES[0])
-    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    // Connected but no colours yet: the panel says it is waiting, not
+    // driving — "driving" means colours are actually arriving (Mac,
+    // 23 Nov 2026: the session claimed to drive with zero frames).
+    expect(text()).toContain('waiting for the first video frame')
 
     expect(regionsCallback).not.toBeNull()
     act(() => {
       regionsCallback?.(RED_REGIONS)
     })
+    expect(text()).toContain('Ambience is driving the mapped fixtures.')
     const swatches = container?.querySelectorAll('[title*="#ff0000"]') ?? []
     expect(swatches.length).toBe(8)
     expect(text()).toContain('2 fixtures following an edge')
@@ -172,7 +184,7 @@ describe('NdiAmbiencePanel', () => {
     await act(async () => {
       clickButton('Start Ambience')
     })
-    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(text()).toContain('waiting for the first video frame')
     act(() => {
       rootNode?.unmount()
     })
@@ -190,7 +202,7 @@ describe('NdiAmbiencePanel', () => {
     await act(async () => {
       clickButton('Start Ambience')
     })
-    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(text()).toContain('waiting for the first video frame')
     expect(isAmbienceActive()).toBe(true)
     act(() => {
       rootNode?.unmount()
@@ -209,7 +221,7 @@ describe('NdiAmbiencePanel', () => {
     await act(async () => {
       clickButton('Start Ambience')
     })
-    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(text()).toContain('waiting for the first video frame')
     const el2 = document.createElement('div')
     document.body.appendChild(el2)
     secondContainer = el2
@@ -218,7 +230,64 @@ describe('NdiAmbiencePanel', () => {
       secondRoot.render(<NdiAmbiencePanel />)
     })
     await act(async () => {})
-    expect(el2.textContent).toContain('Ambience is driving the mapped fixtures.')
+    expect(el2.textContent).toContain('waiting for the first video frame')
     expect([...el2.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Stop Ambience')).toBe(true)
+  })
+
+  it('shows frames received while waiting for the first frame', async () => {
+    // Mac, 23 Nov 2026: the session was "driving" with zero frames and
+    // nothing said so. The worker's receive-status heartbeat makes the
+    // stall visible: frames received and receiver connections.
+    renderPanel()
+    await act(async () => {})
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    expect(healthCallback).not.toBeNull()
+    act(() => {
+      healthCallback?.({ framesReceived: 0, connections: 0, lastFrameAt: null, startedAt: Date.now() })
+    })
+    expect(getNdiReceiveHealth()?.framesReceived).toBe(0)
+    expect(text()).toContain('Frames received: 0')
+    expect(text()).toContain('Receiver connections: 0')
+    expect(text()).toContain('waiting for the first video frame')
+    expect(text()).not.toContain('Ambience is driving the mapped fixtures.')
+  })
+
+  it('warns when no frames arrive within 10 seconds, with the Tailscale hint for a Tailscale address', async () => {
+    renderPanel()
+    await act(async () => {})
+    clickButton('Place screen on Preview')
+    const input = container?.querySelector('input[type="text"]') as HTMLInputElement | null
+    expect(input).not.toBeNull()
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set
+    act(() => {
+      setter?.call(input, '100.127.255.172:5961')
+      input?.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    expect(healthCallback).not.toBeNull()
+    act(() => {
+      healthCallback?.({ framesReceived: 0, connections: 0, lastFrameAt: null, startedAt: Date.now() - 20_000 })
+    })
+    expect(text()).toContain('No video frames have arrived')
+    expect(text()).toContain('100.127.255.172:5961')
+    expect(text()).toContain('Tailscale')
+  })
+
+  it('does not warn when frames are flowing', async () => {
+    renderPanel()
+    await act(async () => {})
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    act(() => {
+      healthCallback?.({ framesReceived: 12, connections: 1, lastFrameAt: Date.now(), startedAt: Date.now() - 20_000 })
+    })
+    expect(text()).not.toContain('No video frames have arrived')
   })
 })

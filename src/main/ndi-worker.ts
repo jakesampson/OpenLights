@@ -16,9 +16,14 @@
  *   in  { type: 'stop' }                        → out { type: 'stopped' }
  *   out { type: 'ready', version }              on load (grandi initialised)
  *   out { type: 'regions', regions, at }        ~once a second while receiving
+ *   out { type: 'receive-status', framesReceived, connections, lastFrameAt, startedAt }
+ *                                               every 2 s while receiving — even
+ *                                               when no frames arrive, so a
+ *                                               stalled receiver is visible
+ *                                               instead of silently "driving"
  *   out { type: 'error', message }              on any failure
  */
-import { sampleEdgeRegions, type NdiRegionColour, type NdiSourceInfo } from '../shared/ndiAmbience'
+import { NDI_STALL_WARN_MS, sampleEdgeRegions, type NdiRegionColour, type NdiSourceInfo } from '../shared/ndiAmbience'
 import type { Finder, Receiver } from 'grandi'
 
 // The forked script runs as a Node process, not an Electron module, so
@@ -35,6 +40,7 @@ function post(message: unknown) {
 const DISCOVERY_WAIT_MS = 5_000
 const FRAME_TIMEOUT_MS = 1_000
 const POST_INTERVAL_MS = 1_000
+const STATUS_INTERVAL_MS = 2_000
 
 type GrandiApi = Awaited<ReturnType<typeof loadGrandi>>
 
@@ -88,7 +94,32 @@ async function main() {
 
   async function receiveLoop(run: number) {
     let lastPostAt = 0
+    let lastStatusAt = 0
+    let framesReceived = 0
+    let lastFrameAt: number | null = null
+    const startedAt = Date.now()
+    let stallWarned = false
+    const postStatus = () => {
+      // How many connections the receiver holds to the sender (0 when
+      // the video connection never established) — grandi's Receiver API.
+      let connections = 0
+      try {
+        connections = receiver?.connections() ?? 0
+      } catch { /* Receiver gone — report 0. */ }
+      post({ type: 'receive-status', framesReceived, connections, lastFrameAt, startedAt })
+    }
     while (receiving && run === receiveRun) {
+      const now = Date.now()
+      // Heartbeat even when no frames arrive — silence is the symptom
+      // this exists to make visible.
+      if (now - lastStatusAt >= STATUS_INTERVAL_MS) {
+        lastStatusAt = now
+        postStatus()
+      }
+      if (framesReceived === 0 && !stallWarned && now - startedAt >= NDI_STALL_WARN_MS) {
+        stallWarned = true
+        console.warn(`[ndi-worker] No video frames received in ${NDI_STALL_WARN_MS / 1000}s — the receiver may not be able to reach the source.`)
+      }
       let frame: Awaited<ReturnType<Receiver['video']>> | null = null
       try {
         frame = await receiver!.video(FRAME_TIMEOUT_MS)
@@ -96,6 +127,8 @@ async function main() {
         frame = null
       }
       if (!frame || !receiving || run !== receiveRun) continue
+      framesReceived++
+      lastFrameAt = Date.now()
       // Drop stale queued frames so the next sample is fresh — ambient
       // lighting follows the screen, not a backlog of old frames.
       for (let i = 0; i < 8; i++) {
@@ -105,7 +138,6 @@ async function main() {
           break
         }
       }
-      const now = Date.now()
       if (now - lastPostAt < POST_INTERVAL_MS) continue
       lastPostAt = now
       let regions: NdiRegionColour[]

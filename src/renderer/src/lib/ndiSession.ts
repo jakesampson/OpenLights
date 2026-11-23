@@ -17,7 +17,7 @@
  * killed by the panel closing while a button is lit.
  */
 import { useSyncExternalStore } from 'react'
-import type { NdiRegionColour, NdiSourceInfo } from '@shared/ndiAmbience'
+import type { NdiReceiveHealth, NdiRegionColour, NdiSourceInfo } from '@shared/ndiAmbience'
 import { setAmbienceActive, setAmbienceRegions } from './ndiAmbience'
 
 export type NdiSessionOwner = 'panel' | 'live'
@@ -56,6 +56,30 @@ const listeners = new Set<() => void>()
 // state above and would otherwise re-render every second too.
 let regions: NdiRegionColour[] | null = null
 const regionListeners = new Set<() => void>()
+
+// Receive health, same pattern as regions: the worker reports it every
+// 2 s while a session runs, even when no frames arrive. The panel reads
+// it to say whether the feed is actually delivering video — a session
+// can be "active" with zero frames (Mac, 23 Nov 2026), and without
+// this the panel claims to be driving with no colours at all.
+let receiveHealth: NdiReceiveHealth | null = null
+const receiveHealthListeners = new Set<() => void>()
+
+export function getNdiReceiveHealth(): NdiReceiveHealth | null {
+  return receiveHealth
+}
+
+export function useNdiReceiveHealth(): NdiReceiveHealth | null {
+  return useSyncExternalStore(
+    (onChange) => {
+      receiveHealthListeners.add(onChange)
+      return () => {
+        receiveHealthListeners.delete(onChange)
+      }
+    },
+    () => receiveHealth
+  )
+}
 
 export function getNdiRegions(): NdiRegionColour[] | null {
   return regions
@@ -113,6 +137,10 @@ export function initNdiSession() {
     regions = next
     regionListeners.forEach((listener) => listener())
   })
+  const offReceiveHealth = api?.onNdiReceiveStatus?.((next) => {
+    receiveHealth = next
+    receiveHealthListeners.forEach((listener) => listener())
+  })
   const offStatus = api?.onNdiStatus?.((status) => {
     if (status.state === 'error') {
       setAmbienceActive(false)
@@ -126,7 +154,7 @@ export function initNdiSession() {
       setState({ connected: true })
     }
   })
-  unsubscribers = [offRegions, offStatus].filter((fn): fn is () => void => typeof fn === 'function')
+  unsubscribers = [offRegions, offReceiveHealth, offStatus].filter((fn): fn is () => void => typeof fn === 'function')
   void api
     ?.ndiVersion?.()
     ?.then((result) => {
@@ -146,6 +174,7 @@ export function resetNdiSession() {
   initialized = false
   state = { ...initialState }
   regions = null
+  receiveHealth = null
 }
 
 export async function refreshNdiSources(): Promise<void> {
@@ -172,6 +201,11 @@ function pickSource(): NdiSourceInfo | undefined {
   const address = state.directAddress.trim()
   if (address) return { name: `direct ${address}`, urlAddress: address }
   return state.sources.find((source) => source.name === state.selectedName) ?? state.sources[0]
+}
+
+/** The source a start would connect to right now (direct address wins). */
+export function currentNdiSource(): NdiSourceInfo | undefined {
+  return pickSource()
 }
 
 /**

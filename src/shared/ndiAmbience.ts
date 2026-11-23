@@ -24,9 +24,31 @@ export const NDI_EDGE_BAND = 0.12
  * channel is under 32, near-white when the darkest channel is over 235. */
 export const NDI_NEAR_BLACK_MAX = 32
 export const NDI_NEAR_WHITE_MIN = 235
+/** How long with zero frames before the session counts as stalled — a
+ * connection that never delivers is otherwise indistinguishable from
+ * a working one, and the panel would claim to be "driving" with no
+ * colours at all (Mac, 23 Nov 2026: the feed's advertised address was
+ * a Tailscale address the Mac could not reach, so video() timed out
+ * forever and nothing ever surfaced it). */
+export const NDI_STALL_WARN_MS = 10_000
 
 export interface NdiRgb { r: number; g: number; b: number }
 export interface NdiSourceInfo { name: string; urlAddress?: string }
+
+/**
+ * Receive health, reported by the NDI worker every 2 s while a session
+ * is running — even when no frames arrive, so a stalled receiver is
+ * visible instead of silently "driving". `connections` is how many
+ * connections the receiver holds to the sender (0 when the video
+ * connection never established); `framesReceived` counts frames the
+ * worker actually got; `lastFrameAt` is when the last one arrived.
+ */
+export interface NdiReceiveHealth {
+  framesReceived: number
+  connections: number
+  lastFrameAt: number | null
+  startedAt: number
+}
 export interface NdiRegionColour {
   index: number
   /** Most-saturated colour of the region, or null when the region has no

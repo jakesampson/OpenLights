@@ -85,7 +85,7 @@ function ensureNdiWorker(): UtilityProcess {
     timer.unref()
     worker.on('message', (message: unknown) => {
       if (!message || typeof message !== 'object') return
-      const m = message as { type?: string; version?: string; message?: string; regions?: NdiRegionColour[]; sources?: NdiSourceInfo[]; at?: number; source?: NdiSourceInfo }
+      const m = message as { type?: string; version?: string; message?: string; regions?: NdiRegionColour[]; sources?: NdiSourceInfo[]; at?: number; source?: NdiSourceInfo; framesReceived?: number; connections?: number; lastFrameAt?: number | null; startedAt?: number }
       if (m.type === 'ready') {
         clearTimeout(timer)
         ndiLastVersion = m.version ?? ''
@@ -105,6 +105,13 @@ function ensureNdiWorker(): UtilityProcess {
         mainWindow?.webContents.send('ndi:status', { state: 'stopped' })
       } else if (m.type === 'regions') {
         mainWindow?.webContents.send('ndi:regions', m.regions ?? [], m.at ?? Date.now())
+      } else if (m.type === 'receive-status') {
+        mainWindow?.webContents.send('ndi:receive-status', {
+          framesReceived: m.framesReceived ?? 0,
+          connections: m.connections ?? 0,
+          lastFrameAt: m.lastFrameAt ?? null,
+          startedAt: m.startedAt ?? Date.now()
+        })
       } else if (m.type === 'error') {
         const error = new Error(m.message ?? 'NDI error')
         if (ndiPendingList) {
