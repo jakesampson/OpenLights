@@ -3,10 +3,11 @@ import type { ReactNode } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { MidiPanel } from './MidiPanel'
 import { DmxOutputPanel } from './DmxOutputPanel'
+import { NdiAmbiencePanel } from './NdiAmbiencePanel'
 import { readUsbDmxDefault } from './DmxConnection'
 import type { DmxStatus, SerialDmxProtocol } from '@shared/types'
 
-export type SettingsTabId = 'general' | 'timing' | 'gestures' | 'dmx' | 'external'
+export type SettingsTabId = 'general' | 'timing' | 'gestures' | 'dmx' | 'external' | 'ndi'
 
 // LightKey's Settings window (Jake's screenshots, 22 Nov 2026): five tabs
 // across the top — General, Timing, Gestures, DMX Output, External
@@ -14,13 +15,18 @@ export type SettingsTabId = 'general' | 'timing' | 'gestures' | 'dmx' | 'externa
 // OpenLights' existing settings are spread across the tabs by their
 // LightKey counterpart, keeping OpenLights' own values and defaults
 // (Page fade stays 500 ms even though LightKey's screenshot shows 00:00.3).
-// Settings apply immediately — there is no Apply step.
+// Settings apply immediately — there is no Apply step. A sixth tab, NDI
+// Ambience, is OpenLights' own (LightKey has no NDI): it hosts the same
+// panel as the View menu's NDI Ambience…, and it is the Windows route to
+// the feature — the native menu bar is unreachable on a frameless window
+// (Jake, 23 Nov 2026), so the View menu entry alone wasn't enough.
 const TABS: { id: SettingsTabId; label: string; icon: ReactNode }[] = [
   { id: 'general', label: 'General', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.2" /><path d="M12 2.8v2.6M12 18.6v2.6M2.8 12h2.6M18.6 12h2.6M5.5 5.5l1.8 1.8M16.7 16.7l1.8 1.8M18.5 5.5l-1.8 1.8M7.3 16.7l-1.8 1.8" /></svg> },
   { id: 'timing', label: 'Timing', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5" /><path d="M12 7v5l3.5 2" /></svg> },
   { id: 'gestures', label: 'Gestures', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12.5V6a1.5 1.5 0 0 1 3 0v4.5m0-6a1.5 1.5 0 0 1 3 0V11m0-4.5a1.5 1.5 0 0 1 3 0V12m0-2.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1.6a6 6 0 0 1-4.7-2.3l-2.4-3a1.6 1.6 0 0 1 2.4-2.1L8 15.5" /></svg> },
   { id: 'dmx', label: 'DMX Output', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c3.5 4.2 6 7.3 6 10.2a6 6 0 0 1-12 0C6 10.3 8.5 7.2 12 3Z" /></svg> },
-  { id: 'external', label: 'External Control', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="9" cy="7" r="2" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" /><circle cx="8" cy="17" r="2" fill="currentColor" stroke="none" /></svg> }
+  { id: 'external', label: 'External Control', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /><circle cx="9" cy="7" r="2" fill="currentColor" stroke="none" /><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none" /><circle cx="8" cy="17" r="2" fill="currentColor" stroke="none" /></svg> },
+  { id: 'ndi', label: 'NDI Ambience', icon: <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M9 20h6M12 16v4" /></svg> }
 ]
 
 // OpenLights is USB-only by deliberate scope, so the DMX Output tab
@@ -158,6 +164,12 @@ export function SettingsDialog({ initialTab, onTabChange, adaptiveBackground, on
           </SettingsRow>
           <MidiPanel />
         </div>}
+        {/* NDI Ambience lives here as well as in the View menu: the
+            Settings tab is the Windows route to it. The panel is
+            embedded with stopOnUnmount={false} — closing Settings (or
+            switching tabs) must not stop a running session; the user
+            stops it from this tab or from the View menu's panel. */}
+        {tab === 'ndi' && <NdiAmbiencePanel stopOnUnmount={false} />}
       </div>
       <footer className="flex items-center justify-between border-t border-line px-6 py-3">
         <span className="text-[11px] text-dim">Settings apply immediately.</span>

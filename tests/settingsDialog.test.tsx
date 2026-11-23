@@ -2,13 +2,16 @@
 // Jake, 22 Nov 2026: the far-right header button is view options, not a
 // menu — Hide/Show Preview, Preset Palette and Shortcuts — and Settings
 // is a tabbed dialog (General, Timing, Gestures, DMX Output, External
-// Control) opened by Cmd/Ctrl+,. The old single settings popup is gone.
+// Control, plus NDI Ambience — OpenLights' own tab, Jake 23 Nov 2026,
+// the Windows route to the feature) opened by Cmd/Ctrl+,. The old
+// single settings popup is gone.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { isAmbienceActive, resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
 
@@ -18,6 +21,10 @@ const PORT_INFO = { path: '/dev/ttyUSB0', manufacturer: 'FTDI', serialNumber: 'S
 const DISCONNECTED = { connected: false, port: null, baudRate: 250000, lastFrameAt: null, frameCount: 0, universe: 1, error: null, mode: 'virtual' }
 
 const openLiveWindowMock = vi.fn(() => Promise.resolve({ id: 'live-1', pageId: null, width: 1000, height: 700 }))
+
+const NDI_SOURCES = [{ name: 'OBS Live', urlAddress: '10.0.0.5:5961' }]
+const ndiStartMock = vi.fn(() => Promise.resolve({ success: true }))
+const ndiStopMock = vi.fn(() => Promise.resolve({ success: true }))
 
 ;(window as unknown as { electronAPI: unknown }).electronAPI = {
   onMenuCommand: () => () => {},
@@ -29,7 +36,13 @@ const openLiveWindowMock = vi.fn(() => Promise.resolve({ id: 'live-1', pageId: n
   disconnectDmx: () => Promise.resolve({ success: true, status: DISCONNECTED }),
   setChannels: () => {},
   getChannels: () => Promise.resolve([]),
-  openLiveWindow: openLiveWindowMock
+  openLiveWindow: openLiveWindowMock,
+  ndiVersion: () => Promise.resolve({ available: true, version: 'NDI SDK 6.3.2.0' }),
+  ndiListSources: () => Promise.resolve({ sources: NDI_SOURCES }),
+  ndiStart: ndiStartMock,
+  ndiStop: ndiStopMock,
+  onNdiRegions: () => () => {},
+  onNdiStatus: () => () => {}
 }
 
 let container: HTMLDivElement | undefined
@@ -67,6 +80,9 @@ beforeEach(() => {
   state.setNewProjectTemplate(null)
   window.localStorage.clear()
   openLiveWindowMock.mockClear()
+  ndiStartMock.mockClear()
+  ndiStopMock.mockClear()
+  resetAmbienceState()
   vi.useFakeTimers()
   renderInRoot(<App />)
 })
@@ -76,6 +92,7 @@ afterEach(() => {
   container?.remove()
   root = undefined
   container = undefined
+  resetAmbienceState()
   vi.useRealTimers()
 })
 
@@ -123,11 +140,11 @@ describe('tabbed Settings dialog', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0) })
   }
 
-  it('opens on Cmd+, with five LightKey tabs', async () => {
+  it('opens on Cmd+, with six tabs (five LightKey + NDI Ambience)', async () => {
     await openSettings()
     expect(container?.querySelector('[role="dialog"][aria-labelledby="settings-title"]')).not.toBeNull()
-    expect(container?.querySelectorAll('[role="tab"]').length).toBe(5)
-    for (const label of ['General', 'Timing', 'Gestures', 'DMX Output', 'External Control']) {
+    expect(container?.querySelectorAll('[role="tab"]').length).toBe(6)
+    for (const label of ['General', 'Timing', 'Gestures', 'DMX Output', 'External Control', 'NDI Ambience']) {
       expect(text()).toContain(label)
     }
   })
@@ -179,6 +196,35 @@ describe('tabbed Settings dialog', () => {
     await openSettings()
     const dmxTab = [...(container?.querySelectorAll('[role="tab"]') ?? [])].find((b) => b.textContent?.trim() === 'DMX Output')
     expect(dmxTab?.getAttribute('aria-selected')).toBe('true')
+  })
+
+  it('hosts the NDI Ambience panel on its own tab', async () => {
+    // Jake, 23 Nov 2026: the Settings tab is the Windows route to NDI
+    // Ambience — the native menu bar is unreachable on a frameless
+    // window, so the View menu entry alone wasn't enough.
+    await openSettings()
+    clickButton('NDI Ambience')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    expect(text()).toContain('No screen placed yet')
+    expect(text()).toContain('Place screen on Preview')
+    expect(text()).toContain('NDI source')
+    expect(text()).toContain('OBS Live')
+    const start = [...(container?.querySelectorAll('button') ?? [])].find((b) => b.textContent?.trim() === 'Start Ambience')
+    expect(start?.hasAttribute('disabled')).toBe(true)
+  })
+
+  it('leaves a running Ambience session alone when Settings closes', async () => {
+    await openSettings()
+    clickButton('NDI Ambience')
+    await act(async () => { await vi.advanceTimersByTimeAsync(0) })
+    clickButton('Place screen on Preview')
+    await act(async () => { clickButton('Start Ambience') })
+    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(isAmbienceActive()).toBe(true)
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+    expect(container?.querySelector('[role="dialog"][aria-labelledby="settings-title"]')).toBeNull()
+    expect(ndiStopMock).not.toHaveBeenCalled()
+    expect(isAmbienceActive()).toBe(true)
   })
 })
 

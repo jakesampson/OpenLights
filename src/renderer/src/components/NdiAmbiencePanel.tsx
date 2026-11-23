@@ -6,7 +6,14 @@
  * Ambience is an explicit live mode owned by this panel: Start takes
  * over the mapped fixtures, Stop hands the rig back to cues, presets
  * and Live. Closing the panel stops Ambience — like the DMX test panel,
- * it never leaves output running behind your back.
+ * it never leaves output running behind your back — unless
+ * `stopOnUnmount` is false: the Settings dialog's NDI Ambience tab
+ * (Jake, 23 Nov 2026 — the Windows route to this panel, since the
+ * native menu bar is unreachable on a frameless window) embeds the
+ * panel with stopOnUnmount={false}, so closing Settings leaves a
+ * running session alone. Either way the panel picks up the live state
+ * on mount (isAmbienceActive), so the two routes never disagree about
+ * whether Ambience is running.
  */
 import { useEffect, useRef, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
@@ -22,6 +29,7 @@ import {
 import {
   configureAmbienceFixtures,
   getAmbienceStats,
+  isAmbienceActive,
   setAmbienceActive,
   setAmbienceRegions,
   type NdiAmbienceStats
@@ -36,7 +44,7 @@ function regionLabel(index: number): string {
   return anchor.y < 0.5 ? 'Left top' : 'Left bottom'
 }
 
-export function NdiAmbiencePanel() {
+export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boolean }) {
   const { show, master, addStageObject, removeStageObjects } = useShowStore()
   const [sources, setSources] = useState<NdiSourceInfo[]>([])
   const [selectedName, setSelectedName] = useState<string | null>(null)
@@ -46,9 +54,9 @@ export function NdiAmbiencePanel() {
   const [version, setVersion] = useState<string | null>(null)
   const [available, setAvailable] = useState<boolean | null>(null)
   const [regions, setRegions] = useState<NdiRegionColour[] | null>(null)
-  const [running, setRunning] = useState(false)
+  const [running, setRunning] = useState(() => isAmbienceActive())
   const [stats, setStats] = useState<NdiAmbienceStats>(getAmbienceStats())
-  const runningRef = useRef(false)
+  const runningRef = useRef(isAmbienceActive())
 
   const screen = findNdiScreen(show?.stageObjects)
   const fixtures = show?.fixtures ?? []
@@ -79,6 +87,15 @@ export function NdiAmbiencePanel() {
         runningRef.current = false
         setRunning(false)
         setAmbienceActive(false)
+      } else if (status.state === 'stopped') {
+        // Another route to this panel stopped the session — follow it,
+        // so two open panels never disagree about the running state.
+        runningRef.current = false
+        setRunning(false)
+        setAmbienceActive(false)
+      } else if (status.state === 'receiving') {
+        runningRef.current = true
+        setRunning(true)
       }
     })
     void window.electronAPI
@@ -109,7 +126,10 @@ export function NdiAmbiencePanel() {
       alive = false
       offRegions?.()
       offStatus?.()
-      if (runningRef.current) {
+      // The tool-panel route stops the session on close; the Settings
+      // tab route leaves a running session alone (stopOnUnmount false)
+      // — closing Settings must not kill Ambience.
+      if (runningRef.current && stopOnUnmount) {
         runningRef.current = false
         setAmbienceActive(false)
         void window.electronAPI?.ndiStop().catch(() => {})
@@ -321,7 +341,9 @@ export function NdiAmbiencePanel() {
         </section>
       )}
       <p className="text-dim">
-        Closing this panel stops Ambience and hands the rig back to your cues.
+        {stopOnUnmount
+          ? 'Closing this panel stops Ambience and hands the rig back to your cues.'
+          : 'Closing Settings leaves Ambience running — stop it here or from the View menu’s NDI Ambience panel.'}
       </p>
     </div>
   )

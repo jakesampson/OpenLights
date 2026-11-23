@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 // NDI Ambience panel: no-screen state, placing the screen, Start/Stop,
-// and the sampled edge colours — with the NDI worker mocked out.
+// and the sampled edge colours — with the NDI worker mocked out. Also
+// the stopOnUnmount prop (Settings tab leaves a running session alone)
+// and two panels sharing one live session.
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { NdiAmbiencePanel } from '../src/renderer/src/components/NdiAmbiencePanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
-import { resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
+import { isAmbienceActive, resetAmbienceState } from '../src/renderer/src/lib/ndiAmbience'
 import type { NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -37,15 +39,17 @@ let regionsCallback: ((regions: NdiRegionColour[]) => void) | null = null
 
 let container: HTMLDivElement | undefined
 let rootNode: Root | undefined
+let secondContainer: HTMLDivElement | undefined
+let secondRoot: Root | undefined
 let defaultShow: ReturnType<typeof useShowStore.getState>['show']
 
-function renderPanel() {
+function renderPanel(props?: { stopOnUnmount?: boolean }) {
   const el = document.createElement('div')
   document.body.appendChild(el)
   container = el
   rootNode = createRoot(el)
   act(() => {
-    rootNode.render(<NdiAmbiencePanel />)
+    rootNode.render(<NdiAmbiencePanel {...props} />)
   })
   return el
 }
@@ -86,10 +90,14 @@ beforeEach(() => {
 afterEach(() => {
   act(() => {
     rootNode?.unmount()
+    secondRoot?.unmount()
   })
   container?.remove()
+  secondContainer?.remove()
   container = undefined
   rootNode = undefined
+  secondContainer = undefined
+  secondRoot = undefined
   act(() => {
     useShowStore.setState({ show: defaultShow })
   })
@@ -168,5 +176,46 @@ describe('NdiAmbiencePanel', () => {
     // The unmount cleanup stops the worker and clears the output.
     expect(ndiStopMock).toHaveBeenCalled()
     rootNode = undefined
+  })
+
+  it('keeps ambience running when the panel closes with stopOnUnmount={false}', async () => {
+    // The Settings tab embeds the panel this way: closing Settings
+    // must not kill a running session.
+    renderPanel({ stopOnUnmount: false })
+    await act(async () => {})
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    expect(isAmbienceActive()).toBe(true)
+    act(() => {
+      rootNode?.unmount()
+    })
+    expect(ndiStopMock).not.toHaveBeenCalled()
+    expect(isAmbienceActive()).toBe(true)
+    rootNode = undefined
+  })
+
+  it('a second panel picks up that ambience is already running', async () => {
+    // Two routes to one session (Settings tab + View menu panel): the
+    // second mount reads the live state instead of a fresh "stopped".
+    renderPanel()
+    await act(async () => {})
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    expect(text()).toContain('Ambience is driving the mapped fixtures.')
+    const el2 = document.createElement('div')
+    document.body.appendChild(el2)
+    secondContainer = el2
+    secondRoot = createRoot(el2)
+    act(() => {
+      secondRoot.render(<NdiAmbiencePanel />)
+    })
+    await act(async () => {})
+    expect(el2.textContent).toContain('Ambience is driving the mapped fixtures.')
+    expect([...el2.querySelectorAll('button')].some((b) => b.textContent?.trim() === 'Stop Ambience')).toBe(true)
   })
 })
