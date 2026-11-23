@@ -99,9 +99,10 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
     expect(previewSource).not.toContain('StageObjectTools')
     expect(previewSource).toContain('>Preview</span>')
     expect(previewSource).toContain('Zoom out preview')
-    // The side panel becomes the Inspector in Design edit mode.
-    expect(appSource).toContain("tab === 'Design' && previewEditing ? <PreviewEditPanel />")
-    expect(appSource).toContain("aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
+    // The side panel becomes the Inspector in Preview edit mode,
+    // in either tab (Jake, 24 Nov 2026).
+    expect(appSource).toContain("{previewEditing ? <PreviewEditPanel />")
+    expect(appSource).toContain("aria-label={previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
     // The panel holds the shape tools, layout tools, truss/fixture
     // properties and the storage tray.
     expect(panelSource).toContain('StageObjectTools')

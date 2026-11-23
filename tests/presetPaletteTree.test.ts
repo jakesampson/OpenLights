@@ -83,9 +83,10 @@ describe('Preset Palette — LightKey combined tree', () => {
       'PaletteContextMenu'
     ]) expect(panel).toContain(text)
     expect(panel).toContain('aria-label="Preset palette panel"')
-    // In Design edit mode the sidebar becomes the Preview inspector
-    // (Guide p.53); otherwise it is the Preset Palette sidebar.
-    expect(app).toContain("aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
+    // In Preview edit mode the sidebar becomes the Preview inspector
+    // (Guide p.53) in either tab, not Design only (Jake, 24 Nov 2026);
+    // otherwise it is the Preset Palette sidebar.
+    expect(app).toContain("aria-label={previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
     expect(app).toContain('openlights-preset-palette-context')
     // The effects chooser's template menu offers the same New Preset /
     // Group / Sequence entries; the palette owns the composer, so it

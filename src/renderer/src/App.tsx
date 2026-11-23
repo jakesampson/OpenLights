@@ -665,19 +665,28 @@ export default function App() {
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
-        {/* In Design edit mode the side panel becomes the Preview
+        {/* In Preview edit mode the side panel becomes the Preview
             Inspector (LightKey Guide p.53: "On the right of the window is
             the Inspector where you can change the properties of the
             selected objects") — the shape tools, layout tools and the
             selected truss/fixture properties move out of the canvas
             overlays and in here, so the canvas stays clean. Otherwise
-            it is the Preset Palette as before. */}
-        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label={tab === 'Design' && previewEditing ? 'Preview inspector' : 'Preset palette sidebar'} onContextMenu={tab === 'Design' && previewEditing ? undefined : (event) => {
+            it is the Preset Palette as before. The Inspector follows
+            Preview edit mode in EITHER tab, not Design only (Jake,
+            24 Nov 2026): since the 20 Nov split the header Edit button
+            toggles Preview editing in the Live tab too, and
+            previewEditing deliberately survives leaving Design — so
+            gating the Inspector to Design stranded Live-tab edit mode
+            with an editable, selectable Preview but no way to edit the
+            selection's properties. In Live edit mode the palette is
+            replaced by the Inspector exactly as in Design; press Done
+            to get the palette back for dragging onto Live pages. */}
+        <div className="panel side-panel overflow-hidden p-2 min-h-0 flex flex-col gap-1" aria-label={previewEditing ? 'Preview inspector' : 'Preset palette sidebar'} onContextMenu={previewEditing ? undefined : (event) => {
           if ((event.target as Element).closest('[data-palette-row], [role="menu"]')) return
           event.preventDefault()
           window.dispatchEvent(new CustomEvent('openlights-preset-palette-context', { detail: { x: event.clientX, y: event.clientY } }))
         }} style={{ display: show?.layout?.palette === false ? 'none' : undefined }}>
-          {tab === 'Design' && previewEditing ? <PreviewEditPanel /> : (<>
+          {previewEditing ? <PreviewEditPanel /> : (<>
             <div className="flex items-center justify-between px-2 py-1">
               <div className="text-[10px] font-semibold uppercase tracking-wider text-dim">
                 Preset Palette
