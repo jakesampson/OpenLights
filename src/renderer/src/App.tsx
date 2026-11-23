@@ -500,8 +500,8 @@ export default function App() {
   const ndiSession = useNdiSession()
   useEffect(() => { initNdiSession() }, [])
   useEffect(() => {
-    configureAmbienceFixtures(show?.fixtures ?? [], show?.stageObjects, master)
-  }, [show?.fixtures, show?.stageObjects, master])
+    configureAmbienceFixtures(show?.fixtures ?? [], show?.stageObjects, master, show?.fixtureGroups)
+  }, [show?.fixtures, show?.stageObjects, show?.fixtureGroups, master])
   useEffect(() => {
     if (isLiveWindow()) return
     const lit = (show?.livePages ?? [])

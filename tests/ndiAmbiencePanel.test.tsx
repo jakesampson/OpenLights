@@ -9,7 +9,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { NdiAmbiencePanel } from '../src/renderer/src/components/NdiAmbiencePanel'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
-import { isAmbienceActive, resetAmbienceState, getAmbienceTransitionMs, setAmbienceTransitionMs, NDI_DEFAULT_TRANSITION_MS } from '../src/renderer/src/lib/ndiAmbience'
+import { isAmbienceActive, resetAmbienceState, getAmbienceFixtureGroup, getAmbienceTransitionMs, setAmbienceFixtureGroup, setAmbienceTransitionMs, NDI_DEFAULT_TRANSITION_MS } from '../src/renderer/src/lib/ndiAmbience'
 import { resetNdiSession, getNdiReceiveHealth } from '../src/renderer/src/lib/ndiSession'
 import type { NdiReceiveHealth, NdiRegionColour, NdiSourceInfo } from '../src/shared/ndiAmbience'
 
@@ -306,5 +306,68 @@ describe('NdiAmbiencePanel', () => {
     expect(text()).toContain('1000 ms')
     expect(getAmbienceTransitionMs()).toBe(1000)
     setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+  })
+
+  it('offers a fixture group picker and scopes ambience to the picked group', async () => {
+    act(() => {
+      const show = useShowStore.getState().show
+      if (!show) throw new Error('no show')
+      useShowStore.setState({
+        show: {
+          ...show,
+          fixtureGroups: [
+            { id: 'g-front', name: 'Front', parentId: null, fixtureIds: ['f1'] },
+            { id: 'g-back', name: 'Back', parentId: null, fixtureIds: ['f2'] }
+          ]
+        }
+      })
+    })
+    renderPanel()
+    await act(async () => {})
+    const select = container?.querySelector(
+      'select[aria-label="Fixture group for NDI Ambience"]'
+    ) as HTMLSelectElement | null
+    expect(select).not.toBeNull()
+    expect([...(select?.options ?? [])].map((o) => o.textContent)).toEqual(['All fixtures', 'Front', 'Back'])
+    expect(select?.value).toBe('')
+
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    act(() => {
+      regionsCallback?.(RED_REGIONS)
+    })
+    expect(text()).toContain('2 fixtures following an edge')
+
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')?.set
+    const pick = (value: string) =>
+      act(() => {
+        setter?.call(select, value)
+        select?.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+    pick('g-front')
+    expect(getAmbienceFixtureGroup()).toBe('g-front')
+    expect(text()).toContain('1 fixture following an edge')
+    pick('')
+    expect(getAmbienceFixtureGroup()).toBeNull()
+    expect(text()).toContain('2 fixtures following an edge')
+  })
+
+  it('falls back to all fixtures when the picked group no longer exists', async () => {
+    // A stale pick (the group was deleted, or the show changed) drives
+    // all fixtures instead of nothing — and the panel says so.
+    setAmbienceFixtureGroup('g-gone')
+    renderPanel()
+    await act(async () => {})
+    expect(text()).toContain('That fixture group no longer exists — driving all fixtures.')
+    clickButton('Place screen on Preview')
+    await act(async () => {
+      clickButton('Start Ambience')
+    })
+    act(() => {
+      regionsCallback?.(RED_REGIONS)
+    })
+    expect(text()).toContain('2 fixtures following an edge')
   })
 })

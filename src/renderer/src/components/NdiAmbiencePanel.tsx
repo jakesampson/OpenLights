@@ -30,7 +30,7 @@ import {
   type NdiRegionColour,
   type NdiSourceInfo
 } from '@shared/ndiAmbience'
-import { configureAmbienceFixtures, getAmbienceStats, getAmbienceTransitionMs, setAmbienceTransitionMs, NDI_TRANSITION_MAX_MS, NDI_TRANSITION_MIN_MS, type NdiAmbienceStats } from '../lib/ndiAmbience'
+import { configureAmbienceFixtures, getAmbienceFixtureGroup, getAmbienceStats, getAmbienceTransitionMs, resolveAmbienceFixtureGroup, setAmbienceFixtureGroup, setAmbienceTransitionMs, NDI_TRANSITION_MAX_MS, NDI_TRANSITION_MIN_MS, type NdiAmbienceStats } from '../lib/ndiAmbience'
 import {
   currentNdiSource,
   getNdiSessionState,
@@ -97,6 +97,13 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
 
   const screen = findNdiScreen(show?.stageObjects)
   const fixtures = show?.fixtures ?? []
+  const groups = show?.fixtureGroups ?? []
+  // Fixture-group scoping (Jake, 23 Nov 2026): which lights follow the
+  // screen — all fixtures by default, or one group. A pick that no
+  // longer exists in the show falls back to all fixtures, and the
+  // panel says so instead of silently driving nothing.
+  const pickedGroupId = getAmbienceFixtureGroup()
+  const effectiveGroup = resolveAmbienceFixtureGroup(groups)
 
   const stop = async () => {
     // A lit Live button would re-start the session via App's effect —
@@ -124,11 +131,13 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
   }, [])
 
   // Keep the mapper in step with the show while the panel is open.
+  // The group list is a dependency too: deleting the picked group must
+  // re-resolve the mapper to all fixtures (and show the fallback note).
   useEffect(() => {
-    configureAmbienceFixtures(fixtures, show?.stageObjects, master)
+    configureAmbienceFixtures(fixtures, show?.stageObjects, master, groups)
     setStats(getAmbienceStats())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [show?.fixtures, show?.stageObjects, master])
+  }, [show?.fixtures, show?.stageObjects, show?.fixtureGroups, master])
 
   // Fresh stats when new edge colours arrive.
   useEffect(() => {
@@ -218,6 +227,41 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
               </button>
             </div>
           </>
+        )}
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-dim">Fixture group</h3>
+        <label className="flex flex-col gap-1">
+          <span className="text-dim">Which lights follow the screen edges:</span>
+          <select
+            aria-label="Fixture group for NDI Ambience"
+            value={effectiveGroup?.id ?? ''}
+            onChange={(e) => {
+              setAmbienceFixtureGroup(e.target.value || null)
+              configureAmbienceFixtures(fixtures, show?.stageObjects, master, groups)
+              setStats(getAmbienceStats())
+            }}
+            className="w-64 rounded bg-panel2 p-1.5"
+          >
+            <option value="">All fixtures</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {groups.length === 0 && (
+          <p className="text-dim">
+            No fixture groups in this show — set them up in Fixture Groups to aim Ambience at part of
+            the rig instead of all of it.
+          </p>
+        )}
+        {pickedGroupId !== null && effectiveGroup === null && (
+          <p className="rounded border border-amber-400/40 bg-amber-500/10 p-2 text-amber-200">
+            That fixture group no longer exists — driving all fixtures.
+          </p>
         )}
       </section>
 
@@ -342,7 +386,7 @@ export function NdiAmbiencePanel({ stopOnUnmount = true }: { stopOnUnmount?: boo
           </div>
           <p className="text-dim">
             {stats.mapped} fixture{stats.mapped === 1 ? '' : 's'} following an edge
-            {stats.colourless > 0 ? ` · ${stats.colourless} without colour (no RGB channels)` : ''}
+            {stats.colourless > 0 ? ` · ${stats.colourless} without colour (no RGB channels or dimmer)` : ''}
             {stats.disabled > 0 ? ` · ${stats.disabled} disabled` : ''}
             {stats.inStorage > 0 ? ` · ${stats.inStorage} in storage` : ''}
           </p>

@@ -10,28 +10,47 @@
  * can run in the NDI worker, the mapping in the renderer, and both in
  * unit tests. The worker posts small per-region colour sets about five
  * times a second; the frame itself never leaves the worker.
+ *
+ * Sampling is HyperHDR-style (Jake, 23 Nov 2026 — "take the brightest
+ * colors from frames, not the average"): each region reports the
+ * root-mean-square mean of its sample points, per channel, with the
+ * outer half of the band weighted 3/4 against the inner half's 1/4
+ * (HyperHDR's "advanced weighted" mode). Bright pixels count far more
+ * than dark ones under RMS, so a small bright accent in a dark region
+ * survives instead of washing out to grey — and a white slide reads as
+ * white, a black frame as dark. A region that is genuinely black still
+ * reports no colour, so the renderer holds its previous colour.
  */
 import type { StageObject } from './types'
 
 /** Edge regions around the frame perimeter. 8 = two per edge. */
 export const NDI_REGION_COUNT = 8
 /** How far into the frame the top and bottom edge bands reach
- * (fraction of the frame height). 30%, not 12% (Jake, 23 Nov 2026):
- * the outer edge of a worship screen is often dark, and a 12% band
- * can come back dark with nothing usable in it — sampling deeper
- * catches the colour of the slide behind the dark edge. */
-export const NDI_EDGE_BAND_VERTICAL = 0.3
+ * (fraction of the frame height). 50%, not 30% (Jake, 23 Nov 2026):
+ * the outer edge of a worship screen is often dark, and a 30% band
+ * can still come back dark with nothing usable in it — at 50% the
+ * top and bottom bands meet in the middle, so the whole frame height
+ * is covered and a region always reaches the slide content. */
+export const NDI_EDGE_BAND_VERTICAL = 0.5
 /** How far into the frame the left and right edge bands reach
  * (fraction of the frame width). Stays at 12% — Jake specified top
  * and bottom only. */
 export const NDI_EDGE_BAND_HORIZONTAL = 0.12
-/** Most-saturated thresholds, as proven by the standalone spike
- * (~/workspace/ndi-spike/spike.js): pixels at either extreme carry no
- * useful colour for lighting, so they are skipped when picking the
- * most-saturated colour of a region — near-black when the brightest
- * channel is under 32, near-white when the darkest channel is over 235. */
+/** Edge weighting for the RMS sample (HyperHDR's "advanced weighted"
+ * mode): each region is split in half along its band depth, and the
+ * outer half — the part nearest the screen edge — carries 3/4 of the
+ * weight against the inner half's 1/4. With equal sample counts per
+ * half, per-point weights 3 and 1 give exactly that. */
+export const NDI_EDGE_WEIGHT_OUTER = 3
+export const NDI_EDGE_WEIGHT_INNER = 1
+/** A region whose RMS brightness (brightest channel) is under this
+ * counts as genuinely black — it reports no colour, so the renderer
+ * holds its previous colour instead of jumping its fixtures to dark.
+ * There is deliberately no near-white skip any more: under RMS a white
+ * slide reads as white, which is exactly the light it should drive
+ * (the old most-saturated rule skipped white pixels, so white slides
+ * left the rig blank). */
 export const NDI_NEAR_BLACK_MAX = 32
-export const NDI_NEAR_WHITE_MIN = 235
 /** How long with zero frames before the session counts as stalled — a
  * connection that never delivers is otherwise indistinguishable from
  * a working one, and the panel would claim to be "driving" with no
@@ -59,11 +78,12 @@ export interface NdiReceiveHealth {
 }
 export interface NdiRegionColour {
   index: number
-  /** Most-saturated colour of the region, or null when the region has no
-   * usable colour at all (e.g. a plain white slide edge) — the caller
-   * holds the region's previous colour instead of jumping to black. */
+  /** RMS colour of the region (see sampleEdgeRegions), or null when the
+   * region is genuinely black — the caller holds the region's previous
+   * colour instead of jumping to dark. */
   rgb: NdiRgb | null
-  /** Share of sampled pixels in the region that were usable colour. */
+  /** Share of sampled pixels in the region that carry light (brightest
+   * channel at or above the near-black threshold). */
   usableShare: number
 }
 
@@ -157,36 +177,63 @@ function hexOf(rgb: NdiRgb): string {
 /**
  * Sample the edges of a BGRA frame into per-region colours. Each region
  * samples its edge band over its stretch of the perimeter — the top and
- * bottom bands reach 30% into the frame, the side bands 12% — and
- * reports its most-saturated pixel — the same measure the spike proved
- * on real slides, where the dominant colour just comes out white. A
- * region with no usable colour reports rgb null.
+ * bottom bands reach 50% into the frame, the side bands 12% — and
+ * reports the root-mean-square mean of its sample points, per channel,
+ * with the outer half of the band weighted 3/4 against the inner
+ * half's 1/4 (HyperHDR's "advanced weighted" mode). Squaring the
+ * channels before averaging means bright pixels count far more than
+ * dark ones: a dark region with a little bright orange reads orange,
+ * not grey, and a white slide reads white. A region that is genuinely
+ * black reports rgb null.
  */
 export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUNT): NdiRegionColour[] {
   const { xres: w, yres: h, lineStrideBytes, data } = frame
-  // Top/bottom bands reach 30% into the frame vertically; side bands
+  // Top/bottom bands reach 50% into the frame vertically; side bands
   // 12% horizontally (Jake, 23 Nov 2026 — worship-screen edges are
-  // often dark, so the top/bottom bands sample deeper).
+  // often dark, so the top/bottom bands sample deep enough to reach
+  // the slide content).
   const bandV = NDI_EDGE_BAND_VERTICAL
   const bandH = NDI_EDGE_BAND_HORIZONTAL
   const regions: NdiRegionColour[] = []
   for (let i = 0; i < regionCount; i++) {
     const s0 = (i / regionCount) * 4
     const s1 = ((i + 1) / regionCount) * 4
-    // The band rectangle for this region's stretch of the perimeter.
+    // The band rectangle for this region's stretch of the perimeter,
+    // plus which way is "out" along the band depth (toward the screen
+    // edge) and where the outer half ends — the weighting split.
     // A stretch inside one edge samples that edge's band; one straddling
     // a corner (only when the count is not a multiple of 4) samples a
     // square around its anchor instead.
     let rect: { x: number; y: number; w: number; h: number }
+    let depthAxis: 'x' | 'y'
+    let outerLow: boolean
+    let outerLimit: number
     const edgeOf = (s: number) => (s < 1 ? 0 : s < 2 ? 1 : s < 3 ? 2 : 3)
     if (edgeOf(s0) === edgeOf(s1 - 1e-9)) {
       const edge = edgeOf(s0)
       const a = s0 - edge
       const b = s1 - edge
-      if (edge === 0) rect = { x: a * w, y: 0, w: (b - a) * w, h: bandV * h }
-      else if (edge === 1) rect = { x: (1 - bandH) * w, y: a * h, w: bandH * w, h: (b - a) * h }
-      else if (edge === 2) rect = { x: (1 - b) * w, y: (1 - bandV) * h, w: (b - a) * w, h: bandV * h }
-      else rect = { x: 0, y: (1 - b) * h, w: bandH * w, h: (b - a) * h }
+      if (edge === 0) {
+        rect = { x: a * w, y: 0, w: (b - a) * w, h: bandV * h }
+        depthAxis = 'y'
+        outerLow = true
+        outerLimit = (bandV / 2) * h
+      } else if (edge === 1) {
+        rect = { x: (1 - bandH) * w, y: a * h, w: bandH * w, h: (b - a) * h }
+        depthAxis = 'x'
+        outerLow = false
+        outerLimit = (1 - bandH / 2) * w
+      } else if (edge === 2) {
+        rect = { x: (1 - b) * w, y: (1 - bandV) * h, w: (b - a) * w, h: bandV * h }
+        depthAxis = 'y'
+        outerLow = false
+        outerLimit = (1 - bandV / 2) * h
+      } else {
+        rect = { x: 0, y: (1 - b) * h, w: bandH * w, h: (b - a) * h }
+        depthAxis = 'x'
+        outerLow = true
+        outerLimit = (bandH / 2) * w
+      }
     } else {
       const anchor = edgeRegionAnchors(regionCount)[i]
       // Corner-straddling stretch (only when the count is not a multiple
@@ -194,6 +241,9 @@ export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUN
       const onTopOrBottom = anchor.y === 0 || anchor.y === 1
       const side = (onTopOrBottom ? bandV : bandH) * Math.min(w, h) * 2
       rect = { x: anchor.x * w - side / 2, y: anchor.y * h - side / 2, w: side, h: side }
+      depthAxis = onTopOrBottom ? 'y' : 'x'
+      outerLow = onTopOrBottom ? anchor.y === 0 : anchor.x === 0
+      outerLimit = onTopOrBottom ? anchor.y * h : anchor.x * w
     }
     const x0 = Math.max(0, Math.floor(rect.x))
     const y0 = Math.max(0, Math.floor(rect.y))
@@ -203,9 +253,11 @@ export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUN
     const area = Math.max(1, (x1 - x0) * (y1 - y0))
     const step = Math.max(1, Math.floor(Math.sqrt(area / 200)))
     let sampled = 0
-    let usable = 0
-    let bestSat = -1
-    let best: NdiRgb | null = null
+    let lit = 0
+    let weightSum = 0
+    let sumSqR = 0
+    let sumSqG = 0
+    let sumSqB = 0
     for (let y = y0; y < y1; y += step) {
       const row = y * lineStrideBytes
       for (let x = x0; x < x1; x += step) {
@@ -215,18 +267,28 @@ export function sampleEdgeRegions(frame: NdiFrame, regionCount = NDI_REGION_COUN
         const b = data[idx]
         const g = data[idx + 1]
         const r = data[idx + 2]
-        const max = Math.max(r, g, b)
-        const min = Math.min(r, g, b)
-        if (max < NDI_NEAR_BLACK_MAX || min > NDI_NEAR_WHITE_MIN) continue
-        usable++
-        const sat = max === 0 ? 0 : (max - min) / max
-        if (sat > bestSat) {
-          bestSat = sat
-          best = { r, g, b }
-        }
+        if (Math.max(r, g, b) >= NDI_NEAR_BLACK_MAX) lit++
+        const depth = depthAxis === 'y' ? y : x
+        const outer = outerLow ? depth < outerLimit : depth >= outerLimit
+        const weight = outer ? NDI_EDGE_WEIGHT_OUTER : NDI_EDGE_WEIGHT_INNER
+        weightSum += weight
+        sumSqR += weight * r * r
+        sumSqG += weight * g * g
+        sumSqB += weight * b * b
       }
     }
-    regions.push({ index: i, rgb: best, usableShare: sampled ? usable / sampled : 0 })
+    let rgb: NdiRgb | null = null
+    if (sampled > 0 && weightSum > 0) {
+      const rms = {
+        r: Math.round(Math.sqrt(sumSqR / weightSum)),
+        g: Math.round(Math.sqrt(sumSqG / weightSum)),
+        b: Math.round(Math.sqrt(sumSqB / weightSum))
+      }
+      // Genuinely black: hold the previous colour (see the renderer),
+      // don't jump the fixtures to dark.
+      if (Math.max(rms.r, rms.g, rms.b) >= NDI_NEAR_BLACK_MAX) rgb = rms
+    }
+    regions.push({ index: i, rgb, usableShare: sampled ? lit / sampled : 0 })
   }
   return regions
 }

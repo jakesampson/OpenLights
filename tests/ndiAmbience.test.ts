@@ -25,13 +25,17 @@ import { DMXEngine } from '../src/shared/dmx'
 import {
   computeAmbiencePatch,
   configureAmbienceFixtures,
+  getAmbienceStats,
+  getAmbienceFixtureGroup,
   getAmbienceTransitionMs,
   interpolateAmbiencePatch,
   isAmbienceActive,
   NDI_DEFAULT_TRANSITION_MS,
   resolvedFixturePosition,
+  resolveAmbienceFixtureGroup,
   resetAmbienceState,
   setAmbienceActive,
+  setAmbienceFixtureGroup,
   setAmbienceRegions,
   setAmbienceTransitionMs
 } from '@renderer/lib/ndiAmbience'
@@ -141,9 +145,12 @@ describe('sampleEdgeRegions', () => {
     expect(regions[7].rgb).toEqual(RED)
   })
 
-  it('returns null for every region on an all-white frame', () => {
+  it('reads an all-white frame as white in every region', () => {
+    // White must read as white (Jake, 23 Nov 2026 — the old
+    // most-saturated rule skipped white pixels, so white slides left
+    // the rig blank). Under RMS a white region is simply white.
     const regions = sampleEdgeRegions(solidFrame(320, 180, { r: 255, g: 255, b: 255 }))
-    expect(regions.every((r) => r.rgb === null)).toBe(true)
+    expect(regions.every((r) => r.rgb !== null && r.rgb.r === 255 && r.rgb.g === 255 && r.rgb.b === 255)).toBe(true)
   })
 
   it('returns null for every region on an all-black frame', () => {
@@ -151,8 +158,26 @@ describe('sampleEdgeRegions', () => {
     expect(regions.every((r) => r.rgb === null)).toBe(true)
   })
 
-  it('picks the most saturated colour, not the most common one', () => {
-    // Top edge: mostly white, with a thin saturated red stripe at the very top.
+  it('reads a dark region with a bright orange patch as orange, not grey', () => {
+    // Jake's case (23 Nov 2026): a dark edge with a little bright orange
+    // should read bright orange. Under RMS the black pixels contribute
+    // ~nothing to the squares, so the orange dominates: a 160x32 orange
+    // patch in the top-left region's outer half comes out (180, 117, 0)
+    // — the orange at the weight it carries — not a grey average.
+    const frame = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
+    paintRect(frame, 0, 0, 160, 32, { r: 255, g: 165, b: 0 })
+    const regions = sampleEdgeRegions(frame)
+    expect(regions[0].rgb).toEqual({ r: 180, g: 117, b: 0 })
+    // The other top region has no orange in it: genuinely black, null.
+    expect(regions[1].rgb).toBeNull()
+    expect(regions[4].rgb).toBeNull()
+  })
+
+  it('tints, rather than wins, a thin stripe in a mostly-white region', () => {
+    // The flip side of RMS: a thin red stripe at the very top of a
+    // mostly-white region is a small share of the samples, so it tints
+    // the white toward pink instead of taking the region over — the
+    // region really is mostly white.
     const frame = solidFrame(320, 180, { r: 240, g: 240, b: 240 })
     for (let x = 0; x < 320; x++) {
       for (let y = 0; y < 4; y++) {
@@ -164,9 +189,10 @@ describe('sampleEdgeRegions', () => {
       }
     }
     const regions = sampleEdgeRegions(frame)
-    expect(regions[0].rgb).toEqual(RED)
-    expect(regions[1].rgb).toEqual(RED)
-    expect(regions[4].rgb).toBeNull()
+    expect(regions[0].rgb).toEqual({ r: 242, g: 224, b: 224 })
+    expect(regions[1].rgb).toEqual({ r: 242, g: 224, b: 224 })
+    // The bottom regions have no stripe at all: plain near-white.
+    expect(regions[4].rgb).toEqual({ r: 240, g: 240, b: 240 })
   })
 
   it('respects lineStrideBytes wider than the row', () => {
@@ -191,44 +217,52 @@ describe('sampleEdgeRegions', () => {
     expect(sampleEdgeRegions({ xres: 0, yres: 0, lineStrideBytes: 0, data: Buffer.alloc(0) })).toHaveLength(NDI_REGION_COUNT)
   })
 
-  it('samples the top and bottom bands 30% into the frame', () => {
-    // A red stripe at 22–27% of the height sits inside the 30% top
-    // band but outside the old 12% band: the top regions must see it.
-    const topStripe = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+  it('samples the top and bottom bands 50% into the frame', () => {
+    // Black base, so a region only reads what the stripe gives it.
+    // A red stripe at 22–27% of the height sits inside the 50% top
+    // band: the top regions read a dim red (one sampled row, outer
+    // half — RMS (90, 0, 0)).
+    const topStripe = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
     paintRect(topStripe, 0, 40, 320, 48, RED)
     const top = sampleEdgeRegions(topStripe)
-    expect(top[0].rgb).toEqual(RED)
-    expect(top[1].rgb).toEqual(RED)
+    expect(top[0].rgb).toEqual({ r: 90, g: 0, b: 0 })
+    expect(top[1].rgb).toEqual({ r: 90, g: 0, b: 0 })
     expect(top[4].rgb).toBeNull()
     expect(top[5].rgb).toBeNull()
-    // A stripe at 33–39% is past the 30% band: the top regions must not see it.
-    const pastTop = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
-    paintRect(pastTop, 0, 60, 320, 70, RED)
+    // A stripe at 55–60% is past the top band but inside the bottom
+    // band — and it counts less there, because it sits in the inner
+    // half (RMS (52, 0, 0) against the outer half's 90 above: same
+    // stripe, less weight).
+    const pastTop = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
+    paintRect(pastTop, 0, 99, 320, 108, RED)
     const past = sampleEdgeRegions(pastTop)
     expect(past[0].rgb).toBeNull()
     expect(past[1].rgb).toBeNull()
+    expect(past[4].rgb).toEqual({ r: 52, g: 0, b: 0 })
+    expect(past[5].rgb).toEqual({ r: 52, g: 0, b: 0 })
     // A red stripe at 73–78% of the height is inside the bottom band.
-    const bottomStripe = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    const bottomStripe = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
     paintRect(bottomStripe, 0, 132, 320, 140, RED)
     const bottom = sampleEdgeRegions(bottomStripe)
-    expect(bottom[4].rgb).toEqual(RED)
-    expect(bottom[5].rgb).toEqual(RED)
+    expect(bottom[4].rgb).toEqual({ r: 90, g: 0, b: 0 })
+    expect(bottom[5].rgb).toEqual({ r: 90, g: 0, b: 0 })
     expect(bottom[0].rgb).toBeNull()
     expect(bottom[1].rgb).toBeNull()
   })
 
   it('keeps the side bands at 12% of the frame width', () => {
+    // Black base, so a region only reads what the stripe gives it.
     // A red stripe at 12.5–15% of the width sits outside the 12% side
-    // bands: no region must see it (a 30% side band would catch it).
-    const outside = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    // bands: no region must see it (a wider side band would catch it).
+    const outside = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
     paintRect(outside, 40, 70, 48, 110, RED)
     expect(sampleEdgeRegions(outside).every((r) => r.rgb === null)).toBe(true)
     // Control: the same stripe at 3–6% of the width is inside the band.
-    const inside = solidFrame(320, 180, { r: 255, g: 255, b: 255 })
+    const inside = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
     paintRect(inside, 10, 70, 20, 110, RED)
     const seen = sampleEdgeRegions(inside)
-    expect(seen[6].rgb).toEqual(RED)
-    expect(seen[7].rgb).toEqual(RED)
+    expect(seen[6].rgb).toEqual({ r: 65, g: 0, b: 0 })
+    expect(seen[7].rgb).toEqual({ r: 65, g: 0, b: 0 })
     expect(seen[2].rgb).toBeNull()
     expect(seen[3].rgb).toBeNull()
   })
@@ -319,19 +353,30 @@ describe('computeAmbiencePatch', () => {
     expect(stats.mapped).toBe(0)
   })
 
-  it('holds the last colour when a region goes blank, and skips with none held', () => {
+  it('holds the last colour when a region goes genuinely black, and skips with none held', () => {
     resetAmbienceState()
     const fixtures = [rgbaFixture('f1', 20, { x: 320, y: 60 })]
-    const blank = sampleEdgeRegions(solidFrame(320, 180, { r: 255, g: 255, b: 255 }))
-    const first = computeAmbiencePatch(fixtures, screen, blank, Array(NDI_REGION_COUNT).fill(null), 255)
-    expect(first.patch).toEqual({})
-    const second = computeAmbiencePatch(fixtures, screen, blank, Array(NDI_REGION_COUNT).fill(null).map((_, i) => (i === 0 ? GREEN : null)), 255)
+    // A white frame now reads as white (RMS), so it drives the fixture
+    // white — it no longer counts as "blank" the way it did under the
+    // old most-saturated rule.
+    const white = sampleEdgeRegions(solidFrame(320, 180, { r: 255, g: 255, b: 255 }))
+    const first = computeAmbiencePatch(fixtures, screen, white, Array(NDI_REGION_COUNT).fill(null), 255)
+    expect(first.patch[20]).toBe(255)
+    expect(first.patch[21]).toBe(255)
+    expect(first.patch[22]).toBe(255)
+    // A black frame is genuinely black: the region reports no colour,
+    // so the patch holds the last colour (green) instead of going dark.
+    const black = sampleEdgeRegions(solidFrame(320, 180, { r: 0, g: 0, b: 0 }))
+    const second = computeAmbiencePatch(fixtures, screen, black, Array(NDI_REGION_COUNT).fill(null).map((_, i) => (i === 0 ? GREEN : null)), 255)
     expect(second.patch[20]).toBe(0)
     expect(second.patch[21]).toBe(255)
     expect(second.patch[22]).toBe(0)
+    // And with no colour held at all, a black region drives nothing.
+    const third = computeAmbiencePatch(fixtures, screen, black, Array(NDI_REGION_COUNT).fill(null), 255)
+    expect(third.patch).toEqual({})
   })
 
-  it('counts colourless, disabled and in-storage fixtures without driving them', () => {
+  it('drives a dimmer-only fixture as white light, and counts undrivable fixtures without driving them', () => {
     resetAmbienceState()
     const dimmer: FixtureDef = { ...rgbaFixture('dim', 28), type: 'dimmer', profileId: 'dimmer-1ch', channels: 1 }
     const disabled = { ...rgbaFixture('off', 32, { x: 320, y: 60 }), disabled: true }
@@ -339,12 +384,28 @@ describe('computeAmbiencePatch', () => {
     const fixtures = [rgbaFixture('f1', 20, { x: 320, y: 60 }), dimmer, disabled, stored]
     const { patch, stats } = computeAmbiencePatch(fixtures, screen, regions, Array(NDI_REGION_COUNT).fill(null), 255)
     expect(patch[20]).toBe(255)
-    expect(patch[28]).toBeUndefined()
+    // The dimmer-only spotlight follows its region as a bright white
+    // light (Jake, 23 Nov 2026): its region is red (255, 0, 0), so its
+    // dimmer rides at the region's brightest channel, 255.
+    expect(patch[28]).toBe(255)
     // Disabled fixtures stay dark: computeCueChannels writes explicit
     // zeroes for them, which agrees with the composed output.
     expect(patch[32]).toBe(0)
     expect(patch[36]).toBeUndefined()
-    expect(stats).toEqual({ mapped: 1, colourless: 1, disabled: 1, inStorage: 1 })
+    expect(stats).toEqual({ mapped: 2, colourless: 0, disabled: 1, inStorage: 1 })
+  })
+
+  it('drives a dimmer-only fixture at its region brightness, not full', () => {
+    resetAmbienceState()
+    // A dimmer-only fixture in the top-left region, whose colour is the
+    // dim orange of the dark+orange test: its dimmer tracks the
+    // region's brightest channel (180), not a flat 255.
+    const dimmer: FixtureDef = { ...rgbaFixture('dim', 28, { x: 320, y: 60 }), type: 'dimmer', profileId: 'dimmer-1ch', channels: 1 }
+    const frame = solidFrame(320, 180, { r: 0, g: 0, b: 0 })
+    paintRect(frame, 0, 0, 160, 32, { r: 255, g: 165, b: 0 })
+    const { patch, stats } = computeAmbiencePatch([dimmer], screen, sampleEdgeRegions(frame), Array(NDI_REGION_COUNT).fill(null), 255)
+    expect(patch[28]).toBe(180)
+    expect(stats.mapped).toBe(1)
   })
 
   it('scales with the master fader', () => {
@@ -353,6 +414,76 @@ describe('computeAmbiencePatch', () => {
     const { patch } = computeAmbiencePatch(fixtures, screen, regions, Array(NDI_REGION_COUNT).fill(null), 128)
     expect(patch[20]).toBeGreaterThan(0)
     expect(patch[20]).toBeLessThan(255)
+  })
+})
+
+describe('fixture group scoping', () => {
+  let engine: DMXEngine
+  let frames: FrameRequestCallback[] = []
+
+  beforeEach(() => {
+    engine = new DMXEngine()
+    frames = []
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = {
+      setChannels: (values: Record<number, number>) => engine.setChannels(values)
+    }
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+      frames.push(cb)
+      return frames.length
+    })
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    resetAmbienceState()
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI
+    resetAmbienceState()
+    setAmbienceTransitionMs(NDI_DEFAULT_TRANSITION_MS)
+  })
+
+  const groups = [
+    { id: 'g-front', name: 'Front', parentId: null, fixtureIds: ['f1'] },
+    { id: 'g-back', name: 'Back', parentId: null, fixtureIds: ['f2'] }
+  ]
+  const fixtures = [
+    rgbaFixture('f1', 20, { x: 320, y: 60 }),
+    rgbaFixture('f2', 24, { x: 480, y: 280 })
+  ]
+  const regions = sampleEdgeRegions(splitFrame(320, 180, RED, BLUE))
+
+  it('drives only the picked group’s fixtures', () => {
+    setAmbienceFixtureGroup('g-back')
+    configureAmbienceFixtures(fixtures, [screenObject()], 255, groups)
+    setAmbienceActive(true)
+    setAmbienceRegions(regions)
+    // f1 (Front) is not in the patch at all — its red channel stays at
+    // the baseline 0; f2 (Back) is blue (DMX 26 → snapshot index 25).
+    expect(engine.snapshot()[19]).toBe(0)
+    expect(engine.snapshot()[25]).toBe(255)
+    expect(getAmbienceStats().mapped).toBe(1)
+  })
+
+  it('falls back to all fixtures when the picked group no longer exists', () => {
+    setAmbienceFixtureGroup('g-gone')
+    configureAmbienceFixtures(fixtures, [screenObject()], 255, groups)
+    setAmbienceActive(true)
+    setAmbienceRegions(regions)
+    expect(engine.snapshot()[19]).toBe(255)
+    expect(engine.snapshot()[25]).toBe(255)
+    expect(getAmbienceStats().mapped).toBe(2)
+  })
+
+  it('resolves the picked group, or null for all fixtures and stale picks', () => {
+    expect(getAmbienceFixtureGroup()).toBeNull()
+    expect(resolveAmbienceFixtureGroup(groups)).toBeNull()
+    setAmbienceFixtureGroup('g-front')
+    expect(getAmbienceFixtureGroup()).toBe('g-front')
+    expect(resolveAmbienceFixtureGroup(groups)?.name).toBe('Front')
+    expect(resolveAmbienceFixtureGroup([])).toBeNull()
+    setAmbienceFixtureGroup(null)
+    expect(resolveAmbienceFixtureGroup(groups)).toBeNull()
   })
 })
 

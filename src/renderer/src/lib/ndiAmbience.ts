@@ -7,7 +7,7 @@
  * cues, presets and Live exactly as they were. It never touches cue or
  * preset state.
  */
-import type { FixtureDef, StageObject } from '@shared/types'
+import type { FixtureDef, FixtureGroup, StageObject } from '@shared/types'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
 import {
   NDI_REGION_COUNT,
@@ -20,13 +20,15 @@ import {
 } from '@shared/ndiAmbience'
 import { demoArcPositions, instancePositions } from './previewLayout'
 import { computeCueChannels } from './automationRuntime'
+import { fixtureGroupMembers } from './fixtureGroups'
 import { clearAmbienceOutput, setAmbienceOutput } from './output'
 
 export interface NdiAmbienceStats {
-  /** Fixtures following a screen-edge colour. */
+  /** Fixtures following a screen-edge colour (RGB fixtures plus
+   * dimmer-only spotlights, which follow as white light). */
   mapped: number
-  /** Fixtures with no colour to show (no RGB channels — CMY and
-   * white-only fixtures are not driven by this first attempt). */
+  /** Fixtures with nothing to drive — no RGB channels and no dimmer
+   * (CMY fixtures are not driven). */
   colourless: number
   /** Disabled fixtures (already dark; the output layer zeroes them). */
   disabled: number
@@ -42,6 +44,29 @@ let screen: StageObject | null = null
 let master = 255
 let regions: NdiRegionColour[] | null = null
 let lastStats: NdiAmbienceStats = { ...EMPTY_STATS }
+/** Fixture group Ambience is aimed at (Jake, 23 Nov 2026): null means
+ * all fixtures, a group id means only that group's fixtures follow
+ * the screen. Session-only, like the source choice — not persisted.
+ * A group that no longer exists resolves to all fixtures (see
+ * resolveAmbienceFixtureGroup). */
+let groupId: string | null = null
+
+export function getAmbienceFixtureGroup(): string | null {
+  return groupId
+}
+
+export function setAmbienceFixtureGroup(next: string | null) {
+  groupId = next
+}
+
+/** The picked group, or null when Ambience drives all fixtures — the
+ * stored id resolves to null when the group is not in the show (it
+ * was deleted, or the show changed), so a stale pick falls back to
+ * all fixtures instead of driving nothing. */
+export function resolveAmbienceFixtureGroup(fixtureGroups?: FixtureGroup[]): FixtureGroup | null {
+  if (groupId === null) return null
+  return fixtureGroups?.find((g) => g.id === groupId) ?? null
+}
 /** Last non-null colour per region — a region with no usable colour
  * (plain white slide edge) holds its previous colour instead of
  * jumping its fixtures to black. */
@@ -170,7 +195,11 @@ const COLOUR_ATTR = /^(red|green|blue|white|amber|uv|lime)\s*\d*$/i
  * Pure except for reading module state — exported for tests. A fixture
  * takes its nearest screen-edge region's colour at full dimmer; other
  * LED colours (white, amber, UV, lime) are zeroed so the ambience colour
- * is pure. Fixtures with no RGB channels keep their cue output.
+ * is pure. A dimmer-only fixture follows its region as a bright white
+ * light instead: its dimmer tracks the region's brightness (brightest
+ * channel), so a white slide brings it up full and a dark edge leaves
+ * it dim. Fixtures with no RGB channels and no dimmer keep their cue
+ * output.
  */
 export function computeAmbiencePatch(
   nextFixtures: FixtureDef[],
@@ -204,7 +233,8 @@ export function computeAmbiencePatch(
     const map = fixtureChannelMap(fixture)
     const attrs = Object.keys(map)
     const hasRgb = ['red', 'green', 'blue'].every((base) => attrs.some((a) => new RegExp(`^${base}\\s*\\d*$`, 'i').test(a.trim())))
-    if (!hasRgb) {
+    const hasDimmer = attrs.some((a) => a.trim().toLowerCase() === 'intensity')
+    if (!hasRgb && !hasDimmer) {
       stats.colourless++
       continue
     }
@@ -212,6 +242,13 @@ export function computeAmbiencePatch(
     if (regionIndex === undefined) continue
     const colour = nextRegions[regionIndex]?.rgb ?? lastColours[regionIndex] ?? null
     if (!colour) continue
+    if (!hasRgb) {
+      // Dimmer-only spotlight (Jake, 23 Nov 2026): no colour channels
+      // to drive, so it follows its region as a bright white light.
+      values[fixture.id] = { intensity: Math.max(colour.r, colour.g, colour.b) }
+      stats.mapped++
+      continue
+    }
     const fixtureValues: Record<string, number> = {}
     for (const attr of attrs) {
       const match = attr.trim().match(COLOUR_ATTR)
@@ -243,8 +280,23 @@ export function getAmbienceStats(): NdiAmbienceStats {
   return { ...lastStats }
 }
 
-export function configureAmbienceFixtures(nextFixtures: FixtureDef[], stageObjects: StageObject[] | undefined, nextMaster: number) {
-  fixtures = nextFixtures
+export function configureAmbienceFixtures(
+  nextFixtures: FixtureDef[],
+  stageObjects: StageObject[] | undefined,
+  nextMaster: number,
+  fixtureGroups?: FixtureGroup[]
+) {
+  // Fixture-group scoping (Jake, 23 Nov 2026): when a group is picked
+  // in the panel, only that group's fixtures follow the screen — the
+  // rest keep their cue output. A pick that no longer resolves falls
+  // back to all fixtures (see resolveAmbienceFixtureGroup).
+  const group = resolveAmbienceFixtureGroup(fixtureGroups)
+  if (group && fixtureGroups) {
+    const members = new Set(fixtureGroupMembers(fixtureGroups, group.id))
+    fixtures = nextFixtures.filter((f) => members.has(f.id))
+  } else {
+    fixtures = nextFixtures
+  }
   screen = findNdiScreen(stageObjects) ?? null
   master = nextMaster
   recompute()
@@ -275,6 +327,7 @@ export function resetAmbienceState() {
   fixtures = []
   screen = null
   regions = null
+  groupId = null
   lastStats = { ...EMPTY_STATS }
   lastColourByRegion = Array.from({ length: NDI_REGION_COUNT }, () => null)
   clearAmbienceOutput()
