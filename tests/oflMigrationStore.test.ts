@@ -82,4 +82,23 @@ describe('OFL profiles in the store', () => {
     state.setOflProfiles([oflEp4Profile(255)])
     expect(useShowStore.getState().show).toBe(before)
   })
+
+  it('healing is not a user edit: no updatedAt bump, no undo entry, one revision', () => {
+    // Jake, 23 Nov 2026 (the quit hang): the startup heal used to mark
+    // the untouched demo "Unsaved", so a red-dot close or opening a
+    // recent prompted for changes nobody made.
+    const state = useShowStore.getState()
+    state.setShow(migrateShow(staleShow()))
+    const updatedAt = useShowStore.getState().show!.updatedAt
+    const undoLength = useShowStore.getState().undoStack.length
+    const revision = useShowStore.getState().oflHealRevision
+    state.setOflProfiles([oflEp4Profile(255)])
+    expect(defaultFixtureValues(useShowStore.getState().show!.fixtures[0]).blue).toBe(255)
+    expect(useShowStore.getState().show!.updatedAt).toBe(updatedAt)
+    expect(useShowStore.getState().undoStack.length).toBe(undoLength)
+    expect(useShowStore.getState().oflHealRevision).toBe(revision + 1)
+    // A second arrival heals nothing, so the revision does not move.
+    state.setOflProfiles([oflEp4Profile(255)])
+    expect(useShowStore.getState().oflHealRevision).toBe(revision + 1)
+  })
 })

@@ -118,6 +118,12 @@ interface ShowState {
    *  not undo history. */
   oflProfiles: FixtureProfile[]
   setOflProfiles: (profiles: FixtureProfile[]) => void
+  /** Counts the OFL heals that actually changed the open show's fixtures
+   *  (Jake, 23 Nov 2026 — the quit hang): the heal is load-time
+   *  normalisation, not a user edit, so ProjectBar re-bases the saved
+   *  snapshot when this changes instead of marking the show Unsaved.
+   *  Not persisted in the show, not undo history. */
+  oflHealRevision: number
   automations: AutomationDef[]
   effects: EffectDef[]
   cueLists: CueListDef[]
@@ -1126,6 +1132,7 @@ const actions: ShowState = {
   pageClipboard: null,
   manualOverrides: {},
   oflProfiles: [],
+  oflHealRevision: 0,
   automations: defaultShow.automations,
   effects: defaultShow.effects ?? [],
   cueLists: defaultShow.cueLists ?? [],
@@ -1163,7 +1170,16 @@ const actions: ShowState = {
     // re-sends its defaults to the hardware through the normal path.
     const healed = migrateShow(state.show, profiles)
     if (JSON.stringify(healed.fixtures) === JSON.stringify(state.show.fixtures)) { set({ oflProfiles: profiles }); return }
-    set({ oflProfiles: profiles, ...persistState(state, { fixtures: healed.fixtures }) })
+    // The heal is load-time normalisation, not a user edit (Jake,
+    // 23 Nov 2026 — the quit hang): the startup heal used to mark the
+    // untouched demo "Unsaved" and the autosave then silently rewrote
+    // it, so a red-dot close or opening a recent prompted for changes
+    // nobody made. Apply the healed fixtures without persistState — no
+    // updatedAt bump, no undo entry — and bump oflHealRevision so
+    // ProjectBar re-bases the saved snapshot onto the healed fixtures.
+    // The healed fixtures still reach disk with the next real save;
+    // until then the heal re-applies idempotently on the next load.
+    set({ oflProfiles: profiles, oflHealRevision: state.oflHealRevision + 1, show: { ...state.show, fixtures: healed.fixtures } })
   },
 
   setShow: (show) => {

@@ -3,7 +3,7 @@ import { useShowStore } from '../stores/showStore'
 import type { ShowDef } from '@shared/types'
 import type { ShowMeta } from '../global'
 import { projectNameFromPath } from '../lib/projectName'
-import { hasUnsavedChanges, transitionDecision } from '../lib/projectLifecycle'
+import { hasUnsavedChanges, rebaseSnapshotAfterHeal, transitionDecision } from '../lib/projectLifecycle'
 import { newShowFromTemplate } from '../lib/templates'
 import { SaveTemplateDialog } from './SaveTemplateDialog'
 
@@ -77,6 +77,23 @@ export function ProjectBar() {
   }
 
   saveRef.current = handleSave
+
+  // OFL heal re-bases the saved snapshot (Jake, 23 Nov 2026 — the quit
+  // hang): the heal is load-time normalisation, not a user edit, so it
+  // must not mark the show Unsaved. Declared BEFORE the autosave effect
+  // so the snapshot is fresh when the autosave checks dirty on the same
+  // commit — otherwise the heal would still fire its own autosave and
+  // silently rewrite the show file. The re-base only ever touches the
+  // fixtures portion, and only for heal-only differences; a real unsaved
+  // edit anywhere else leaves the snapshot (and the prompt) intact.
+  const oflHealRevision = useShowStore((s) => s.oflHealRevision)
+  const oflHealRevisionRef = useRef(oflHealRevision)
+  useEffect(() => {
+    if (oflHealRevisionRef.current === oflHealRevision) return
+    oflHealRevisionRef.current = oflHealRevision
+    const rebased = rebaseSnapshotAfterHeal(savedSnapshotRef.current, useShowStore.getState().show)
+    if (rebased !== null) savedSnapshotRef.current = rebased
+  }, [oflHealRevision])
 
   // Debounced autosave after any change, so a service can't lose a look.
   useEffect(() => {
@@ -250,14 +267,24 @@ export function ProjectBar() {
     return () => window.removeEventListener('openlights-project-command', onCommand)
   }, [show, currentPath])
 
-  if (useShowStore.getState().locked) return <button className="btn-theme text-xs" disabled>Project locked</button>
+  // The save prompt is hoisted out of the main return (Jake, 23 Nov 2026
+  // — the quit hang): when the project is locked, ProjectBar returns
+  // early with the "Project locked" button, and the prompt used to live
+  // below that return — so a vetoed close showed no prompt at all and
+  // the only way out was Force Quit. The prompt renders in the locked
+  // state too; Save / Discard / Cancel all complete or cancel the close
+  // exactly as they do unlocked (saving is not an edit, and the lock
+  // guards editing, not closing).
+  const savePrompt = pendingTransition ? <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => { allowCloseRef.current = false; setPendingTransition(null) }}>Cancel</button></div></div></div> : null
+
+  if (useShowStore.getState().locked) return <>{savePrompt}<button className="btn-theme text-xs" disabled>Project locked</button></>
   // Persistent save state in the top bar (LightKey: an operator must see at a
   // glance whether the show on screen is saved). Derived from the saved
   // snapshot, so it turns to Unsaved on any edit and back on save/autosave.
   const dirty = hasUnsavedChanges(show, savedSnapshotRef.current)
   return (
     <div className="relative" ref={rootRef}>
-      {pendingTransition && <div role="dialog" aria-modal="true" aria-label="Unsaved project changes" className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60"><div className="panel p-5 text-xs"><p className="mb-3">Save changes before leaving this project?</p><div className="flex gap-2"><button className="btn-theme" onClick={async () => { if (await handleSave()) { const action = pendingTransition; setPendingTransition(null); action() } }}>Save</button><button className="btn-theme" onClick={() => { const action = pendingTransition; setPendingTransition(null); action() }}>Discard</button><button className="btn-theme" onClick={() => { allowCloseRef.current = false; setPendingTransition(null) }}>Cancel</button></div></div></div>}
+      {savePrompt}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
