@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShowStore } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { MidiPanel } from './components/MidiPanel'
+import { NdiAmbiencePanel } from './components/NdiAmbiencePanel'
 import { PatchPanel } from './components/PatchPanel'
 import { ProjectBar } from './components/ProjectBar'
 import { isLiveWindow, startLiveWindowBridge } from './lib/liveWindowBridge'
@@ -42,7 +43,7 @@ import { WizardDoneStep } from './components/WizardDoneStep'
 import type { FixtureProfile } from '@shared/types'
 
 type Tab = 'Design' | 'Live'
-type ToolPanel = 'Patch' | 'Automation' | 'MIDI'
+type ToolPanel = 'Patch' | 'Automation' | 'MIDI' | 'NDI Ambience'
 
 export default function App() {
   const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent)
@@ -565,6 +566,7 @@ export default function App() {
       if (command === 'addOverrides') state.addOverridesToCues(undefined, selectedOnly ?? false)
       else if (command === 'openLiveWindow') void window.electronAPI.openLiveWindow(state.activeLivePageId)
       else if (command === 'automation') setToolPanel('Automation')
+      else if (command === 'ndiAmbience') setToolPanel('NDI Ambience')
       else if (command === 'editAdHocProperties') {
         const target = editAdHocTarget(state)
         if (target && 'cueId' in target) state.startEditingCueAdHoc(target.cueId)
@@ -902,6 +904,7 @@ export default function App() {
               {toolPanel === 'Patch' && <PatchPanel onShowInPreview={patchShowInPreview} />}
               {toolPanel === 'Automation' && <AutomationPanel />}
               {toolPanel === 'MIDI' && <MidiPanel />}
+              {toolPanel === 'NDI Ambience' && <NdiAmbiencePanel />}
             </div>
           </section>
         </div>

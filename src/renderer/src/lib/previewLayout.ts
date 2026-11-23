@@ -31,6 +31,32 @@ export function instanceKey(fixtureId: string, instance: number): string {
 }
 
 /**
+ * Demo-arc fallback positions for fixtures with no stored Preview
+ * position (moved from StagePreview so the NDI Ambience mapping resolves
+ * the same positions the Preview itself shows): overhead truss arc for
+ * the first six, remaining fixtures on the stage deck as up-lights.
+ */
+export function demoArcPositions(count: number): Array<{ x: number; y: number }> {
+  const positions: Array<{ x: number; y: number }> = []
+  const overhead = Math.min(count, 6)
+  // Spread fixtures evenly along the full truss arc (x 40..760), following
+  // the quadratic curve y = 80 - 84·t·(1 - t) so they sit on the truss.
+  for (let i = 0; i < overhead; i++) {
+    const t = (i + 0.5) / overhead
+    const x = 40 + 720 * t
+    const y = 80 - 84 * t * (1 - t)
+    positions.push({ x, y })
+  }
+  // Remaining fixtures go on the stage deck as up-lights.
+  const floorCount = Math.max(0, count - overhead)
+  for (let i = 0; i < floorCount; i++) {
+    const t = (i + 0.5) / floorCount
+    positions.push({ x: 40 + 720 * t, y: 300 })
+  }
+  return positions.slice(0, count)
+}
+
+/**
  * A fixture's per-instance Preview positions, in instance order. Stored
  * `previewPositions` win; a fixture with only the old single
  * `previewPosition` keeps Piece 1's layout (instance 0 on it, later

@@ -4,7 +4,18 @@ import { resolve } from 'path'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        // The NDI Ambience worker (src/main/ndi-worker.ts) runs as a
+        // UtilityProcess, so it needs its own built file beside the main
+        // bundle — main forks it by path (out/main/ndi-worker.js).
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'ndi-worker': resolve(__dirname, 'src/main/ndi-worker.ts')
+        }
+      }
+    }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

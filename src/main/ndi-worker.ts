@@ -1,0 +1,195 @@
+/**
+ * NDI Ambience worker — runs as an Electron UtilityProcess, so a crash in
+ * the native NDI code cannot take the lighting app down with it.
+ *
+ * It is deliberately dumb: discover sources, connect to a chosen one,
+ * receive BGRA frames at Normal latency and sample the EDGES of each
+ * frame into per-region colours (see src/shared/ndiAmbience.ts). Only
+ * the small colour set leaves this process, about once a second — the
+ * frame itself never does. The main process forwards messages between
+ * this worker and the renderer; the renderer owns the mapping of regions
+ * to fixtures and the output.
+ *
+ * Protocol (parentPort messages):
+ *   in  { type: 'list' }                        → out { type: 'sources', sources }
+ *   in  { type: 'start', source }               → out { type: 'started', source } / { type: 'error', message }
+ *   in  { type: 'stop' }                        → out { type: 'stopped' }
+ *   out { type: 'ready', version }              on load (grandi initialised)
+ *   out { type: 'regions', regions, at }        ~once a second while receiving
+ *   out { type: 'error', message }              on any failure
+ */
+import { sampleEdgeRegions, type NdiRegionColour, type NdiSourceInfo } from '../shared/ndiAmbience'
+import type { Finder, Receiver } from 'grandi'
+
+// The forked script runs as a Node process, not an Electron module, so
+// `process.parentPort` is the only channel back to main. It is not on
+// Node's Process type — cast rather than pretend it is typed.
+const parentPort = (process as unknown as { parentPort?: { postMessage: (message: unknown) => void; on: (event: string, listener: (message: unknown) => void) => void } }).parentPort
+
+function post(message: unknown) {
+  try {
+    parentPort?.postMessage(message)
+  } catch { /* Parent gone — nothing to report to. */ }
+}
+
+const DISCOVERY_WAIT_MS = 5_000
+const FRAME_TIMEOUT_MS = 1_000
+const POST_INTERVAL_MS = 1_000
+
+type GrandiApi = Awaited<ReturnType<typeof loadGrandi>>
+
+async function loadGrandi() {
+  // Dynamic import, as in the standalone spike's load-grandi.js: grandi
+  // ships ESM (dist/index.mjs) and this file is bundled to CommonJS, so
+  // a static import would rely on require(esm) working in the built
+  // worker. A failed load means the install itself is broken — grandi
+  // bundles the NDI runtime inside its per-platform package, so there is
+  // no separate runtime download to blame.
+  const grandi = (await import('grandi')).default
+  if (!grandi.isSupportedCPU()) throw new Error('This CPU is not supported by the NDI SDK.')
+  if (!grandi.initialize()) throw new Error('NDI failed to initialise.')
+  return grandi
+}
+
+async function main() {
+  if (!parentPort) {
+    // No parent to talk to — nothing useful this process can do.
+    process.exit(1)
+  }
+  let grandi: GrandiApi
+  try {
+    grandi = await loadGrandi()
+  } catch (error) {
+    post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
+    // Give the message a tick to flush, then exit — main reports the
+    // failure and the panel shows it instead of hanging on "starting…".
+    setTimeout(() => process.exit(1), 100)
+    return
+  }
+  post({ type: 'ready', version: grandi.version() })
+
+  let finder: Finder | null = null
+  let receiver: Receiver | null = null
+  let receiving = false
+  let receiveRun = 0
+
+  async function listSources(): Promise<NdiSourceInfo[]> {
+    if (!finder) finder = await grandi.find({ showLocalSources: true })
+    const deadline = Date.now() + DISCOVERY_WAIT_MS
+    let sources: NdiSourceInfo[] = []
+    while (Date.now() < deadline) {
+      sources = finder.sources()
+      if (sources.length > 0) break
+      await finder.wait(Math.min(250, deadline - Date.now()))
+      sources = finder.sources()
+    }
+    return sources
+  }
+
+  async function receiveLoop(run: number) {
+    let lastPostAt = 0
+    while (receiving && run === receiveRun) {
+      let frame: Awaited<ReturnType<Receiver['video']>> | null = null
+      try {
+        frame = await receiver!.video(FRAME_TIMEOUT_MS)
+      } catch {
+        frame = null
+      }
+      if (!frame || !receiving || run !== receiveRun) continue
+      // Drop stale queued frames so the next sample is fresh — ambient
+      // lighting follows the screen, not a backlog of old frames.
+      for (let i = 0; i < 8; i++) {
+        try {
+          await receiver!.video(0)
+        } catch {
+          break
+        }
+      }
+      const now = Date.now()
+      if (now - lastPostAt < POST_INTERVAL_MS) continue
+      lastPostAt = now
+      let regions: NdiRegionColour[]
+      try {
+        regions = sampleEdgeRegions(frame)
+      } catch (error) {
+        post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
+        continue
+      }
+      post({ type: 'regions', regions, at: now })
+    }
+  }
+
+  async function start(source: NdiSourceInfo) {
+    stopReceiving()
+    try {
+      // BGRA at Normal latency, as in the spike: the picture arrives
+      // ready to sample, with no colour conversion on this side.
+      receiver = await grandi.receive({
+        source,
+        colorFormat: grandi.ColorFormat.BGRX_BGRA,
+        bandwidth: grandi.Bandwidth.Highest,
+        allowVideoFields: false,
+        name: 'OpenLights NDI Ambience'
+      })
+    } catch (error) {
+      post({ type: 'error', message: error instanceof Error ? error.message : String(error) })
+      return
+    }
+    receiving = true
+    receiveRun++
+    post({ type: 'started', source })
+    void receiveLoop(receiveRun)
+  }
+
+  function stopReceiving() {
+    receiving = false
+    receiveRun++
+    if (receiver) {
+      try {
+        receiver.destroy()
+      } catch { /* Already gone. */ }
+      receiver = null
+    }
+  }
+
+  function shutdown() {
+    stopReceiving()
+    try {
+      finder?.destroy()
+    } catch { /* Already gone. */ }
+    finder = null
+    try {
+      grandi.destroy()
+    } catch { /* Already gone. */ }
+  }
+
+  parentPort.on('message', (event: unknown) => {
+    const message = (event as { data?: unknown }).data ?? event
+    if (!message || typeof message !== 'object') return
+    const { type } = message as { type?: string }
+    if (type === 'list') {
+      listSources()
+        .then((sources) => post({ type: 'sources', sources }))
+        .catch((error: unknown) => post({ type: 'error', message: error instanceof Error ? error.message : String(error) }))
+    } else if (type === 'start') {
+      const { source } = message as { source?: NdiSourceInfo }
+      if (!source || typeof source.name !== 'string') {
+        post({ type: 'error', message: 'No NDI source was chosen.' })
+        return
+      }
+      void start(source)
+    } else if (type === 'stop') {
+      stopReceiving()
+      post({ type: 'stopped' })
+    } else if (type === 'shutdown') {
+      shutdown()
+      process.exit(0)
+    }
+  })
+  parentPort.on('close', () => {
+    shutdown()
+    process.exit(0)
+  })
+}
+
+void main()

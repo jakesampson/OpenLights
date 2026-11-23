@@ -53,6 +53,12 @@ declare global {
       disconnectDmx: () => Promise<IpcResult & { status?: DmxStatus }>
       getDmxPorts: () => Promise<DmxPortInfo[]>
       setChannels: (values: Record<number, number>) => void
+      ndiVersion: () => Promise<{ available: boolean; version?: string; error?: string }>
+      ndiListSources: () => Promise<{ sources: import('@shared/ndiAmbience').NdiSourceInfo[]; error?: string }>
+      ndiStart: (source: import('@shared/ndiAmbience').NdiSourceInfo) => Promise<{ success: boolean; error?: string }>
+      ndiStop: () => Promise<{ success: boolean }>
+      onNdiRegions: (callback: (regions: import('@shared/ndiAmbience').NdiRegionColour[], at: number) => void) => () => void
+      onNdiStatus: (callback: (status: { state: 'ready' | 'receiving' | 'stopped' | 'error'; message?: string; source?: import('@shared/ndiAmbience').NdiSourceInfo }) => void) => () => void
       setTitleBarOverlay: (mode: 'main' | 'wizard' | 'welcome') => void
       closeWindow: () => void
       onMenuCommand: (callback: (command: string) => void) => () => void

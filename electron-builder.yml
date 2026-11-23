@@ -39,6 +39,12 @@
     "publishAutoUpdate": true
   },
   "asar": true,
+  # NDI Ambience: grandi's native binding (grandi.node) and the bundled
+  # NDI runtime (libndi) cannot load from inside the asar — they must
+  # live unpacked beside it, as the serialport binding already does.
+  "asarUnpack": [
+    "**/node_modules/@grandi/**"
+  ],
   "compression": "normal",
   "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
   "files": [

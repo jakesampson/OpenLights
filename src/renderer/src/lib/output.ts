@@ -49,6 +49,7 @@ let blind = false
 let blindFrame: Record<number, number> | null = null
 let highlight: { active: boolean; fixtureIds: Set<string> } = { active: false, fixtureIds: new Set() }
 let calibration: Record<number, number> = {}
+let ambience: Record<number, number> = {}
 let lastOutput: Record<number, number> = {}
 let freeze = false
 let freezeFrame: Record<number, number> | null = null
@@ -139,6 +140,11 @@ function flush(now = performance.now()) {
   // overriding the composed look — like Highlight, never under blackout,
   // blind or freeze, and applied last so it wins for its channels.
   if (Object.keys(calibration).length && !runtime.blackout && !blind && !freeze) output = { ...output, ...calibration }
+  // NDI Ambience (Jake, 23 Nov 2026): when active, the sampled screen-edge
+  // colours take over the fixtures they map to — applied last, like
+  // calibration, so ambience wins for its channels, but never under
+  // blackout, blind or freeze. Turning it off re-sends the unmodified look.
+  if (Object.keys(ambience).length && !runtime.blackout && !blind && !freeze) output = { ...output, ...ambience }
   push(output)
 }
 
@@ -170,6 +176,21 @@ export function setHighlightOutput(active: boolean, fixtureIds: Iterable<string>
  *  the rig returns to exactly what it was doing. */
 export function setCalibrationOutput(patch: Record<number, number>) {
   calibration = { ...patch }
+  flush()
+}
+
+/** NDI Ambience output: the sampled screen-edge colours, as a channel
+ * patch for the mapped fixtures. Replaces those fixtures' composed look
+ * while active; pass an empty patch (or clearAmbienceOutput) to hand the
+ * rig back to cues, presets and Live. */
+export function setAmbienceOutput(patch: Record<number, number>) {
+  ambience = { ...patch }
+  flush()
+}
+
+export function clearAmbienceOutput() {
+  if (!Object.keys(ambience).length) return
+  ambience = {}
   flush()
 }
 

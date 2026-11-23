@@ -494,7 +494,7 @@ export interface PresetGroup { id: string; name: string; parentId?: string | nul
 
 export interface StageObject {
   id: string
-  kind: 'rectangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss'
+  kind: 'rectangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss' | 'screen'
   name: string
   x: number
   y: number

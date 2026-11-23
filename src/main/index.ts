@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session, Menu, nativeImage, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, Menu, nativeImage, utilityProcess, type UtilityProcess, type MenuItemConstructorOptions } from 'electron'
 import { migrateShow } from '../shared/migrations'
 import { usbOnlyStatus } from '../shared/outputSettings'
 import { renameProjectFile, duplicateProjectFile, deleteProjectFile } from '../shared/projectFiles'
@@ -11,6 +11,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import extract from 'extract-zip'
 import { DMXEngine } from '../shared/dmx'
+import type { NdiRegionColour, NdiSourceInfo } from '../shared/ndiAmbience'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
 import { WINDOWS_MENU } from '../shared/menuModel'
 import { importOflFixture, isOflFixture, mergeOflLibraries, duplicateProfileAsCustom, upsertCustomProfile, deleteCustomProfile, preservesUserLibrary, shouldClearBundledOflCache } from '../shared/oflFixtureFormat'
@@ -45,6 +46,179 @@ function shutdownDmx() {
   dmxShutdownDone = true
   void dmxEngine.shutdown().catch(() => {})
 }
+
+// --- NDI Ambience worker (UtilityProcess) ---------------------------------
+// The worker (src/main/ndi-worker.ts) owns the native NDI code — discovery,
+// receive, edge sampling — so a crash there cannot take the lighting app
+// down. Main only forwards messages between the worker and the renderer.
+// The worker is forked lazily on the first NDI call and lives until quit.
+let ndiWorker: UtilityProcess | null = null
+let ndiWorkerReady: Promise<string> | null = null
+let ndiPendingList: { resolve: (sources: NdiSourceInfo[]) => void; reject: (error: Error) => void } | null = null
+let ndiListPromise: Promise<NdiSourceInfo[]> | null = null
+let ndiPendingStart: { resolve: () => void; reject: (error: Error) => void } | null = null
+let ndiLastVersion: string | null = null
+
+function shutdownNdi() {
+  if (!ndiWorker) return
+  const worker = ndiWorker
+  ndiWorker = null
+  ndiWorkerReady = null
+  try {
+    worker.postMessage({ type: 'shutdown' })
+  } catch { /* Already gone. */ }
+  // Best-effort, like shutdownDmx: give the worker a moment to exit
+  // cleanly, then kill it — Electron exits regardless once quit proceeds.
+  setTimeout(() => {
+    try {
+      worker.kill()
+    } catch { /* Already gone. */ }
+  }, 1000).unref()
+}
+
+function ensureNdiWorker(): UtilityProcess {
+  if (ndiWorker) return ndiWorker
+  const worker = utilityProcess.fork(path.join(__dirname, 'ndi-worker.js'))
+  ndiWorker = worker
+  ndiWorkerReady = new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('NDI worker did not start in time.')), 15000)
+    timer.unref()
+    worker.on('message', (message: unknown) => {
+      if (!message || typeof message !== 'object') return
+      const m = message as { type?: string; version?: string; message?: string; regions?: NdiRegionColour[]; sources?: NdiSourceInfo[]; at?: number; source?: NdiSourceInfo }
+      if (m.type === 'ready') {
+        clearTimeout(timer)
+        ndiLastVersion = m.version ?? ''
+        resolve(m.version ?? '')
+      } else if (m.type === 'sources') {
+        if (ndiPendingList) {
+          ndiPendingList.resolve(m.sources ?? [])
+          ndiPendingList = null
+        }
+      } else if (m.type === 'started') {
+        if (ndiPendingStart) {
+          ndiPendingStart.resolve()
+          ndiPendingStart = null
+        }
+        mainWindow?.webContents.send('ndi:status', { state: 'receiving', source: m.source })
+      } else if (m.type === 'stopped') {
+        mainWindow?.webContents.send('ndi:status', { state: 'stopped' })
+      } else if (m.type === 'regions') {
+        mainWindow?.webContents.send('ndi:regions', m.regions ?? [], m.at ?? Date.now())
+      } else if (m.type === 'error') {
+        const error = new Error(m.message ?? 'NDI error')
+        if (ndiPendingList) {
+          ndiPendingList.reject(error)
+          ndiPendingList = null
+        }
+        if (ndiPendingStart) {
+          ndiPendingStart.reject(error)
+          ndiPendingStart = null
+        }
+        mainWindow?.webContents.send('ndi:status', { state: 'error', message: m.message })
+      }
+    })
+    worker.on('exit', (code) => {
+      if (ndiWorker !== worker) return
+      ndiWorker = null
+      ndiWorkerReady = null
+      ndiLastVersion = null
+      const error = new Error(`NDI worker exited (code ${code}).`)
+      if (ndiPendingList) {
+        ndiPendingList.reject(error)
+        ndiPendingList = null
+      }
+      if (ndiPendingStart) {
+        ndiPendingStart.reject(error)
+        ndiPendingStart = null
+      }
+      clearTimeout(timer)
+      reject(error)
+      mainWindow?.webContents.send('ndi:status', { state: 'error', message: error.message })
+    })
+  })
+  // A rejected ready promise must not become an unhandled rejection when
+  // nobody awaited it yet — the next NDI call re-forks and reports it.
+  void ndiWorkerReady.catch(() => {})
+  return worker
+}
+
+async function ndiVersion(): Promise<{ available: boolean; version?: string; error?: string }> {
+  if (ndiLastVersion) return { available: true, version: ndiLastVersion }
+  try {
+    ensureNdiWorker()
+    const version = await ndiWorkerReady!
+    return { available: true, version }
+  } catch (error) {
+    return { available: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function ndiListSources(): Promise<{ sources: NdiSourceInfo[]; error?: string }> {
+  try {
+    const { available, error } = await ndiVersion()
+    if (!available) return { sources: [], error: error ?? 'NDI is unavailable.' }
+    if (!ndiListPromise) {
+      // One discovery at a time — a second call while one is running
+      // shares its result instead of starting a second finder.
+      ndiListPromise = new Promise<NdiSourceInfo[]>((resolve, reject) => {
+        ndiPendingList = { resolve, reject }
+      })
+      const timer = setTimeout(() => {
+        if (ndiPendingList) {
+          ndiPendingList.reject(new Error('NDI discovery timed out.'))
+          ndiPendingList = null
+        }
+      }, 10000)
+      timer.unref()
+      void ndiListPromise.then(
+        () => {
+          clearTimeout(timer)
+          ndiListPromise = null
+        },
+        () => {
+          clearTimeout(timer)
+          ndiListPromise = null
+        }
+      )
+      ensureNdiWorker().postMessage({ type: 'list' })
+    }
+    const sources = await ndiListPromise
+    return { sources }
+  } catch (error) {
+    return { sources: [], error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function ndiStart(source: NdiSourceInfo): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { available, error } = await ndiVersion()
+    if (!available) return { success: false, error: error ?? 'NDI is unavailable.' }
+    const promise = new Promise<void>((resolve, reject) => {
+      ndiPendingStart = { resolve, reject }
+    })
+    const timer = setTimeout(() => {
+      if (ndiPendingStart) {
+        ndiPendingStart.reject(new Error('Connecting to the NDI source timed out.'))
+        ndiPendingStart = null
+      }
+    }, 15000)
+    timer.unref()
+    ensureNdiWorker().postMessage({ type: 'start', source })
+    await promise
+    clearTimeout(timer)
+    return { success: true }
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+function ndiStop() {
+  try {
+    ndiWorker?.postMessage({ type: 'stop' })
+  } catch { /* Worker gone — nothing is receiving. */ }
+}
+
 app.on('before-quit', () => {
   quitting = true
   // Tell the renderer the app itself is quitting (Cmd+Q / menu Quit), so
@@ -54,6 +228,7 @@ app.on('before-quit', () => {
   // plain window close (red dot / title-bar close button).
   mainWindow?.webContents.send('app:quitting')
   shutdownDmx()
+  shutdownNdi()
 })
 function saveLiveWindows() { fs.writeFileSync(liveWindowsFile, JSON.stringify([...liveWindows.values()].map(({ window, spec }) => ({ ...spec, width: window.getBounds().width, height: window.getBounds().height })))) }
 function openLiveWindow(spec: LiveWindowSpec) {
@@ -376,6 +551,16 @@ ipcMain.handle('get-channels', async () => Array.from(dmxEngine.snapshot()))
 ipcMain.handle('disconnect-dmx', async () => {
   await dmxEngine.disconnect()
   return { success: true, status: dmxEngine.getStatus() }
+})
+
+// NDI Ambience — the renderer talks to the worker through main; regions
+// arrive as 'ndi:regions' events, status changes as 'ndi:status'.
+ipcMain.handle('ndi:version', async () => ndiVersion())
+ipcMain.handle('ndi:list', async () => ndiListSources())
+ipcMain.handle('ndi:start', async (_, source: NdiSourceInfo) => ndiStart(source))
+ipcMain.handle('ndi:stop', async () => {
+  ndiStop()
+  return { success: true }
 })
 
 // Show handling

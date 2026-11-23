@@ -18,7 +18,7 @@ import { isCalibrationComplete } from '../lib/calibration'
 import { useShowStore } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
 import { layoutOverrideLabels, overridePropertyGroups } from '../lib/overrideLabels'
-import { instanceKey, instancePositions } from '../lib/previewLayout'
+import { demoArcPositions, instanceKey, instancePositions } from '../lib/previewLayout'
 import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
@@ -66,27 +66,7 @@ export function fixtureColor(values?: Record<string, number>, dimmerOnly = false
 }
 
 function fixturePositions(count: number) {
-  // Overhead truss arc + floor positions.
-  const positions: Array<{ x: number; y: number }> = []
-  const overhead = Math.min(count, 6)
-
-  // Spread fixtures evenly along the full truss arc (x 40..760), following
-  // the quadratic curve y = 80 - 84·t·(1 - t) so they sit on the truss.
-  for (let i = 0; i < overhead; i++) {
-    const t = (i + 0.5) / overhead
-    const x = 40 + 720 * t
-    const y = 80 - 84 * t * (1 - t)
-    positions.push({ x, y })
-  }
-
-  // Remaining fixtures go on the stage deck as up-lights.
-  const floorCount = Math.max(0, count - overhead)
-  for (let i = 0; i < floorCount; i++) {
-    const t = (i + 0.5) / floorCount
-    positions.push({ x: 40 + 720 * t, y: 300 })
-  }
-
-  return positions.slice(0, count)
+  return demoArcPositions(count)
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
