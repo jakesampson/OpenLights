@@ -17,10 +17,19 @@ describe('per-cell preview beams', () => {
   })
 
   it('scales a cell colour and brightness with the master dimmer', () => {
-    const cells = previewCellBeams(barFixture, { ...barValues, intensity: 128 }, { color: '#ffffff', opacity: 1 })
+    const cells = previewCellBeams(barFixture, { ...barValues, intensity: 128 }, { color: '#ffffff', opacity: 128 / 255 })
     expect(cells[0].color).toBe('#800000')
     expect(cells[0].opacity).toBeCloseTo(128 / 255, 5)
     expect(cells[1].color).toBe('#008000')
+  })
+
+  it('a lit cell keeps the fixture dimmer through a colour change, not its own colour max', () => {
+    // Midway through a red→blue crossfade on one cell: the cell's
+    // channels read (128, 0, 128) — the old max-of-colour derivation
+    // halved the beam; the dimmer stays full.
+    const cells = previewCellBeams(barFixture, { ...barValues, red: 128, green: 0, blue: 128, red2: 128, green2: 0, blue2: 128, red3: 128, green3: 0, blue3: 128, red4: 128, green4: 0, blue4: 128 }, { color: '#ffffff', opacity: 1 })
+    expect(cells.every((cell) => cell.opacity === 1)).toBe(true)
+    expect(cells[0].color).toBe('#800080')
   })
 
   it('draws no beam for a dark cell while the lit cells keep theirs', () => {

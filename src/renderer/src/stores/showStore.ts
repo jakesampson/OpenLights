@@ -64,7 +64,7 @@ import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { completePresetBaseColour } from '../lib/presetColor'
 import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
-import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels } from '../lib/output'
 import { computeEffectPatch } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
 
@@ -3041,7 +3041,18 @@ const actions: ShowState = {
       const next = state.cues.find((s) => s.id === list.steps[nextIndex]?.cueId)
       if (!current || !next) return { manualCrossfade: position }
       const progress = manualCrossfadeProgress(state.manualCrossfadeAnchor, position)
-      if (!state.blackout) sendImmediate(manualCrossfade(cueOutput(state, current), cueOutput(state, next), progress))
+      if (!state.blackout) {
+        // The blended patch's own max would dip mid-crossfade (the
+        // same red→blue purple dip as a cue fade), so the dimmer is
+        // lerped between the two cues' endpoint brightnesses instead.
+        const fromPatch = cueOutput(state, current)
+        const toPatch = cueOutput(state, next)
+        const fixtures = state.show?.fixtures ?? []
+        sendImmediate(
+          manualCrossfade(fromPatch, toPatch, progress),
+          lerpLevels(patchBrightness(fromPatch, fixtures), patchBrightness(toPatch, fixtures), progress)
+        )
+      }
       if (progress >= 1) {
         return {
           manualCrossfade: position,

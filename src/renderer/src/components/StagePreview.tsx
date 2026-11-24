@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { previewFixtureValues, previewBeamAppearance, previewCellBeams, cellBeamGeometry } from '../lib/previewOutput'
+import { getDisplayLevels } from '../lib/output'
 import { alignObjects, type AlignMode } from '../lib/align'
 import { resizeFixtureIcon, rotateFixtureIcon } from '../lib/fixtureGeometry'
 import { marqueeSelection } from '../lib/previewSelection'
@@ -183,13 +184,18 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const editing = previewEditing
   useEffect(() => { if (locked) setPreviewEditing(false) }, [locked, setPreviewEditing])
   const [outputChannels, setOutputChannels] = useState<number[]>([])
+  // The dimmer the output engine is drawing each fixture at (see
+  // lib/output.ts): the beam length follows it, not the transmitted
+  // colour. Read in the same poll as the channels, so the two stay
+  // in step.
+  const [displayLevels, setDisplayLevels] = useState<Record<string, number>>({})
   useEffect(() => {
     let alive = true
     let pending = false
     const readOutput = async () => {
       if (pending || !window.electronAPI?.getChannels) return
       pending = true
-      try { const values = await window.electronAPI.getChannels(); if (alive) setOutputChannels(values) }
+      try { const values = await window.electronAPI.getChannels(); if (alive) { setOutputChannels(values); setDisplayLevels(getDisplayLevels()) } }
       catch { /* Keep the last known output if the bridge is unavailable. */ }
       finally { pending = false }
     }
@@ -364,14 +370,25 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           instance,
           key: instanceKey(f.id, instance),
           pos: dragPositions?.[instanceKey(f.id, instance)] ?? stored[instance] ?? fallback,
-          intensity: values.intensity ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
+          // The beam length follows the dimmer only (Jake, 24 Nov
+          // 2026). A fixture with a real intensity channel reads it
+          // from the transmitted frame; a virtual-dimmer fixture
+          // (Q12BT and the like) has no such channel, so it reads
+          // the display dimmer the output engine tracks — the
+          // endpoint brightness of the base look, interpolated
+          // through the fade. The old fallback, the max colour
+          // channel, is only the last resort (no base look has been
+          // sent yet): a linear red→blue crossfade passes through
+          // purple at half height, and that max read the dip as the
+          // fixture going dim, halving the beam mid-transition.
+          intensity: values.intensity ?? displayLevels[f.id] ?? Math.max(values.red ?? 0, values.green ?? 0, values.blue ?? 0, values.white ?? 0, values.amber ?? 0),
           color: fixtureColor(values, f.type === 'dimmer'),
           values
         })
       }
     })
     return views
-  }, [fixtures, activeCue, cueValues, dragPositions, outputChannels])
+  }, [fixtures, activeCue, cueValues, dragPositions, outputChannels, displayLevels])
 
   // Fixtures with overridden properties, one label each (the first
   // instance only for a Count fixture — LightKey shows one label per

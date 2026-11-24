@@ -22,7 +22,9 @@ export interface PreviewCellBeam {
   name: string
   /** The cell's own mixed colour (master dimmer applied), like fixtureColor. */
   color: string
-  /** Effective brightness 0..1: master dimmer × the cell's own colour level. */
+  /** The fixture's dimmer 0..1 when the cell carries any light, else 0
+   *  (a dark cell draws no beam): the beam length follows the dimmer,
+   *  not the cell's own colour level. */
   opacity: number
 }
 
@@ -39,6 +41,15 @@ const CELL_COLOURS = ['red', 'green', 'blue', 'white', 'amber', 'uv', 'cyan', 'm
  * StagePreview (white adds to all three, amber adds to red and 45% to
  * green; cyan/magenta/yellow — which fixtureColor ignores — add
  * additively, so a CMY-only cell still shows a colour).
+ *
+ * A cell's opacity is the fixture's dimmer (the fallback opacity the
+ * Preview passes in) whenever the cell carries any light at all — so
+ * a colour-only change never shrinks a lit cell's beam, the same rule
+ * as the single beam (Jake, 24 Nov 2026): a red→blue crossfade
+ * passes through purple at half height per channel, and reading the
+ * cell's own max as its brightness halved the beam mid-transition.
+ * A cell with no light at all still draws no beam, so a chase across
+ * the cells shows only the lit cells.
  */
 export function previewCellBeams(fixture: FixtureDef, values: Record<string, number>, fallback: { color: string; opacity: number }): PreviewCellBeam[] {
   const beams = fixtureBeams(fixture)
@@ -56,7 +67,7 @@ export function previewCellBeams(fixture: FixtureDef, values: Record<string, num
     const g = Math.round(clamp((channel('green') ?? 0) + (channel('white') ?? 0) + (channel('amber') ?? 0) * 0.45 + (channel('cyan') ?? 0) + (channel('yellow') ?? 0)) * dim)
     const b = Math.round(clamp((channel('blue') ?? 0) + (channel('white') ?? 0) + (channel('cyan') ?? 0) + (channel('magenta') ?? 0)) * dim)
     const hex = (n: number) => n.toString(16).padStart(2, '0')
-    return { id: beam.id, name: beam.name, color: `#${hex(r)}${hex(g)}${hex(b)}`, opacity: Math.max(r, g, b) / 255 }
+    return { id: beam.id, name: beam.name, color: `#${hex(r)}${hex(g)}${hex(b)}`, opacity: Math.max(r, g, b) > 0 ? fallback.opacity : 0 }
   })
 }
 

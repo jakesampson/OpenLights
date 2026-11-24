@@ -13,6 +13,7 @@ import { composeOutput } from './outputModel'
 import { computeCueChannels } from './automationRuntime'
 import { applyCalibrationOutput } from './calibration'
 import { applyDimmerLimits } from './automationRuntime'
+import { fixtureChannelMap } from '@shared/fixtureProfiles'
 
 let sequences: SequenceDef[] = []
 let sequencePresets: PresetDef[] = []
@@ -79,10 +80,186 @@ let runtime: EffectRuntime = {
   blackout: false
 }
 
+/**
+ * The dimmer the Preview draws for each fixture (0..255) — the number
+ * the beam length follows. A beam's length must follow the dimmer
+ * only (Jake, 24 Nov 2026): during a colour-only transition the beam
+ * shrank and re-grew, because the Preview derived brightness from
+ * the transmitted frame as the max colour channel — and a linear
+ * red→blue crossfade passes through purple at half height on each
+ * channel (max 128), so the beam halved mid-transition. The
+ * transmitted DMX is correct (a linear crossfade genuinely passes
+ * through that purple); the dip is in the derivation, not the data.
+ * So the engine tracks the dimmer separately, as the endpoint
+ * brightness of each base look, interpolated through the fade with
+ * the same easing as the channels: the endpoints of a colour-only
+ * fade both read full, so the level stays full throughout, while a
+ * dimmer fade's endpoints read full→zero and the level follows.
+ *
+ * Two layers, kept apart on purpose:
+ * - `baseLevels`: the in-flight dimmer of the base look, written by
+ *   sendChannels (interpolated) and sendImmediate (set). It is the
+ *   base only — sequences, effects, ambience and highlight drive
+ *   fixtures past the base, and their contribution is applied in
+ *   flush() instead, so this stays the clean base signal.
+ * - `displayLevels`: what the Preview reads (getDisplayLevels) —
+ *   baseLevels corrected in flush() for the fixtures a post-base
+ *   layer is driving, where the transmitted frame is the only signal
+ *   that knows the modulation. During blind/freeze the transmitted
+ *   frame is held, so displayLevels freeze with it.
+ */
+let baseLevels: Record<string, number> = {}
+let displayLevels: Record<string, number> = {}
+/** Brightness of the frozen frame, for the thaw crossfade back. */
+let thawFromLevels: Record<string, number> = {}
+
+/** Colour attributes that carry a fixture's light (plus the numbered
+ *  cell variants, red2/green3 … — a multipart fixture's cells count
+ *  toward its brightness just like its first cell). White and amber
+ *  are separate LEDs but they are light all the same; UV is not
+ *  counted, matching the Preview's own max (StagePreview). */
+const DISPLAY_COLOUR_ATTRIBUTE = /^(red|green|blue|white|amber)\d*$/
+
+function clamp255(value: number): number {
+  return Math.max(0, Math.min(255, Math.round(value)))
+}
+
+/**
+ * The brightness one fixture is driven at in a channel frame
+ * (0..255): its intensity channel where it has one (hardware dimmer
+ * — the channel itself is the dimmer, whatever the colours do), else
+ * the peak of its colour channels. A disabled fixture reads 0: its
+ * channels are excluded from the transmitted frame.
+ */
+export function frameBrightness(frame: Record<number, number>, fixture: FixtureDef): number {
+  if (fixture.disabled) return 0
+  const map = fixtureChannelMap(fixture)
+  const intensityOffset = map['intensity']
+  if (intensityOffset !== undefined) {
+    return clamp255(frame[fixture.channelStart + intensityOffset] ?? 0)
+  }
+  let peak = 0
+  for (const [attribute, offset] of Object.entries(map)) {
+    if (!DISPLAY_COLOUR_ATTRIBUTE.test(attribute)) continue
+    const value = frame[fixture.channelStart + offset]
+    if (typeof value === 'number') peak = Math.max(peak, value)
+  }
+  return clamp255(peak)
+}
+
+/**
+ * The endpoint brightness of a channel patch, per fixture. Only
+ * fixtures the patch fully determines get an entry: every mapped
+ * channel must be present. A partial patch (automation drives one
+ * channel) does not determine a fixture's brightness — its undriven
+ * channels keep their last values on the interface — so the engine
+ * claims no level for it and the Preview falls back to the
+ * transmitted frame instead. Cue patches always fully determine
+ * every fixture (computeCueChannels with zeroMissing), as does the
+ * all-zero patch.
+ */
+export function patchBrightness(patch: Record<number, number>, fixtures: FixtureDef[]): Record<string, number> {
+  const levels: Record<string, number> = {}
+  for (const fixture of fixtures) {
+    const offsets = Object.values(fixtureChannelMap(fixture))
+    if (!offsets.every((offset) => typeof patch[fixture.channelStart + offset] === 'number')) continue
+    levels[fixture.id] = frameBrightness(patch, fixture)
+  }
+  return levels
+}
+
+/** Interpolate per-fixture levels between two looks; a fixture
+ *  absent from either end reads 0 there (dark), matching how the
+ *  channel fade treats a missing channel. */
+export function lerpLevels(from: Record<string, number>, to: Record<string, number>, progress: number): Record<string, number> {
+  const t = Math.max(0, Math.min(1, progress))
+  const levels: Record<string, number> = {}
+  for (const id of new Set([...Object.keys(from), ...Object.keys(to)])) {
+    levels[id] = Math.round((from[id] ?? 0) + ((to[id] ?? 0) - (from[id] ?? 0)) * t)
+  }
+  return levels
+}
+
+/** The dimmer the Preview draws for each fixture (0..255). */
+export function getDisplayLevels(): Record<string, number> {
+  return { ...displayLevels }
+}
+
 function push(patch: Record<number, number>) {
   if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
   lastOutput = { ...patch }
   window.electronAPI?.setChannels?.(patch)
+}
+
+// Channel → fixture, rebuilt when the rig changes (the flush
+// correction below needs to know which fixture a post-base layer's
+// patch is driving). Indexed by 1-based channel number.
+let channelFixtures: Array<FixtureDef | undefined> = []
+let channelFixturesFor: FixtureDef[] | null = null
+function fixtureForChannel(channel: number, fixtures: FixtureDef[]): FixtureDef | undefined {
+  if (channelFixturesFor !== fixtures) {
+    channelFixtures = new Array(513).fill(undefined)
+    for (const fixture of fixtures) {
+      for (let i = 0; i < fixture.channels; i++) channelFixtures[fixture.channelStart + i] = fixture
+    }
+    channelFixturesFor = fixtures
+  }
+  return channelFixtures[channel]
+}
+
+/**
+ * Bring the Preview's display dimmer up to date with the frame about
+ * to be pushed. The base level is the in-flight baseLevels (already
+ * interpolated through any base fade); a fixture a post-base layer
+ * is driving needs the transmitted frame instead, because the base
+ * does not know the modulation — an effect chase pulses a
+ * virtual-dimmer fixture by scaling its colour channels, so its beam
+ * must pulse with the frame, not sit at the base level. Ambience is
+ * the exception: it drives its fixtures at full dimmer (intensity
+ * 255 in its values), so they read full whatever the region colour
+ * is — reading the frame max there would reintroduce the dip the
+ * display dimmer exists to fix, as the region colour changes.
+ * Presets, Live pads and Design overrides are deliberately NOT in
+ * the touched set: their brightness is already stamped into the
+ * base look (cuePatch/defaultsPatch apply the effective intensity),
+ * so the base level is their level.
+ */
+function updateDisplayLevels(output: Record<number, number>, sequence: Record<number, number>, effects: Record<number, number>, thawProgress: number | null) {
+  if (runtime.blackout) {
+    for (const fixture of runtime.fixtures) displayLevels[fixture.id] = 0
+    return
+  }
+  // Blind / freeze hold the transmitted frame: the light the rig is
+  // showing is frozen, so the display dimmer freezes with it.
+  if (blind || freeze) return
+  const effectiveBase = thawProgress === null ? baseLevels : lerpLevels(thawFromLevels, baseLevels, thawProgress)
+  const fixtures = runtime.fixtures
+  const touched = new Set<string>()
+  const ambienceCovered = new Set<string>()
+  const markPatch = (patch: Record<number, number>, into: Set<string>) => {
+    for (const key of Object.keys(patch)) {
+      const fixture = fixtureForChannel(Number(key), fixtures)
+      if (fixture) into.add(fixture.id)
+    }
+  }
+  markPatch(sequence, touched)
+  markPatch(effects, touched)
+  markPatch(locate, touched)
+  markPatch(calibration, touched)
+  markPatch(ambience, ambienceCovered)
+  if (highlight.active) {
+    for (const fixture of fixtures) if (!highlight.fixtureIds.has(fixture.id)) touched.add(fixture.id)
+  }
+  const next: Record<string, number> = {}
+  for (const fixture of fixtures) {
+    if (ambienceCovered.has(fixture.id)) { next[fixture.id] = 255; continue }
+    if (touched.has(fixture.id)) { next[fixture.id] = frameBrightness(output, fixture); continue }
+    if (effectiveBase[fixture.id] !== undefined) { next[fixture.id] = effectiveBase[fixture.id]; continue }
+    // No base level for this fixture (a partial base patch never
+    // determined it): leave it out, so the Preview falls back to
+    // the transmitted frame.
+  }
+  displayLevels = next
 }
 
 /** Seconds since the effect loop started — the clock effects animate against. */
@@ -115,13 +292,16 @@ export function interpolateOutputFrame(from: Record<number, number>, to: Record<
 
 function flush(now = performance.now()) {
   const suppressed = runtime.blackout || presetSuppressed
-  let output = composeOutput({ defaults: computeCueChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: sequencePatch(now), effects: effectPatch(now), live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  const seqPatch = sequencePatch(now)
+  const effPatch = effectPatch(now)
+  let output = composeOutput({ defaults: computeCueChannels(runtime.fixtures, { id: 'defaults', name: 'Defaults', fadeMs: 0, fixtureValues: {} }, runtime.master, true), base, sequences: seqPatch, effects: effPatch, live: suppressed ? {} : live, presets: suppressed ? {} : presets, overrides: suppressed ? {} : overrides, locate: suppressed ? {} : locate, blackout: runtime.blackout, blind, freeze, heldFrame: blindFrame ?? freezeFrame ?? undefined, disabledChannels: runtime.fixtures.filter((f) => f.disabled).flatMap((f) => Array.from({ length: f.channels }, (_, i) => f.channelStart + i)), previousChannels: [...previousPresetChannels] })
+  let thawProgress: number | null = null
   if (!runtime.blackout && thawFrom && thawDuration > 0) {
-    const progress = (now - thawStartedAt) / thawDuration
-    output = interpolateOutputFrame(thawFrom, output, progress)
-    if (progress >= 1) thawFrom = null
+    thawProgress = (now - thawStartedAt) / thawDuration
+    output = interpolateOutputFrame(thawFrom, output, thawProgress)
+    if (thawProgress >= 1) { thawFrom = null; thawProgress = null }
   }
-  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(sequencePatch(now)), ...Object.keys(ambience)].map(Number))
+  previousPresetChannels = new Set([...Object.keys(live), ...Object.keys(presets), ...Object.keys(overrides), ...Object.keys(locate), ...Object.keys(seqPatch), ...Object.keys(ambience)].map(Number))
   // Ambience channels are tracked here too (Jake, 23 Nov 2026): when
   // Ambience stops — or its mapping changes — a channel it drove that
   // the underlying look does not drive must be sent an explicit zero on
@@ -153,6 +333,7 @@ function flush(now = performance.now()) {
   // calibration, so ambience wins for its channels, but never under
   // blackout, blind or freeze. Turning it off re-sends the unmodified look.
   if (Object.keys(ambience).length && !runtime.blackout && !blind && !freeze) output = { ...output, ...ambience }
+  updateDisplayLevels(output, seqPatch, effPatch, thawProgress)
   push(output)
 }
 
@@ -208,6 +389,7 @@ export function setFreezeOutput(active: boolean, resumeFadeMs = 300) {
   if (thawFrame !== null) { cancelAnimationFrame(thawFrame); thawFrame = null }
   if (active) {
     freezeFrame = { ...lastOutput }
+    thawFromLevels = patchBrightness(freezeFrame, runtime.fixtures)
     thawFrom = null
     freeze = true
     flush()
@@ -238,14 +420,25 @@ function smoothstep(t: number): number {
   return t * t * (3 - 2 * t)
 }
 
-/** Send a base look immediately. Always cancels any in-flight fade. */
-export function sendImmediate(target: Record<number, number>) {
+/** Send a base look immediately. Always cancels any in-flight fade.
+ *  The base dimmer follows the look: `levels` overrides the endpoint
+ *  brightness derived from the patch (the manual crossfade passes its
+ *  own lerped levels, since the blended patch's own max would dip);
+ *  a partial patch determines no level for the fixtures it does not
+ *  cover, and their entries are dropped, so the Preview falls back
+ *  to the transmitted frame for them. */
+export function sendImmediate(target: Record<number, number>, levels?: Record<string, number>) {
   cancelFade()
   base = { ...target }
+  baseLevels = levels ?? patchBrightness(target, runtime.fixtures)
   flush()
 }
 
-/** Fade the base look from its current values to the target over fadeMs. */
+/** Fade the base look from its current values to the target over fadeMs.
+ *  The dimmer fades with the channels, with the same easing: the
+ *  level interpolates between the endpoint brightnesses of the two
+ *  looks, so a colour-only fade holds its level while a dimmer fade
+ *  follows the dimmer. */
 export function sendChannels(target: Record<number, number>, fadeMs = 0) {
   cancelFade()
   if (fadeMs <= 0) {
@@ -254,6 +447,8 @@ export function sendChannels(target: Record<number, number>, fadeMs = 0) {
   }
 
   const from = { ...base }
+  const fromLevels = patchBrightness(from, runtime.fixtures)
+  const toLevels = patchBrightness(target, runtime.fixtures)
   const start = performance.now()
   const channels = new Set(
     [...Object.keys(from), ...Object.keys(target)].map((key) => Number(key))
@@ -269,12 +464,14 @@ export function sendChannels(target: Record<number, number>, fadeMs = 0) {
       patch[channel] = Math.round(a + (b - a) * eased)
     }
     base = patch
+    baseLevels = lerpLevels(fromLevels, toLevels, eased)
     flush(now)
     if (t < 1) {
       fadeFrame = requestAnimationFrame(tick)
     } else {
       fadeFrame = null
       base = { ...target }
+      baseLevels = { ...toLevels }
     }
   }
 
