@@ -1,6 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { CONTEXT_MENUS, MENU_LABELS, WINDOWS_MENU } from '../src/shared/menuModel'
+import { CONTEXT_MENUS, MENU_LABELS, WINDOWS_MENU, macAppMenu, menuGroupsFor } from '../src/shared/menuModel'
 import { SHORTCUTS } from '../src/renderer/src/lib/shortcuts'
+
+describe('macOS application menu (Jake, 24 Nov 2026 — Cmd+Q did nothing)', () => {
+  it('puts the app menu with Quit first on darwin', () => {
+    const groups = menuGroupsFor('darwin', 'OpenLights')
+    expect(groups[0]).toEqual(macAppMenu('OpenLights'))
+    expect(groups[0].label).toBe('OpenLights')
+    expect(groups[0].items.map((item) => item.role)).toEqual(['about', undefined, 'quit'])
+    expect(groups[0].items[1].type).toBe('separator')
+    expect(groups.slice(1)).toEqual(WINDOWS_MENU)
+  })
+  it('keeps exactly WINDOWS_MENU on Windows and Linux', () => {
+    expect(menuGroupsFor('win32', 'OpenLights')).toEqual(WINDOWS_MENU)
+    expect(menuGroupsFor('linux', 'OpenLights')).toEqual(WINDOWS_MENU)
+  })
+})
 
 describe('Windows and context menu commands', () => {
   it('maps every menu command to a shortcut action or a labelled binding-less command', () => {

@@ -110,6 +110,15 @@ export class DMXEngine {
       })
       const port = this.port
       port.on('close', () => { if (this.port === port && this.reconnectTarget) { this.connected = false; this.error = 'USB interface disconnected; waiting to reconnect'; this.emitStatus(); this.scheduleReconnect() } })
+      // This listener MUST stay, even though it does nothing while the
+      // port is being closed (this.port is already null then): closing a
+      // port while a write is stuck (device stopped draining) cancels the
+      // write, and serialport emits an 'error' event (BindingsError:
+      // Canceled) while closing. With no listener that emission throws
+      // inside the stream machinery and kills the main process's event
+      // loop, so the close never completes and the app hangs in the Dock
+      // until Force Quit (Jake, 24 Nov 2026 — Mac quit hang; see
+      // tests/dmx-wedged-port.test.ts). The listener consumes the event.
       port.on('error', (error: Error) => { if (this.port === port) { this.connected = false; this.error = error.message; this.emitStatus(); this.scheduleReconnect() } })
 
       await new Promise<void>((resolve, reject) => {

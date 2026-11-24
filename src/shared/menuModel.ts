@@ -14,7 +14,7 @@ export const MENU_LABELS: Partial<Record<AppMenuCommand, string>> = {
   automation: 'Automation…'
 }
 
-export interface AppMenuGroup { label: 'File' | 'Edit' | 'View' | 'Layout' | 'Live' | 'Window' | 'Help'; items: { label: string; command?: AppMenuCommand; role?: 'about' }[] }
+export interface AppMenuGroup { label: string; items: { label: string; command?: AppMenuCommand; role?: 'about' | 'quit'; type?: 'separator' }[] }
 
 export const WINDOWS_MENU: AppMenuGroup[] = [
   { label: 'File', items: [{ label: 'New', command: 'new' }, { label: 'Open…', command: 'open' }, { label: 'Save', command: 'save' }, { label: 'Save As…', command: 'saveAs' }, { label: 'Close Project', command: 'close' }] },
@@ -26,8 +26,32 @@ export const WINDOWS_MENU: AppMenuGroup[] = [
   { label: 'Help', items: [{ label: 'About OpenLights', role: 'about' }] }
 ]
 
-export const CONTEXT_MENUS = {
-  fixture: ['group', 'beamDirection', 'highlight', 'undo', 'redo', 'design'],
+/**
+ * The standard macOS application menu (Jake, 24 Nov 2026 — Cmd+Q did
+ * nothing: the custom menu had no app menu and no Quit role, so the
+ * keystroke was never bound to anything). Electron gives a role 'quit'
+ * item the label "Quit OpenLights" and the Cmd+Q accelerator
+ * automatically, and a role 'about' item the same treatment. Windows and
+ * Linux keep exactly WINDOWS_MENU — no app menu there.
+ */
+export function macAppMenu(appName: string): AppMenuGroup {
+  return {
+    label: appName,
+    items: [
+      { label: `About ${appName}`, role: 'about' },
+      { label: '', type: 'separator' },
+      { label: `Quit ${appName}`, role: 'quit' }
+    ]
+  }
+}
+
+/** The full menu groups for a platform: the macOS app menu first on
+ * darwin, WINDOWS_MENU alone everywhere else. */
+export function menuGroupsFor(platform: string, appName: string): AppMenuGroup[] {
+  return platform === 'darwin' ? [macAppMenu(appName), ...WINDOWS_MENU] : WINDOWS_MENU
+}
+
+export const CONTEXT_MENUS = {  fixture: ['group', 'beamDirection', 'highlight', 'undo', 'redo', 'design'],
   preset: ['undo', 'redo', 'live'],
   // Add Overrides / Edit Ad Hoc Properties (Guide ch.11, pp.201–202):
   // Control-click a button in the Live view or a cue in a cuelist.

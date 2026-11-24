@@ -13,7 +13,7 @@ import extract from 'extract-zip'
 import { DMXEngine } from '../shared/dmx'
 import type { NdiRegionColour, NdiSourceInfo } from '../shared/ndiAmbience'
 import type { DmxPortInfo, SerialDmxProtocol } from '../shared/types'
-import { WINDOWS_MENU } from '../shared/menuModel'
+import { menuGroupsFor } from '../shared/menuModel'
 import { importOflFixture, isOflFixture, mergeOflLibraries, duplicateProfileAsCustom, upsertCustomProfile, deleteCustomProfile, preservesUserLibrary, shouldClearBundledOflCache } from '../shared/oflFixtureFormat'
 import { validateProfile } from '../shared/profileValidation'
 import { BUILTIN_PROFILES } from '../shared/fixtureProfiles'
@@ -80,6 +80,15 @@ function ensureNdiWorker(): UtilityProcess {
   if (ndiWorker) return ndiWorker
   const worker = utilityProcess.fork(path.join(__dirname, 'ndi-worker.js'))
   ndiWorker = worker
+  // A UtilityProcess emits 'error' if the worker hits a fatal error.
+  // With no listener the emission throws in the main process and can
+  // kill the event loop — the same class of hang as the DMX port close
+  // (Jake, 24 Nov 2026 — Mac quit hang). The 'exit' handler below does
+  // the real cleanup; this only stops the event from throwing. The
+  // worker exits itself on parentPort close at quit.
+  worker.on('error', (type, location) => {
+    console.error('[ndi] worker error:', type, location)
+  })
   ndiWorkerReady = new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('NDI worker did not start in time.')), 15000)
     timer.unref()
@@ -461,9 +470,11 @@ function createWindow() {
     trafficLightPosition: process.platform === 'darwin' ? { x: 20, y: 19 } : undefined,
     titleBarOverlay: process.platform === 'darwin' ? false : TITLE_BAR_OVERLAY_MAIN
   })
-  const template: MenuItemConstructorOptions[] = WINDOWS_MENU.map((group) => ({
+  // The macOS app menu (Quit / Cmd+Q) comes first on darwin via
+  // menuGroupsFor; Windows and Linux get exactly WINDOWS_MENU.
+  const template: MenuItemConstructorOptions[] = menuGroupsFor(process.platform, app.name).map((group) => ({
     label: group.label,
-    submenu: group.items.map((item) => item.role ? { label: item.label, role: item.role } : { label: item.label, click: () => item.command && mainWindow?.webContents.send('menu:command', item.command) })
+    submenu: group.items.map((item) => item.type === 'separator' ? { type: 'separator' } : item.role ? { label: item.label, role: item.role } : { label: item.label, click: () => item.command && mainWindow?.webContents.send('menu:command', item.command) })
   }))
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   mainWindow.setMenuBarVisibility(true)
@@ -546,6 +557,25 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   app.quit()
 })
+
+// Quit notes (Jake, 24 Nov 2026 — Mac quit hang): app.quit() runs the
+// whole quit sequence but does NOT terminate the process while a native
+// handle is still live. Proven in the VM with Electron 45 + serialport:
+// closing a DMX serial port while a write is stuck (the device stopped
+// draining) cancels the write, and serialport emits an 'error' event
+// (BindingsError: Canceled) on the port while closing. With no 'error'
+// listener that emission throws inside the stream machinery and kills
+// the main process's event loop — the close never completes, no timer
+// fires, and app.exit(0) / process.exit(0) in will-quit do NOT terminate
+// the process either (all three were tried in the VM; the 'exit' event
+// fires but the process lives on, and it ignores SIGTERM too, so only
+// Force Quit works — exactly Jake's symptoms). The protection is upstream
+// of quit: DMXEngine attaches an 'error' listener when it connects
+// (src/shared/dmx.ts), so the close completes in ~100ms even with a
+// wedged device (tests/dmx-wedged-port.test.ts), and the NDI worker has
+// an 'error' listener below for the same reason. There is deliberately
+// NO force-exit here — in the frozen state nothing in-process can rescue
+// the process, and in the healthy state the loop drains on its own.
 
 // DMX port handling
 ipcMain.handle('get-dmx-ports', async (): Promise<DmxPortInfo[]> => dmxEngine.listPorts())
