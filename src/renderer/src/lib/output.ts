@@ -35,6 +35,12 @@ export function configureSequences(active: SequenceDef[], presets: PresetDef[] =
 }
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null
+/** The target of the in-flight base fade, and when it started / how long
+ *  it runs — so a base re-assert can tell whether the fade is already
+ *  heading where the look now is, instead of cancelling it. */
+let fadeTarget: Record<number, number> | null = null
+let fadeStartedAt = 0
+let fadeDurationMs = 0
 let effectFrame: number | null = null
 let effectStartedAt = 0
 let presets: Record<number, number> = {}
@@ -414,6 +420,44 @@ export function cancelFade() {
     cancelAnimationFrame(fadeFrame)
     fadeFrame = null
   }
+  fadeTarget = null
+  fadeStartedAt = 0
+  fadeDurationMs = 0
+}
+
+/** Two channel patches carry the same look (a missing channel reads 0,
+ *  matching how the fade treats one). */
+function samePatch(a: Record<number, number>, b: Record<number, number>): boolean {
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    if ((a[Number(key)] ?? 0) !== (b[Number(key)] ?? 0)) return false
+  }
+  return true
+}
+
+/**
+ * Re-send the base look without snapping a fade in flight (Jake,
+ * 24 Nov 2026: firing a cue must fade, but the manual-overrides
+ * effect re-asserted the base on every cue activation and its
+ * sendImmediate cancelled the fade the instant it started).
+ * - A fade already heading to this target is left alone — the fade
+ *   lands exactly where the look now is.
+ * - A fade heading elsewhere is retargeted: it continues from the
+ *   current interpolated base toward the new target, over the
+ *   remaining fade time — or over `fadeMs` when the caller passes
+ *   one, because that is a new transition with its own time.
+ * - With no fade in flight, `fadeMs` fades to the target and no
+ *   `fadeMs` sends it immediately (a dimmer drag must still show
+ *   light at once, not a second later).
+ */
+export function reassertBase(target: Record<number, number>, fadeMs?: number) {
+  if (fadeFrame !== null) {
+    if (fadeTarget && samePatch(fadeTarget, target)) return
+    const remaining = Math.max(0, fadeDurationMs - (performance.now() - fadeStartedAt))
+    sendChannels(target, fadeMs !== undefined ? fadeMs : remaining)
+    return
+  }
+  if (fadeMs !== undefined && fadeMs > 0) sendChannels(target, fadeMs)
+  else sendImmediate(target)
 }
 
 function smoothstep(t: number): number {
@@ -450,6 +494,9 @@ export function sendChannels(target: Record<number, number>, fadeMs = 0) {
   const fromLevels = patchBrightness(from, runtime.fixtures)
   const toLevels = patchBrightness(target, runtime.fixtures)
   const start = performance.now()
+  fadeTarget = { ...target }
+  fadeStartedAt = start
+  fadeDurationMs = fadeMs
   const channels = new Set(
     [...Object.keys(from), ...Object.keys(target)].map((key) => Number(key))
   )
@@ -470,6 +517,9 @@ export function sendChannels(target: Record<number, number>, fadeMs = 0) {
       fadeFrame = requestAnimationFrame(tick)
     } else {
       fadeFrame = null
+      fadeTarget = null
+      fadeStartedAt = 0
+      fadeDurationMs = 0
       base = { ...target }
       baseLevels = { ...toLevels }
     }

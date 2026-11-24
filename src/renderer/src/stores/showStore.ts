@@ -64,7 +64,8 @@ import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { completePresetBaseColour } from '../lib/presetColor'
 import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
-import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels } from '../lib/output'
+import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels, reassertBase } from '../lib/output'
+import { resolveFadeMs, activeLivePageFadeMs } from '../lib/fadeTimes'
 import { computeEffectPatch } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
 
@@ -307,7 +308,7 @@ interface ShowState {
    * after that would leave it stale (Jake, 20 Nov 2026: the dimmer
    * drags but no light appears). Called after any manual-override
    * change. A no-op under blackout or with no show open. */
-  refreshBaseOutput: () => void
+  refreshBaseOutput: (fadeMs?: number) => void
   flashCue: (id: string) => void
   endFlash: () => void
   capturePreset: (name: string, category: PresetCategory) => void
@@ -759,7 +760,10 @@ function resendActiveCueForPreset(
 ) {
   const cue = state.cues.find((s) => s.id === state.activeCueId)
   if (!cue || !(cue.presetIds ?? []).includes(presetId) || state.blackout) return
-  sendImmediate(cueOutput({ ...state, show: state.show ? { ...state.show, presets } : null }, cue))
+  // A live edit, not a transition: re-assert without a fade time, so
+  // it reaches the output at once when idle and retargets a fade in
+  // flight instead of snapping it (Jake, 24 Nov 2026).
+  reassertBase(cueOutput({ ...state, show: state.show ? { ...state.show, presets } : null }, cue))
 }
 
 /** Merge a patch into the persisted show, and optionally into top-level state. */
@@ -783,6 +787,21 @@ function persistState(
 
 function activeLivePage(state: ShowState): LivePage | undefined {
   return state.show?.livePages?.find((page) => page.id === state.activeLivePageId) ?? state.show?.livePages?.[0]
+}
+
+/** Fade time for a Live-driven base change with no explicit time of
+ *  its own (Jake, 24 Nov 2026): the active Live page's own fade
+ *  where set, else the global Default fade. Used by preset toggles
+ *  and Live toggle presses — the base lift they cause (including the
+ *  default blue on a virtual-dimmer fixture, whose brightness only
+ *  the base carries) fades over the page's time, not the global.
+ *  Deliberately NOT used for fader drags, flash presses or Design
+ *  edits, which must stay immediate. */
+function liveTransitionFadeMs(state: ShowState): number {
+  return resolveFadeMs({
+    pageFadeMs: activeLivePageFadeMs(state.show?.livePages, state.activeLivePageId),
+    defaultFadeMs: state.show?.preferences?.defaultFadeMs
+  })
 }
 
 function saveLivePages(state: ShowState, livePages: LivePage[]): Partial<ShowState> {
@@ -1303,8 +1322,13 @@ const actions: ShowState = {
     // A Live pad changes the dimmer the fixtures are actually at, so
     // the base look must re-resolve against it (Jake, 22 Nov 2026):
     // a pressed Full On pad lifts an active palette preset and raises
-    // the default blue, and releasing it drops both again.
-    get().refreshBaseOutput()
+    // the default blue, and releasing it drops both again. A toggle
+    // press is a transition, so its base lift fades over the active
+    // Live page's fade where set, else the global Default fade (Jake,
+    // 24 Nov 2026). A fader drag or flash press stays immediate — it
+    // must not start a fade (livePageFadeWiring.test.tsx).
+    const control = get().show?.livePages?.flatMap((page) => page.controls).find((item) => item.id === id)
+    get().refreshBaseOutput(control?.type === 'toggle' ? liveTransitionFadeMs(get()) : undefined)
   },
   getLiveOutputLevels: () => {
     const state = get()
@@ -1786,21 +1810,32 @@ const actions: ShowState = {
     return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
   }),
 
-  refreshBaseOutput: () => {
+  refreshBaseOutput: (fadeMs?: number) => {
     const state = get()
     if (!state.show || state.blackout) return
     const active = state.cues.find((cue) => cue.id === state.activeCueId)
-    // sendImmediate cancels an in-flight base fade (a cue transition):
-    // a manual override is a live intervention, so it takes precedence
-    // over the fade — the same trade the cue-write paths already make.
-    sendImmediate(active ? cueOutput(state, active) : defaultsPatch(state))
+    // Fade-aware (Jake, 24 Nov 2026): this used to sendImmediate, which
+    // cancelled any in-flight base fade — so a cue recall snapped the
+    // instant it started, because the manual-overrides effect calls
+    // this on every cue activation. reassertBase leaves a fade alone
+    // when it is already heading to this target, retargets it when the
+    // look moved, and only sends immediately when nothing is fading
+    // and the caller passed no fade time (a dimmer drag must still
+    // show light at once, and fader drags/flash presses must not
+    // start a fade). Callers that ARE a transition pass their fade
+    // time — preset toggles and Live toggle presses pass the active
+    // Live page's fade where set, else the global Default fade.
+    reassertBase(active ? cueOutput(state, active) : defaultsPatch(state), fadeMs)
   },
 
   activateCue: (id) =>
     set((state) => {
       const cue = state.cues.find((s) => s.id === id)
       if (!cue) return state
-      if (!state.blackout) sendChannels(cueOutput(state, cue), cue.fadeMs)
+      // Fade time (Jake, 24 Nov 2026): the cue's own fadeMs where set,
+      // the global Default fade otherwise — a cue with no explicit
+      // time fades over the global setting, it never snaps.
+      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: cue.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueId: id,
         cuePlaying: false
@@ -1915,15 +1950,17 @@ const actions: ShowState = {
     // The base look resolves its colours against the dimmer the
     // fixtures are actually at: a dimmer preset toggled on must raise
     // the default blue, and toggled off must drop it again (Jake,
-    // 22 Nov 2026).
-    get().refreshBaseOutput()
+    // 22 Nov 2026). A preset carries no fade time of its own, so the
+    // change fades over the active Live page's fade where set, else
+    // the global Default fade (Jake, 24 Nov 2026).
+    get().refreshBaseOutput(liveTransitionFadeMs(get()))
   },
   setActivePresets: (ids) => {
     set((state) => {
       const valid = new Set(state.presets.map((preset) => preset.id))
       return { activePresetIds: ids.filter((id) => valid.has(id)) }
     })
-    get().refreshBaseOutput()
+    get().refreshBaseOutput(liveTransitionFadeMs(get()))
   },
   setActiveEffects: (ids) => {
     set((state) => {
@@ -1937,7 +1974,7 @@ const actions: ShowState = {
   stopSequences: () => set({ activeSequenceIds: [] }),
   clearPresets: () => {
     set({ activePresetIds: [] })
-    get().refreshBaseOutput()
+    get().refreshBaseOutput(liveTransitionFadeMs(get()))
   },
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
@@ -2275,7 +2312,9 @@ const actions: ShowState = {
       const cues = state.cues.map((s) => (s.id === id ? { ...s, ...patch } : s))
       const updated = cues.find((s) => s.id === id)
       if (updated && state.activeCueId === id && !state.blackout) {
-        sendImmediate(cueOutput(state, updated))
+        // A live edit retargets a fade in flight instead of snapping
+        // it, and stays immediate when nothing is fading.
+        reassertBase(cueOutput(state, updated))
       }
       return persistState(state, { cues }, { cues })
     }),
@@ -2330,7 +2369,7 @@ const actions: ShowState = {
         return { ...cue, fixtureValues }
       })
       const updatedCue = cues.find((cue) => cue.id === activeCue.id)
-      if (updatedCue && !state.blackout) sendImmediate(cueOutput(state, updatedCue))
+      if (updatedCue && !state.blackout) reassertBase(cueOutput(state, updatedCue))
       return persistState(state, { cues }, { cues, activeCueId: activeCue.id, cuePlaying: false })
     }),
 
@@ -2447,7 +2486,7 @@ const actions: ShowState = {
       })
       const active = state.cues.find((s) => s.id === state.activeCueId)
       if (active && !state.blackout) {
-        sendImmediate(cueOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
+        reassertBase(cueOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
       }
       return persistState(state, { fixtures })
     }),
@@ -2544,7 +2583,7 @@ const actions: ShowState = {
             patch[removed.channelStart + offset] = 0
           }
         }
-        sendImmediate(patch)
+        reassertBase(patch)
       }
       const presets = state.presets.map((preset) => { const fixtureValues = { ...preset.fixtureValues }; delete fixtureValues[id]; return { ...preset, fixtureValues } })
       const livePages = state.show?.livePages?.map((page) => ({ ...page, controls: page.controls.map((control) => { const adHocValues = { ...control.adHocValues }; delete adHocValues[id]; return { ...control, adHocValues } }) }))
@@ -2963,7 +3002,7 @@ const actions: ShowState = {
       const step = list.steps[index]
       const cue = step ? state.cues.find((s) => s.id === step.cueId) : undefined
       if (!step || !cue) return state
-      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
+      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueListId: listId,
         activeCueIndex: index,
@@ -2989,7 +3028,7 @@ const actions: ShowState = {
       const step = list.steps[next]
       const cue = state.cues.find((s) => s.id === step.cueId)
       if (!cue) return { ...state, cuePlaying: false }
-      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
+      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueIndex: next,
         activeCueId: cue.id,
@@ -3008,7 +3047,7 @@ const actions: ShowState = {
       const step = list.steps[prev]
       const cue = state.cues.find((s) => s.id === step.cueId)
       if (!cue) return state
-      if (!state.blackout) sendChannels(cueOutput(state, cue), step.fadeMs)
+      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueIndex: prev,
         activeCueId: cue.id,

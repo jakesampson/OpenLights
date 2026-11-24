@@ -121,6 +121,18 @@ const pRed = () => frame()[1]
 const pIntensity = () => frame()[0]
 const pBlue = () => frame()[3]
 
+/** Run every pending animation frame to the end of the fade — the base
+ *  look now fades over the global Default fade instead of snapping
+ *  (Jake, 24 Nov 2026), so a test asserting the settled look must let
+ *  the fade land first. */
+function finishFade() {
+  const t = performance.now() + 5000
+  let guard = 0
+  while (frames.size && guard++ < 10) {
+    for (const [id, cb] of [...frames]) { frames.delete(id); cb(t) }
+  }
+}
+
 describe('Live pads lift palette presets (whole App)', () => {
   it('A1: palette Red + Live Full On pad gives red at full', () => {
     seedShow()
@@ -197,6 +209,9 @@ describe('Live pads lift palette presets (whole App)', () => {
     renderInRoot(<App />)
     const s = () => useShowStore.getState()
     act(() => { s().togglePreset('full') })
+    // The blue comes from the base look, which fades in over the
+    // global Default fade (Jake, 24 Nov 2026).
+    finishFade()
     expect(qBlue()).toBe(255)
     expect(qRed()).toBe(0)
     expect(pBlue()).toBe(255)

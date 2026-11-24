@@ -12,6 +12,8 @@ import { orderedFanTargets } from '../lib/fanning'
 import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } from '../lib/fanningHud'
 import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
+import { FixtureIcon } from './FixtureIcon'
+import { fixtureIconKind } from '../lib/fixtureIcon'
 import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
@@ -676,6 +678,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           // one beam it always did.
           const cells = previewCellBeams(f, f.values, { color: appearance.color, opacity: op })
           const multiBeam = cells.length >= 2
+          const beams = fixtureBeams(f)
+          // LightKey Guide p.32: the icon varies by fixture type.
+          const kind = fixtureIconKind(f)
           const selectable = fixtures.length > 0
           const selected = selectable && selectedFixtureIds.includes(f.id)
           return (
@@ -775,26 +780,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               ) })()}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
-              <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
-              {selected && (
-                <circle
-                  cx={x}
-                  cy={y}
-                  r="9"
-                  fill="var(--accent)"
-                  fillOpacity="0.22"
-                  stroke="var(--accent)"
-                  strokeWidth="2"
-                />
-              )}
-              <circle
-                cx={x}
-                cy={y}
-                r="5"
-                fill={on ? f.color : 'var(--panel2)'}
-                stroke={selected ? 'var(--accent)' : 'var(--line)'}
-                strokeWidth={selected ? '2' : '1.5'}
-              />
+                <FixtureIcon kind={kind} x={x} y={y} on={on} color={f.color} selected={selected} cells={beams.length} />
               </g>
               <circle
                 cx={x}
@@ -810,7 +796,19 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   4.5 units off-centre. Each rect now shows its own
                   cell's colour (the fixture colour where a cell
                   carries no data), matching its beam. */}
-              {fixtureBeams(f).map((beam, index) => <rect key={beam.id} x={x + (index - (fixtureBeams(f).length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : cells[index]?.color ?? f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {/* LED bar housing (LightKey Guide p.32): the bar's body
+                  sits behind its cell rects, spanning them with a
+                  small margin — drawn here, with the rects, so it
+                  shares their fixed 9-unit spacing rather than the
+                  icon group's rotation/scale. A selected bar gets the
+                  same accent surround the other icons get. */}
+              {kind === 'led-bar' && beams.length >= 2 && (() => { const width = (beams.length - 1) * 9 + 11; return (
+                <>
+                  {selected && <rect x={x - width / 2 - 3} y={y - 8} width={width + 6} height="16" rx="3" fill="var(--accent)" fillOpacity="0.22" stroke="var(--accent)" strokeWidth="2" />}
+                  <rect x={x - width / 2} y={y - 5} width={width} height="10" rx="1.5" fill={on ? f.color : 'var(--panel2)'} stroke={selected ? 'var(--accent)' : 'var(--line)'} strokeWidth={selected ? '2' : '1.5'} />
+                </>
+              ) })()}
+              {beams.map((beam, index) => <rect key={beam.id} x={x + (index - (beams.length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : cells[index]?.color ?? f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
               {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )

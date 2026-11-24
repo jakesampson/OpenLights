@@ -15,13 +15,30 @@
 // The composed-frame checks live in livePresetLift.test.tsx (whole
 // App); this file locks the units the App behaviour stands on.
 // @vitest-environment jsdom
-import { describe, expect, it, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { act } from 'react-dom/test-utils'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { getCurrentPatch } from '../src/renderer/src/lib/output'
 import { effectiveIntensityLevels } from '../src/renderer/src/lib/effectiveIntensity'
 import { completePresetBaseColour } from '../src/renderer/src/lib/presetColor'
+
+// The base look now fades over the global Default fade instead of
+// snapping (Jake, 24 Nov 2026), so a test asserting the settled base
+// must run the pending animation frames to the end of the fade first.
+const frames: Array<FrameRequestCallback | null> = []
+vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
+vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames[id - 1] = null })
+
+/** Run every pending frame with a time past the end of the fade. */
+function finishFade() {
+  const t = performance.now() + 2000
+  let tick: FrameRequestCallback | undefined
+  while (frames.length) {
+    tick = frames.pop() ?? undefined
+    if (tick) tick(t)
+  }
+}
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -171,6 +188,9 @@ describe('base look tracks intensity sources', () => {
 
   it('a palette dimmer preset alone raises the default blue on the Q fixture', () => {
     act(() => { useShowStore.getState().togglePreset('full') })
+    // The lift fades in over the global Default fade (Jake, 24 Nov
+    // 2026) — it is at full only once the fade has landed.
+    finishFade()
     const base = getCurrentPatch()
     expect(base[22]).toBe(255) // q1 blue
     expect(base[20]).toBe(0) // q1 red stays off
@@ -180,8 +200,10 @@ describe('base look tracks intensity sources', () => {
 
   it('toggling the dimmer preset off drops the default blue again', () => {
     act(() => { useShowStore.getState().togglePreset('full') })
+    finishFade()
     expect(getCurrentPatch()[22]).toBe(255)
     act(() => { useShowStore.getState().togglePreset('full') })
+    finishFade()
     expect(getCurrentPatch()[22]).toBe(0)
     // p1's blue channel stays 255 in the base patch — a hardware
     // fixture carries its colour unscaled and dims in hardware — but
