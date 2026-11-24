@@ -746,7 +746,10 @@ select optgroup { background: #555658; color: #fff; }
    rail is now the flexible part of the column (`flex: 1 1 auto`,
    `min-height: 0`) and fills whatever height the panel gives it; the
    Master label, Full readout and BPM button are flex-none, so the track
-   ends above the tap-tempo button and can never overlap it. */
+   ends above the tap-tempo button and can never overlap it. The rail
+   has no border or background of its own (Jake, 25 Nov 2026): like
+   LightKey, the Master label, the fader track and the readout sit
+   directly on the panel background with no card around them. */
 .live-master-rail {
   display: flex;
   width: 96px;
@@ -756,9 +759,7 @@ select optgroup { background: #555658; color: #fff; }
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--panel2);
+  background: transparent;
   padding: 6px 4px;
   overflow: hidden;
 }
@@ -828,14 +829,16 @@ select optgroup { background: #555658; color: #fff; }
 /* Tap-tempo box: a separate element under the rail, the same 96px
    width, never inside the rail. Its four quadrants sit behind the
    text; the lit one (one per beat, clockwise) is a lighter
-   lavender, as in LightKey. */
+   lavender, as in LightKey. No background of its own (Jake, 25 Nov
+   2026): the text and quadrants sit directly on the panel
+   background, like the rest of the Master column. */
 .live-master-bpm {
   position: relative;
   width: 96px;
   flex: none;
   overflow: hidden;
   border-radius: 4px;
-  background: var(--panel);
+  background: transparent;
   padding: 6px 2px;
   text-align: center;
   color: var(--text);

@@ -1,15 +1,17 @@
 import type { LiveControl, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import {
-  clampLiveSize, LIVE_CUE_SIZE, LIVE_FRAME_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor
+  clampLiveSize,
+  LIVE_CUE_SIZE, LIVE_FRAME_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor
 } from '@shared/liveObjectDefaults'
 
 export type PageObjectType = 'cue' | 'list' | 'annotation'
 export interface PageObjectRef { type: PageObjectType; id: string }
 export interface Rect { x: number; y: number; width: number; height: number }
 
-const MAX_X = 740
-const MAX_Y = 440
-const clamp = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value)))
+/** Positions never go below 0; there is no ceiling — the canvas grows
+ *  to fit instead of clamping (Jake, 25 Nov 2026: infinitely
+ *  scrollable, expanding on demand). */
+const clamp = (value: number) => Math.max(0, Math.round(value))
 
 interface Positioned extends PageObjectRef { x: number; y: number; width: number; height: number }
 
@@ -172,7 +174,7 @@ export function objectsInRect(page: LivePage, rect: Rect): PageObjectRef[] {
 /** Move selected objects (and anything attached to them) by a delta, clamped to the page. Immutable. */
 export function moveObjects(page: LivePage, refs: PageObjectRef[], dx: number, dy: number): LivePage {
   const ids = indexRefs(withAttached(page, refs))
-  const moved = (x: number, y: number) => ({ x: clamp(x + dx, MAX_X), y: clamp(y + dy, MAX_Y) })
+  const moved = (x: number, y: number) => ({ x: clamp(x + dx), y: clamp(y + dy) })
   return {
     ...page,
     controls: page.controls.map((c) => ids.cue.has(c.id) ? { ...c, ...moved(c.x ?? 0, c.y ?? 0) } : c),
@@ -236,9 +238,9 @@ const withNewIds = (
   const remap = (attachedTo: string | undefined): string | undefined =>
     attachedTo === undefined ? undefined : idMap.get(attachedTo) ?? attachedTo
   return {
-    controls: controls.map((c) => ({ ...c, attachedTo: remap(c.attachedTo), x: clamp((c.x ?? 0) + dx, MAX_X), y: clamp((c.y ?? 0) + dy, MAX_Y) })),
-    widgets: widgets.map((w) => ({ ...w, attachedTo: remap(w.attachedTo), x: clamp(w.x + dx, MAX_X), y: clamp(w.y + dy, MAX_Y) })),
-    annotations: annotations.map((a) => ({ ...a, attachedTo: remap(a.attachedTo), x: clamp(a.x + dx, MAX_X), y: clamp(a.y + dy, MAX_Y) })),
+    controls: controls.map((c) => ({ ...c, attachedTo: remap(c.attachedTo), x: clamp((c.x ?? 0) + dx), y: clamp((c.y ?? 0) + dy) })),
+    widgets: widgets.map((w) => ({ ...w, attachedTo: remap(w.attachedTo), x: clamp(w.x + dx), y: clamp(w.y + dy) })),
+    annotations: annotations.map((a) => ({ ...a, attachedTo: remap(a.attachedTo), x: clamp(a.x + dx), y: clamp(a.y + dy) })),
     refs
   }
 }

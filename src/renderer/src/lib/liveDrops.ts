@@ -7,9 +7,7 @@ export const LIVE_DROP_MIME = 'application/x-openlights-live-drop'
 /** Legacy single-preset type still written for interoperability. */
 export const LEGACY_PRESET_MIME = 'application/x-openlights-preset'
 
-const MAX_X = 740
-const MAX_Y = 440
-const snap = (value: number, max: number) => Math.max(0, Math.min(max, Math.round(value / 10) * 10))
+const snap = (value: number) => Math.max(0, Math.round(value / 10) * 10)
 
 /** What is being dragged: any mix of presets and sequences, or the NDI
  *  Ambience entry (Jake, 23 Nov 2026) — a standalone Live button with no
@@ -104,13 +102,13 @@ function dropPosition(
   frame: { x: number; y: number; width: number; height: number } | undefined,
   width: number, height: number
 ): { x: number; y: number } {
-  let px = snap(x, MAX_X), py = snap(y, MAX_Y)
+  let px = snap(x), py = snap(y)
   if (frame) {
     const margin = 10
     const cx = Math.max(frame.x + margin, Math.min(frame.x + frame.width - margin, px + width / 2))
     const cy = Math.max(frame.y + margin, Math.min(frame.y + frame.height - margin, py + height / 2))
-    px = Math.max(0, Math.min(MAX_X, Math.round(cx - width / 2)))
-    py = Math.max(0, Math.min(MAX_Y, Math.round(cy - height / 2)))
+    px = Math.max(0, Math.round(cx - width / 2))
+    py = Math.max(0, Math.round(cy - height / 2))
   }
   return { x: px, y: py }
 }

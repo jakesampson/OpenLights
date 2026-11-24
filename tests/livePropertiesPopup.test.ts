@@ -78,8 +78,11 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).not.toContain('relative flex min-h-full flex-col gap-2')
     // The canvas scroll container must be allowed to shrink below the
     // 520px canvas height, so the canvas scrolls internally and the
-    // section never grows past the panel body.
-    expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden')
+    // section never grows past the panel body. It scrolls vertically as
+    // well as horizontally now that the canvas can grow downwards past
+    // the visible panel (Jake, 25 Nov 2026) — still internal scrolling,
+    // so the section height (and the popup against it) is unaffected.
+    expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto')
     // The popup itself is unchanged: anchored top and bottom with its own
     // internal scroll, so a long properties list is reachable without
     // moving the canvas behind it.

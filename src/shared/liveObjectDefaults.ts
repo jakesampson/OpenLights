@@ -15,6 +15,41 @@ export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 export const MIN_LIVE_OBJECT_SIZE = 40
 export const MAX_LIVE_OBJECT_SIZE = 900
 
+/** Live canvas size, in page pixels. */
+export interface LiveCanvasBounds { width: number; height: number }
+/** The classic Live canvas: 900 wide, 520 tall (Jake, 22 Nov 2026).
+ *  The width is still the canvas minimum — the canvas was always a
+ *  900-wide sheet — but the height was always the panel height (the
+ *  canvas renders h-full inside the 294px bottom panel), so the height
+ *  minimum is just the visible viewport. Neither is a maximum any
+ *  more: the canvas grows past both as objects approach an edge
+ *  (Jake, 25 Nov 2026 — infinitely scrollable, expanding on demand). */
+export const DEFAULT_LIVE_CANVAS_BOUNDS: LiveCanvasBounds = { width: 900, height: 520 }
+/** Breathing room past the furthest object's edge when the canvas
+ *  grows — the new area always has room for the object plus a margin,
+ *  so a button dropped near the edge is never half off the canvas. */
+export const LIVE_CANVAS_GROW_MARGIN = 20
+/** Snap a canvas coordinate to the 10px grid; never below 0, and with
+ *  no ceiling — a position past the old edge grows the canvas instead
+ *  of being clamped back (Jake, 25 Nov 2026). */
+export const snapCanvasValue = (value: number): number => Math.max(0, Math.round(value / 10) * 10)
+/** Size a canvas so it covers the visible viewport and every object
+ *  rect, with breathing room past the furthest edge. The width never
+ *  shrinks below the classic 900; the height never shrinks below the
+ *  viewport. There is no maximum — drop or drag an object near an
+ *  edge and the next size includes it, so the scroll container lets
+ *  the user scroll into the new area, and the canvas keeps growing
+ *  as needed. */
+export function canvasSizeFor(
+  viewport: LiveCanvasBounds,
+  rects: { x: number; y: number; width: number; height: number }[]
+): LiveCanvasBounds {
+  return {
+    width: Math.max(DEFAULT_LIVE_CANVAS_BOUNDS.width, viewport.width, ...rects.map((r) => r.x + r.width + LIVE_CANVAS_GROW_MARGIN)),
+    height: Math.max(viewport.height, ...rects.map((r) => r.y + r.height + LIVE_CANVAS_GROW_MARGIN))
+  }
+}
+
 /** Clamp a resize dimension to the allowed range and snap to the 10px grid. */
 export function clampLiveSize(value: number): number {
   if (!Number.isFinite(value)) return MIN_LIVE_OBJECT_SIZE

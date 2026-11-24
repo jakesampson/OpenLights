@@ -83,7 +83,7 @@ describe('Live Edit — LightKey layout', () => {
     for (const item of ['New Button', 'Insert Text', 'Insert Cuelist', 'Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', '✓ Edit Live View']) {
       expect(workspace).toContain(item)
     }
-    expect(workspace).toContain('clampCanvasPoint')
+    expect(workspace).toContain('snapCanvasPoint')
   })
 
   it('inspector shows Ad hoc properties, Timing in mm:ss.t, and Button Type', () => {
@@ -128,7 +128,10 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('onDoubleClick={() => openPropertiesPopup(ref)}')
     expect(workspace).toContain('overflow-y-auto')
     expect(workspace).not.toContain('Page inspector')
-    expect(workspace).toContain('overflow-x-auto overflow-y-hidden')
+    // The canvas scrolls both ways now that it can grow past the visible
+    // panel in either direction (Jake, 25 Nov 2026); the popup itself is
+    // still anchored to the section, not the canvas.
+    expect(workspace).toContain('overflow-x-auto overflow-y-auto')
     expect(workspace).toContain('h-full min-w-full')
     expect(workspace).not.toContain('renameInput')
   })

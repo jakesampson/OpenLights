@@ -142,19 +142,31 @@ describe('Live panel borders — gone in Live mode, back in Live Edit mode', () 
   it('gates the page section, canvas container and blank-page borders on editing', () => {
     // One shared border choice, used by all three bordered boxes.
     expect(workspace).toContain("const panelBorder = editing ? 'border border-line' : 'border border-transparent'")
-    expect(workspace).toContain('rounded ${panelBorder} bg-bg/30 p-3')
-    expect(workspace).toContain('min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded ${panelBorder}')
+    // The section carries no darker background of its own (Jake,
+    // 25 Nov 2026): it sits directly on the bottom panel's background,
+    // so the header above and the canvas below read as one canvas.
+    expect(workspace).toContain('rounded ${panelBorder} p-3')
+    expect(workspace).not.toContain('rounded ${panelBorder} bg-bg/30 p-3')
+    // The canvas scrolls both ways now that it can grow past the
+    // visible panel in either direction (Jake, 25 Nov 2026).
+    expect(workspace).toContain('min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded ${panelBorder}')
     expect(workspace).toContain('items-center justify-center rounded ${panelBorder} bg-panel')
     // No hard-coded panel border is left on the section or canvas.
     expect(workspace).not.toContain('rounded border border-line bg-bg/30 p-3')
-    expect(workspace).not.toContain('min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded border border-line')
+    expect(workspace).not.toContain('min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded border border-line')
   })
 
-  it('keeps the borders that are not the page panel — cue buttons, frames, Master rail, inspector', () => {
-    // Frames on the canvas keep their border; the Master rail keeps its
-    // border box; cue buttons are unchanged.
+  it('keeps the borders that are not the page panel — cue buttons, frames, inspector', () => {
+    // Frames on the canvas keep their border; cue buttons are unchanged.
+    // The Master rail's border box is GONE (Jake, 25 Nov 2026): like
+    // LightKey, the label, track and readout sit directly on the panel
+    // background with no card around them — see livePanelTidy.test.ts,
+    // which pins the rail's borderless rule.
     expect(workspace).toContain("item.type === 'frame' ? 'border border-line rounded'")
     expect(css).toContain('.live-master-rail {')
-    expect(css).toContain('border: 1px solid var(--line)')
+    const rail = css.match(/\.live-master-rail \{[^}]*\}/s)
+    expect(rail, '.live-master-rail rule exists').not.toBeNull()
+    expect(rail![0]).not.toMatch(/border:/)
+    expect(rail![0]).toContain('background: transparent')
   })
 })

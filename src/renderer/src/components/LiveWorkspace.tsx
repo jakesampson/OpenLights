@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
-import { clampModifier, clampLiveSize, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE } from '@shared/liveObjectDefaults'
+import { clampModifier, clampLiveSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
   decodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
@@ -25,10 +25,14 @@ const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.f
 // the way LightKey's do. Cue-list widgets keep position() — at 240x150
 // they need the wider pitch.
 const cuePosition = (index: number) => ({ x: 20 + (index % 4) * LIVE_CUE_STEP.x, y: 20 + Math.floor(index / 4) * LIVE_CUE_STEP.y })
-// Canvas object space: the grid canvas is 900x520 and objects snap to 10px.
-const clampCanvasPoint = (x: number, y: number) => ({
-  x: Math.max(0, Math.min(740, Math.round(x / 10) * 10)),
-  y: Math.max(0, Math.min(440, Math.round(y / 10) * 10))
+// Canvas object space (Jake, 25 Nov 2026): infinitely scrollable —
+// there is no maximum. Positions snap to the 10px grid and never go
+// below 0, but a point past the old 900x520 edge is kept as-is and the
+// canvas grows to fit it (see canvasSizeFor), instead of being
+// clamped back the way the old fixed 740/440 bounds did.
+const snapCanvasPoint = (x: number, y: number) => ({
+  x: snapCanvasValue(x),
+  y: snapCanvasValue(y)
 })
 
 // LightKey button types (Guide ch.11, "Button", p.199): the model has three
@@ -74,7 +78,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // same in Live and in Edit (see cueBody).
   const editing = liveEditing
   const [draft, setDraft] = useState<{ id: string; x: number; y: number } | null>(null)
-  const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number } | null>(null)
+  const drag = useRef<{ ref: Selection; startX: number; startY: number; x: number; y: number; scrollLeft0?: number; scrollTop0?: number } | null>(null)
   // Drag-anywhere (Jake, 22 Nov 2026): the whole button is the drag handle —
   // there is no drag bar any more. A press only arms a drag; the move
   // starts once the pointer has travelled past DRAG_THRESHOLD, so a plain
@@ -95,6 +99,50 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // follows the single selection; close with X, Esc or Done.
   const [popupOpen, setPopupOpen] = useState(false)
   const pageCanvas = useRef<HTMLDivElement>(null)
+  const canvasViewportRef = useRef<HTMLDivElement>(null)
+  // Visible canvas size in page pixels (Jake, 25 Nov 2026): the scroll
+  // viewport is measured live, content-box only (the Master overlay's
+  // left inset is padding, not canvas), so the canvas is at least as
+  // big as the monitor showing it. 0 until the first measure — the
+  // canvas then falls back to the classic 900x520, exactly as before.
+  const [viewportSize, setViewportSize] = useState<LiveCanvasBounds>({ width: 0, height: 0 })
+  useEffect(() => {
+    const el = canvasViewportRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const measure = () => {
+      const style = getComputedStyle(el)
+      setViewportSize({
+        width: Math.max(0,
+          el.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0')),
+        height: Math.max(0,
+          el.clientHeight - parseFloat(style.paddingTop || '0') - parseFloat(style.paddingBottom || '0'))
+      })
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+  // Auto-scroll while dragging near the viewport edge (Jake, 25 Nov
+  // 2026): the canvas is infinitely scrollable, so a drag that runs
+  // past the visible edge scrolls the viewport along with the pointer
+  // instead of stopping at the edge. The drag math in moveDrag counts
+  // the scroll offset (scrollLeft0/scrollTop0) so the dragged button
+  // stays glued to the pointer while the canvas slides underneath it.
+  const autoScrollViewport = (clientX: number, clientY: number) => {
+    const el = canvasViewportRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    // No laid-out viewport (jsdom, or before first paint): there is
+    // nothing visible to scroll, and a zero rect would read every
+    // pointer as past the edge.
+    if (rect.width <= 0 || rect.height <= 0) return
+    const MARGIN = 48, STEP = 24
+    if (clientX > rect.right - MARGIN) el.scrollLeft += STEP
+    else if (clientX < rect.left + MARGIN) el.scrollLeft -= STEP
+    if (clientY > rect.bottom - MARGIN) el.scrollTop += STEP
+    else if (clientY < rect.top + MARGIN) el.scrollTop -= STEP
+  }
   // LightKey-style context menu (Guide ch.11, p.176): right-click on the
   // canvas or a button in Edit mode. Each item wires to the existing store
   // actions the old bottom-strip buttons used.
@@ -265,7 +313,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }
   }
   const allowDrop = (event: React.DragEvent) => {
-    if (editing && hasDropData(event)) { event.preventDefault(); event.dataTransfer.dropEffect = 'copy' }
+    if (editing && hasDropData(event)) {
+      event.preventDefault(); event.dataTransfer.dropEffect = 'copy'
+      // A palette drag near the edge scrolls the viewport along, so a
+      // button can be dropped past the visible edge and the canvas
+      // grows to hold it (Jake, 25 Nov 2026).
+      autoScrollViewport(event.clientX, event.clientY)
+    }
   }
   const dropAt = (event: React.DragEvent, frameId?: string) => {
     if (!editing) return
@@ -301,7 +355,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     if (!editing || locked) return
     event.preventDefault(); event.stopPropagation()
     const rect = pageCanvas.current?.getBoundingClientRect()
-    const at = clampCanvasPoint(event.clientX - (rect?.left ?? 0), event.clientY - (rect?.top ?? 0))
+    const at = snapCanvasPoint(event.clientX - (rect?.left ?? 0), event.clientY - (rect?.top ?? 0))
     setContextMenu({ x: event.clientX, y: event.clientY, at, alt: event.altKey })
   }
   const cutSelected = () => {
@@ -319,7 +373,15 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   const moveDrag = (event: React.PointerEvent) => {
     if (!drag.current) return
     const d = drag.current
-    setDraft({ id: d.ref.id, x: Math.max(0, Math.min(740, Math.round((d.x + event.clientX - d.startX) / 10) * 10)), y: Math.max(0, Math.min(440, Math.round((d.y + event.clientY - d.startY) / 10) * 10)) })
+    const viewport = canvasViewportRef.current
+    // Baseline the scroll offset on the first move: the canvas may
+    // auto-scroll under the pointer mid-drag, and the scroll delta is
+    // added back below so the button stays glued to the pointer.
+    if (viewport && d.scrollLeft0 === undefined) { d.scrollLeft0 = viewport.scrollLeft; d.scrollTop0 = viewport.scrollTop }
+    const scrollDx = viewport ? viewport.scrollLeft - (d.scrollLeft0 ?? viewport.scrollLeft) : 0
+    const scrollDy = viewport ? viewport.scrollTop - (d.scrollTop0 ?? viewport.scrollTop) : 0
+    setDraft({ id: d.ref.id, x: snapCanvasValue(d.x + event.clientX - d.startX + scrollDx), y: snapCanvasValue(d.y + event.clientY - d.startY + scrollDy) })
+    autoScrollViewport(event.clientX, event.clientY)
   }
   const endDrag = () => {
     const d = drag.current
@@ -454,12 +516,36 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     : inspectorFields(inspectorTarget)
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
   const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
-  const canvasContentWidth = page ? Math.max(1, ...positionedObjects(page).map((item) => item.x + item.width + 20)) : 1
+  // The canvas is at least as big as the visible viewport and grows
+  // past it whenever an object approaches an edge (Jake, 25 Nov 2026):
+  // the dotted grid and the scrollable area always cover the full
+  // extent, and the canvas keeps growing — there is no maximum. The
+  // in-flight drag draft counts too, so the canvas already extends
+  // while a button is being dragged past the edge, not only after it
+  // is dropped. Saved pages keep their positions: everything already
+  // on a page sits within the old 900-wide bounds, so growing never
+  // shifts an object.
+  const positioned = page ? positionedObjects(page) : []
+  const draftRect = draft ? (() => {
+    const item = positioned.find((o) => o.id === draft.id)
+    return item ? { x: draft.x, y: draft.y, width: item.width, height: item.height } : null
+  })() : null
+  const canvasSize = page ? canvasSizeFor(viewportSize, [...positioned, ...(draftRect ? [draftRect] : [])]) : null
+  const canvasContentWidth = canvasSize?.width ?? 1
+  // The canvas renders h-full unless its content runs past the visible
+  // panel — only then does it take an explicit taller height, so the
+  // viewport scrolls down to it instead of cutting objects off.
+  const canvasContentHeight = canvasSize && canvasSize.height > viewportSize.height ? canvasSize.height : undefined
   // LightKey's Live view has no bordered boxes around the page: the
   // panel and canvas borders only render in Live Edit mode, so the
   // editable area is still clearly delineated while editing, and the
   // page sits directly on the background otherwise. border-transparent
   // (not no border at all) keeps the layout from shifting between modes.
+  // The section itself has no background of its own (Jake, 25 Nov 2026):
+  // it sits directly on the bottom panel's background, so the Design /
+  // Live header above and the canvas below read as one continuous
+  // canvas, like LightKey — the old bg-bg/30 darkened the whole section
+  // and left a visible seam under the header.
   const panelBorder = editing ? 'border border-line' : 'border border-transparent'
   const editToolbar = <div className={`flex flex-wrap items-center gap-2${!toolbarHost && masterOverlay ? ' master-overlay-inset' : ''}`}>
     {editing && !locked && <>
@@ -479,7 +565,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // bottom-2 insets are against this section — with a definite section
   // height they span the visible panel, so the popup can never run off
   // the page (Jake, 18 Nov 2026).
-  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex h-full flex-col gap-2 rounded ${panelBorder} bg-bg/30 p-3`} onContextMenu={openContextMenu}>
+  return <section data-context-menu="page" aria-label="Live page canvas" className={`relative flex h-full flex-col gap-2 rounded ${panelBorder} p-3`} onContextMenu={openContextMenu}>
     {/* LightKey-style edit toolbar: the Design / Live switch sits in the
         bottom panel above this workspace (ViewSwitch, rendered by App);
         the toolbar below it holds New Button (+), New Frame, Insert Text
@@ -493,7 +579,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     {overrideCount > 0 && <div className={`flex justify-between rounded border border-amber-500/60 bg-amber-900/30 p-2 text-xs text-amber-100${masterOverlay ? ' master-overlay-inset' : ''}`}><span>{overrideCount} manual properties overriding output</span><button type="button" className="underline" onClick={clearManualOverrides}>Release overrides</button></div>}
     <div className="flex min-h-0 flex-1 gap-2">
       {!page ? <div className={`flex min-h-32 flex-1 items-center justify-center rounded ${panelBorder} bg-panel text-xs text-dim`}>This Live page is blank. Select Edit to start arranging controls.</div> : <>
-      <div aria-label="Live canvas viewport" className={`min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-hidden rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative h-full min-w-full bg-panel" style={{ width: canvasContentWidth, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
+      <div ref={canvasViewportRef} aria-label="Live canvas viewport" className={`min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto rounded ${panelBorder}${masterOverlay ? ' master-overlay-inset' : ''}`}><div ref={pageCanvas} className="relative h-full min-w-full bg-panel" style={{ width: canvasContentWidth, height: canvasContentHeight, backgroundImage: editing ? 'radial-gradient(var(--line) 1px, transparent 1px)' : undefined, backgroundSize: '10px 10px' }} onPointerDown={beginMarquee} onPointerMove={moveMarquee} onPointerUp={endMarquee} onPointerCancel={() => { marquee.current = null; setMarqueeRect(null) }} onDragOver={allowDrop} onDrop={(event) => dropAt(event)}>
         {marqueeRect && <div className="pointer-events-none absolute border border-dashed border-[var(--accent)] bg-[var(--accent)]/10" style={{ left: Math.min(marqueeRect.x, marqueeRect.x + marqueeRect.width), top: Math.min(marqueeRect.y, marqueeRect.y + marqueeRect.height), width: Math.abs(marqueeRect.width), height: Math.abs(marqueeRect.height) }} />}
         {(page.annotations ?? []).map((item) => {
           const ref: PageObjectRef = { type: 'annotation', id: item.id }
