@@ -104,17 +104,31 @@ export interface PreviewBeamVector {
  * centre of the tilt range (down for a ceiling-hung fixture, up for a
  * floor fixture, left/right, or towards the viewer for parallel) — and
  * pan is the azimuth around it, measured from the home direction. The
- * tip is L·(sin τ·cos φ·H + cos τ·D), where τ is the tilt offset from
- * centre, φ the pan offset from centre, H the home-direction unit
- * vector and D the perspective unit vector (zero for parallel). The
- * guide's own example falls out of this: pan −60°, tilt +45° and pan
+ * tip is L·(sin τ·(cos φ·H + sin φ·P) + cos τ·D), where τ is the tilt
+ * offset from centre, φ the pan offset from centre, H the
+ * home-direction unit vector, P the same vector rotated 90° clockwise
+ * in the canvas plane, and D the perspective unit vector (zero for
+ * parallel). Pan therefore moves the beam sideways (towards P) and
+ * tilt moves it from the perspective direction towards home — the same
+ * mapping as the Design POSITION pad — so a movement effect traces its
+ * path on the Preview at every tilt value, including the centre.
+ *
+ * The earlier model had no P term (the tip was a combination of H and
+ * D only), so when H and D were near-parallel — the usual calibrated
+ * case — the beam could only travel along one line: pan changed the
+ * length but never the direction (Jake, 25 Nov 2026: "it just seems
+ * to go up and down, no side to side action"). The guide's own
+ * example still falls out of this model: pan −60°, tilt +45° and pan
  * +120°, tilt −45° give the same tip, as LightKey says they must
- * (p.91). At the home position (tilt 90°) the beam points in the home
- * direction at full length; at the centre of the tilt range it points
- * in the perspective direction at full length (a dot for parallel);
- * between the two it foreshortens, so a movement effect (Circle,
- * Figure Eight, Line) traces its path on the Preview instead of
- * leaving the beam frozen on its home direction.
+ * (p.91) — the two sign flips cancel. At the home position (tilt 90°)
+ * the beam points in the home direction at full length; at the centre
+ * of the tilt range it points in the perspective direction at full
+ * length (a dot for parallel). One measure-zero case stays: at the
+ * exact centre of the tilt range the beam points along the pan axis,
+ * so pan has no visible effect at that one instant — the same as
+ * LightKey's position-control circle, where the centre point is
+ * pan-independent (p.91); a movement effect passes through it and
+ * keeps moving.
  *
  * The frame's pan/tilt are used exactly as transmitted — they are
  * already clamped to the calibration limits and mirrored for a
@@ -123,7 +137,9 @@ export interface PreviewBeamVector {
  * length, as before; an uncalibrated moving head takes its
  * perspective from its canvas position (truss fixtures aim down,
  * floor fixtures aim up), which is the same fallback the stored
- * home direction already used.
+ * home direction already used. An explicit 'down' perspective always
+ * points down at tilt centre — the canvas-position heuristic applies
+ * only when no perspective was picked.
  */
 export function previewBeamVector(fixture: FixtureDef, values: Record<string, number>, position: { x: number; y: number }): PreviewBeamVector {
   const homeDirection = typeof fixture.previewBeam?.direction === 'number' && Number.isFinite(fixture.previewBeam.direction) ? fixture.previewBeam.direction : position.y > 200 ? 180 : 0
@@ -135,17 +151,21 @@ export function previewBeamVector(fixture: FixtureDef, values: Record<string, nu
   const tau = hasTilt ? channelToDegrees(range.tilt, values.tilt as number) : 0
   const homeRad = (homeDirection * Math.PI) / 180
   const hx = Math.sin(homeRad), hy = Math.cos(homeRad)
+  // P is H rotated 90° clockwise in the canvas plane: the sideways
+  // direction pan moves the beam towards.
+  const px = Math.cos(homeRad), py = -Math.sin(homeRad)
   const perspective = fixture.calibration?.perspective
   let dx = 0, dy = 0
   if (perspective === 'left') dx = -1
   else if (perspective === 'right') dx = 1
   else if (perspective === 'up') dy = -1
+  else if (perspective === 'down') dy = 1
   else if (perspective === 'parallel') { dx = 0; dy = 0 }
-  else dy = position.y > 200 ? -1 : 1 // 'down', or unset: truss aims down, floor aims up
+  else dy = position.y > 200 ? -1 : 1 // unset: truss aims down, floor aims up
   const tauRad = (tau * Math.PI) / 180, phiRad = (phi * Math.PI) / 180
-  const along = Math.sin(tauRad) * Math.cos(phiRad)
-  const tx = along * hx + Math.cos(tauRad) * dx
-  const ty = along * hy + Math.cos(tauRad) * dy
+  const s = Math.sin(tauRad), c = Math.cos(tauRad)
+  const tx = s * (Math.cos(phiRad) * hx + Math.sin(phiRad) * px) + c * dx
+  const ty = s * (Math.cos(phiRad) * hy + Math.sin(phiRad) * py) + c * dy
   const len = Math.hypot(tx, ty)
   if (len < 1e-6) return { direction: homeDirection, lengthFactor: 0 }
   return { direction: (Math.atan2(tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }

@@ -252,6 +252,8 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
   const duplicateEffectTemplate = useShowStore((s) => s.duplicateEffectTemplate)
   const deleteEffectTemplate = useShowStore((s) => s.deleteEffectTemplate)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
+  const previewEffectTemplateId = useShowStore((s) => s.previewEffectTemplateId)
+  const setPreviewEffect = useShowStore((s) => s.setPreviewEffect)
   const [query, setQuery] = useState('')
   const [mode, setMode] = useState<'templates' | 'template-editor'>('templates')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
@@ -320,6 +322,13 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     sectionRefs.current.get(attribute)?.scrollIntoView?.({ block: 'start' })
   }, [attribute, mode])
 
+  // The preview belongs to the selection it was started on; selecting
+  // different fixtures stops it rather than previewing on the old ones.
+  useEffect(() => {
+    if (previewEffectTemplateId) setPreviewEffect(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFixtureIds])
+
   if (!attribute) return null
   const label = attributeLabel(attribute)
 
@@ -333,7 +342,23 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     setEditingEffectId(id)
   }
 
+  // Clicking a template tile previews it live on the selected fixtures
+  // (Jake, 25 Nov 2026): the effect runs in the Preview without being
+  // added or stored. Clicking the same tile again stops it; clicking
+  // another tile switches to that template. Only the Add button applies
+  // it. The preview effect is session-only (store, never in the show),
+  // so it can never be captured into a cue or survive a reload.
+  const togglePreview = (template: LightKeyTemplate) => {
+    if (previewEffectTemplateId === template.id) { setPreviewEffect(null); return }
+    setPreviewEffect({ ...createEffectFromTemplate(template, selectedFixtureIds), enabled: true }, template.id)
+  }
+  const toggleProjectPreview = (template: EffectDef) => {
+    if (previewEffectTemplateId === template.id) { setPreviewEffect(null); return }
+    setPreviewEffect({ ...structuredClone(template), id: crypto.randomUUID(), fixtureIds: [...selectedFixtureIds], enabled: true }, template.id)
+  }
+
   const addBuiltIn = (template: LightKeyTemplate) => {
+    setPreviewEffect(null)
     const run = () => {
       const effect = createEffectFromTemplate(template, selectedFixtureIds)
       addEffect(effect)
@@ -350,6 +375,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
   const addProjectTemplate = (id: string) => {
     const template = projectTemplates.find((t) => t.id === id)
     if (!template) return
+    setPreviewEffect(null)
     const run = () => {
       const newId = applyEffectTemplate(id)
       if (newId) openEditor(newId)
@@ -369,6 +395,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
   const editProjectTemplate = (id: string) => {
     const template = projectTemplates.find((t) => t.id === id)
     if (!template) return
+    setPreviewEffect(null)
     const run = () => {
       const newId = startEditingEffectTemplate(id)
       if (newId) openEditor(newId)
@@ -414,6 +441,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
   }
 
   const addCustomEffect = () => {
+    setPreviewEffect(null)
     const run = () => {
       const effect = createCustomEffect()
       addEffect(effect)
@@ -469,7 +497,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     <button
       type="button"
       className="shrink-0 rounded-full border border-line bg-panel2 px-3 py-1 text-xs font-medium"
-      onClick={() => setMode('template-editor')}
+      onClick={() => { setPreviewEffect(null); setMode('template-editor') }}
     >
       Custom Effect
     </button>
@@ -583,33 +611,73 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     .filter((section) => section.templates.length > 0)
   const visibleProject = projectTemplates.filter((t) => matches(t.name))
 
+  // Clicking a tile previews the template live on the selected fixtures
+  // (Jake, 25 Nov 2026); only the Add pill applies it. The tile is a
+  // div, not a button, because the Add pill is its own button inside
+  // it — a button inside a button is invalid HTML.
   const tile = (template: LightKeyTemplate) => {
     const grayed = !effectable.has(template.property)
+    const previewing = previewEffectTemplateId === template.id
     return (
-      <button
+      <div
         key={template.id}
-        type="button"
-        disabled={grayed}
-        aria-label={`${template.name} template`}
-        className="relative flex min-w-0 items-center gap-2 rounded-lg border border-line bg-panel2 px-2 py-2 text-left text-xs hover:border-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40"
+        data-template-tile
+        role="button"
+        tabIndex={grayed ? -1 : 0}
+        aria-disabled={grayed}
+        aria-label={`${template.name} template${previewing ? ' (previewing)' : ''}`}
+        className={`relative flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs ${grayed ? 'cursor-not-allowed border-line bg-panel2 opacity-40' : previewing ? 'border-[var(--accent)] bg-panel2' : 'border-line bg-panel2 hover:border-[var(--accent)]'}`}
         onMouseEnter={() => setHoveredId(template.id)}
         onMouseLeave={() => setHoveredId((current) => (current === template.id ? null : current))}
         onFocus={() => setHoveredId(template.id)}
-        onBlur={() => setHoveredId((current) => (current === template.id ? null : current))}
-        onClick={() => addBuiltIn(template)}
+        onBlur={(event) => {
+          // Clicking the Add pill moves focus from the tile to the pill
+          // inside it — that must not hide the pill mid-click (the
+          // mousedown focuses the pill, the tile blurs, the pill
+          // unmounts, and the mouseup lands on the Previewing chip
+          // instead, so no click ever fires). Only clear when focus
+          // leaves the tile entirely.
+          if (event.currentTarget.contains(event.relatedTarget as Node | null)) return
+          setHoveredId((current) => (current === template.id ? null : current))
+        }}
+        onClick={() => { if (!grayed) togglePreview(template) }}
+        onKeyDown={(event) => {
+          if (grayed || event.repeat || (event.key !== 'Enter' && event.key !== ' ')) return
+          event.preventDefault()
+          togglePreview(template)
+        }}
       >
         <TemplateIcon template={template} />
         <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
         {template.beat && <span className="shrink-0 text-dim" title="Beat-controlled"><BeatGlyph /></span>}
-        {hoveredId === template.id && !grayed && (
-          <span className="absolute right-2 rounded bg-[#22c55e] px-2 py-0.5 text-xs font-semibold text-white">Add</span>
+        {previewing && hoveredId !== template.id && !grayed && (
+          <span className="absolute right-2 rounded bg-[var(--accent)] px-2 py-0.5 text-xs font-semibold text-white">Previewing</span>
         )}
-      </button>
+        {hoveredId === template.id && !grayed && (
+          <button
+            type="button"
+            aria-label={`Add ${template.name}`}
+            onClick={(event) => { event.stopPropagation(); addBuiltIn(template) }}
+            className="absolute right-2 rounded bg-[#22c55e] px-2 py-0.5 text-xs font-semibold text-white"
+          >
+            Add
+          </button>
+        )}
+      </div>
     )
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2" data-testid="effects-chooser">
+    <div
+      className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2"
+      data-testid="effects-chooser"
+      onPointerDown={(event) => {
+        // Clicking blank space in the chooser stops a running template
+        // preview (like the preset palette's blank-space clear); clicks
+        // on tiles, buttons or the search field leave it running.
+        if (!(event.target as HTMLElement).closest('button, input, [data-template-tile], [role="button"], a')) setPreviewEffect(null)
+      }}
+    >
       {chooserHeader}
       {conflictAlert}
       {visibleSections.map((section) => (
@@ -637,10 +705,12 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
             {visibleProject.map((template) => {
               const beingEdited = editingEffectTemplateId === template.id
               const renaming = renamingTemplate?.id === template.id
+              const previewing = previewEffectTemplateId === template.id
               return (
                 <div
                   key={template.id}
-                  className={`relative flex min-w-0 items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs ${beingEdited ? 'border-yellow-400 bg-yellow-400/15' : 'border-line bg-panel2 hover:border-[var(--accent)]'}`}
+                  data-template-tile
+                  className={`relative flex min-w-0 items-center gap-2 rounded-lg border px-2 py-2 text-left text-xs ${beingEdited ? 'border-yellow-400 bg-yellow-400/15' : previewing ? 'border-[var(--accent)] bg-panel2' : 'border-line bg-panel2 hover:border-[var(--accent)]'}`}
                   onMouseEnter={() => setHoveredId(template.id)}
                   onMouseLeave={() => setHoveredId((current) => (current === template.id ? null : current))}
                   onContextMenu={(event) => {
@@ -650,9 +720,9 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
                 >
                   <button
                     type="button"
-                    aria-label={`${template.name} template`}
+                    aria-label={`${template.name} template${previewing ? ' (previewing)' : ''}`}
                     className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                    onClick={() => addProjectTemplate(template.id)}
+                    onClick={() => toggleProjectPreview(template)}
                   >
                     {renaming ? (
                       <input
@@ -677,7 +747,12 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
                   {/* Hovering a saved template shows a yellow Edit button
                       (LightKey Guide ch.9, p.128); while it is being
                       edited the row shows a yellow Update button instead
-                      (Jake's 10.40.51 pm screenshot). */}
+                      (Jake's 10.40.51 pm screenshot). Clicking the row
+                      previews the template (Jake, 25 Nov 2026); the green
+                      Add button applies it. */}
+                  {previewing && hoveredId !== template.id && !renaming && !beingEdited && (
+                    <span className="absolute right-2 rounded bg-[var(--accent)] px-2 py-0.5 text-xs font-semibold text-white">Previewing</span>
+                  )}
                   {beingEdited ? (
                     <button
                       type="button"
@@ -688,14 +763,24 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
                       Update
                     </button>
                   ) : hoveredId === template.id && !renaming && (
-                    <button
-                      type="button"
-                      aria-label={`Edit ${template.name}`}
-                      className="absolute right-2 shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black"
-                      onClick={() => editProjectTemplate(template.id)}
-                    >
-                      Edit
-                    </button>
+                    <span className="absolute right-2 flex gap-1">
+                      <button
+                        type="button"
+                        aria-label={`Add ${template.name}`}
+                        className="shrink-0 rounded bg-[#22c55e] px-2 py-0.5 text-xs font-semibold text-white"
+                        onClick={() => addProjectTemplate(template.id)}
+                      >
+                        Add
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Edit ${template.name}`}
+                        className="shrink-0 rounded bg-yellow-400 px-2 py-0.5 text-xs font-semibold text-black"
+                        onClick={() => editProjectTemplate(template.id)}
+                      >
+                        Edit
+                      </button>
+                    </span>
                   )}
                 </div>
               )
@@ -2545,7 +2630,7 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
   const editingEffectId = useShowStore((s) => s.editingEffectId)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const effect = useShowStore((s) => s.effects.find((e) => e.id === s.editingEffectId))
-  const effects = useShowStore((s) => s.effects)
+  const setEffectChooserAttribute = useShowStore((s) => s.setEffectChooserAttribute)
   const updateEffect = useShowStore((s) => s.updateEffect)
   const removeEffect = useShowStore((s) => s.removeEffect)
   const duplicateEffect = useShowStore((s) => s.duplicateEffect)
@@ -2567,7 +2652,7 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
   if (!editingEffectId || !effect) return null
   const update = (patch: Partial<EffectDef>) => updateEffect(effect.id, patch)
   const kind = effect.kind ?? 'curve'
-  const sameProperty = effects.filter((e) => e.attribute === effect.attribute)
+  const label = attributeLabel(effect.attribute)
 
   // Closing the editor ends a template-edit session: the working copy
   // Edit created is discarded (the saved template is untouched). An
@@ -2586,12 +2671,13 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
   // is no On toggle and no × here (Jake, 22 Nov 2026): effects are
   // built into cues and triggered when desired, there is no on/off
   // switch — and exiting is via Design/Live or Esc, as LightKey does
-  // ("esc End editing"). The dropdown's menu is the guide's
-  // name-menu actions (Guide pp.173-174: switch between effects on
-  // this property, Duplicate, Save as Template…, Delete and Keep
-  // Values, Delete) — the button just shows the type, as LightKey
-  // does. Rename is not in the menu: it lives in the preset
-  // browser's right-click menu (Guide p.174).
+  // ("esc End editing"). The dropdown's menu is LightKey's, per Jake's
+  // 25 Nov 2026 "Effects Showcase" screenshot: only the effect being
+  // edited, checked, then Add Effect…, Save as Template…, Duplicate,
+  // Delete, Delete and Keep Values — in that order. It is NOT an
+  // effect switcher: no other effects are listed, neither from the
+  // project nor from the fixture. Rename is not in the menu: it lives
+  // in the preset browser's right-click menu (Guide p.174).
   const effectTypeTab = (
     <div className="relative">
       <button
@@ -2605,29 +2691,28 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
       </button>
       {menuOpen && (
         <div className="absolute left-0 z-10 mt-1 flex max-h-60 min-w-52 flex-col overflow-y-auto rounded border border-line bg-panel2 p-1 text-xs shadow-lg" role="menu">
-          {sameProperty.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              role="menuitem"
-              className="rounded px-2 py-1 text-left hover:bg-panel"
-              onClick={() => { setMenuOpen(false); setEditingEffectId(item.id) }}
-            >
-              {item.name}{item.id === effect.id ? ' ✓' : ''}
-            </button>
-          ))}
-          <hr className="my-1 border-line" />
           <button
             type="button"
+            role="menuitem"
+            className="rounded px-2 py-1 text-left hover:bg-panel"
+            onClick={() => setMenuOpen(false)}
+          >
+            {label} Effect ✓
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             className="rounded px-2 py-1 text-left hover:bg-panel"
             onClick={() => {
-              const id = duplicateEffect(effect.id)
+              // Opening the chooser exits the editor (store action);
+              // after adding, the new effect's editor opens as usual.
               setMenuOpen(false)
-              if (id) setEditingEffectId(id)
+              setEffectChooserAttribute(effect.attribute)
             }}
           >
-            Duplicate
+            Add Effect…
           </button>
+          <hr className="my-1 border-line" />
           <button
             type="button"
             className="rounded px-2 py-1 text-left hover:bg-panel"
@@ -2643,16 +2728,27 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
           <button
             type="button"
             className="rounded px-2 py-1 text-left hover:bg-panel"
-            onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
+            onClick={() => {
+              const id = duplicateEffect(effect.id)
+              setMenuOpen(false)
+              if (id) setEditingEffectId(id)
+            }}
           >
-            Delete and Keep Values
+            Duplicate {label} Effect
           </button>
           <button
             type="button"
             className="rounded px-2 py-1 text-left text-red-400 hover:bg-panel"
             onClick={() => { removeEffect(effect.id); close() }}
           >
-            Delete
+            Delete {label} Effect
+          </button>
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-left hover:bg-panel"
+            onClick={() => { deleteEffectAndKeepValues(effect.id); close() }}
+          >
+            Delete {label} Effect and Keep Values
           </button>
         </div>
       )}

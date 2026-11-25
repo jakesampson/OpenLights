@@ -54,6 +54,7 @@ export default function App() {
     show,
     cues,
     effects,
+    previewEffect,
     presets,
     activePresetIds,
     activeSequenceIds,
@@ -383,8 +384,12 @@ export default function App() {
   }, [adaptiveBackground])
 
   useEffect(() => {
+    // The chooser preview runs last so it wins over a stored effect on
+    // the same channels — what the user is previewing is what they see.
+    // It is session-only (never in show.effects), so it can never be
+    // captured into a cue or survive a reload.
     configureEffects({
-      effects: activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }),
+      effects: [...activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }), ...(previewEffect ? [previewEffect] : [])],
       fixtures: show?.fixtures ?? [],
       movementPaths: show?.movementPaths ?? [],
       bpm,
@@ -392,7 +397,7 @@ export default function App() {
       blackout,
       baseValues: baseAttributeValues
     })
-  }, [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout, baseAttributeValues])
+  }, [effects, previewEffect, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout, baseAttributeValues])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active

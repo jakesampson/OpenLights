@@ -123,6 +123,42 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
     expect(v.lengthFactor).toBeLessThan(0.05)
   })
 
+  it('swings the beam sideways with pan when tilt is off-centre', () => {
+    // Jake, 25 Nov 2026: the beam "just seems to go up and down, no side
+    // to side action". A calibrated head (home up, perspective down) at
+    // tilt 45° must move sideways with pan, not just change length.
+    const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+    const sideways = (panDeg: number) => previewBeamVector(
+      { id: 'mh1', name: 'MH1', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 180 }, calibration: { perspective: 'down' } },
+      values(panDeg, 45), { x: 100, y: 300 })
+    expect(angleDiff(sideways(90).direction, 315)).toBeLessThan(5)
+    expect(angleDiff(sideways(-90).direction, 45)).toBeLessThan(5)
+    expect(sideways(90).lengthFactor).toBeGreaterThan(0.5)
+    expect(sideways(-90).lengthFactor).toBeGreaterThan(0.5)
+  })
+
+  it('keeps the beam on the perspective direction at the exact centre of the tilt range', () => {
+    // At tilt centre the beam points along the pan axis, so pan has no
+    // visible effect at that one instant — the same as LightKey's
+    // position-control circle, where the centre point is pan-independent
+    // (Guide p.91). A movement effect passes through it and keeps moving.
+    const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+    const atCentre = (panDeg: number) => previewBeamVector(
+      { id: 'mh1', name: 'MH1', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 180 }, calibration: { perspective: 'down' } },
+      values(panDeg, 0), { x: 100, y: 300 })
+    expect(angleDiff(atCentre(90).direction, 0)).toBeLessThan(5)
+    expect(angleDiff(atCentre(-120).direction, 0)).toBeLessThan(5)
+    expect(atCentre(90).lengthFactor).toBeCloseTo(1, 2)
+  })
+
+  it('points an explicit down perspective down even when the fixture sits low on the canvas', () => {
+    // The canvas-position heuristic (low on the canvas aims up) applies
+    // only when no perspective was picked; an explicit 'down' wins.
+    const v = previewBeamVector(head({ perspective: 'down' }), values(0, 0), { x: 100, y: 300 })
+    expect(v.direction).toBeCloseTo(0, -1)
+    expect(v.lengthFactor).toBeCloseTo(1, 2)
+  })
+
   it('traces a figure eight: the two lobes point to opposite sides', () => {
     // Figure Eight path points (normalised −1..1): pan = sin(a)·0.8,
     // tilt = sin(2a)·0.8, mapped onto the 540°/270° ranges.
@@ -133,9 +169,9 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
       return previewBeamVector(head({ perspective: 'down' }), values(Math.sin(a) * 0.8 * 270, Math.sin(a * 2) * 0.8 * 135), { x: 100, y: 100 })
     }
     expect(angleDiff(at(0).direction, 0)).toBeLessThan(5) // crossing at the bottom
-    expect(angleDiff(at(45).direction, 250)).toBeLessThan(5) // left lobe, up-left
+    expect(angleDiff(at(45).direction, 229)).toBeLessThan(5) // left lobe, up-left
     expect(angleDiff(at(90).direction, 0)).toBeLessThan(5) // crossing again
-    expect(angleDiff(at(135).direction, 110)).toBeLessThan(5) // right lobe, up-right
+    expect(angleDiff(at(135).direction, 81)).toBeLessThan(5) // right lobe, up-right
     expect(at(45).lengthFactor).toBeGreaterThan(0.5)
     expect(at(135).lengthFactor).toBeGreaterThan(0.5)
   })

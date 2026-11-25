@@ -111,9 +111,21 @@ function buttonWithText(text: string): HTMLButtonElement {
   return found
 }
 
-function templateTile(name: string): HTMLButtonElement {
-  const found = container?.querySelector(`[aria-label="${name} template"]`) as HTMLButtonElement | null
+function templateTile(name: string): HTMLElement {
+  // Prefix match: a previewing tile's label gains " (previewing)".
+  const found = container?.querySelector(`[aria-label^="${name} template"]`) as HTMLElement | null
   if (!found) throw new Error(`no template tile "${name}"`)
+  return found
+}
+
+// The green Add pill on a tile only renders while the tile is hovered
+// (Jake, 21 Nov 2026); hovering first, then clicking it, applies the
+// template — clicking the tile itself only previews it (Jake, 25 Nov 2026).
+function addButtonForTile(name: string): HTMLButtonElement {
+  const tile = templateTile(name)
+  act(() => { tile.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
+  const found = tile.querySelector(`[aria-label="Add ${name}"]`) as HTMLButtonElement | null
+  if (!found) throw new Error(`no Add button for "${name}"`)
   return found
 }
 
@@ -188,7 +200,7 @@ function savedTemplateTile(name: string): HTMLButtonElement {
 }
 
 describe('effects chooser', () => {
-  it('shows LightKey’s template sections and adds a template on tile click', () => {
+  it('shows LightKey’s template sections; a tile click previews, the Add pill applies', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
     renderInRoot(<DesignTab />)
@@ -198,20 +210,63 @@ describe('effects chooser', () => {
     }
     expect(container?.textContent).toContain('Custom Effect')
     // Hovering a tile reveals the green Add pill (Jake, 21 Nov 2026);
-    // clicking the tile adds that template and opens its editor.
+    // clicking the tile itself only PREVIEWS the template (Jake,
+    // 25 Nov 2026) — nothing is added, the chooser stays open.
     const tile = templateTile('Marching Ants')
     act(() => { tile.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true })) })
     expect(tile.textContent).toContain('Add')
     act(() => { tile.click() })
+    const previewing = useShowStore.getState()
+    expect(previewing.effects).toHaveLength(0)
+    expect(previewing.previewEffect?.name).toBe('Marching Ants')
+    expect(previewing.previewEffectTemplateId).toBe('builtin-dimmer-marching-ants')
+    expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
+    expect(templateTile('Marching Ants').getAttribute('aria-label')).toContain('(previewing)')
+    // The Previewing chip shows once the mouse leaves the tile (while
+    // hovering, the Add pill takes its place).
+    act(() => { tile.dispatchEvent(new window.MouseEvent('mouseout', { bubbles: true })) })
+    expect(container?.textContent).toContain('Previewing')
+    // Clicking the same tile again stops the preview.
+    act(() => { templateTile('Marching Ants').click() })
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    // The Add pill applies the template and opens its editor.
+    const addBtn = addButtonForTile('Marching Ants')
+    act(() => { addBtn.click() })
     const state = useShowStore.getState()
     expect(state.effects).toHaveLength(1)
     expect(state.effects[0].kind).toBe('pattern')
     expect(state.effects[0].pattern).toBe('chase')
     expect(state.effects[0].attribute).toBe('intensity')
     expect(state.effects[0].name).toBe('Marching Ants')
+    expect(state.previewEffect).toBeNull()
     expect(state.editingEffectId).toBe(state.effects[0].id)
     expect(container?.querySelector('[data-testid="effect-editor"]')).not.toBeNull()
     expect(container?.querySelector('[data-testid="effects-chooser"]')).toBeNull()
+  })
+
+  it('switches the preview to another tile, and stops it when the chooser closes or the selection changes', () => {
+    setShow()
+    act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
+    renderInRoot(<DesignTab />)
+    act(() => { templateTile('Marching Ants').click() })
+    expect(useShowStore.getState().previewEffect?.name).toBe('Marching Ants')
+    // Another tile switches the preview to that template.
+    act(() => { templateTile('Cop Light').click() })
+    const switched = useShowStore.getState()
+    expect(switched.previewEffect?.name).toBe('Cop Light')
+    expect(switched.previewEffectTemplateId).toBe('builtin-color-cop-light')
+    expect(switched.effects).toHaveLength(0)
+    // Selecting different fixtures stops the preview.
+    act(() => { useShowStore.setState({ selectedFixtureIds: [] }) })
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    // And closing the chooser stops it too (via the action — the path
+    // Escape and the editor both use).
+    act(() => { useShowStore.setState({ selectedFixtureIds: ['fx1'] }) })
+    act(() => { templateTile('Marching Ants').click() })
+    expect(useShowStore.getState().previewEffect).not.toBeNull()
+    act(() => { useShowStore.getState().setEffectChooserAttribute(null) })
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    expect(useShowStore.getState().previewEffectTemplateId).toBeNull()
   })
 
   it('offers Replace or Overlay when the property already has an effect', () => {
@@ -219,7 +274,8 @@ describe('effects chooser', () => {
     act(() => { useShowStore.getState().addEffect(chaseEffect()) })
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
     renderInRoot(<DesignTab />)
-    act(() => { templateTile('Marching Ants').click() })
+    const addMarchingAnts = addButtonForTile('Marching Ants')
+    act(() => { addMarchingAnts.click() })
     expect(container?.textContent).toContain('already controls Dimmer')
     act(() => { buttonWithText('Overlay').click() })
     expect(useShowStore.getState().effects).toHaveLength(2)
@@ -293,7 +349,8 @@ describe('effects chooser', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'color' }) })
     renderInRoot(<DesignTab />)
-    act(() => { templateTile('Cop Light').click() })
+    const addCopLight = addButtonForTile('Cop Light')
+    act(() => { addCopLight.click() })
     const state = useShowStore.getState()
     expect(state.effects).toHaveLength(1)
     expect(state.effects[0].kind).toBe('pattern')
@@ -308,8 +365,8 @@ describe('effects chooser', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
     renderInRoot(<DesignTab />)
-    expect(templateTile('Bow Tie').disabled).toBe(true)
-    expect(templateTile('Marching Ants').disabled).toBe(false)
+    expect(templateTile('Bow Tie').getAttribute('aria-disabled')).toBe('true')
+    expect(templateTile('Marching Ants').getAttribute('aria-disabled')).toBe('false')
   })
 
   it('opens the template editor and adds a fresh custom effect', () => {
@@ -334,7 +391,8 @@ describe('effects chooser', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })
     renderInRoot(<DesignTab />)
-    act(() => { templateTile('Beat Meteor').click() })
+    const addBeatMeteor = addButtonForTile('Beat Meteor')
+    act(() => { addBeatMeteor.click() })
     const state = useShowStore.getState()
     expect(state.effects[0].kind).toBe('pattern')
     expect(state.effects[0].pattern).toBe('meteor')
@@ -370,8 +428,9 @@ describe('effects chooser', () => {
     setShowWithIris()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'iris' }) })
     renderInRoot(<DesignTab />)
-    expect(templateTile('Iris Wave').disabled).toBe(false)
-    act(() => { templateTile('Iris Wave').click() })
+    expect(templateTile('Iris Wave').getAttribute('aria-disabled')).toBe('false')
+    const addIrisWave = addButtonForTile('Iris Wave')
+    act(() => { addIrisWave.click() })
     const state = useShowStore.getState()
     expect(state.effects).toHaveLength(1)
     expect(state.effects[0].kind).toBe('curve')
@@ -579,13 +638,29 @@ describe('effect editor', () => {
     expect(menuButton.getAttribute('title')).toBeNull()
     expect(editor?.querySelector('[aria-label="Design or Live"]')).toBeNull()
     expect(container?.querySelector('[aria-label="Effect name"]')).toBeNull()
-    // The dropdown keeps the guide's actions (switch, Duplicate, Save
-    // as Template…, Delete and Keep Values, Delete — Guide pp.173-174).
+    // The dropdown is LightKey's menu (Jake, 25 Nov 2026, "Effects
+    // Showcase" screenshot): only the effect being edited, checked,
+    // then Add Effect…, Save as Template…, Duplicate, Delete, Delete
+    // and Keep Values — named after the effect. It is NOT an effect
+    // switcher, so other effects in the project are not listed.
+    act(() => {
+      useShowStore.getState().addEffect({ ...chaseEffect(), id: 'e-kitt', name: 'K.I.T.T.', attribute: 'color' })
+    })
     act(() => { menuButton.click() })
-    for (const label of ['Duplicate', 'Save as Template…', 'Delete and Keep Values', 'Delete']) {
-      expect(container?.textContent).toContain(label)
+    const menu = container?.querySelector('[role="menu"]')
+    expect(menu).not.toBeNull()
+    for (const label of ['Dimmer Effect ✓', 'Add Effect…', 'Save as Template…', 'Duplicate Dimmer Effect', 'Delete Dimmer Effect', 'Delete Dimmer Effect and Keep Values']) {
+      expect(menu?.textContent).toContain(label)
     }
+    expect(menu?.textContent).not.toContain('K.I.T.T.')
+    expect(menu?.textContent).not.toContain('Chase Dimmer')
     expect(container?.textContent).not.toContain('Rename')
+    // Add Effect… opens the template chooser for the same property and
+    // closes the editor; the new effect's editor opens once it is added.
+    act(() => { buttonWithText('Add Effect…').click() })
+    expect(useShowStore.getState().editingEffectId).toBeNull()
+    expect(useShowStore.getState().effectChooserAttribute).toBe('intensity')
+    expect(container?.querySelector('[data-testid="effects-chooser"]')).not.toBeNull()
   })
 
   it('shows LightKey\u2019s parameter set for each pattern (Guide pp.154-160)', () => {
@@ -724,7 +799,8 @@ describe('effect editor', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'color' }) })
     renderInRoot(<DesignTab />)
-    act(() => { templateTile('Rainbow').click() })
+    const addRainbow = addButtonForTile('Rainbow')
+    act(() => { addRainbow.click() })
     const state = useShowStore.getState()
     expect(state.effects[0].kind).toBe('curve')
     expect(state.effects[0].attribute).toBe('color')

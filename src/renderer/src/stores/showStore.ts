@@ -431,6 +431,19 @@ interface ShowState {
    *  Preview. Session-only: never persisted. */
   effectChooserAttribute: string | null
   setEffectChooserAttribute: (attribute: string | null) => void
+  /** The template effect currently previewing from the chooser (Jake,
+   *  25 Nov 2026: click a template tile to preview it live on the
+   *  selected fixtures, click the Add button to apply it). Session-only:
+   *  never stored on a fixture, never captured into cues, never
+   *  persisted — it runs only through the output runtime, and stops
+   *  when the chooser closes, the editor opens, or another show loads. */
+  previewEffect: EffectDef | null
+  /** Id of the template the preview effect was built from (for the
+   *  click-again-to-stop toggle). */
+  previewEffectTemplateId: string | null
+  /** Start a chooser preview (effect + its template id), or stop it
+   *  with null. */
+  setPreviewEffect: (effect: EffectDef | null, templateId?: string | null) => void
   effectClipboard: EffectDef | null
   copyEffect: (id: string) => void
   pasteEffect: () => string | null
@@ -1088,17 +1101,22 @@ const actions: ShowState = {
       if (get().editingPresetId) get().saveEditingPreset()
       if (get().editingCueAdHocId) get().saveEditingCueAdHoc()
     }
-    set({ editingEffectId: id })
+    // Opening the editor is another panel: a chooser preview stops.
+    set({ editingEffectId: id, ...(id ? { previewEffect: null, previewEffectTemplateId: null } : {}) })
   },
   editingEffectTemplateId: null,
   effectChooserAttribute: null,
+  previewEffect: null,
+  previewEffectTemplateId: null,
+  setPreviewEffect: (effect, templateId = null) => set({ previewEffect: effect, previewEffectTemplateId: effect ? templateId : null }),
   setEffectChooserAttribute: (attribute) => {
     // Opening the chooser is starting work elsewhere, so it exits the
     // editor first (Cancel semantics for a template session) — the
     // chooser and the editor are mutually exclusive views, and leaving
-    // the editor open would hide the chooser behind it.
+    // the editor open would hide the chooser behind it. Closing the
+    // chooser stops any template preview running from it.
     if (attribute) get().exitEffectEditor()
-    set({ effectChooserAttribute: attribute })
+    set({ effectChooserAttribute: attribute, ...(attribute ? {} : { previewEffect: null, previewEffectTemplateId: null }) })
   },
   selectedBeams: [],
   stageClipboard: [],
@@ -1241,6 +1259,8 @@ const actions: ShowState = {
       editingCueAdHocId: null,
       showOverrideLabels: false,
       previewPresetId: null,
+      previewEffect: null,
+      previewEffectTemplateId: null,
       automations: show?.automations ?? [],
       effects: show?.effects ?? [],
       effectClipboard: null,
@@ -2783,7 +2803,7 @@ const actions: ShowState = {
     if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate()
     else if (state.editingLiveEffectId) state.cancelEditingLiveEffect()
     else if (state.editingEffectId) set({ editingEffectId: null })
-    if (state.effectChooserAttribute) set({ effectChooserAttribute: null })
+    if (state.effectChooserAttribute) set({ effectChooserAttribute: null, previewEffect: null, previewEffectTemplateId: null })
   },
 
   renameEffectTemplate: (id, name) => set((state) => {

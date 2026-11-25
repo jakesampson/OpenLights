@@ -75,6 +75,35 @@ describe('effect editing', () => {
     speed: 1, syncToBpm: false, size: 100, offset: 100, phaseSpread: 0, enabled: true
   }
 
+  it('stops a chooser preview when the editor opens, the chooser closes, or another show loads', () => {
+    // Jake, 25 Nov 2026: a template preview is session-only — it never
+    // lands on a fixture, so loading another show must not leave it
+    // running on the old show's fixture ids.
+    const store = useShowStore.getState()
+    const preview = {
+      id: 'preview-1', name: 'Triangle Small', fixtureIds: ['f2'], attribute: 'position',
+      waveform: 'sine', speed: 1, syncToBpm: false, size: 255, offset: 128, phaseSpread: 0,
+      enabled: true, kind: 'movement', timingMode: 'fixed', movementPathId: 'builtin-triangle-small', durationMs: 2000
+    } as const
+    store.setPreviewEffect(preview, 'builtin-position-triangle-small')
+    expect(useShowStore.getState().previewEffect?.name).toBe('Triangle Small')
+    expect(useShowStore.getState().previewEffectTemplateId).toBe('builtin-position-triangle-small')
+    // Opening the editor stops it.
+    store.setEditingEffectId('e-1')
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    store.setPreviewEffect(preview, 'builtin-position-triangle-small')
+    // Closing the chooser stops it.
+    store.setEffectChooserAttribute(null)
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    store.setPreviewEffect(preview, 'builtin-position-triangle-small')
+    // Loading another show stops it.
+    useShowStore.getState().setShow(makeShow())
+    expect(useShowStore.getState().previewEffect).toBeNull()
+    expect(useShowStore.getState().previewEffectTemplateId).toBeNull()
+    // And the preview is never in the show's stored effects.
+    expect(useShowStore.getState().effects).toHaveLength(0)
+  })
+
   it('copies, pastes and deletes effects with independent ids', () => {
     useShowStore.getState().addEffect(effect)
     useShowStore.getState().copyEffect('fx1')
