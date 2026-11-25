@@ -96,7 +96,7 @@ describe('calibration dialog', () => {
     vi.unstubAllGlobals()
   })
 
-  it('Home arrow is LightKey\'s wide dart, not a thin shaft', async () => {
+  it('Home arrow is LightKey\'s long dart with a notched tail, not a diamond', async () => {
     setShow()
     const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
@@ -105,10 +105,31 @@ describe('calibration dialog', () => {
     // is a circle, not a polygon).
     const arrow = svg.querySelector('polygon[fill="#2563eb"]')
     if (!arrow) throw new Error('no home arrow polygon')
-    const points = (arrow.getAttribute('points') ?? '').trim().split(/\s+/)
-    expect(points).toHaveLength(4) // tip, two wings, tail — a kite
-    const xs = points.map((p) => Number(p.split(',')[0]))
-    expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThan(100) // wide wings
+    const points = (arrow.getAttribute('points') ?? '').trim().split(/\s+/).map((p) => {
+      const [x, y] = p.split(',').map(Number)
+      return { x, y }
+    })
+    expect(points).toHaveLength(4)
+    // Jake, 26 Nov 2026: the c08f5a1 dial rework had made the arrow a
+    // symmetric diamond — one point at the top, one at the bottom,
+    // widest in the middle. LightKey's is a dart: a single sharp point
+    // at the front and a notched tail at the back.
+    const ys = points.map((p) => p.y)
+    const top = Math.min(...ys), bottom = Math.max(...ys)
+    // One vertex at the top (the point) and two at the bottom (the
+    // tail peaks) — a diamond would have one at each end.
+    expect(points.filter((p) => p.y === top)).toHaveLength(1)
+    expect(points.filter((p) => p.y === bottom)).toHaveLength(2)
+    // The fourth vertex is the notch: between the peaks in x, and
+    // above them (it dips into the tail, not out past it).
+    const notch = points.find((p) => p.y !== top && p.y !== bottom)
+    if (!notch) throw new Error('no notch vertex')
+    expect(notch.x).toBeCloseTo(170, 0)
+    expect(notch.y).toBeGreaterThan(top)
+    expect(notch.y).toBeLessThan(bottom)
+    // The tail is wide — about half the dart's length.
+    const peaks = points.filter((p) => p.y === bottom)
+    expect(Math.abs(peaks[0].x - peaks[1].x)).toBeGreaterThan(100)
   })
 
   it('Rotation dial labels the full ±180° dial at the rim, with a thick curved arrow', async () => {
@@ -141,6 +162,54 @@ describe('calibration dialog', () => {
     // used to sit across the dial's lower ticks).
     expect(el.textContent).toContain('Reversed — the arrow now travels the other way')
     expect(dialSvg(el).textContent).not.toContain('reverse the direction')
+  })
+
+  it('Rotation sweep scrolls continuously for two full turns, with no blackout rewind', async () => {
+    // Jake, 26 Nov 2026: in LightKey the Rotation arrow "just
+    // infinitely scrolls"; ours swept once and then rewound to the
+    // start in blackout. Drive the rAF loop with synthetic timestamps
+    // and read the pan channel it sends: it must climb steadily and
+    // only ever drop at the ±180° wrap (once per turn), with the
+    // dimmer full throughout.
+    const patches: Record<number, number>[] = []
+    ;(window as unknown as { electronAPI: unknown }).electronAPI = {
+      setChannels: (patch: Record<number, number>) => { patches.push({ ...patch }) },
+      getChannels: async () => new Array(512).fill(0)
+    }
+    let rafCallback: ((now: number) => void) | null = null
+    vi.stubGlobal('requestAnimationFrame', vi.fn((cb: (now: number) => void) => { rafCallback = cb; return 1 }))
+    setShow()
+    const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    clickStep(el, 'Rotation')
+    if (!rafCallback) throw new Error('rotation rAF loop never started')
+    const start = performance.now()
+    const pans: number[] = []
+    const intensities: number[] = []
+    for (let s = 0; s <= 16; s++) {
+      patches.length = 0
+      const cb = rafCallback
+      act(() => { cb(start + s * 1000) })
+      const last = patches[patches.length - 1]
+      if (!last) throw new Error(`no calibration output at ${s}s`)
+      pans.push(last[2])
+      intensities.push(last[1])
+    }
+    // No blackout at any point: the dimmer stays full for the whole sweep.
+    expect(intensities.every((v) => v === 255)).toBe(true)
+    // The pan channel climbs steadily and only ever drops at the ±180°
+    // wrap (once per turn) — never a gradual rewind.
+    let drops = 0
+    for (let i = 1; i < pans.length; i++) {
+      const diff = pans[i] - pans[i - 1]
+      if (diff < -50) drops++
+      else expect(diff).toBeGreaterThan(0)
+    }
+    expect(drops).toBe(2)
+    // Two full turns: the unwrapped climb is ~340 channel steps
+    // (43 → 213 per turn).
+    const unwrapped = pans.reduce((total, v, i) => (i === 0 ? total : total + (v - pans[i - 1] < -50 ? v - pans[i - 1] + 170 : v - pans[i - 1])), 0)
+    expect(unwrapped).toBeGreaterThan(300)
   })
 
   it('Rotation dial has one 180° label and no duplicate-key warning', async () => {

@@ -13,7 +13,8 @@ import {
   degreesToChannel,
   isCalibrationComplete,
   panTiltRange,
-  withCalibrationStep
+  withCalibrationStep,
+  wrapRotationDegrees
 } from '../src/renderer/src/lib/calibration'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
@@ -113,9 +114,30 @@ describe('home position and live calibration output (Piece 4)', () => {
     expect(calibrationStepPatch([head()], 'perspective')).toEqual({ 1: 255, 2: 128, 3: 128 })
   })
 
-  it('sweeps the pan on the Rotation step and blacks out on the return', () => {
+  it('sweeps the pan on the Rotation step, with an optional blackout', () => {
+    // The dialog no longer uses the blackout (the sweep scrolls
+    // forever now — see wrapRotationDegrees below); the patch still
+    // honours the flag when asked.
     expect(calibrationStepPatch([head()], 'rotation', 30, false)).toEqual({ 1: 255, 2: 142, 3: 212 })
     expect(calibrationStepPatch([head()], 'rotation', -45, true)).toEqual({ 1: 0, 2: 106, 3: 212 })
+  })
+
+  it('wraps a continuously scrolling rotation angle into the pan range', () => {
+    // Jake, 26 Nov 2026: LightKey's Rotation arrow scrolls around the
+    // dial forever. The wrap is modulo min(range, 360) so the beam
+    // keeps turning with the arrow: for a 540° head the angle wraps
+    // at ±180° (the same dial point), never at the ±270° range ends.
+    expect(wrapRotationDegrees(540, 0)).toBe(0)
+    expect(wrapRotationDegrees(540, 180)).toBe(-180)
+    expect(wrapRotationDegrees(540, 270)).toBe(-90)
+    expect(wrapRotationDegrees(540, -270)).toBe(90)
+    expect(wrapRotationDegrees(540, 360)).toBe(0)
+    expect(wrapRotationDegrees(540, 720)).toBe(0)
+    expect(wrapRotationDegrees(540, -540)).toBe(-180)
+    // A fixture whose range is under 360° wraps at its range ends.
+    expect(wrapRotationDegrees(180, 90)).toBe(-90)
+    expect(wrapRotationDegrees(180, 100)).toBe(-80)
+    expect(wrapRotationDegrees(180, -100)).toBe(80)
   })
 })
 

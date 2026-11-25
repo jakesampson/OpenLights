@@ -14,6 +14,14 @@ import { useShowStore } from '../stores/showStore'
 import { defaultSamples, isColorAttribute, normalizedPatternSamples } from '../lib/patternRuntime'
 import { colorModelComponents, defaultCurvePoints, evaluateCurve, extraColorComponents, waveformPoints } from '../lib/curveEffects'
 import { BUILTIN_MOVEMENT_PATHS, builtinMovementPathPoints, pathPointAt, resolveMovementPath } from '../lib/movementRuntime'
+import {
+  chartOffsetToNormalized,
+  cmdDragTiltSign,
+  formatPanTiltDegrees,
+  nearestSegmentMidpoint,
+  normalizedToChartOffset,
+  samplePathPoints
+} from '../lib/movementChart'
 import { movementPoint } from '../lib/movementEffects'
 import { effectableProperties } from '../lib/availableProperties'
 import {
@@ -2244,9 +2252,21 @@ function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
 /* Movement editor (Guide ch.10, pp.165-171)                       */
 /* ------------------------------------------------------------------ */
 
-const PATH_SIZE = 280
+/* LightKey's Position HUD (Guide ch.10, pp.167-169; Jake's "Effects
+ * Showcase" screenshots, 26 Nov 2026): a circular pan/tilt chart that
+ * floats over the Preview while a movement effect is being edited. The
+ * mapping is the Rotation dial's (see lib/movementChart.ts): pan angle
+ * around the circle (0° at the bottom, +90° at the right, ±180° at the
+ * top), radius from the centre is |tilt|. The path is drawn with the
+ * runtime's own interpolation, so the live dot sits on the drawn curve.
+ * The hint is LightKey's exact wording, dismissible for the session. */
+const HUD_SIZE = 280
+const HUD_C = HUD_SIZE / 2
+const HUD_R = 118
+const HUD_HINT =
+  'Click in the center of a connection line to add a control point. Hold down Command and drag a point beyond the center to move it to a negative tilt angle.'
 
-function PathCanvas({ path, onChange, durationMs, range }: {
+export function PositionHud({ path, onChange, durationMs, range }: {
   path: MovementPathDef
   onChange: (next: MovementPathDef) => void
   durationMs: number
@@ -2256,6 +2276,12 @@ function PathCanvas({ path, onChange, durationMs, range }: {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dot, setDot] = useState<{ pan: number; tilt: number } | null>(null)
+  const [showHint, setShowHint] = useState(true)
+  // Tilt-sign state for the current drag (lib/movementChart.ts): the
+  // screen position cannot encode the sign, so it is sticky per drag —
+  // without Command it stays the point's sign; with Command held it
+  // flips when the pointer crosses the centre.
+  const dragSignRef = useRef<{ sign: number; armed: boolean }>({ sign: 1, armed: false })
 
   useEffect(() => {
     let frame = 0
@@ -2269,32 +2295,29 @@ function PathCanvas({ path, onChange, durationMs, range }: {
     return () => cancelAnimationFrame(frame)
   }, [path.points, path.type, durationMs])
 
-  const toSvg = (pan: number, tilt: number) => ({
-    x: PATH_SIZE / 2 + (pan / 1) * (PATH_SIZE / 2 - 8),
-    y: PATH_SIZE / 2 - (tilt / 1) * (PATH_SIZE / 2 - 8)
-  })
-  const fromSvg = (clientX: number, clientY: number): { pan: number; tilt: number } | null => {
+  const points = path.points
+
+  /** Chart coordinates for a normalized point, clamped to the rim. */
+  const toSvg = (pan: number, tilt: number) => {
+    const at = normalizedToChartOffset(pan, tilt, HUD_R)
+    const length = Math.hypot(at.x, at.y)
+    const scale = length > HUD_R ? HUD_R / length : 1
+    return { x: HUD_C + at.x * scale, y: HUD_C + at.y * scale }
+  }
+  /** Pointer offset from the chart centre, in chart units. */
+  const pointerOffset = (clientX: number, clientY: number): { dx: number; dy: number } | null => {
     const rect = svgRef.current?.getBoundingClientRect()
     if (!rect) return null
-    const x = ((clientX - rect.left) / rect.width) * PATH_SIZE
-    const y = ((clientY - rect.top) / rect.height) * PATH_SIZE
-    return {
-      pan: Math.max(-1, Math.min(1, (x - PATH_SIZE / 2) / (PATH_SIZE / 2 - 8))),
-      tilt: Math.max(-1, Math.min(1, (PATH_SIZE / 2 - y) / (PATH_SIZE / 2 - 8)))
-    }
+    const x = ((clientX - rect.left) / rect.width) * HUD_SIZE
+    const y = ((clientY - rect.top) / rect.height) * HUD_SIZE
+    return { dx: x - HUD_C, dy: y - HUD_C }
   }
 
-  const points = path.points
-  const polyline = points.length > 1
-    ? [...points, points[0]].map((p) => { const s = toSvg(p.pan, p.tilt); return `${s.x},${s.y}` }).join(' ')
-    : ''
-
   const onPointerDown = (event: React.PointerEvent) => {
-    const at = fromSvg(event.clientX, event.clientY)
+    const at = pointerOffset(event.clientX, event.clientY)
     if (!at) return
-    const rect = svgRef.current!.getBoundingClientRect()
-    const px = ((event.clientX - rect.left) / rect.width) * PATH_SIZE
-    const py = ((event.clientY - rect.top) / rect.height) * PATH_SIZE
+    const px = HUD_C + at.dx
+    const py = HUD_C + at.dy
     const hit = points.findIndex((p) => {
       const s = toSvg(p.pan, p.tilt)
       return Math.hypot(s.x - px, s.y - py) < 12
@@ -2302,18 +2325,53 @@ function PathCanvas({ path, onChange, durationMs, range }: {
     if (hit >= 0) {
       setSelectedIndex(hit)
       setDragIndex(hit)
+      dragSignRef.current = { sign: points[hit].tilt < 0 ? -1 : 1, armed: false }
       ;(event.target as Element).setPointerCapture?.(event.pointerId)
       return
     }
-    onChange({ ...path, points: [...points, at] })
-    setSelectedIndex(points.length)
+    // Click near the middle of a connection line inserts a point there
+    // (smooth/line types, Guide p.169); a 'points' path has no lines.
+    if (path.type !== 'points') {
+      const mid = nearestSegmentMidpoint(points, path.type, at.dx, at.dy, HUD_R, 12)
+      if (mid) {
+        const next = [...points.slice(0, mid.index + 1), mid.point, ...points.slice(mid.index + 1)]
+        onChange({ ...path, points: next })
+        setSelectedIndex(mid.index + 1)
+        setDragIndex(mid.index + 1)
+        dragSignRef.current = { sign: mid.point.tilt < 0 ? -1 : 1, armed: false }
+        ;(event.target as Element).setPointerCapture?.(event.pointerId)
+        return
+      }
+    }
+    // Clicking empty space clears the selection (Guide p.168).
+    setSelectedIndex(null)
   }
 
   const onPointerMove = (event: React.PointerEvent) => {
     if (dragIndex === null) return
-    const at = fromSvg(event.clientX, event.clientY)
+    const at = pointerOffset(event.clientX, event.clientY)
     if (!at) return
-    onChange({ ...path, points: points.map((p, i) => (i === dragIndex ? at : p)) })
+    const radiusFraction = Math.hypot(at.dx, at.dy) / HUD_R
+    if (event.metaKey || event.ctrlKey) {
+      dragSignRef.current = cmdDragTiltSign(dragSignRef.current, radiusFraction)
+    }
+    const sign = dragSignRef.current.sign
+    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, sign)
+    // At the centre the pan angle is undefined — keep the point's pan
+    // until the pointer comes out the other side.
+    const pan = radiusFraction < 0.03 ? points[dragIndex].pan : next.pan
+    onChange({ ...path, points: points.map((p, i) => (i === dragIndex ? { pan, tilt: next.tilt } : p)) })
+  }
+
+  const onDoubleClick = (event: React.MouseEvent) => {
+    // A 'points' path has no connection lines: double-click anywhere
+    // adds a point (Guide p.169).
+    if (path.type !== 'points') return
+    const at = pointerOffset(event.clientX, event.clientY)
+    if (!at) return
+    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, 1)
+    onChange({ ...path, points: [...points, next] })
+    setSelectedIndex(points.length)
   }
 
   const deleteSelected = () => {
@@ -2335,31 +2393,66 @@ function PathCanvas({ path, onChange, durationMs, range }: {
   }
 
   const dotDegrees = dot
-    ? { pan: Math.round(dot.pan * (range.pan / 2)), tilt: Math.round(dot.tilt * (range.tilt / 2)) }
+    ? { pan: formatPanTiltDegrees(dot.pan * (range.pan / 2)), tilt: formatPanTiltDegrees(dot.tilt * (range.tilt / 2)) }
     : null
+  const drawn = samplePathPoints(points, path.type)
+  const drawnLine = drawn.length > 1
+    ? [...drawn, drawn[0]].map((p) => { const s = toSvg(p.pan, p.tilt); return `${s.x},${s.y}` }).join(' ')
+    : ''
+  const degreeLabels = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30]
 
   return (
-    <div className="flex flex-col gap-1">
+    <div
+      className="pointer-events-auto flex w-[300px] flex-col gap-1 rounded border border-line bg-panel p-2 shadow-lg"
+      data-testid="movement-chart"
+    >
       <svg
         ref={svgRef}
-        viewBox={`0 0 ${PATH_SIZE} ${PATH_SIZE}`}
-        className="w-full max-w-xs touch-none select-none rounded border border-line bg-bg"
+        viewBox={`0 0 ${HUD_SIZE} ${HUD_SIZE}`}
+        className="w-full touch-none select-none rounded bg-bg"
         role="img"
         aria-label={`Movement path ${path.name}`}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={() => setDragIndex(null)}
+        onDoubleClick={onDoubleClick}
       >
-        <line x1={PATH_SIZE / 2} y1={8} x2={PATH_SIZE / 2} y2={PATH_SIZE - 8} stroke="var(--line, #333)" strokeWidth="0.5" />
-        <line x1={8} y1={PATH_SIZE / 2} x2={PATH_SIZE - 8} y2={PATH_SIZE / 2} stroke="var(--line, #333)" strokeWidth="0.5" />
-        {polyline && <polygon points={polyline} fill="none" stroke="#0A84FF" strokeWidth="1.5" />}
+        {/* Concentric tilt rings (0.25 / 0.5 / 0.75 / full tilt). */}
+        {[0.25, 0.5, 0.75, 1].map((fraction) => (
+          <circle key={fraction} cx={HUD_C} cy={HUD_C} r={HUD_R * fraction} fill="none" stroke="var(--line, #333)" strokeWidth={fraction === 1 ? 1 : 0.5} opacity={fraction === 1 ? 1 : 0.6} />
+        ))}
+        {/* Radial spokes every 30° of pan. */}
+        {Array.from({ length: 12 }, (_, i) => {
+          const angle = i * 30
+          const at = normalizedToChartOffset(angle / 180, 1, HUD_R)
+          return <line key={angle} x1={HUD_C} y1={HUD_C} x2={HUD_C + at.x} y2={HUD_C + at.y} stroke="var(--line, #333)" strokeWidth="0.5" opacity="0.35" />
+        })}
+        {/* Rim ticks every 5°, longer every 30°. */}
+        {Array.from({ length: 72 }, (_, i) => {
+          const angle = i * 5
+          const outer = normalizedToChartOffset(angle / 180, 1, HUD_R)
+          const inner = normalizedToChartOffset(angle / 180, 1, HUD_R - (angle % 30 === 0 ? 8 : 4))
+          return <line key={angle} x1={HUD_C + inner.x} y1={HUD_C + inner.y} x2={HUD_C + outer.x} y2={HUD_C + outer.y} stroke="var(--dim, #888)" strokeWidth={angle % 30 === 0 ? 1.5 : 0.75} />
+        })}
+        {/* Degree labels around the rim: 0° at the bottom, ±180° at the top. */}
+        {degreeLabels.map((angle) => {
+          const at = normalizedToChartOffset(angle / 180, 1, HUD_R + 13)
+          const label = angle === 180 ? '±180°' : angle === 0 ? '0°' : `${angle > 0 ? '+' : ''}${angle}°`
+          return <text key={angle} x={HUD_C + at.x} y={HUD_C + at.y} textAnchor="middle" dominantBaseline="middle" fill="var(--dim, #888)" fontSize="9">{label}</text>
+        })}
+        <circle cx={HUD_C} cy={HUD_C} r="2" fill="var(--dim, #888)" />
+        {path.type !== 'points' && drawnLine && <polyline points={drawnLine} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
+        {path.type === 'points' && points.map((p, i) => {
+          const s = toSvg(p.pan, p.tilt)
+          return <circle key={`dot-${i}`} cx={s.x} cy={s.y} r="2" fill="#22d3ee" />
+        })}
         {points.map((p, i) => {
           const s = toSvg(p.pan, p.tilt)
           const selected = i === selectedIndex
           return (
             <g key={i}>
-              <circle cx={s.x} cy={s.y} r={selected ? 6 : 4.5} fill={i === 0 ? '#22c55e' : selected ? '#0A84FF' : '#fff'} stroke="#0A84FF" strokeWidth="1.5" />
-              {i === 0 && <text x={s.x + 8} y={s.y - 6} fontSize="9" fill="var(--dim, #888)">start</text>}
+              <circle cx={s.x} cy={s.y} r={selected ? 6.5 : 5} fill={i === 0 ? '#22c55e' : selected ? '#0A84FF' : '#fff'} stroke="#0A84FF" strokeWidth="1.5" />
+              {i === 0 && <text x={s.x + 9} y={s.y - 7} fontSize="9" fill="var(--dim, #888)">start</text>}
             </g>
           )
         })}
@@ -2367,34 +2460,64 @@ function PathCanvas({ path, onChange, durationMs, range }: {
           <circle cx={toSvg(dot.pan, dot.tilt).x} cy={toSvg(dot.pan, dot.tilt).y} r="4" fill="#22c55e" />
         )}
       </svg>
-      <div className="flex flex-wrap items-center gap-2 text-xs">
+      <div className="flex items-center justify-between px-1 text-[11px] text-dim">
+        <span>PAN</span>
+        <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.pan : '—'}</span>
+        <span>TILT</span>
+        <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.tilt : '—'}</span>
+      </div>
+      {showHint && (
+        <div className="flex items-start gap-1.5 rounded border border-line bg-panel2 px-2 py-1.5 text-[11px] text-dim" data-testid="movement-chart-hint">
+          <span className="flex-1">{HUD_HINT}</span>
+          <button type="button" aria-label="Dismiss hint" className="shrink-0 leading-none" onClick={() => setShowHint(false)}>×</button>
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
         <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || points.length <= 2} onClick={deleteSelected}>Delete point</button>
         <button type="button" className="text-xs text-dim" onClick={() => flip('pan')}>Flip horizontal</button>
         <button type="button" className="text-xs text-dim" onClick={() => flip('tilt')}>Flip vertical</button>
         <button type="button" className="text-xs text-dim" onClick={reverse}>Reverse</button>
         <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || selectedIndex === 0} onClick={setAsStart}>Set as Start</button>
-        <span className="text-[11px] text-dim">Click to add a point · drag to move · green dot is the start</span>
-        {dotDegrees && <span className="ml-auto font-mono text-[11px] text-dim">Pan {dotDegrees.pan}° · Tilt {dotDegrees.tilt}°</span>}
       </div>
     </div>
   )
 }
 
 /** A miniature of a movement path for the gallery (Guide p.165: the
- *  path gallery — click a path to use it). */
+ *  path gallery — click a path to use it). LightKey's tiles are all the
+ *  same size and each is a small preview of the circular movement chart
+ *  (Jake's "Effects Showcase" screenshots, 26 Nov 2026), so every tile
+ *  renders this same 56×56 polar chart — built-in, user or copy. */
+const TILE_CHART_SIZE = 56
+const TILE_CHART_C = TILE_CHART_SIZE / 2
+const TILE_CHART_R = 24
+
 function PathPreview({ pathId, userPaths }: { pathId: string; userPaths: MovementPathDef[] }) {
   const resolved = resolveMovementPath(pathId, userPaths)
-  if (!resolved) return <span className="block h-8 w-12" aria-hidden="true" />
-  const points = Array.isArray(resolved.path)
-    ? resolved.path
+  if (!resolved) return <span className="block h-14 w-14" aria-hidden="true" />
+  const parametric = Array.isArray(resolved.path)
+    ? null
     : Array.from({ length: 16 }, (_, i) => movementPoint(resolved.path, i / 16))
-  if (points.length === 0) return <span className="block h-8 w-12" aria-hidden="true" />
-  const toXY = (p: { pan: number; tilt: number }) => `${24 + p.pan * 21},${16 - p.tilt * 13}`
+  const rawPoints = Array.isArray(resolved.path) ? resolved.path : parametric!
+  // The drawn curve uses the runtime's interpolation (samplePathPoints),
+  // so the tile matches the Position HUD; a 'points' path shows its
+  // control points as dots only, with no connection lines.
+  const drawPoints = resolved.type === 'points' ? rawPoints : samplePathPoints(rawPoints, resolved.type, 32)
+  if (drawPoints.length === 0) return <span className="block h-14 w-14" aria-hidden="true" />
+  const toXY = (p: { pan: number; tilt: number }) => {
+    const at = normalizedToChartOffset(p.pan, p.tilt, TILE_CHART_R)
+    return `${TILE_CHART_C + at.x},${TILE_CHART_C + at.y}`
+  }
   return (
-    <svg viewBox="0 0 48 32" width="48" height="32" aria-hidden="true" className="shrink-0">
+    <svg viewBox={`0 0 ${TILE_CHART_SIZE} ${TILE_CHART_SIZE}`} width={TILE_CHART_SIZE} height={TILE_CHART_SIZE} aria-hidden="true" className="shrink-0">
+      <circle cx={TILE_CHART_C} cy={TILE_CHART_C} r={TILE_CHART_R} fill="none" stroke="var(--line, #333)" strokeWidth="0.75" />
+      <circle cx={TILE_CHART_C} cy={TILE_CHART_C} r={TILE_CHART_R / 2} fill="none" stroke="var(--line, #333)" strokeWidth="0.5" opacity="0.6" />
       {resolved.type === 'points'
-        ? points.map((p, i) => <circle key={i} cx={24 + p.pan * 21} cy={16 - p.tilt * 13} r="1.8" fill="#22d3ee" />)
-        : <polyline points={[...points, points[0]].map(toXY).join(' ')} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
+        ? drawPoints.map((p, i) => {
+          const [cx, cy] = toXY(p).split(',').map(Number)
+          return <circle key={i} cx={cx} cy={cy} r="1.8" fill="#22d3ee" />
+        })
+        : <polyline points={[...drawPoints, drawPoints[0]].map(toXY).join(' ')} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
     </svg>
   )
 }
@@ -2435,7 +2558,15 @@ function MovementParams({ effect, update }: { effect: EffectDef; update: (patch:
   )
 }
 
-function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+/** One movement-path tile (LightKey's gallery, Jake's "Effects Showcase"
+ *  screenshots, 26 Nov 2026): every tile — built-in, user path or copy —
+ *  has identical dimensions, a 56×56 polar chart preview and a one-line
+ *  name label. Selection, and the user tiles' rename/delete affordances
+ *  (small overlay buttons that never change the tile's size), never
+ *  change a tile's size. */
+const MOVEMENT_TILE_CLASS = 'flex w-[76px] shrink-0 flex-col items-center gap-0.5 rounded border px-1 py-1 text-[11px]'
+
+function MovementEditor({ effect, update, movementChartHost }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void; movementChartHost?: HTMLElement | null }) {
   const show = useShowStore((s) => s.show)
   const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
   const addMovementPath = useShowStore((s) => s.addMovementPath)
@@ -2502,6 +2633,18 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
+      {/* The Position HUD lives over the Preview (portalled into the
+          preview-stack host App provides); without a host — standalone
+          tests — it renders inline here instead. It appears whenever
+          this editor is open and leaves with it. */}
+      {editablePath && (movementChartHost
+        ? createPortal(
+          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} />,
+          movementChartHost
+        )
+        : (
+          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} />
+        ))}
       <div className="flex flex-wrap items-center gap-1" role="listbox" aria-label="Movement paths">
         {BUILTIN_MOVEMENT_PATHS.map((path) => (
           <button
@@ -2509,53 +2652,72 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
             type="button"
             role="option"
             aria-selected={selectedPathId === path.id}
-            className={`flex flex-col items-center gap-0.5 rounded border px-1.5 py-1 text-[11px] ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
+            data-testid="movement-path-tile"
+            className={`${MOVEMENT_TILE_CLASS} ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
             onClick={() => update({ movementPathId: path.id })}
           >
             <PathPreview pathId={path.id} userPaths={userPaths} />
-            {path.name}
+            <span className="h-4 max-w-full truncate leading-4">{path.name}</span>
           </button>
         ))}
         {userPaths.map((path) => (
-          <span key={path.id} className={`flex items-center gap-1 rounded border px-1 py-0.5 text-xs ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}>
+          <div
+            key={path.id}
+            data-testid="movement-path-tile"
+            className={`${MOVEMENT_TILE_CLASS} relative ${selectedPathId === path.id ? 'border-[#0A84FF] bg-panel2' : 'border-line'}`}
+          >
             {renameId === path.id ? (
-              <input
-                aria-label="Path name"
-                value={renameName}
-                autoFocus
-                onChange={(event) => setRenameName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' && renameName.trim()) {
-                    updateMovementPath(path.id, { name: renameName.trim() })
-                    setRenameId(null)
-                  } else if (event.key === 'Escape') setRenameId(null)
-                }}
-                onBlur={() => setRenameId(null)}
-                className="w-24 rounded bg-bg px-1 py-0.5 text-xs"
-              />
+              <>
+                <PathPreview pathId={path.id} userPaths={userPaths} />
+                <input
+                  aria-label="Path name"
+                  value={renameName}
+                  autoFocus
+                  onChange={(event) => setRenameName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && renameName.trim()) {
+                      updateMovementPath(path.id, { name: renameName.trim() })
+                      setRenameId(null)
+                    } else if (event.key === 'Escape') setRenameId(null)
+                  }}
+                  onBlur={() => setRenameId(null)}
+                  className="h-4 w-full rounded bg-bg px-1 text-[11px] leading-4"
+                />
+              </>
             ) : (
-              <button type="button" role="option" aria-selected={selectedPathId === path.id} onClick={() => update({ movementPathId: path.id })}>
-                {path.name}
+              <button
+                type="button"
+                role="option"
+                aria-selected={selectedPathId === path.id}
+                aria-label={`Use path ${path.name}`}
+                onClick={() => update({ movementPathId: path.id })}
+                className="flex flex-col items-center gap-0.5"
+              >
+                <PathPreview pathId={path.id} userPaths={userPaths} />
+                <span className="h-4 max-w-full truncate leading-4">{path.name}</span>
               </button>
             )}
-            <button type="button" className="text-dim" title="Rename path" aria-label="Rename path" onClick={() => { setRenameId(path.id); setRenameName(path.name) }}>✎</button>
-            <button
-              type="button"
-              className="text-dim"
-              title="Delete path"
-              aria-label="Delete path"
-              onClick={() => {
-                if (selectedPathId === path.id) update({ movementPathId: 'builtin-circle' })
-                removeMovementPath(path.id)
-              }}
-            >
-              ✕
-            </button>
-          </span>
+            <span className="absolute right-0.5 top-0.5 flex gap-0.5">
+              <button type="button" className="px-0.5 text-[10px] leading-none text-dim hover:text-[var(--text)]" title="Rename path" aria-label="Rename path" onClick={() => { setRenameId(path.id); setRenameName(path.name) }}>✎</button>
+              <button
+                type="button"
+                className="px-0.5 text-[10px] leading-none text-dim hover:text-[var(--text)]"
+                title="Delete path"
+                aria-label="Delete path"
+                onClick={() => {
+                  if (selectedPathId === path.id) update({ movementPathId: 'builtin-circle' })
+                  removeMovementPath(path.id)
+                }}
+              >
+                ✕
+              </button>
+            </span>
+          </div>
         ))}
         <button
           type="button"
-          className="rounded border border-dashed border-line px-2 py-1 text-xs text-dim"
+          data-testid="movement-path-tile"
+          className={`${MOVEMENT_TILE_CLASS} border-dashed text-dim`}
           onClick={() => {
             const path: MovementPathDef = {
               id: newEffectId(),
@@ -2567,7 +2729,8 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
             update({ movementPathId: path.id })
           }}
         >
-          + New Path
+          <span className="flex h-14 w-14 items-center justify-center text-xl leading-none" aria-hidden="true">+</span>
+          <span className="h-4 leading-4">New Path</span>
         </button>
       </div>
       {editablePath && (
@@ -2591,14 +2754,6 @@ function MovementEditor({ effect, update }: { effect: EffectDef; update: (patch:
           )}
           {resolved && <span className="text-[11px] text-dim">{resolved.type === 'smooth' ? 'Smooth' : resolved.type === 'line' ? 'Line' : 'Points'} path</span>}
         </div>
-      )}
-      {editablePath && (
-        <PathCanvas
-          path={editablePath}
-          onChange={onPathChange}
-          durationMs={effect.durationMs ?? 2000}
-          range={range}
-        />
       )}
     </div>
   )
@@ -2626,7 +2781,7 @@ export function EffectIndicator({ effect, onEdit }: { effect: EffectDef; onEdit:
   )
 }
 
-export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null } = {}) {
+export function EffectEditor({ effectTabHost, effectToolsHost, movementChartHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; movementChartHost?: HTMLElement | null } = {}) {
   const editingEffectId = useShowStore((s) => s.editingEffectId)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
   const effect = useShowStore((s) => s.effects.find((e) => e.id === s.editingEffectId))
@@ -2818,7 +2973,7 @@ export function EffectEditor({ effectTabHost, effectToolsHost }: { effectTabHost
               onActiveComponent={setActiveCurveComponent}
             />
           )}
-          {kind === 'movement' && <MovementEditor effect={effect} update={update} />}
+          {kind === 'movement' && <MovementEditor effect={effect} update={update} movementChartHost={movementChartHost} />}
         </div>
         <div className="flex w-56 shrink-0 flex-col gap-2">
           {kind === 'pattern' && <PatternParams effect={effect} update={update} />}

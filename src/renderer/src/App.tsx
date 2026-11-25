@@ -158,6 +158,16 @@ export default function App() {
   // header lives in the Design/Live row, LightKey's way. Same
   // lifetime as the tab host above.
   const [effectToolsHost, setEffectToolsHost] = useState<HTMLDivElement | null>(null)
+  // Host for the movement effect's Position HUD (Jake, 26 Nov 2026):
+  // LightKey's circular movement chart floats over the Preview while a
+  // movement effect is being edited. Same portal pattern as the tab
+  // host above — the MovementEditor portals its chart here, and renders
+  // it inline in the bottom panel when there is no host (standalone
+  // tests). The host only exists while an effect editor is open in
+  // Design, so the chart leaves with the editor. It is pointer-events
+  // none; only the chart panel itself captures pointer events, so the
+  // rest of the Preview stays usable underneath it.
+  const [movementChartHost, setMovementChartHost] = useState<HTMLDivElement | null>(null)
   // The effects chooser's header hosts (Jake, 22 Nov 2026; LightKey
   // screenshot 12.03.49 am): the chooser portals its mode-swap pill
   // ("Custom Effect" / "Effect Template") to the far left of the
@@ -668,7 +678,7 @@ export default function App() {
   const designWorkspace = (<>
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{editingEffectId && tab === 'Design' && <div ref={setMovementChartHost} className="pointer-events-none absolute left-3 top-3 z-30" data-testid="movement-chart-host" />}{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
 
         {/* In Preview edit mode the side panel becomes the Preview
             Inspector (LightKey Guide p.53: "On the right of the window is
@@ -732,7 +742,7 @@ export default function App() {
             {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
-            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} />}
+            {tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} /> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
         </div>
 

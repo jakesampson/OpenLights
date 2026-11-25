@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CalibrationPerspective, FixtureCalibration, FixtureDef } from '@shared/types'
-import { CALIBRATION_PERSPECTIVES, CALIBRATION_STEPS, calibrationStepPatch, calibrationSteps, compassToPreviewDirection, panTiltRange, type CalibrationStep } from '../lib/calibration'
+import { CALIBRATION_PERSPECTIVES, CALIBRATION_STEPS, calibrationStepPatch, calibrationSteps, compassToPreviewDirection, panTiltRange, wrapRotationDegrees, type CalibrationStep } from '../lib/calibration'
 import { setCalibrationOutput } from '../lib/output'
 import { useShowStore } from '../stores/showStore'
 
@@ -172,7 +172,6 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
   const [tiltMax, setTiltMax] = useState(() => first?.calibration?.tiltMax ?? range.tilt / 2)
   const [readout, setReadout] = useState<string | null>(null)
   const [rotationAngle, setRotationAngle] = useState(0)
-  const [rotationReturning, setRotationReturning] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<string | null>(null)
@@ -211,28 +210,30 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
     return () => { setCalibrationOutput({}) }
   }, [step, fixtures])
 
-  // Rotation step (Guide p.59): a slow pan sweep across the whole
-  // ±180° dial (8s out), then the light turns back in blackout over 2s
-  // and repeats. The drawn arrow follows the same (possibly reversed)
-  // angle the DMX gets — clicking inside the circle flips
-  // rotationReversed, which used to reverse only the fixture's pan and
-  // leave the arrow travelling the old way.
+  // Rotation step (Guide p.59): a slow pan sweep that scrolls around
+  // the dial forever — in LightKey "the arrow just infinitely
+  // scrolls" (Jake, 26 Nov 2026); ours swept once and then rewound
+  // to the start in blackout. The angle rises at 45°/s (8s per full
+  // turn) and wraps at ±180°, which is the same point on the dial, so
+  // the arrow never jumps; the pan channel wraps with it
+  // (wrapRotationDegrees) so the beam keeps turning the same way
+  // instead of hitting a range end. Clicking inside the circle flips
+  // rotationReversed and the arrow scrolls the other way. The drawn
+  // arrow follows the same (possibly reversed) angle the DMX gets.
   useEffect(() => {
     if (step !== 'rotation') return
     let frame = 0
     const startedAt = performance.now()
     const tick = (now: number) => {
-      const t = ((now - startedAt) / 1000) % 10
-      const angle = t < 8 ? -180 + 360 * (t / 8) : 180 - 360 * ((t - 8) / 2)
-      const blackout = t >= 8
+      const elapsed = (now - startedAt) / 1000
+      const angle = -180 + ((elapsed * 45) % 360)
       setRotationAngle(angle)
-      setRotationReturning(blackout)
-      setCalibrationOutput(calibrationStepPatch(fixtures, 'rotation', rotationReversed ? -angle : angle, blackout))
+      setCalibrationOutput(calibrationStepPatch(fixtures, 'rotation', wrapRotationDegrees(range.pan, rotationReversed ? -angle : angle), false))
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => { cancelAnimationFrame(frame); setCalibrationOutput({}) }
-  }, [step, fixtures, rotationReversed])
+  }, [step, fixtures, rotationReversed, range.pan])
 
   // Esc closes without saving (the app's "Stop / close panel").
   useEffect(() => {
@@ -312,11 +313,17 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
                   {step === 'limits' && <><DialSpokes radius={R} /><circle cx={CX} cy={CY} r={R / 3} fill="none" stroke="var(--dim)" strokeWidth="0.5" opacity="0.25" /><circle cx={CX} cy={CY} r={(2 * R) / 3} fill="none" stroke="var(--dim)" strokeWidth="0.5" opacity="0.25" /><DialTicks radius={R} labels={[]} /></>}
                   {step === 'home' && (
                     <g transform={`rotate(${homeDirection} ${CX} ${CY})`}>
-                      {/* LightKey's Home arrow is a wide dart/kite, not a
-                          thin shaft: tip near the rim, wings spreading
-                          wide just below the centre, long tail point
-                          below (Jake's MH3 Home screenshot, 25 Nov 2026). */}
-                      <polygon points={`${CX},${CY - 125} ${CX + 58},${CY + 10} ${CX},${CY + 105} ${CX - 58},${CY + 10}`} fill="#2563eb" />
+                      {/* LightKey's Home arrow is a long dart, not a
+                          diamond: a sharp point at the front and a
+                          notched tail at the back — two tail peaks
+                          with a V notch between them, tapering
+                          straight from the tail to the point (Jake's
+                          LightKey Home screenshot, 26 Nov 2026,
+                          measured: tail ≈ 0.54× the length, notch
+                          ≈ 0.18× deep). The c08f5a1 dial rework had
+                          made it a symmetric diamond, pointed at both
+                          ends and widest in the middle. */}
+                      <polygon points={`${CX},${CY - 125} ${CX + 62},${CY + 105} ${CX},${CY + 64} ${CX - 62},${CY + 105}`} fill="#2563eb" />
                     </g>
                   )}
                   {step === 'rotation' && (
@@ -330,9 +337,9 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
                         // thin line growing from −45°.
                         const shown = rotationReversed ? -rotationAngle : rotationAngle
                         // Direction of travel of the shown angle: the
-                        // out-leg increases it, the return leg decreases
-                        // it; reversed flips both.
-                        const travel = (rotationReturning ? -1 : 1) * (rotationReversed ? -1 : 1)
+                        // sweep always increases it; reversed flips it
+                        // so the arrow scrolls the other way.
+                        const travel = rotationReversed ? -1 : 1
                         const arcRadius = ROTATION_RADIUS - 18
                         const tail = shown - 65 * travel
                         const headPoint = polarRotation(shown, arcRadius)

@@ -47,6 +47,21 @@ export function channelToDegrees(range: number, value: number): number {
   return (Math.max(0, Math.min(255, value)) / 255 - 0.5) * range
 }
 
+/** Wrap a continuously increasing rotation angle into the pan range
+ *  (Jake, 26 Nov 2026: LightKey's Rotation arrow scrolls around the
+ *  dial forever, with no rewind). The wrap is modulo min(range, 360):
+ *  the beam's direction depends on the pan angle modulo 360°, so
+ *  wrapping at ±180° keeps the beam turning the same way as the arrow
+ *  with no snap — wrapping at the range ends instead (e.g. ±270° for
+ *  a 540° head) would flip the beam 180° and leave it half a turn out
+ *  of phase with the arrow. A fixture whose range is under 360° wraps
+ *  at its range ends instead, the physical limit of its yoke. */
+export function wrapRotationDegrees(range: number, degrees: number): number {
+  const span = Math.min(range, 360)
+  const half = span / 2
+  return (((degrees + half) % span) + span) % span - half
+}
+
 /** The fixture's home position (Guide p.59): centre of the pan range,
  *  tilted 90°, dimmer full. */
 export function defaultHomeValues(fixture: FixtureDef): { pan: number; tilt: number; intensity: number } {

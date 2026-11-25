@@ -148,7 +148,7 @@ function colorHex(values: Record<string, number>) {
   return `#${hex('red')}${hex('green')}${hex('blue')}`
 }
 
-export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, chooserSearchHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; chooserLeftHost?: HTMLElement | null; chooserSearchHost?: HTMLElement | null } = {}) {
+export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, chooserSearchHost, movementChartHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; chooserLeftHost?: HTMLElement | null; chooserSearchHost?: HTMLElement | null; movementChartHost?: HTMLElement | null } = {}) {
   const {
     show,
     cues,
@@ -643,7 +643,7 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   if (editingEffectId) {
     return (
       <div className="design-fixture-inspector flex h-full min-h-0 flex-col gap-2 overflow-hidden">
-        <EffectEditor effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} />
+        <EffectEditor effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} movementChartHost={movementChartHost} />
       </div>
     )
   }

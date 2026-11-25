@@ -93,11 +93,30 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
   const values = (panDeg: number, tiltDeg: number) => ({ pan: degreesToChannel(540, panDeg), tilt: degreesToChannel(270, tiltDeg) })
 
   it('points in the home direction at full length at the home position', () => {
-    // Home = pan centre, tilt 90°; home direction 90° (right).
+    // Home = pan centre, tilt 90°; home direction 90° (left, in the
+    // clockwise-from-down convention the stored direction uses).
     // (Channel rounding moves the angles ~0.5°, hence the 5° tolerance.)
     const v = previewBeamVector(head({ perspective: 'down' }), values(0, 90), { x: 100, y: 100 })
     expect(v.direction).toBeCloseTo(90, -1)
     expect(v.lengthFactor).toBeCloseTo(1, 2)
+  })
+
+  it('turns the same way as the Rotation dial arrow as pan increases (Guide p.59)', () => {
+    // Jake, 26 Nov 2026: the Preview beam rotated opposite to the dial
+    // arrow, and reversing flipped both, so they stayed opposite. The
+    // dial arrow at pan angle θ points at polar(180° − θ), i.e. screen
+    // vector (sin θ, cos θ); the beam must point the same way on
+    // screen. The beam direction is clockwise from down, so its screen
+    // vector is (−sin d, cos d) — the two agree when d = −θ.
+    const atPan = (panDeg: number) => previewBeamVector(
+      { id: 'mh1', name: 'MH1', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 0 }, calibration: { perspective: 'down' } },
+      values(panDeg, 90), { x: 100, y: 100 })
+    for (const pan of [-120, -90, -45, 0, 45, 90, 120]) {
+      const d = atPan(pan).direction
+      const beam = { x: -Math.sin((d * Math.PI) / 180), y: Math.cos((d * Math.PI) / 180) }
+      const arrow = { x: Math.sin((pan * Math.PI) / 180), y: Math.cos((pan * Math.PI) / 180) }
+      expect(Math.hypot(beam.x - arrow.x, beam.y - arrow.y)).toBeLessThan(0.05)
+    }
   })
 
   it('points in the perspective direction at the centre of the tilt range', () => {
@@ -131,8 +150,8 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
     const sideways = (panDeg: number) => previewBeamVector(
       { id: 'mh1', name: 'MH1', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 180 }, calibration: { perspective: 'down' } },
       values(panDeg, 45), { x: 100, y: 300 })
-    expect(angleDiff(sideways(90).direction, 315)).toBeLessThan(5)
-    expect(angleDiff(sideways(-90).direction, 45)).toBeLessThan(5)
+    expect(angleDiff(sideways(90).direction, 45)).toBeLessThan(5)
+    expect(angleDiff(sideways(-90).direction, 315)).toBeLessThan(5)
     expect(sideways(90).lengthFactor).toBeGreaterThan(0.5)
     expect(sideways(-90).lengthFactor).toBeGreaterThan(0.5)
   })
@@ -163,15 +182,18 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
     // Figure Eight path points (normalised −1..1): pan = sin(a)·0.8,
     // tilt = sin(2a)·0.8, mapped onto the 540°/270° ranges.
     // Directions wrap at 0°/360°, so compare by circular distance.
+    // (Jake, 26 Nov 2026: the beam was mirrored — the lobes were on
+    // the wrong sides. The values below are the un-mirrored ones: the
+    // phase-45 lobe points down-right, the phase-135 lobe up-left.)
     const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
     const at = (phaseDeg: number) => {
       const a = (phaseDeg * Math.PI) / 180
       return previewBeamVector(head({ perspective: 'down' }), values(Math.sin(a) * 0.8 * 270, Math.sin(a * 2) * 0.8 * 135), { x: 100, y: 100 })
     }
     expect(angleDiff(at(0).direction, 0)).toBeLessThan(5) // crossing at the bottom
-    expect(angleDiff(at(45).direction, 229)).toBeLessThan(5) // left lobe, up-left
+    expect(angleDiff(at(45).direction, 277)).toBeLessThan(5) // down-right
     expect(angleDiff(at(90).direction, 0)).toBeLessThan(5) // crossing again
-    expect(angleDiff(at(135).direction, 81)).toBeLessThan(5) // right lobe, up-right
+    expect(angleDiff(at(135).direction, 130)).toBeLessThan(5) // up-left
     expect(at(45).lengthFactor).toBeGreaterThan(0.5)
     expect(at(135).lengthFactor).toBeGreaterThan(0.5)
   })

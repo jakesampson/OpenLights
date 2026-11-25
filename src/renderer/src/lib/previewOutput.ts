@@ -106,12 +106,26 @@ export interface PreviewBeamVector {
  * pan is the azimuth around it, measured from the home direction. The
  * tip is L·(sin τ·(cos φ·H + sin φ·P) + cos τ·D), where τ is the tilt
  * offset from centre, φ the pan offset from centre, H the
- * home-direction unit vector, P the same vector rotated 90° clockwise
- * in the canvas plane, and D the perspective unit vector (zero for
- * parallel). Pan therefore moves the beam sideways (towards P) and
- * tilt moves it from the perspective direction towards home — the same
- * mapping as the Design POSITION pad — so a movement effect traces its
- * path on the Preview at every tilt value, including the centre.
+ * home-direction unit vector, P the same vector rotated 90°
+ * counterclockwise on the canvas, and D the perspective unit vector
+ * (zero for parallel). Pan therefore moves the beam sideways (towards
+ * P) and tilt moves it from the perspective direction towards home —
+ * the same mapping as the Design POSITION pad — so a movement effect
+ * traces its path on the Preview at every tilt value, including the
+ * centre.
+ *
+ * Directions are measured clockwise from down, the same convention
+ * the stored home direction uses (compassToPreviewDirection) and the
+ * SVG rotate() in StagePreview draws with — the beam polygon points
+ * down at 0°. P is H rotated 90° counterclockwise on screen, so as
+ * pan increases the beam turns the same way as the Rotation dial
+ * arrow (Guide p.59: "the arrow should follow the movement of the
+ * light beam"). The earlier model had H and the returned direction in
+ * the opposite (counterclockwise-from-down) convention: the two
+ * mirrors cancelled at the home position, so home beams drew
+ * correctly, but away from home the drawn beam was the mirror image
+ * of the computed tip — during the Rotation sweep it turned clockwise
+ * while the dial arrow turned counterclockwise (Jake, 26 Nov 2026).
  *
  * The earlier model had no P term (the tip was a combination of H and
  * D only), so when H and D were near-parallel — the usual calibrated
@@ -150,10 +164,13 @@ export function previewBeamVector(fixture: FixtureDef, values: Record<string, nu
   const phi = hasPan ? channelToDegrees(range.pan, values.pan as number) : 0
   const tau = hasTilt ? channelToDegrees(range.tilt, values.tilt as number) : 0
   const homeRad = (homeDirection * Math.PI) / 180
-  const hx = Math.sin(homeRad), hy = Math.cos(homeRad)
-  // P is H rotated 90° clockwise in the canvas plane: the sideways
-  // direction pan moves the beam towards.
-  const px = Math.cos(homeRad), py = -Math.sin(homeRad)
+  // H in the clockwise-from-down convention (0 = down, 90 = left,
+  // 180 = up, 270 = right), matching the stored home direction.
+  const hx = -Math.sin(homeRad), hy = Math.cos(homeRad)
+  // P is H rotated 90° counterclockwise on the canvas: the sideways
+  // direction pan moves the beam towards, so the beam turns the same
+  // way as the Rotation dial arrow as pan increases.
+  const px = Math.cos(homeRad), py = Math.sin(homeRad)
   const perspective = fixture.calibration?.perspective
   let dx = 0, dy = 0
   if (perspective === 'left') dx = -1
@@ -168,7 +185,10 @@ export function previewBeamVector(fixture: FixtureDef, values: Record<string, nu
   const ty = s * (Math.cos(phiRad) * hy + Math.sin(phiRad) * py) + c * dy
   const len = Math.hypot(tx, ty)
   if (len < 1e-6) return { direction: homeDirection, lengthFactor: 0 }
-  return { direction: (Math.atan2(tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }
+  // Clockwise from down: atan2(-tx, ty) is 0 for down, 90 for left,
+  // 180 for up, 270 for right — the convention StagePreview's
+  // rotate() draws with.
+  return { direction: (Math.atan2(-tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }
 }
 
 /** Preview artwork settings never change transmitted channel values. */
