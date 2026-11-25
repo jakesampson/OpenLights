@@ -78,8 +78,11 @@ export function calibrationSteps(fixture: FixtureDef): CalibrationStep[] {
 /** Complete = a home direction and a perspective were chosen (moving
  *  head); a static light only needs its direction. Rotation defaults to
  *  not-reversed and Limits defaults to the profile's full range, so
- *  neither needs a visit to count as done. The checkmark below the
- *  fixture icon (Guide p.60) follows this rule. */
+ *  neither needs a visit to count as done. (The guide, p.60, says a
+ *  checkmark appears below the fixture icon once this is done, but
+ *  Jake's LightKey test 25 Nov 2026 found no tick in the normal
+ *  Preview for either a static or a moving fixture — the tick is
+ *  shown only in the setup wizard's directions step.) */
 export function isCalibrationComplete(fixture: FixtureDef): boolean {
   const calibration = fixture.calibration
   if (!calibration || typeof calibration.homeDirection !== 'number') return false

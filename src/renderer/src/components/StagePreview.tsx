@@ -766,7 +766,16 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               {selectable && f.namePosition !== 'hidden' && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0 && (() => { const nameY = f.namePosition === 'below' ? y + 20 : y - 13; const halfWidth = ((f.shortName ?? f.name).length * 4.6) / 2; return (
                 <circle cx={x - halfWidth - 7} cy={nameY - 3} r="3" fill="#0A84FF" stroke="var(--bg)" strokeWidth="1" role="button" aria-label={`Overridden properties for ${f.name}`} style={{ cursor: 'pointer' }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setShowOverrideLabels(true) }}><title>Overridden properties — click to show</title></circle>
               ) })()}
-              {isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? (setupWizardStep === 'directions' ? y + 48 : y + 32) : (setupWizardStep === 'directions' ? y + 36 : y + 20)} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
+              {/* Calibration checkmark — setup wizard directions step ONLY
+                  (Guide Step 6, p.36: "a checkmark appears below the
+                  fixture icon" as you work through the fixtures). Jake's
+                  LightKey test 25 Nov 2026: after setting the beam
+                  direction on FS2 (a static dimmer) and after full
+                  calibration of MH3 (a moving head — Home, Rotation,
+                  Limits, Perspective), there is NO tick under the fixture
+                  in the normal Preview, edit view or Live view — so the
+                  guide's claim does not hold there. */}
+              {setupWizardStep === 'directions' && isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? y + 48 : y + 36} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {/* Wizard Light Beam Directions step (Piece 5, video 07:05):
                   every fixture gets a yellow Set… button below its icon;
                   clicking it opens the Piece 4 calibration dialog for that
