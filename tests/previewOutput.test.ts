@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { previewFixtureValues, previewBeamAppearance, previewCellBeams, cellBeamGeometry, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
+import { previewFixtureValues, previewBeamAppearance, previewBeamVector, previewCellBeams, cellBeamGeometry, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
+import { degreesToChannel } from '../src/renderer/src/lib/calibration'
 import type { FixtureDef } from '../src/shared/types'
 
 // EP4 / pixel-bar: 4 cells, RGB per cell (offsets 0-11) + master dimmer (12).
@@ -81,7 +82,66 @@ describe('live preview output', () => {
 
 it('uses the stored beam direction and the fixture live colour, without changing the decoded DMX output', () => {
  const fixture: FixtureDef = { id: 'd', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1, previewBeam: { direction: 45 } }
- expect(previewBeamAppearance(fixture, { x: 100, y: 100 }, '#ffffff')).toEqual({ direction: 45, color: '#ffffff' })
+ expect(previewBeamAppearance(fixture, { x: 100, y: 100 }, '#ffffff')).toEqual({ direction: 45, lengthFactor: 1, color: '#ffffff' })
  expect(previewFixtureValues(fixture, [128])).toEqual({ intensity: 128 })
- expect(previewBeamAppearance({ ...fixture, previewBeam: { direction: 'auto' } }, { x: 100, y: 250 }, '#123456')).toEqual({ direction: 180, color: '#123456' })
+ expect(previewBeamAppearance({ ...fixture, previewBeam: { direction: 'auto' } }, { x: 100, y: 250 }, '#123456')).toEqual({ direction: 180, lengthFactor: 1, color: '#123456' })
+})
+
+describe('beam direction from live pan/tilt (Guide p.91)', () => {
+  // Built-in moving head: intensity 0, pan 1, tilt 2; 540°/270° defaults.
+  const head = (calibration?: FixtureDef['calibration']): FixtureDef => ({ id: 'mh1', name: 'MH1', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 90 }, ...(calibration ? { calibration } : {}) })
+  const values = (panDeg: number, tiltDeg: number) => ({ pan: degreesToChannel(540, panDeg), tilt: degreesToChannel(270, tiltDeg) })
+
+  it('points in the home direction at full length at the home position', () => {
+    // Home = pan centre, tilt 90°; home direction 90° (right).
+    // (Channel rounding moves the angles ~0.5°, hence the 5° tolerance.)
+    const v = previewBeamVector(head({ perspective: 'down' }), values(0, 90), { x: 100, y: 100 })
+    expect(v.direction).toBeCloseTo(90, -1)
+    expect(v.lengthFactor).toBeCloseTo(1, 2)
+  })
+
+  it('points in the perspective direction at the centre of the tilt range', () => {
+    const down = previewBeamVector(head({ perspective: 'down' }), values(0, 0), { x: 100, y: 100 })
+    expect(down.direction).toBeCloseTo(0, -1)
+    expect(down.lengthFactor).toBeCloseTo(1, 2)
+    const up = previewBeamVector(head({ perspective: 'up' }), values(0, 0), { x: 100, y: 100 })
+    expect(up.direction).toBeCloseTo(180, -1)
+    expect(up.lengthFactor).toBeCloseTo(1, 2)
+  })
+
+  it('gives the same beam for the two pan/tilt combinations the guide says are one direction', () => {
+    // Guide p.91: pan −60°, tilt +45° and pan +120°, tilt −45° point
+    // the beam in the same direction.
+    const a = previewBeamVector(head({ perspective: 'down' }), values(-60, 45), { x: 100, y: 100 })
+    const b = previewBeamVector(head({ perspective: 'down' }), values(120, -45), { x: 100, y: 100 })
+    expect(a.direction).toBeCloseTo(b.direction, 5)
+    expect(a.lengthFactor).toBeCloseTo(b.lengthFactor, 5)
+  })
+
+  it('is a dot for a parallel fixture at the centre of the tilt range', () => {
+    const v = previewBeamVector(head({ perspective: 'parallel' }), values(0, 0), { x: 100, y: 100 })
+    expect(v.lengthFactor).toBeLessThan(0.05)
+  })
+
+  it('traces a figure eight: the two lobes point to opposite sides', () => {
+    // Figure Eight path points (normalised −1..1): pan = sin(a)·0.8,
+    // tilt = sin(2a)·0.8, mapped onto the 540°/270° ranges.
+    // Directions wrap at 0°/360°, so compare by circular distance.
+    const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+    const at = (phaseDeg: number) => {
+      const a = (phaseDeg * Math.PI) / 180
+      return previewBeamVector(head({ perspective: 'down' }), values(Math.sin(a) * 0.8 * 270, Math.sin(a * 2) * 0.8 * 135), { x: 100, y: 100 })
+    }
+    expect(angleDiff(at(0).direction, 0)).toBeLessThan(5) // crossing at the bottom
+    expect(angleDiff(at(45).direction, 250)).toBeLessThan(5) // left lobe, up-left
+    expect(angleDiff(at(90).direction, 0)).toBeLessThan(5) // crossing again
+    expect(angleDiff(at(135).direction, 110)).toBeLessThan(5) // right lobe, up-right
+    expect(at(45).lengthFactor).toBeGreaterThan(0.5)
+    expect(at(135).lengthFactor).toBeGreaterThan(0.5)
+  })
+
+  it('keeps the stored home direction at full length for a fixture with no pan/tilt', () => {
+    const v = previewBeamVector(head(), {}, { x: 100, y: 100 })
+    expect(v).toEqual({ direction: 90, lengthFactor: 1 })
+  })
 })

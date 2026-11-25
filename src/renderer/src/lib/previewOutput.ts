@@ -1,5 +1,6 @@
 import { fixtureBeams, fixtureChannelMap } from '@shared/fixtureProfiles'
 import type { FixtureDef } from '@shared/types'
+import { channelToDegrees, panTiltRange } from './calibration'
 import { FIXTURE_ATTRIBUTE_MAP } from './automationRuntime'
 
 function clamp(v: number, min = 0, max = 255) {
@@ -87,9 +88,72 @@ export function cellBeamGeometry(opacity: number) {
   return { length, nearHalf, farHalf }
 }
 
+/** The beam's drawn direction and foreshortening for one fixture. */
+export interface PreviewBeamVector {
+  /** Preview rotation (clockwise from down) the beam points in. */
+  direction: number
+  /** 0..1 — how much of the full beam length the beam shows (1 = full). */
+  lengthFactor: number
+}
+
+/**
+ * Where a moving head's beam points, from its live pan/tilt (LightKey
+ * Guide p.91, Position control, and p.60, Perspective). The beam is a
+ * point in a circle around the fixture: tilt is the polar angle from
+ * the perspective direction — the direction the beam points at the
+ * centre of the tilt range (down for a ceiling-hung fixture, up for a
+ * floor fixture, left/right, or towards the viewer for parallel) — and
+ * pan is the azimuth around it, measured from the home direction. The
+ * tip is L·(sin τ·cos φ·H + cos τ·D), where τ is the tilt offset from
+ * centre, φ the pan offset from centre, H the home-direction unit
+ * vector and D the perspective unit vector (zero for parallel). The
+ * guide's own example falls out of this: pan −60°, tilt +45° and pan
+ * +120°, tilt −45° give the same tip, as LightKey says they must
+ * (p.91). At the home position (tilt 90°) the beam points in the home
+ * direction at full length; at the centre of the tilt range it points
+ * in the perspective direction at full length (a dot for parallel);
+ * between the two it foreshortens, so a movement effect (Circle,
+ * Figure Eight, Line) traces its path on the Preview instead of
+ * leaving the beam frozen on its home direction.
+ *
+ * The frame's pan/tilt are used exactly as transmitted — they are
+ * already clamped to the calibration limits and mirrored for a
+ * reversed yoke (applyCalibrationOutput, output layer). A fixture
+ * with no pan/tilt channels keeps its stored home direction at full
+ * length, as before; an uncalibrated moving head takes its
+ * perspective from its canvas position (truss fixtures aim down,
+ * floor fixtures aim up), which is the same fallback the stored
+ * home direction already used.
+ */
+export function previewBeamVector(fixture: FixtureDef, values: Record<string, number>, position: { x: number; y: number }): PreviewBeamVector {
+  const homeDirection = typeof fixture.previewBeam?.direction === 'number' && Number.isFinite(fixture.previewBeam.direction) ? fixture.previewBeam.direction : position.y > 200 ? 180 : 0
+  const hasPan = typeof values.pan === 'number'
+  const hasTilt = typeof values.tilt === 'number'
+  if (!hasPan && !hasTilt) return { direction: homeDirection, lengthFactor: 1 }
+  const range = panTiltRange(fixture)
+  const phi = hasPan ? channelToDegrees(range.pan, values.pan as number) : 0
+  const tau = hasTilt ? channelToDegrees(range.tilt, values.tilt as number) : 0
+  const homeRad = (homeDirection * Math.PI) / 180
+  const hx = Math.sin(homeRad), hy = Math.cos(homeRad)
+  const perspective = fixture.calibration?.perspective
+  let dx = 0, dy = 0
+  if (perspective === 'left') dx = -1
+  else if (perspective === 'right') dx = 1
+  else if (perspective === 'up') dy = -1
+  else if (perspective === 'parallel') { dx = 0; dy = 0 }
+  else dy = position.y > 200 ? -1 : 1 // 'down', or unset: truss aims down, floor aims up
+  const tauRad = (tau * Math.PI) / 180, phiRad = (phi * Math.PI) / 180
+  const along = Math.sin(tauRad) * Math.cos(phiRad)
+  const tx = along * hx + Math.cos(tauRad) * dx
+  const ty = along * hy + Math.cos(tauRad) * dy
+  const len = Math.hypot(tx, ty)
+  if (len < 1e-6) return { direction: homeDirection, lengthFactor: 0 }
+  return { direction: (Math.atan2(tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }
+}
+
 /** Preview artwork settings never change transmitted channel values. */
-export function previewBeamAppearance(fixture: FixtureDef, position: { x: number; y: number }, liveColor: string) {
-  const direction = fixture.previewBeam?.direction
+export function previewBeamAppearance(fixture: FixtureDef, position: { x: number; y: number }, liveColor: string, values: Record<string, number> = {}) {
+  const vector = previewBeamVector(fixture, values, position)
   // The beam is always drawn in the fixture's own live colour. There is
   // no stored beam-colour override any more: the manual "Beam colour"
   // input, the "Auto beam" reset and the "Beam Color…" dialog were all
@@ -98,7 +162,7 @@ export function previewBeamAppearance(fixture: FixtureDef, position: { x: number
   // shows its live colour. A monochrome fixture's beam colour, if Jake
   // ever wants it, is a separate feature gated on fixture type, not a
   // stored override — nothing here reads one.
-  return { direction: typeof direction === 'number' && Number.isFinite(direction) ? direction : position.y > 200 ? 180 : 0, color: liveColor }
+  return { direction: vector.direction, lengthFactor: vector.lengthFactor, color: liveColor }
 }
 
 /** Decode the actual 1-based universe values for preview, retaining dimmer gel colour. */

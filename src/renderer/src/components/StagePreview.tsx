@@ -647,7 +647,11 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const on = f.intensity > 0
           const op = Math.min(f.intensity / 255, 1)
           // Truss fixtures aim down at the deck; floor fixtures aim up.
-          const appearance = previewBeamAppearance(f, f.pos, f.color)
+          // The beam follows the fixture's live pan/tilt (previewBeamVector,
+          // Guide p.91): a movement effect moves the beam, and the
+          // perspective foreshortens it — lengthFactor is that
+          // foreshortening, on top of the dimmer length below.
+          const appearance = previewBeamAppearance(f, f.pos, f.color, f.values)
           const top = y + 4
           const bottom = y + 150
           // The beam's length follows its brightness (Jake, 19 Nov
@@ -656,9 +660,11 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           // shrinks it. 0 is no beam at all (gated by `on` above);
           // 100% is the full 146. The far end narrows with the length
           // so the cone angle stays the same; direction, colour and
-          // opacity are untouched.
-          const beamBottom = top + (bottom - top) * op
-          const beamFarHalf = 7 + (34 - 7) * op
+          // opacity are untouched. Pan/tilt foreshortening multiplies
+          // the length (a beam pointing at the viewer is a dot), never
+          // the colour or opacity.
+          const beamBottom = top + (bottom - top) * op * appearance.lengthFactor
+          const beamFarHalf = 7 + (34 - 7) * op * appearance.lengthFactor
           // One beam per cell (LightKey Guide p.57, §8 p.119 — cells
           // are "beams"; `fixtureBeams` derives them from the
           // repeating colour pods). Each cell's beam starts at its
@@ -721,7 +727,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 // The cell's own centre: the rects are 9 apart,
                 // centred on the fixture (see the cell rects below).
                 const cx = x + (index - (cells.length - 1) / 2) * 9
-                const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity)
+                const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity * appearance.lengthFactor)
                 const cellBottom = top + length
                 return (
                   <polygon
@@ -776,17 +782,6 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   in the normal Preview, edit view or Live view — so the
                   guide's claim does not hold there. */}
               {setupWizardStep === 'directions' && isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? y + 48 : y + 36} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
-              {/* Wizard Light Beam Directions step (Piece 5, video 07:05):
-                  every fixture gets a yellow Set… button below its icon;
-                  clicking it opens the Piece 4 calibration dialog for that
-                  fixture. A calibrated fixture's checkmark moves below the
-                  button. */}
-              {setupWizardStep === 'directions' && selectable && (() => { const setY = f.namePosition === 'below' ? y + 32 : y + 20; return (
-                <g role="button" aria-label={`Set beam direction for ${f.name}`} style={{ cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-open-calibration')) }}>
-                  <rect x={x - 22} y={setY - 10} width="44" height="13" rx="6" fill="#eab308" />
-                  <text x={x} y={setY} textAnchor="middle" fontSize="8" fontWeight="700" fill="#000000">Set…</text>
-                </g>
-              ) })()}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
                 <FixtureIcon kind={kind} x={x} y={y} on={on} color={f.color} selected={selected} cells={beams.length} />
@@ -799,6 +794,21 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 pointerEvents="all"
                 aria-hidden="true"
               />
+              {/* Wizard Light Beam Directions step (Piece 5, video 07:05):
+                  every fixture gets a yellow Set… button below its icon;
+                  clicking it opens the Piece 4 calibration dialog for that
+                  fixture. A calibrated fixture's checkmark moves below the
+                  button. The pill is painted AFTER the invisible hit
+                  circle above on purpose: the circle reaches to y+16 and
+                  the pill starts at y+10, so when the pill was painted
+                  first the circle swallowed clicks on its top half (only
+                  the bottom edge opened the dialog). */}
+              {setupWizardStep === 'directions' && selectable && (() => { const setY = f.namePosition === 'below' ? y + 32 : y + 20; return (
+                <g role="button" aria-label={`Set beam direction for ${f.name}`} style={{ cursor: 'pointer' }} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-open-calibration')) }}>
+                  <rect x={x - 22} y={setY - 10} width="44" height="13" rx="6" fill="#eab308" />
+                  <text x={x} y={setY} textAnchor="middle" fontSize="8" fontWeight="700" fill="#000000">Set…</text>
+                </g>
+              ) })()}
               {/* Cell rects: one per beam, 9 units apart and centred
                   on the fixture — the old `(index - 1.5)` only centred
                   four cells, so a five-cell fixture (Q5 30ch) sat

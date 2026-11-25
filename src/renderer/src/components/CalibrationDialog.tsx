@@ -5,6 +5,10 @@ import { setCalibrationOutput } from '../lib/output'
 import { useShowStore } from '../stores/showStore'
 
 const CX = 170, CY = 170, R = 150
+/** Rotation dial tick-ring radius — smaller than R so the degree labels
+ *  fit at the rim, outside the ticks, like LightKey's (R would push
+ *  them off the SVG's edge). The sweep arc sits inside at R − 18. */
+const ROTATION_RADIUS = 132
 
 /** Point on the dial for a compass angle (0° = up, clockwise). */
 function polar(angleDegrees: number, radius: number): { x: number; y: number } {
@@ -28,32 +32,89 @@ function arcPath(radius: number, fromDegrees: number, toDegrees: number): string
   return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${sweep > 180 ? 1 : 0} 1 ${end.x} ${end.y}`
 }
 
+/**
+ * SVG path for a Limits arc, given the span it covers in dial degrees.
+ * A plain arc degenerates to nothing when its ends coincide — which is
+ * exactly what a full-range fixture does (min and max are the same dial
+ * point), so the default state showed no arcs at all. A span covering
+ * the whole dial is a full circle instead, and a zero span is nothing
+ * (the complement arc is then the full circle).
+ */
+function limitArcPath(radius: number, fromDegrees: number, toDegrees: number, spanDegrees: number): string {
+  if (spanDegrees >= 360) return `M ${CX - radius} ${CY} A ${radius} ${radius} 0 1 0 ${CX + radius} ${CY} A ${radius} ${radius} 0 1 0 ${CX - radius} ${CY}`
+  if (spanDegrees <= 0) return ''
+  return arcPath(radius, fromDegrees, toDegrees)
+}
+
+/**
+ * Point on the Rotation dial for a pan angle. LightKey's Rotation dial
+ * (Jake's MH3 screenshot, 25 Nov 2026) has 0° at the bottom — the beam
+ * pointing towards the viewer at home — with +90° at the right and
+ * +180° at the top, so a pan angle maps to polar(180° − angle). The
+ * Home dial is a compass (0° at the top) and keeps plain polar().
+ */
+function polarRotation(angleDegrees: number, radius: number): { x: number; y: number } {
+  return polar(180 - angleDegrees, radius)
+}
+
+/**
+ * SVG arc path on the Rotation dial, from one pan angle to another.
+ * On this dial increasing pan runs counterclockwise on screen, so the
+ * sweep flag is the opposite of the compass arc: `forward` (towards
+ * increasing pan) draws counterclockwise.
+ */
+function rotationArcPath(radius: number, fromDegrees: number, toDegrees: number, forward: boolean): string {
+  const start = polarRotation(fromDegrees, radius), end = polarRotation(toDegrees, radius)
+  const diff = Math.abs(toDegrees - fromDegrees) % 360
+  const span = Math.min(diff, 360 - diff)
+  return `M ${start.x} ${start.y} A ${radius} ${radius} 0 ${span > 180 ? 1 : 0} ${forward ? 0 : 1} ${end.x} ${end.y}`
+}
+
+/** Faint radial spokes (LightKey's dials show one every 30°). */
+function DialSpokes({ radius, fromRadius = 30 }: { radius: number; fromRadius?: number }) {
+  return (
+    <g opacity="0.35">
+      {Array.from({ length: 12 }, (_, i) => {
+        const angle = i * 30
+        const outer = polar(angle, radius), inner = polar(angle, fromRadius)
+        return <line key={angle} x1={inner.x} y1={inner.y} x2={outer.x} y2={outer.y} stroke="var(--dim)" strokeWidth="0.5" />
+      })}
+    </g>
+  )
+}
+
 function formatDegrees(value: number): string {
   return `${value < 0 ? '−' : '+'}${Math.abs(value).toFixed(1)}°`
 }
 
-function DialTicks({ radius, labels }: { radius: number; labels: number[] }) {
+function DialTicks({ radius, labels, point = polar, labelRadius, labelRotation }: { radius: number; labels: number[]; point?: (angle: number, radius: number) => { x: number; y: number }; labelRadius?: number; labelRotation?: (angle: number) => number }) {
   return (
     <g>
       {Array.from({ length: 72 }, (_, i) => {
         const angle = i * 5
-        const outer = polar(angle, radius), inner = polar(angle, radius - (angle % 30 === 0 ? 10 : 5))
-        return <line key={angle} x1={outer.x} y1={outer.y} x2={inner.x} y2={inner.y} stroke="var(--dim)" strokeWidth={angle % 30 === 0 ? 1.5 : 0.75} />
+        const outer = point(angle, radius), inner = point(angle, radius - (angle % 30 === 0 ? 10 : 5))
+        return <line key={`tick-${angle}`} x1={outer.x} y1={outer.y} x2={inner.x} y2={inner.y} stroke="var(--dim)" strokeWidth={angle % 30 === 0 ? 1.5 : 0.75} />
       })}
       {labels.map((angle) => {
-        const p = polar(angle, radius - 24)
-        return <text key={angle} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle" fill="var(--dim)" fontSize="10">{angle > 0 ? `+${angle}°` : angle < 0 ? `${angle}°` : '0°'}</text>
+        // Labels sit at the rim (labelRadius, outside the tick ring),
+        // rotated to read along the rim like LightKey's — never inside
+        // the dial where they collide with the arcs (the Rotation and
+        // Limits labels used to sit on the arcs).
+        const p = point(angle, labelRadius ?? radius - 24)
+        const rotation = labelRotation ? labelRotation(angle) : 0
+        return <text key={`label-${angle}`} x={p.x} y={p.y} textAnchor="middle" dominantBaseline="middle" fill="var(--dim)" fontSize="10" transform={rotation ? `rotate(${rotation} ${p.x} ${p.y})` : undefined}>{angle > 0 ? `+${angle}°` : angle < 0 ? `${angle}°` : '0°'}</text>
       })}
     </g>
   )
 }
 
 function FixtureGlyph({ label }: { label: string }) {
+  // LightKey's dial centre is a plain black circle with a white ring
+  // (Jake's MH3 screenshots, 25 Nov 2026) — no dotted lens.
   return (
     <g>
       <text x={CX} y={CY - 34} textAnchor="middle" fill="var(--text)" fontSize="12" fontWeight="600">{label}</text>
       <circle cx={CX} cy={CY} r="24" fill="#111" stroke="var(--text)" strokeWidth="2" />
-      {[-8, 0, 8].map((dx) => [-8, 0, 8].map((dy) => <circle key={`${dx}:${dy}`} cx={CX + dx} cy={CY + dy} r="2.5" fill="var(--dim)" />))}
     </g>
   )
 }
@@ -150,17 +211,20 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
     return () => { setCalibrationOutput({}) }
   }, [step, fixtures])
 
-  // Rotation step (Guide p.59): a slow pan sweep (±45° over 4s), then the
-  // light turns back in blackout over 1s and repeats. The dial's arc
-  // follows the sweep; clicking inside the circle reverses it.
+  // Rotation step (Guide p.59): a slow pan sweep across the whole
+  // ±180° dial (8s out), then the light turns back in blackout over 2s
+  // and repeats. The drawn arrow follows the same (possibly reversed)
+  // angle the DMX gets — clicking inside the circle flips
+  // rotationReversed, which used to reverse only the fixture's pan and
+  // leave the arrow travelling the old way.
   useEffect(() => {
     if (step !== 'rotation') return
     let frame = 0
     const startedAt = performance.now()
     const tick = (now: number) => {
-      const t = ((now - startedAt) / 1000) % 5
-      const angle = t < 4 ? -45 + 90 * (t / 4) : 45 - 90 * ((t - 4) / 1)
-      const blackout = t >= 4
+      const t = ((now - startedAt) / 1000) % 10
+      const angle = t < 8 ? -180 + 360 * (t / 8) : 180 - 360 * ((t - 8) / 2)
+      const blackout = t >= 8
       setRotationAngle(angle)
       setRotationReturning(blackout)
       setCalibrationOutput(calibrationStepPatch(fixtures, 'rotation', rotationReversed ? -angle : angle, blackout))
@@ -183,7 +247,10 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
   const instruction = CALIBRATION_STEPS.find((s) => s.id === step)?.instruction ?? ''
   const dialLabels = (rangeDegrees: number) => {
     const labels: number[] = [0]
-    for (let d = 30; d <= rangeDegrees / 2; d += 30) { labels.push(d, -d) }
+    for (let d = 30; d < rangeDegrees / 2; d += 30) { labels.push(d, -d) }
+    // The far end is one point on the dial, not two: +180° and −180°
+    // are the same position, so only one label (and one key) for it.
+    labels.push(rangeDegrees / 2)
     return labels
   }
 
@@ -240,37 +307,89 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
                 <svg ref={svgRef} width="340" height="340" viewBox="0 0 340 340" role="img" aria-label={`${CALIBRATION_STEPS.find((s) => s.id === step)?.label} dial`} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={endDrag}
                   onPointerDown={step === 'home' ? (event) => { startDrag('home')(event); setHomeDirection(Math.round(angleFromEvent(event, svgRef.current))) } : step === 'rotation' ? () => { setRotationReversed((v) => !v) } : undefined}>
                   <circle cx={CX} cy={CY} r={R + 6} fill="var(--panel2)" stroke="var(--line)" />
-                  {step === 'home' && <DialTicks radius={R} labels={[]} />}
-                  {step === 'rotation' && <DialTicks radius={R} labels={dialLabels(360)} />}
-                  {step === 'limits' && <DialTicks radius={R} labels={dialLabels(range.pan)} />}
+                  {step === 'home' && <><DialSpokes radius={R} /><DialTicks radius={R} labels={[]} /></>}
+                  {step === 'rotation' && <><DialSpokes radius={ROTATION_RADIUS} /><DialTicks radius={ROTATION_RADIUS} labels={dialLabels(360)} point={polarRotation} labelRadius={ROTATION_RADIUS + 14} labelRotation={(angle) => -angle} /></>}
+                  {step === 'limits' && <><DialSpokes radius={R} /><circle cx={CX} cy={CY} r={R / 3} fill="none" stroke="var(--dim)" strokeWidth="0.5" opacity="0.25" /><circle cx={CX} cy={CY} r={(2 * R) / 3} fill="none" stroke="var(--dim)" strokeWidth="0.5" opacity="0.25" /><DialTicks radius={R} labels={[]} /></>}
                   {step === 'home' && (
                     <g transform={`rotate(${homeDirection} ${CX} ${CY})`}>
-                      <polygon points={`${CX},${CY - 135} ${CX + 26},${CY - 30} ${CX + 14},${CY - 30} ${CX + 14},${CY + 70} ${CX - 14},${CY + 70} ${CX - 14},${CY - 30} ${CX - 26},${CY - 30}`} fill="#2563eb" />
+                      {/* LightKey's Home arrow is a wide dart/kite, not a
+                          thin shaft: tip near the rim, wings spreading
+                          wide just below the centre, long tail point
+                          below (Jake's MH3 Home screenshot, 25 Nov 2026). */}
+                      <polygon points={`${CX},${CY - 125} ${CX + 58},${CY + 10} ${CX},${CY + 105} ${CX - 58},${CY + 10}`} fill="#2563eb" />
                     </g>
                   )}
                   {step === 'rotation' && (
                     <g>
-                      <path d={arcPath(R - 18, -45, rotationAngle)} fill="none" stroke="#2563eb" strokeWidth="4" strokeLinecap="round" />
-                      {(() => { const dir = rotationReturning ? -1 : 1; const tip = polar(rotationAngle + dir * 6, R - 18); const base = polar(rotationAngle - dir * 10, R - 18); return <polygon points={`${tip.x},${tip.y} ${base.x},${base.y} ${polar(rotationAngle, R - 30).x},${polar(rotationAngle, R - 30).y}`} fill="#2563eb" /> })()}
-                      <text x={CX} y={CY + 90} textAnchor="middle" fill="var(--dim)" fontSize="11">{rotationReversed ? 'Reversed — click inside the circle to restore' : 'Click inside the circle to reverse the direction'}</text>
+                      {(() => {
+                        // The arrow the DMX follows: the same reversed
+                        // angle the fixture pans to, so a click visibly
+                        // reverses it on screen. The arrow is a thick
+                        // curved band (LightKey's) with a large head,
+                        // trailing a fixed ~65° behind the head — not a
+                        // thin line growing from −45°.
+                        const shown = rotationReversed ? -rotationAngle : rotationAngle
+                        // Direction of travel of the shown angle: the
+                        // out-leg increases it, the return leg decreases
+                        // it; reversed flips both.
+                        const travel = (rotationReturning ? -1 : 1) * (rotationReversed ? -1 : 1)
+                        const arcRadius = ROTATION_RADIUS - 18
+                        const tail = shown - 65 * travel
+                        const headPoint = polarRotation(shown, arcRadius)
+                        const headRad = (shown * Math.PI) / 180
+                        // Tangent = direction of increasing pan on this
+                        // dial, at the head; radial = outward.
+                        const tx = Math.cos(headRad) * travel, ty = -Math.sin(headRad) * travel
+                        const nx = Math.sin(headRad), ny = Math.cos(headRad)
+                        const tip = { x: headPoint.x + tx * 14, y: headPoint.y + ty * 14 }
+                        const base = { x: headPoint.x - tx * 6, y: headPoint.y - ty * 6 }
+                        const b1 = { x: base.x + nx * 10, y: base.y + ny * 10 }
+                        const b2 = { x: base.x - nx * 10, y: base.y - ny * 10 }
+                        return (
+                          <>
+                            <path d={rotationArcPath(arcRadius, tail, shown, travel > 0)} fill="none" stroke="#2563eb" strokeWidth="7" strokeLinecap="round" />
+                            <polygon points={`${tip.x},${tip.y} ${b1.x},${b1.y} ${b2.x},${b2.y}`} fill="#2563eb" />
+                          </>
+                        )
+                      })()}
                     </g>
                   )}
                   {step === 'limits' && (
                     <g>
-                      <path d={arcPath(R, panAngle(panMin), panAngle(panMax))} fill="none" stroke="#22c55e" strokeWidth="5" />
-                      <path d={arcPath(R, panAngle(panMax), panAngle(panMin))} fill="none" stroke="#ef4444" strokeWidth="5" />
-                      <path d={arcPath(R - 28, tiltAngle(tiltMin), tiltAngle(tiltMax))} fill="none" stroke="#22c55e" strokeWidth="5" />
-                      <path d={arcPath(R - 28, tiltAngle(tiltMax), tiltAngle(tiltMin))} fill="none" stroke="#ef4444" strokeWidth="5" />
+                      {/* Rim-hugging arcs (LightKey's Limits dial): the
+                          pan pair at the outermost rim, the tilt pair
+                          just inside it — not two rings with the degree
+                          labels squeezed between them. */}
+                      <path d={limitArcPath(R, panAngle(panMin), panAngle(panMax), (panMax - panMin) * 360 / range.pan)} fill="none" stroke="#22c55e" strokeWidth="5" />
+                      <path d={limitArcPath(R, panAngle(panMax), panAngle(panMin), 360 - (panMax - panMin) * 360 / range.pan)} fill="none" stroke="#ef4444" strokeWidth="5" />
+                      <path d={limitArcPath(R - 16, tiltAngle(tiltMin), tiltAngle(tiltMax), (tiltMax - tiltMin) * 360 / range.tilt)} fill="none" stroke="#22c55e" strokeWidth="5" />
+                      <path d={limitArcPath(R - 16, tiltAngle(tiltMax), tiltAngle(tiltMin), 360 - (tiltMax - tiltMin) * 360 / range.tilt)} fill="none" stroke="#ef4444" strokeWidth="5" />
+                      {/* Needles from the centre glyph to the tilt
+                          handles (LightKey's Limits dial runs a straight
+                          coloured line from the fixture to each tilt
+                          handle). */}
                       {([
-                        { kind: 'panMin', angle: panAngle(panMin), radius: R, fill: '#ef4444' },
-                        { kind: 'panMax', angle: panAngle(panMax), radius: R, fill: '#22c55e' },
-                        { kind: 'tiltMin', angle: tiltAngle(tiltMin), radius: R - 28, fill: '#ef4444' },
-                        { kind: 'tiltMax', angle: tiltAngle(tiltMax), radius: R - 28, fill: '#22c55e' }
+                        { kind: 'tiltMin', angle: tiltAngle(tiltMin), radius: R - 16, fill: '#ef4444' },
+                        { kind: 'tiltMax', angle: tiltAngle(tiltMax), radius: R - 16, fill: '#22c55e' }
+                      ]).map((needle) => {
+                        const from = polar(needle.angle, 28), to = polar(needle.angle, needle.radius - 16)
+                        return <line key={needle.kind} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={needle.fill} strokeWidth="3" />
+                      })}
+                      {([
+                        { kind: 'panMin', angle: panAngle(panMin), radius: R, fill: '#22c55e' },
+                        { kind: 'panMax', angle: panAngle(panMax), radius: R, fill: '#ef4444' },
+                        { kind: 'tiltMin', angle: tiltAngle(tiltMin), radius: R - 16, fill: '#ef4444' },
+                        { kind: 'tiltMax', angle: tiltAngle(tiltMax), radius: R - 16, fill: '#22c55e' }
                       ] as const).map((handle) => {
-                        const p = polar(handle.angle, handle.radius)
-                        const q = polar(handle.angle + 12, handle.radius)
-                        const r = polar(handle.angle - 12, handle.radius)
-                        return <polygon key={handle.kind} points={`${p.x},${p.y} ${q.x},${q.y} ${r.x},${r.y}`} fill={handle.fill} stroke="var(--bg)" strokeWidth="1" style={{ cursor: 'grab' }} onPointerDown={startDrag(handle.kind)} />
+                        // A big bold triangle, tip at the ring and base
+                        // 16 units in, with a white outline (LightKey's
+                        // handles). The old handles were three points on
+                        // the ring itself — a ~3px sliver along the arc.
+                        const tip = polar(handle.angle, handle.radius)
+                        const base = polar(handle.angle, handle.radius - 16)
+                        const rad = (handle.angle * Math.PI) / 180
+                        const tx = Math.cos(rad) * 12, ty = Math.sin(rad) * 12
+                        return <polygon key={handle.kind} points={`${tip.x},${tip.y} ${base.x + tx},${base.y + ty} ${base.x - tx},${base.y - ty}`} fill={handle.fill} stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" style={{ cursor: 'grab' }} onPointerDown={startDrag(handle.kind)} />
                       })}
                     </g>
                   )}
@@ -281,6 +400,7 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
             <div className="min-w-0 flex-1 pt-2 text-xs leading-relaxed text-text">
               {readout && <p className="text-2xl font-semibold">{readout}</p>}
               {instruction.split('\n\n').map((para, i) => <p key={i} className={i > 0 || readout ? 'mt-3' : ''}>{para}</p>)}
+              {step === 'rotation' && rotationReversed && <p className="mt-3 text-dim">Reversed — the arrow now travels the other way. Click inside the circle to restore it.</p>}
               {step === 'limits' && <p className="mt-3 text-dim">Pan {formatDegrees(panMin)} – {formatDegrees(panMax)} · Tilt {formatDegrees(tiltMin)} – {formatDegrees(tiltMax)}</p>}
               {step === 'home' && <p className="mt-3 text-dim">Home direction {Math.round(homeDirection)}°</p>}
               {showHelp && <p className="mt-3 text-dim">LightKey User Guide, ch.7 — Set beam directions (pp.58–60). Pan angles are measured from the center of the physical pan range; the home angle is always 0°.</p>}
