@@ -259,6 +259,16 @@ app.on('before-quit', () => {
   mainWindow?.webContents.send('app:quitting')
   shutdownDmx()
   shutdownNdi()
+  // Failsafe for the Cmd+Q path (Jake, 25 Nov 2026 — quit-fix branch).
+  // app.quit() dispatches beforeunload in the renderer, which the
+  // dirty-project guard can veto, and waits on native handles. Either can
+  // strand the app in the Dock with no window. Arm the timer HERE — before
+  // the graceful sequence runs — rather than in will-quit, which may
+  // never be reached. Ref'd on purpose: an unref'd timer can be skipped
+  // when nothing else keeps the event loop alive.
+  setTimeout(() => {
+    app.exit(0)
+  }, 2000)
 })
 function saveLiveWindows() { fs.writeFileSync(liveWindowsFile, JSON.stringify([...liveWindows.values()].map(({ window, spec }) => ({ ...spec, width: window.getBounds().width, height: window.getBounds().height })))) }
 function openLiveWindow(spec: LiveWindowSpec) {
@@ -553,41 +563,37 @@ app.whenReady().then(async () => {
 // left it running in the Dock with no window, so the only way out was
 // Force Quit. The activate handler above still recreates the window if the
 // app is re-activated while running.
+//
+// Use app.exit() rather than the graceful app.quit() (Jake, 25 Nov 2026 —
+// quit-fix branch): the latter dispatches beforeunload in the renderer and
+// waits on native handles (DMX serial port, NDI child); if either stalls,
+// the app is stranded in the Dock with no window until Force Quit. The
+// dirty-project modal is resolved before this handler is reached, and the
+// 1.5s autosave protects unsaved work, so there is nothing to preserve by
+// being graceful here.
 app.on('window-all-closed', () => {
-  app.quit()
+  quitting = true
+  shutdownDmx()
+  shutdownNdi()
+  app.exit(0)
 })
 
-// Last line of defence for the macOS quit hang: if a native handle (a
-// wedged DMX serial port, or a child process that ignored its kill) still
-// keeps the main process alive after the normal quit sequence, force the
-// process down. The timer is deliberately ref'd (no .unref()) so it fires
-// even when nothing else is keeping the event loop alive. In a healthy
-// quit the process exits before it fires and the timer disappears with it.
-// (Jake, 25 Nov 2026 — quit-fix branch.)
-app.on('will-quit', () => {
-  setTimeout(() => {
-    app.exit(0)
-  }, 2000)
-})
-
-// Quit notes (Jake, 24 Nov 2026 — Mac quit hang): app.quit() runs the
-// whole quit sequence but does NOT terminate the process while a native
+// Quit notes (Jake, 24–25 Nov 2026 — Mac quit hang): app.quit() runs the
+// whole graceful sequence but does NOT terminate the process while a native
 // handle is still live. Proven in the VM with Electron 45 + serialport:
 // closing a DMX serial port while a write is stuck (the device stopped
 // draining) cancels the write, and serialport emits an 'error' event
 // (BindingsError: Canceled) on the port while closing. With no 'error'
 // listener that emission throws inside the stream machinery and kills
-// the main process's event loop — the close never completes, no timer
-// fires, and app.exit(0) / process.exit(0) in will-quit do NOT terminate
-// the process either (all three were tried in the VM; the 'exit' event
-// fires but the process lives on, and it ignores SIGTERM too, so only
-// Force Quit works — exactly Jake's symptoms). The protection is upstream
-// of quit: DMXEngine attaches an 'error' listener when it connects
-// (src/shared/dmx.ts), so the close completes in ~100ms even with a
-// wedged device (tests/dmx-wedged-port.test.ts), and the NDI worker has
-// an 'error' listener below for the same reason. There is deliberately
-// NO force-exit here — in the frozen state nothing in-process can rescue
-// the process, and in the healthy state the loop drains on its own.
+// the main process's event loop — the close never completes and the app
+// sits in the Dock until Force Quit. Upstream protection: DMXEngine
+// attaches an 'error' listener when it connects (src/shared/dmx.ts), so
+// the close completes in ~100ms even with a wedged device
+// (tests/dmx-wedged-port.test.ts), and the NDI worker has an 'error'
+// listener for the same reason. The failsafe above is armed in
+// before-quit (not will-quit, which a veto or a frozen loop can prevent
+// from ever firing) so the process still terminates if a handle wedges
+// despite those protections.
 
 // DMX port handling
 ipcMain.handle('get-dmx-ports', async (): Promise<DmxPortInfo[]> => dmxEngine.listPorts())
