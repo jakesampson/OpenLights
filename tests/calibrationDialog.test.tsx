@@ -1,8 +1,10 @@
-// Calibration dialog visuals (Jake's reports, 25 Nov 2026): the Rotation
-// click must visibly reverse the arrow and the sweep must cover the
-// whole dial; the Limits dial must carry no degree labels and big bold
-// handles; the Home arrow is LightKey's wide dart; the wizard Set… pill
-// must paint above the fixture's invisible hit circle.
+// Calibration dialog visuals (Jake's reports, 25–26 Nov 2026): the
+// Rotation click must visibly reverse the arrow and the sweep must
+// cover the whole dial; the Limits dial is LightKey's two rings
+// (green max outer, red min inner, each 270° from 6 o'clock) with
+// two inner tilt bars, and big bold handles that point at the
+// centre; the Home arrow is LightKey's wide dart; the wizard Set…
+// pill must paint above the fixture's invisible hit circle.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
@@ -74,6 +76,29 @@ function dialSvg(el: Element): SVGSVGElement {
   const svg = el.querySelector('svg[aria-label$="dial"]')
   if (!svg) throw new Error('no dial svg')
   return svg as SVGSVGElement
+}
+
+/** Parse a single-arc path's endpoints (M x y A r r 0 f 1 x y). */
+function arcEnds(d: string): { start: { x: number; y: number }; end: { x: number; y: number } } {
+  const m = d.match(/^M ([\d.e+-]+) ([\d.e+-]+) A [\d.]+ [\d.]+ 0 \d 1 ([\d.e+-]+) ([\d.e+-]+)$/)
+  if (!m) throw new Error(`not a single arc: ${d}`)
+  return { start: { x: Number(m[1]), y: Number(m[2]) }, end: { x: Number(m[3]), y: Number(m[4]) } }
+}
+
+/** Centroid of a polygon's points attribute. */
+function polygonCentroid(points: string): { x: number; y: number } {
+  const coords = points.trim().split(/\s+/).map((p) => p.split(',').map(Number))
+  return { x: coords.reduce((s, c) => s + c[0], 0) / 3, y: coords.reduce((s, c) => s + c[1], 0) / 3 }
+}
+
+/** Dispatch a pointer event with dial coordinates (jsdom has no
+ *  PointerEvent constructor, so a MouseEvent of the same type
+ *  carries them — React listens by event type). The dial's rect is
+ *  mocked to 800×340 while the SVG is 340×340, so svg x maps to
+ *  clientX × 800/340 and svg y is clientY. */
+function pointer(el: Element, type: string, svgX: number, svgY: number) {
+  const event = new window.MouseEvent(type, { bubbles: true, clientX: (svgX * 800) / 340, clientY: svgY })
+  act(() => { el.dispatchEvent(event) })
 }
 
 describe('calibration dialog', () => {
@@ -229,8 +254,9 @@ describe('calibration dialog', () => {
       const farEnd = Array.from(svg.querySelectorAll('text')).filter((t) => t.textContent?.includes('180°'))
       expect(farEnd).toHaveLength(1)
       expect(farEnd[0].textContent).toBe('+180°')
-      // The Limits step had the same collision in its needle lines:
-      // a full-range fixture puts both tilt needles at 180°.
+      // The Limits step's tilt bars sit at fixed positions (red up,
+      // green down), so a full-range fixture has no angle collision
+      // there either.
       clickStep(el, 'Limits')
       expect(errors.flat().join(' ')).not.toContain('same key')
     } finally {
@@ -238,26 +264,127 @@ describe('calibration dialog', () => {
     }
   })
 
-  it('Limits dial draws full circles for a full-range fixture, no excluded arc', async () => {
+  it('Limits dial is LightKey two rings: green max outer, red min inner, each 270° from 6 o’clock', async () => {
     setShow()
     const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
     clickStep(el, 'Limits')
     const svg = dialSvg(el)
-    // The head has no limits set, so pan and tilt both span the whole
-    // axis: the allowed (green) arcs are full circles and the excluded
-    // (red) arcs are empty. The old code drew degenerate zero-length
-    // arcs for both, so the default Limits dial showed no arcs at all.
-    const green = Array.from(svg.querySelectorAll('path[stroke="#22c55e"]'))
-    expect(green).toHaveLength(2)
-    for (const arc of green) {
-      const d = arc.getAttribute('d') ?? ''
-      expect(d).toContain('A ')
-      expect(d.split(' A ').length).toBe(3) // two arc segments = a circle
+    // The head has no limits set: full range, pan ±270°, tilt ±135°.
+    // Green (max) arc runs clockwise from 6 o'clock to the 3 o'clock
+    // handle; red (min) arc runs clockwise from the 9 o'clock handle
+    // to 6 o'clock — each a single 270° arc (large-arc flag), not a
+    // full circle and not the old allowed/excluded pair.
+    const green = svg.querySelector('path[stroke="#22c55e"]')
+    const red = svg.querySelector('path[stroke="#ef4444"]')
+    if (!green || !red) throw new Error('missing Limits arcs')
+    expect((green.getAttribute('d') ?? '')).toContain('A 150 150 0 1 1')
+    const greenEnds = arcEnds(green.getAttribute('d') ?? '')
+    expect(greenEnds.start.x).toBeCloseTo(170, 0) // 6 o'clock
+    expect(greenEnds.start.y).toBeCloseTo(320, 0)
+    expect(greenEnds.end.x).toBeCloseTo(320, 0) // 3 o'clock
+    expect(greenEnds.end.y).toBeCloseTo(170, 0)
+    expect((red.getAttribute('d') ?? '')).toContain('A 142 142 0 1 1')
+    const redEnds = arcEnds(red.getAttribute('d') ?? '')
+    expect(redEnds.start.x).toBeCloseTo(28, 0) // 9 o'clock
+    expect(redEnds.start.y).toBeCloseTo(170, 0)
+    expect(redEnds.end.x).toBeCloseTo(170, 0) // 6 o'clock
+    expect(redEnds.end.y).toBeCloseTo(312, 0)
+    // Four handles, each a big triangle with a white outline — and
+    // every one points at the centre: its apex (the vertex nearest
+    // the centre) is strictly closer than its base vertices.
+    const handles = Array.from(svg.querySelectorAll('polygon[stroke="#ffffff"]'))
+    expect(handles).toHaveLength(4)
+    const byCentroid = (x: number, y: number) => handles.find((h) => {
+      const c = polygonCentroid(h.getAttribute('points') ?? '')
+      return Math.abs(c.x - x) < 5 && Math.abs(c.y - y) < 5
+    })
+    expect(byCentroid(315, 170)).toBeTruthy() // green pan handle, 3 o'clock
+    expect(byCentroid(33, 170)).toBeTruthy() // red pan handle, 9 o'clock
+    expect(byCentroid(162, 74)).toBeTruthy() // red tilt handle, top
+    expect(byCentroid(178, 266)).toBeTruthy() // green tilt handle, bottom
+    for (const handle of handles) {
+      const coords = (handle.getAttribute('points') ?? '').trim().split(/\s+/).map((p) => p.split(',').map(Number))
+      const dists = coords.map(([x, y]) => Math.hypot(x - 170, y - 170)).sort((a, b) => a - b)
+      expect(dists[0]).toBeLessThan(dists[1])
     }
-    const red = Array.from(svg.querySelectorAll('path[stroke="#ef4444"]'))
-    expect(red).toHaveLength(2)
-    for (const arc of red) expect(arc.getAttribute('d')).toBe('')
+    // Tilt stems: red runs up from the centre glyph, green down,
+    // both to 2R/3 (full extent = ±135°).
+    const redStem = svg.querySelector('line[stroke="#ef4444"]')
+    const greenStem = svg.querySelector('line[stroke="#22c55e"]')
+    if (!redStem || !greenStem) throw new Error('missing tilt stems')
+    expect(Number(redStem.getAttribute('x1'))).toBeCloseTo(167, 0)
+    expect(Number(redStem.getAttribute('y1'))).toBeCloseTo(142, 0)
+    expect(Number(redStem.getAttribute('y2'))).toBeCloseTo(83, 0)
+    expect(Number(greenStem.getAttribute('x1'))).toBeCloseTo(173, 0)
+    expect(Number(greenStem.getAttribute('y1'))).toBeCloseTo(198, 0)
+    expect(Number(greenStem.getAttribute('y2'))).toBeCloseTo(257, 0)
+  })
+
+  it('Limits pan handles move only their own way from 6 o’clock, up to 270°', async () => {
+    setShow()
+    const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    clickStep(el, 'Limits')
+    const svg = dialSvg(el)
+    const handles = Array.from(svg.querySelectorAll('polygon[stroke="#ffffff"]'))
+    const greenPan = handles.find((h) => polygonCentroid(h.getAttribute('points') ?? '').x > 300)
+    const redPan = handles.find((h) => polygonCentroid(h.getAttribute('points') ?? '').x < 50)
+    if (!greenPan || !redPan) throw new Error('missing pan handles')
+    // Green (max) clockwise from 6 o'clock: drag the 3 o'clock handle
+    // to 9 o'clock — 90° of travel — and the max becomes +90°.
+    pointer(greenPan, 'pointerdown', 320, 170)
+    pointer(svg, 'pointermove', 20, 170)
+    expect(el.textContent).toContain('MAX. PAN +90.0°')
+    pointer(svg, 'pointerup', 20, 170)
+    expect(el.textContent).toContain('Pan −270.0° – +90.0°')
+    // Green past the 6 o'clock start (anticlockwise side) snaps to
+    // 0, not to a negative value or a 340° travel.
+    pointer(greenPan, 'pointerdown', 320, 170)
+    pointer(svg, 'pointermove', 221, 311) // just anticlockwise of 6 o'clock
+    expect(el.textContent).toContain('MAX. PAN +0.0°')
+    pointer(svg, 'pointerup', 221, 311)
+    // Red (min) anticlockwise from 6 o'clock: drag the 9 o'clock
+    // handle to 3 o'clock — 90° of travel — and the min becomes −90°.
+    pointer(redPan, 'pointerdown', 28, 170)
+    pointer(svg, 'pointermove', 320, 170)
+    expect(el.textContent).toContain('MIN. PAN −90.0°')
+    pointer(svg, 'pointerup', 320, 170)
+    expect(el.textContent).toContain('Pan −90.0° – +0.0°')
+  })
+
+  it('Limits tilt bars map pointer distance from the centre to the limit', async () => {
+    setShow()
+    const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    clickStep(el, 'Limits')
+    const svg = dialSvg(el)
+    const handles = Array.from(svg.querySelectorAll('polygon[stroke="#ffffff"]'))
+    const redTilt = handles.find((h) => {
+      const c = polygonCentroid(h.getAttribute('points') ?? '')
+      return c.y < 100
+    })
+    const greenTilt = handles.find((h) => {
+      const c = polygonCentroid(h.getAttribute('points') ?? '')
+      return c.y > 250
+    })
+    if (!redTilt || !greenTilt) throw new Error('missing tilt handles')
+    // Red (min) half-extent above the centre is −67.5° (half of 135°).
+    pointer(redTilt, 'pointerdown', 167, 70)
+    pointer(svg, 'pointermove', 167, 120)
+    expect(el.textContent).toContain('MIN. TILT −67.5°')
+    pointer(svg, 'pointerup', 167, 120)
+    // Dragging the red handle below the centre clamps it to 0.
+    pointer(redTilt, 'pointerdown', 167, 70)
+    pointer(svg, 'pointermove', 167, 270)
+    expect(el.textContent).toContain('MIN. TILT +0.0°')
+    pointer(svg, 'pointerup', 167, 270)
+    // Green (max) half-extent below the centre is +67.5°.
+    pointer(greenTilt, 'pointerdown', 173, 270)
+    pointer(svg, 'pointermove', 173, 220)
+    expect(el.textContent).toContain('MAX. TILT +67.5°')
+    pointer(svg, 'pointerup', 173, 220)
+    expect(el.textContent).toContain('Tilt +0.0° – +67.5°')
   })
 
   it('Limits dial carries no degree labels and big white-outlined handles', async () => {
@@ -281,7 +408,7 @@ describe('calibration dialog', () => {
       expect(Math.max(...xs) - Math.min(...xs)).toBeGreaterThanOrEqual(10)
       expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThanOrEqual(10)
     }
-    // Needle lines from the centre to the tilt handles.
+    // Tilt stems from the centre glyph to the tilt handles.
     expect(svg.querySelectorAll('line[stroke="#ef4444"], line[stroke="#22c55e"]').length).toBeGreaterThanOrEqual(2)
   })
 })

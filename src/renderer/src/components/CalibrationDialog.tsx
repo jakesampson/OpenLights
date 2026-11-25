@@ -34,17 +34,41 @@ function arcPath(radius: number, fromDegrees: number, toDegrees: number): string
 
 /**
  * SVG path for a Limits arc, given the span it covers in dial degrees.
- * A plain arc degenerates to nothing when its ends coincide — which is
- * exactly what a full-range fixture does (min and max are the same dial
- * point), so the default state showed no arcs at all. A span covering
- * the whole dial is a full circle instead, and a zero span is nothing
- * (the complement arc is then the full circle).
+ * A span of zero is nothing (the arc is empty when its limit sits at
+ * 0°); a span covering the whole dial is a full circle instead.
  */
 function limitArcPath(radius: number, fromDegrees: number, toDegrees: number, spanDegrees: number): string {
   if (spanDegrees >= 360) return `M ${CX - radius} ${CY} A ${radius} ${radius} 0 1 0 ${CX + radius} ${CY} A ${radius} ${radius} 0 1 0 ${CX - radius} ${CY}`
   if (spanDegrees <= 0) return ''
   return arcPath(radius, fromDegrees, toDegrees)
 }
+
+/**
+ * Limits dial geometry (Jake's LightKey Limits screenshot, 26 Nov
+ * 2026 — measured from the screenshot, not the guide, which only
+ * says "drag the handles to reduce the allowed ranges", p.60).
+ *
+ * Two rings, not an allowed/excluded pair: green (outer, R) is the
+ * MAX pan limit, red (inner, fractionally inside at R−8) the MIN.
+ * Both start at 6 o'clock and each travels only its own way, up to
+ * ¾ of a turn (270°): green clockwise to +270°, red anticlockwise
+ * to −270°. Pan 0° is at the bottom, so a pan value maps to compass
+ * 180° + value — the OPPOSITE sense to the Rotation dial, where pan+
+ * runs counterclockwise (θ = 180° − value). Each arc runs from the
+ * 6 o'clock start to its handle: green [0, panMax], red [panMin, 0].
+ *
+ * Tilt is two vertical bars flanking the centre line — red (min) up,
+ * green (max) down — running from just outside the centre glyph to
+ * the limit, full extent 2R/3 = ±135° on a 270° tilt range (Jake:
+ * "the inner green and red bars for the min and max tilt, both
+ * going to -135 to 135"). Red = min, green = max, the same colour
+ * rule as pan (Jake's "respectively" is ambiguous here; the pan
+ * rule is the consistent reading — flag it if the bars ever behave
+ * backwards on his rig).
+ */
+const LIMITS_MAX_TRAVEL = 270
+const PAN_MIN_RADIUS = R - 8
+const TILT_FULL_RADIUS = (2 * R) / 3
 
 /**
  * Point on the Rotation dial for a pan angle. LightKey's Rotation dial
@@ -268,19 +292,51 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
       setHomeDirection(Math.round(angle))
       return
     }
-    // The dial's full circle is the axis's full range: a dial angle
-    // (signed, −180…180°) maps to degrees of that range.
-    const signed = angle > 180 ? angle - 360 : angle
-    const toDegrees = (axisRange: number) => Math.round((signed * axisRange / 360) * 10) / 10
-    if (kind === 'panMin') { const v = toDegrees(range.pan); setPanMin(Math.min(v, panMax)); setReadout(`MIN. PAN ${formatDegrees(v)}`) }
-    if (kind === 'panMax') { const v = toDegrees(range.pan); setPanMax(Math.max(v, panMin)); setReadout(`MAX. PAN ${formatDegrees(v)}`) }
-    if (kind === 'tiltMin') { const v = toDegrees(range.tilt); setTiltMin(Math.min(v, tiltMax)); setReadout(`MIN. TILT ${formatDegrees(v)}`) }
-    if (kind === 'tiltMax') { const v = toDegrees(range.tilt); setTiltMax(Math.max(v, tiltMin)); setReadout(`MAX. TILT ${formatDegrees(v)}`) }
+    // Pan rings: each handle travels only its own way from the
+    // 6 o'clock start — green (max) clockwise, red (min)
+    // anticlockwise — up to 270°, capped by the fixture's range.
+    // A pointer past the far end snaps to the nearer end of the
+    // handle's arc (past the start reads as 0, past the cap as max).
+    const cap = Math.min(LIMITS_MAX_TRAVEL, range.pan / 2)
+    const clampTravel = (travel: number) => (travel > cap ? (travel >= (cap + 360) / 2 ? 0 : cap) : travel)
+    if (kind === 'panMin') {
+      const v = -Math.round(clampTravel((180 - angle + 360) % 360) * 10) / 10
+      setPanMin(v)
+      setReadout(`MIN. PAN ${formatDegrees(v)}`)
+    }
+    if (kind === 'panMax') {
+      const v = Math.round(clampTravel((angle - 180 + 360) % 360) * 10) / 10
+      setPanMax(v)
+      setReadout(`MAX. PAN ${formatDegrees(v)}`)
+    }
+    // Tilt bars: the pointer's distance from the centre along the
+    // vertical maps linearly to the limit — red (min) above the
+    // centre, green (max) below; full extent 2R/3 is half the tilt
+    // range (±135° on a 270° range).
+    if (kind === 'tiltMin' || kind === 'tiltMax') {
+      const rect = svgRef.current?.getBoundingClientRect()
+      const y = rect ? ((event.clientY - rect.top) / rect.height) * 340 : CY
+      const half = range.tilt / 2
+      if (kind === 'tiltMin') {
+        const v = -Math.round(Math.max(0, Math.min(half, ((CY - y) / TILT_FULL_RADIUS) * half)) * 10) / 10
+        setTiltMin(v)
+        setReadout(`MIN. TILT ${formatDegrees(v)}`)
+      } else {
+        const v = Math.round(Math.max(0, Math.min(half, ((y - CY) / TILT_FULL_RADIUS) * half)) * 10) / 10
+        setTiltMax(v)
+        setReadout(`MAX. TILT ${formatDegrees(v)}`)
+      }
+    }
   }
   const endDrag = () => { dragRef.current = null; setReadout(null) }
 
-  const panAngle = (degrees: number) => (degrees * 360 / range.pan + 360) % 360
-  const tiltAngle = (degrees: number) => (degrees * 360 / range.tilt + 360) % 360
+  /** Compass angle of a pan limit on the Limits dial (pan 0° at the
+   *  bottom, pan+ clockwise — the opposite sense to the Rotation
+   *  dial). */
+  const panLimitAngle = (degrees: number) => (180 + degrees + 360) % 360
+  /** Bar extent (dial units from the centre) of a tilt limit
+   *  magnitude: full extent 2R/3 is half the tilt range. */
+  const tiltExtent = (magnitude: number) => (magnitude / (range.tilt / 2)) * TILT_FULL_RADIUS
 
   return (
     <div role="dialog" aria-label="Beam Direction" className="absolute left-1/2 top-1/2 z-30 w-[42rem] max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-line bg-panel p-0 shadow-2xl">
@@ -363,40 +419,51 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
                   )}
                   {step === 'limits' && (
                     <g>
-                      {/* Rim-hugging arcs (LightKey's Limits dial): the
-                          pan pair at the outermost rim, the tilt pair
-                          just inside it — not two rings with the degree
-                          labels squeezed between them. */}
-                      <path d={limitArcPath(R, panAngle(panMin), panAngle(panMax), (panMax - panMin) * 360 / range.pan)} fill="none" stroke="#22c55e" strokeWidth="5" />
-                      <path d={limitArcPath(R, panAngle(panMax), panAngle(panMin), 360 - (panMax - panMin) * 360 / range.pan)} fill="none" stroke="#ef4444" strokeWidth="5" />
-                      <path d={limitArcPath(R - 16, tiltAngle(tiltMin), tiltAngle(tiltMax), (tiltMax - tiltMin) * 360 / range.tilt)} fill="none" stroke="#22c55e" strokeWidth="5" />
-                      <path d={limitArcPath(R - 16, tiltAngle(tiltMax), tiltAngle(tiltMin), 360 - (tiltMax - tiltMin) * 360 / range.tilt)} fill="none" stroke="#ef4444" strokeWidth="5" />
-                      {/* Needles from the centre glyph to the tilt
-                          handles (LightKey's Limits dial runs a straight
-                          coloured line from the fixture to each tilt
-                          handle). */}
+                      {/* Two rings (LightKey's Limits dial): green
+                          (outer) is the max pan limit, red (inner)
+                          the min — each arc runs from the 6 o'clock
+                          start to its handle. */}
+                      <path d={limitArcPath(R, 180, 180 + panMax, panMax)} fill="none" stroke="#22c55e" strokeWidth="4" />
+                      <path d={limitArcPath(PAN_MIN_RADIUS, 180 + panMin, 180, -panMin)} fill="none" stroke="#ef4444" strokeWidth="4" />
+                      {/* Tilt bars: red (min) up, green (max) down,
+                          flanking the centre line. The stem runs from
+                          the centre glyph to the handle's apex; the
+                          handle is a right triangle with its flat edge
+                          at the far end and its apex pointing at the
+                          centre. */}
+                      {tiltExtent(-tiltMin) > 41 && (
+                        <line x1={CX - 3} y1={CY - 28} x2={CX - 3} y2={CY - tiltExtent(-tiltMin) + 13} stroke="#ef4444" strokeWidth="4" />
+                      )}
+                      {tiltExtent(tiltMax) > 41 && (
+                        <line x1={CX + 3} y1={CY + 28} x2={CX + 3} y2={CY + tiltExtent(tiltMax) - 13} stroke="#22c55e" strokeWidth="4" />
+                      )}
+                      <polygon points={`${CX - 19},${CY - tiltExtent(-tiltMin)} ${CX - 1},${CY - tiltExtent(-tiltMin)} ${CX - 3},${CY - tiltExtent(-tiltMin) + 13}`} fill="#ef4444" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" style={{ cursor: 'grab' }} onPointerDown={startDrag('tiltMin')} />
+                      <polygon points={`${CX + 1},${CY + tiltExtent(tiltMax)} ${CX + 19},${CY + tiltExtent(tiltMax)} ${CX + 3},${CY + tiltExtent(tiltMax) - 13}`} fill="#22c55e" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" style={{ cursor: 'grab' }} onPointerDown={startDrag('tiltMax')} />
+                      {/* Generous hit areas for the tilt handles: each
+                          half of the vertical diameter drags its limit
+                          (the visible triangles are small and sit at
+                          the bar's end). */}
+                      <rect x={CX - 14} y={CY - TILT_FULL_RADIUS} width={16} height={TILT_FULL_RADIUS} fill="transparent" style={{ cursor: 'grab' }} onPointerDown={startDrag('tiltMin')} />
+                      <rect x={CX + 2} y={CY} width={16} height={TILT_FULL_RADIUS} fill="transparent" style={{ cursor: 'grab' }} onPointerDown={startDrag('tiltMax')} />
+                      {/* Pan handles: LightKey's triangles point INWARD
+                          — flat base on the ring, apex towards the
+                          centre (measured ~17 units deep and wide).
+                          The old handles pointed outward, tip on the
+                          ring. */}
                       {([
-                        { kind: 'tiltMin', angle: tiltAngle(tiltMin), radius: R - 16, fill: '#ef4444' },
-                        { kind: 'tiltMax', angle: tiltAngle(tiltMax), radius: R - 16, fill: '#22c55e' }
-                      ]).map((needle) => {
-                        const from = polar(needle.angle, 28), to = polar(needle.angle, needle.radius - 16)
-                        return <line key={needle.kind} x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={needle.fill} strokeWidth="3" />
-                      })}
-                      {([
-                        { kind: 'panMin', angle: panAngle(panMin), radius: R, fill: '#22c55e' },
-                        { kind: 'panMax', angle: panAngle(panMax), radius: R, fill: '#ef4444' },
-                        { kind: 'tiltMin', angle: tiltAngle(tiltMin), radius: R - 16, fill: '#ef4444' },
-                        { kind: 'tiltMax', angle: tiltAngle(tiltMax), radius: R - 16, fill: '#22c55e' }
+                        { kind: 'panMin', angle: panLimitAngle(panMin), radius: PAN_MIN_RADIUS, fill: '#ef4444' },
+                        { kind: 'panMax', angle: panLimitAngle(panMax), radius: R, fill: '#22c55e' },
                       ] as const).map((handle) => {
-                        // A big bold triangle, tip at the ring and base
-                        // 16 units in, with a white outline (LightKey's
-                        // handles). The old handles were three points on
-                        // the ring itself — a ~3px sliver along the arc.
-                        const tip = polar(handle.angle, handle.radius)
-                        const base = polar(handle.angle, handle.radius - 16)
+                        const apex = polar(handle.angle, handle.radius - 16)
+                        const base = polar(handle.angle, handle.radius)
                         const rad = (handle.angle * Math.PI) / 180
-                        const tx = Math.cos(rad) * 12, ty = Math.sin(rad) * 12
-                        return <polygon key={handle.kind} points={`${tip.x},${tip.y} ${base.x + tx},${base.y + ty} ${base.x - tx},${base.y - ty}`} fill={handle.fill} stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" style={{ cursor: 'grab' }} onPointerDown={startDrag(handle.kind)} />
+                        const tx = Math.cos(rad) * 8, ty = Math.sin(rad) * 8
+                        return (
+                          <g key={handle.kind} style={{ cursor: 'grab' }} onPointerDown={startDrag(handle.kind)}>
+                            <polygon points={`${apex.x},${apex.y} ${base.x + tx},${base.y + ty} ${base.x - tx},${base.y - ty}`} fill={handle.fill} stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" />
+                            <circle cx={base.x} cy={base.y} r="15" fill="transparent" />
+                          </g>
+                        )
                       })}
                     </g>
                   )}
