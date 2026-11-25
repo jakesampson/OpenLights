@@ -53,7 +53,7 @@ afterEach(() => {
 })
 
 describe('WelcomeScreen (Project Browser) overlay', () => {
-  it('paints a solid full-screen background and scrolls when tall', async () => {
+  it('paints a solid background below the drag strip and scrolls when tall', async () => {
     renderInRoot(<WelcomeScreen />)
     await act(async () => {})
     const dialog = container?.querySelector('[role="dialog"]') as HTMLElement | null
@@ -64,7 +64,14 @@ describe('WelcomeScreen (Project Browser) overlay', () => {
     expect(dialog!.getAttribute('style')).toContain('var(--bg)')
     expect(classes).not.toContain('bg-bg')
     expect(classes).toContain('fixed')
-    expect(classes).toContain('inset-0')
+    // The scrim starts below the top 50px drag strip (top: 50px, not
+    // inset-0): a drag region is honoured only where no `no-drag` rect
+    // covers it, and the full-window no-drag scrim subtracted the strip
+    // away entirely, so the welcome screen could never be dragged
+    // (Jake, 25 Nov 2026). The strip paints the top 50px in the app
+    // background itself, so the purple is seamless.
+    expect(classes).toContain('top-[50px]')
+    expect(classes).not.toContain('inset-0')
     // No opacity-modified theme background: Tailwind generates no such
     // rule, so it would leave the overlay transparent.
     expect(classes.some((c) => /^bg-bg\//.test(c))).toBe(false)

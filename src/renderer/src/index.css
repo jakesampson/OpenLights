@@ -169,19 +169,37 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
   -webkit-app-region: no-drag;
 }
 
+/* While the Project Browser is open, the app header underneath is
+   hidden: its buttons' `-webkit-app-region: no-drag` rects would
+   otherwise punch dead spots into the welcome drag strip above them
+   — a press over a hidden header button is no-drag, so the strip
+   cannot drag there (proven 25 Nov 2026: a drag from (400,25), over
+   the hidden Overrides button, did nothing, while (1100,25) moved
+   the window). The header is unreachable behind the modal anyway,
+   exactly as the setup wizard does not render it at all. */
+.welcome-open .top-bar { display: none; }
+
 /* Project Browser window drag strip (Jake, 23 Nov 2026, screenshot
    image-ff69c11b.png): the top 50px — the normal header height — drags
    the window on the welcome screen, where there is no header to drag
-   from. Absolutely positioned, so it scrolls away with the content when
-   the project list is tall instead of sitting fixed over the cards.
-   Transparent: only a hit area over the purple background. */
+   from. FIXED, and the scrim starts below it (top: 50px): a
+   `-webkit-app-region: drag` region is honoured only where no
+   `no-drag` rect covers it — the full-window no-drag scrim subtracted
+   the strip away entirely, so the strip was the hit target everywhere
+   yet the window never moved (proven 25 Nov 2026 with a real XTest
+   drag under a window manager: even a body-level fixed strip injected
+   above the scrim did not move the window while the scrim covered the
+   whole window, while the same strip moved it once the scrim was gone).
+   The strip paints the top 50px in the app background itself, so the
+   purple is seamless with the scrim below it. */
 .welcome-drag-strip {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
   height: 50px;
   -webkit-app-region: drag;
+  background-color: var(--bg);
 }
 
 /* The Project Browser's close button sits in the header row, which can
@@ -189,6 +207,24 @@ button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select
    it must paint above the drag strip (positioned, and later in the DOM)
    and be excluded from dragging, or the strip would swallow its clicks. */
 .welcome-close-button {
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+/* Setup wizard bar drag (Jake, 25 Nov 2026: the opening window could
+   not be dragged on Windows): the wizard is a full-window modal with no
+   header to drag from, and its scrim is no-drag — so the wizard could
+   never be dragged at all. The bar itself is the drag region, like the
+   in-app header: the no-drag (`.modal-scrim`) lives on the step body
+   below the bar, not on the modal root, so the bar's drag rect is not
+   covered by any no-drag rect. Every button in the bar
+   (Back / Next / Cancel, Create Groups for Me, Group, Learn more) is
+   positioned and excluded from dragging, or the bar would swallow its
+   clicks — same pattern as `.welcome-close-button` above. */
+.wizard-drag-bar {
+  -webkit-app-region: drag;
+}
+.wizard-drag-bar button {
   position: relative;
   -webkit-app-region: no-drag;
 }

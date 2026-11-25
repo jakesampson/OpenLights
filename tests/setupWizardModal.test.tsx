@@ -100,9 +100,17 @@ describe('Setup wizard modal (full-window, over the whole GUI)', () => {
     expect(classes).not.toContain('bg-bg')
     expect(classes).toContain('fixed')
     expect(classes).toContain('inset-0')
-    // The scrim is no-drag: the header's drag region underneath must not
-    // eat clicks in the top 50px regardless of z-index.
-    expect(classes).toContain('modal-scrim')
+    // The no-drag (`.modal-scrim`) lives on the step body below the
+    // bar, NOT on this root: a drag region is honoured only where no
+    // `no-drag` rect covers it, so a full-window no-drag root
+    // subtracted the bar's drag region away entirely and the wizard
+    // could never be dragged (Jake, 25 Nov 2026). The bar
+    // (`.wizard-drag-bar`) is the drag region, like the in-app header.
+    expect(classes).not.toContain('modal-scrim')
+    const body = dialog!.querySelector('.modal-scrim')
+    expect(body).not.toBeNull()
+    expect(body!.closest('.wizard-drag-bar')).toBeNull()
+    expect(dialog!.querySelector('.wizard-drag-bar')).not.toBeNull()
     // No opacity-modified theme background: Tailwind generates no such
     // rule, so it would leave the modal transparent.
     expect(classes.some((c) => /^bg-bg\//.test(c))).toBe(false)

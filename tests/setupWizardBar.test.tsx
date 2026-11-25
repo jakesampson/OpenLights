@@ -60,6 +60,20 @@ describe('setup wizard bar', () => {
     }
   })
 
+  it('is the window drag region, with its buttons excluded from dragging', () => {
+    // Jake, 25 Nov 2026: the opening window could not be dragged on
+    // Windows — the wizard is a full-window modal with no header to
+    // drag from, and its scrim is no-drag, so it could never be dragged
+    // at all. The bar itself is the drag region (like the in-app
+    // header); its buttons are positioned and excluded from dragging
+    // by the `.wizard-drag-bar button` CSS rule (asserted in
+    // nativeWindowChrome.test.ts), or the bar would swallow their
+    // clicks.
+    renderWizard(false)
+    expect(container?.querySelector('.wizard-drag-bar')).not.toBeNull()
+    expect(container?.querySelector('.wizard-drag-bar button')).not.toBeNull()
+  })
+
   it('shows a labelled Cancel instead of the × close button, centred at the top', () => {
     // 20 Nov 2026 (Jake): the right-aligned Back / Next / × sat under the
     // native Windows caption buttons, which was confusing — the nav group

@@ -764,7 +764,7 @@ export default function App() {
 
   if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
   return (
-    <div className="app">
+    <div className={`app${welcomeOpen ? ' welcome-open' : ''}`}>
       {setupWizardStep ? (
         // Setup wizard modal (19 Nov 2026, Jake's screenshots): the wizard
         // used to be a bar above the header with the step bodies below it,
@@ -784,19 +784,27 @@ export default function App() {
         // it after a drag, although the utility compiles opaque — the
         // colour-mix utility is one silent failure away from translucent,
         // and a full-screen scrim must not depend on it). The modal stays
-        // opaque and no-drag (`.modal-scrim`) with `select-none` so a drag
-        // on it can neither select text nor move the window — but it must
-        // NOT be a hard event boundary: the PatchPanel's drag-to-patch and
-        // footer buttons live inside this modal, and the 335e34b hardening
-        // (`onDragStart` preventDefault + `onPointerDown`
-        // stopPropagation on this root) cancelled every drag starting in
-        // the wizard and was reported as dead Duplicate / + Custom
-        // buttons too (Jake, 20 Nov 2026, image-ecf244b1.png). That
-        // hardening lives on the WelcomeScreen only, which has no
-        // draggable children.
-        <div className="modal-scrim fixed inset-0 z-[70] flex select-none flex-col" role="dialog" aria-modal="true" aria-label="Setup wizard" style={{ backgroundColor: 'var(--bg)' }}>
+        // opaque with `select-none` so a drag on it can neither select
+        // text nor move the window — but it must NOT be a hard event
+        // boundary: the PatchPanel's drag-to-patch and footer buttons
+        // live inside this modal, and the 335e34b hardening (`onDragStart`
+        // preventDefault + `onPointerDown` stopPropagation on this root)
+        // cancelled every drag starting in the wizard and was reported as
+        // dead Duplicate / + Custom buttons too (Jake, 20 Nov 2026,
+        // image-ecf244b1.png). That hardening lives on the WelcomeScreen
+        // only, which has no draggable children.
+        //
+        // 25 Nov 2026: the no-drag (`.modal-scrim`) lives on the step
+        // body below the bar, NOT on this root — a drag region is
+        // honoured only where no `no-drag` rect covers it, so a
+        // full-window no-drag root subtracted the bar's drag region away
+        // entirely and the wizard could never be dragged (Jake, 25 Nov
+        // 2026: the opening window could not be dragged on Windows).
+        // The bar (`wizard-drag-bar` in SetupWizard) is the drag region,
+        // like the in-app header, and the body below it stays no-drag.
+        <div className="fixed inset-0 z-[70] flex select-none flex-col" role="dialog" aria-modal="true" aria-label="Setup wizard" style={{ backgroundColor: 'var(--bg)' }}>
           <SetupWizard isMac={isMac} />
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="modal-scrim flex min-h-0 flex-1 flex-col overflow-hidden">
             {setupWizardStep === 'dmx' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDmxStep /></div>
             : setupWizardStep === 'done' ? <div className="min-h-0 flex-1 overflow-y-auto"><WizardDoneStep /></div>
             : setupWizardStep === 'patch' ? <div className="min-h-0 flex-1 overflow-hidden p-4"><PatchPanel onShowInPreview={patchShowInPreview} /></div>

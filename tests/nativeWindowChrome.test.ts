@@ -18,6 +18,7 @@ const overlay = readFileSync('src/main/titleBarOverlay.ts', 'utf8')
 const app = readFileSync('src/renderer/src/App.tsx', 'utf8')
 const css = readFileSync('src/renderer/src/index.css', 'utf8')
 const preload = readFileSync('src/preload/index.ts', 'utf8')
+const setupWizard = readFileSync('src/renderer/src/components/SetupWizard.tsx', 'utf8')
 
 describe('macOS gets native traffic lights', () => {
   it('uses hiddenInset on darwin, with the lights centred in the header', () => {
@@ -88,17 +89,46 @@ describe('Windows/Linux caption buttons match the header', () => {
   it('gives the welcome screen a draggable top 50px, with its close button excluded', () => {
     // No header exists on the welcome screen to drag from, so its top
     // 50px — the normal header height — is a drag strip of its own
-    // (Jake, 23 Nov 2026, screenshot image-ff69c11b.png). The strip
-    // scrolls away with the content when the list is tall instead of
-    // sitting fixed over the cards, and the close button paints above
-    // it and is excluded from dragging, or the strip would swallow its
+    // (Jake, 23 Nov 2026, screenshot image-ff69c11b.png). The strip is
+    // FIXED, not absolute: a drag region nested inside the scrim's
+    // scrolling content is never honoured by Chromium (proven 25 Nov
+    // 2026 with a real XTest drag under a window manager — the absolute
+    // strip was the hit target everywhere yet the window never moved,
+    // while a fixed strip moved it). The close button paints above it
+    // and is excluded from dragging, or the strip would swallow its
     // clicks when the header row reaches the top 50px.
-    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*position: absolute/s)
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*position: fixed/s)
     expect(css).toMatch(/\.welcome-drag-strip \{[^}]*top: 0/s)
     expect(css).toMatch(/\.welcome-drag-strip \{[^}]*height: 50px/s)
     expect(css).toMatch(/\.welcome-drag-strip \{[^}]*-webkit-app-region: drag/s)
+    expect(css).toMatch(/\.welcome-drag-strip \{[^}]*background-color: var\(--bg\)/s)
     expect(css).toMatch(/\.welcome-close-button \{[^}]*position: relative/s)
     expect(css).toMatch(/\.welcome-close-button \{[^}]*-webkit-app-region: no-drag/s)
+  })
+
+  it('gives the setup wizard a draggable bar, with its buttons excluded', () => {
+    // The wizard is a full-window modal with no header to drag from,
+    // and its scrim is no-drag — so before this it could never be
+    // dragged at all (Jake, 25 Nov 2026: the opening window could not
+    // be dragged on Windows). The bar itself is the drag region, like
+    // the in-app header; every button in it is positioned and excluded
+    // from dragging, or the bar would swallow its clicks.
+    expect(css).toMatch(/\.wizard-drag-bar \{[^}]*-webkit-app-region: drag/s)
+    expect(css).toMatch(/\.wizard-drag-bar button \{[^}]*position: relative/s)
+    expect(css).toMatch(/\.wizard-drag-bar button \{[^}]*-webkit-app-region: no-drag/s)
+    expect(setupWizard).toContain('wizard-drag-bar')
+  })
+
+  it('hides the app header while the Project Browser is open', () => {
+    // The header underneath the welcome scrim still renders, and its
+    // buttons' no-drag rects punch dead spots into the drag strip
+    // above them — a press over a hidden header button is no-drag, so
+    // the strip cannot drag there (proven 25 Nov 2026: a drag from
+    // (400,25), over the hidden Overrides button, did nothing, while
+    // (1100,25) moved the window). The header is unreachable behind
+    // the modal anyway, exactly as the wizard does not render it.
+    expect(css).toMatch(/\.welcome-open \.top-bar \{[^}]*display: none/s)
+    expect(app).toContain('welcome-open')
   })
 })
 

@@ -41,11 +41,18 @@ function overlay() {
 }
 
 describe('Project Browser overlay', () => {
-  it('is a full-screen fixed layer', () => {
+  it('is a fixed layer below the drag strip', () => {
+    // The scrim starts below the top 50px drag strip (top: 50px, not
+    // inset-0): a drag region is honoured only where no `no-drag` rect
+    // covers it, and the full-window no-drag scrim subtracted the strip
+    // away entirely, so the welcome screen could never be dragged
+    // (Jake, 25 Nov 2026). The strip paints the top 50px in the app
+    // background itself, so the purple is seamless.
     renderWelcome()
     const el = overlay()
     expect(el).not.toBeNull()
-    for (const cls of ['fixed', 'inset-0', 'z-[70]', 'modal-scrim']) expect(el?.classList.contains(cls)).toBe(true)
+    for (const cls of ['fixed', 'inset-x-0', 'bottom-0', 'top-[50px]', 'z-[70]', 'modal-scrim']) expect(el?.classList.contains(cls)).toBe(true)
+    expect(el?.classList.contains('inset-0')).toBe(false)
   })
 
   it('paints a plain opaque background, not a Tailwind colour-mix utility', () => {
@@ -90,10 +97,13 @@ describe('Project Browser overlay', () => {
     // Jake, 23 Nov 2026, screenshot image-ff69c11b.png: the welcome
     // screen has no header to drag the window from, so its top 50px —
     // the normal header height — is a drag strip. The strip is the
-    // scrim's first child so it sits at the top of the scroll content;
-    // the close button carries the class that paints it above the strip
-    // and excludes it from dragging, or the strip would swallow its
-    // clicks when the header row reaches the top 50px.
+    // scrim's first child; it is FIXED (not absolute) so it stays at
+    // the viewport top instead of scrolling away with the list — a drag
+    // region nested inside the scrim's scrolling content is never
+    // honoured by Chromium (proven 25 Nov 2026). The close button
+    // carries the class that paints it above the strip and excludes it
+    // from dragging, or the strip would swallow its clicks when the
+    // header row reaches the top 50px.
     renderWelcome()
     const el = overlay()
     expect(el).not.toBeNull()

@@ -72,16 +72,23 @@ export function WelcomeScreen() {
   // can neither select text nor reach anything behind it — including the
   // header's drag region underneath, which otherwise eats clicks in the
   // top 50px regardless of z-index.
+  //
+  // 25 Nov 2026: the scrim starts BELOW the drag strip (`top: 50px`,
+  // not `inset-0`) — a drag region is honoured only where no `no-drag`
+  // rect covers it, and the full-window no-drag scrim subtracted the
+  // strip away entirely, so the welcome screen could never be dragged
+  // on Windows (Jake, 25 Nov 2026). The strip paints the top 50px in
+  // the app background itself, so the purple is seamless.
   return (
-    <div className="modal-scrim fixed inset-0 z-[70] select-none overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
+    <div className="modal-scrim fixed inset-x-0 bottom-0 top-[50px] z-[70] select-none overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ backgroundColor: 'var(--bg)' }} onPointerDown={(event) => event.stopPropagation()} onDragStart={(event) => event.preventDefault()}>
       {/* Window drag strip (Jake, 23 Nov 2026, screenshot
           image-ff69c11b.png): the top 50px of the welcome screen — the
           normal header height — drags the window, like the in-app header.
-          It is absolutely positioned so it scrolls away with the content
-          when the list is tall, instead of sitting fixed over the cards.
-          The scrim itself stays no-drag (`.modal-scrim`) so a drag here
-          can neither select text nor reach the header's drag region
-          underneath — the strip is the only draggable part. */}
+          It is FIXED, so it stays at the viewport top like a title bar
+          instead of scrolling away with the list. The scrim starts
+          below it (`top: 50px`) and stays no-drag (`.modal-scrim`) so a
+          drag here can neither select text nor reach anything behind it
+          — the strip is the only draggable part. */}
       <div className="welcome-drag-strip" aria-hidden="true" />
       <div className="flex min-h-full items-center justify-center p-6">
       <div className="w-full max-w-[720px]">
