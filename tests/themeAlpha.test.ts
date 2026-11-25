@@ -66,9 +66,11 @@ describe('theme alpha-value (tailwind config)', () => {
     // The 19 Nov 2026 audit found five distinct classes; if this list
     // changes, the scan above still covers whatever src uses — but a
     // zero-length scan would mean the scan itself broke, not that the
-    // bug is gone, so assert the known set is present.
+    // bug is gone, so assert the known set is present. (26 Nov 2026:
+    // the edit-panel cleanup dropped the old panel's `bg-bg/80`;
+    // `bg-accent/15` is the PatchPanel new-fixture choice highlight.)
     expect(classes).toEqual(
-      expect.arrayContaining(['bg-bg/30', 'bg-bg/40', 'bg-bg/50', 'bg-bg/80', 'border-line/40'])
+      expect.arrayContaining(['bg-bg/30', 'bg-bg/40', 'bg-bg/50', 'bg-accent/15', 'border-line/40'])
     )
     expect(classes.length).toBeGreaterThan(0)
 

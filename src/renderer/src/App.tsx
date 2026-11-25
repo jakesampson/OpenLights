@@ -13,7 +13,7 @@ import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
-import { PreviewEditPanel } from './components/PreviewEditPanel'
+import { PreviewEditPanel, FixtureStorageTray } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
 import { GroupsPresetsPanel } from './components/GroupsPresetsPanel'
 import { DmxAutoConnect } from './components/DmxConnection'
@@ -599,6 +599,13 @@ export default function App() {
         // Control-click → Group).
         state.groupSelection()
       }
+      // Select All / Deselect All (Guide pp.53, 72: Edit > Select All,
+      // Cmd-A; Deselect All, Cmd-Shift-A): every fixture on the canvas
+      // plus every truss. Deselect also clears the stage-object selection.
+      else if (command === 'selectAll') { const trusses = state.show?.previewTrusses ?? []; state.selectFixtures((state.show?.fixtures ?? []).filter((f) => !f.inStorage).map((f) => f.id)); state.setSelectedLayoutTrussIds(trusses.map((t) => t.id)); state.setSelectedPreviewTrussId(trusses[0]?.id ?? null) }
+      else if (command === 'deselectAll') { state.selectFixtures([]); state.setSelectedLayoutTrussIds([]); state.setSelectedPreviewTrussId(null); state.setSelectedStageObjectId(null) }
+      else if (command === 'beamColor') window.dispatchEvent(new Event('openlights-open-beam-color'))
+      else if (command === 'fixtureOptions') window.dispatchEvent(new Event('openlights-open-fixture-options'))
       else if (command === 'next') state.cueNext()
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
@@ -634,6 +641,19 @@ export default function App() {
         if (target && 'cueId' in target) state.startEditingCueAdHoc(target.cueId)
         else if (target && 'popup' in target) window.dispatchEvent(new Event('openlights-open-live-properties'))
       }
+      // Layout menu (Guide ch.7): Select All / Deselect All live in the
+      // Edit menu, the rest here. Align / Distribute dispatch the
+      // Preview's align handler (it needs the live fixture positions);
+      // Flip / Order act on the selected stage object only.
+      else if (command === 'selectAll') { const trusses = state.show?.previewTrusses ?? []; state.selectFixtures((state.show?.fixtures ?? []).filter((f) => !f.inStorage).map((f) => f.id)); state.setSelectedLayoutTrussIds(trusses.map((t) => t.id)); state.setSelectedPreviewTrussId(trusses[0]?.id ?? null) }
+      else if (command === 'deselectAll') { state.selectFixtures([]); state.setSelectedLayoutTrussIds([]); state.setSelectedPreviewTrussId(null); state.setSelectedStageObjectId(null) }
+      else if (command === 'beamColor') window.dispatchEvent(new Event('openlights-open-beam-color'))
+      else if (command === 'fixtureOptions') window.dispatchEvent(new Event('openlights-open-fixture-options'))
+      else if (command.startsWith('align')) window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: ({ alignLeft: 'left', alignRight: 'right', alignTop: 'top', alignBottom: 'bottom', alignCenterX: 'center-x', alignCenterY: 'center-y' } as Record<string, string>)[command] }))
+      else if (command === 'distributeX') window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: 'space-x' }))
+      else if (command === 'distributeY') window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: 'space-y' }))
+      else if (command === 'flipHorizontal' || command === 'flipVertical') { const id = state.selectedStageObjectId; if (id) state.flipStageObjects([id], command === 'flipHorizontal' ? 'x' : 'y') }
+      else if (command.startsWith('order')) { const id = state.selectedStageObjectId; if (id) state.orderStageObjects([id], ({ orderFront: 'front', orderForward: 'forward', orderBackward: 'backward', orderBack: 'back' } as Record<string, 'front' | 'forward' | 'backward' | 'back'>)[command]) }
     }
     window.addEventListener('openlights-menu-command', onMenuCommand)
     return () => window.removeEventListener('openlights-menu-command', onMenuCommand)
@@ -678,7 +698,7 @@ export default function App() {
   const designWorkspace = (<>
       {/* Main row */}
       <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
-        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{editingEffectId && tab === 'Design' && <div ref={setMovementChartHost} className="pointer-events-none absolute left-3 top-3 z-30" data-testid="movement-chart-host" />}{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}</div>}
+        {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{editingEffectId && tab === 'Design' && <div ref={setMovementChartHost} className="pointer-events-none absolute left-3 top-3 z-30" data-testid="movement-chart-host" />}{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}{previewEditing && <FixtureStorageTray />}</div>}
 
         {/* In Preview edit mode the side panel becomes the Preview
             Inspector (LightKey Guide p.53: "On the right of the window is

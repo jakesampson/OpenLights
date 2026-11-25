@@ -97,9 +97,11 @@ describe('preview toolbar after the toggle move', () => {
     expect(previewSource).toContain('const editing = previewEditing')
     expect(previewSource).toContain('if (locked) setPreviewEditing(false)')
     expect(previewSource).not.toContain('if (locked || !designMode) setPreviewEditing(false)')
-    // The zoom cluster and the Preview label stay.
-    expect(previewSource).toContain('Zoom out preview')
-    expect(previewSource).toContain('>Preview</span>')
+    // The floating zoom cluster and the Preview label are gone from
+    // the canvas (26 Nov 2026 cleanup — LightKey has neither in edit
+    // mode); zoom lives in the View menu, on shortcuts and the wheel.
+    expect(previewSource).not.toContain('Zoom out preview')
+    expect(previewSource).not.toContain('>Preview</span>')
   })
 
   it('keeps fanning reachable from each Design panel control (Guide §8, p.119)', () => {

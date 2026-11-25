@@ -1,34 +1,49 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useShowStore } from '../stores/showStore'
 import { StageObjectTools } from './StageObjects'
+import { BeamColorDialog } from './BeamColorDialog'
+import { FixtureOptionsDialog } from './FixtureOptionsDialog'
+import { fixtureHasDmxColourControl } from '../lib/previewOutput'
+import { fixtureIconKind } from '../lib/fixtureIcon'
 import type { FixtureDef, PreviewTruss } from '@shared/types'
-import type { AlignMode } from '../lib/align'
 
 // LightKey's Inspector (Guide p.53): "On the right of the window is the
 // Inspector where you can change the properties of the selected objects."
-// In edit mode the right side panel becomes that Inspector — the shape
-// tools, layout tools and the selected truss/fixture properties live here
-// instead of overlaid on the canvas, so the canvas stays clean (Jake's
-// LightKey screenshot, 19 Nov 2026). The Preset Palette is the side
-// panel's non-edit content; App swaps between the two.
-// Alignment itself stays in StagePreview (it needs the live fixture
-// positions) — the Align control here only dispatches the mode.
+// In edit mode the right side panel becomes that Inspector — the Shapes /
+// Images tabs, the selected fixture's Beam Direction… / Beam Color… /
+// Fixture Options… and checkboxes, and the selected truss's properties.
+// What LightKey puts elsewhere lives elsewhere: Select All and Align /
+// Distribute are in the Layout menu, Fixture Storage is below the
+// Preview (Guide p.70), zoom/fit are in the View menu and Highlight is
+// a header toolbar button — none of them in this panel. The Preset
+// Palette is the side panel's non-edit content; App swaps between the two.
 export function PreviewEditPanel() {
   const show = useShowStore((s) => s.show)
   const editing = useShowStore((s) => s.previewEditing)
   const fixtures = (show?.fixtures ?? []).filter((f) => !f.inStorage)
-  const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
   const trusses = show?.previewTrusses ?? []
   const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
-  const selectFixtures = useShowStore((s) => s.selectFixtures)
   const selectedPreviewTrussId = useShowStore((s) => s.selectedPreviewTrussId)
   const setSelectedPreviewTrussId = useShowStore((s) => s.setSelectedPreviewTrussId)
-  const setSelectedLayoutTrussIds = useShowStore((s) => s.setSelectedLayoutTrussIds)
-  const selectedStageObjectId = useShowStore((s) => s.selectedStageObjectId)
-  const setSelectedStageObjectId = useShowStore((s) => s.setSelectedStageObjectId)
   const setPreviewTrusses = useShowStore((s) => s.setPreviewTrusses)
   const selectedTruss = trusses.find((item) => item.id === selectedPreviewTrussId)
-  const [newTrussShape, setNewTrussShape] = useState<PreviewTruss['shape']>('straight')
+  const selectedStageObjectId = useShowStore((s) => s.selectedStageObjectId)
+  const setSelectedStageObjectId = useShowStore((s) => s.setSelectedStageObjectId)
+  const [beamColorOpen, setBeamColorOpen] = useState(false)
+  const [fixtureOptionsOpen, setFixtureOptionsOpen] = useState(false)
+
+  // The Layout menu and the fixture shortcut menu open these dialogs
+  // too (Layout > Beam Color… / Fixture Options…, Guide pp.61–63).
+  useEffect(() => {
+    const openBeamColor = () => { if (useShowStore.getState().selectedFixtureIds.length) setBeamColorOpen(true) }
+    const openFixtureOptions = () => { if (useShowStore.getState().selectedFixtureIds.length) setFixtureOptionsOpen(true) }
+    window.addEventListener('openlights-open-beam-color', openBeamColor)
+    window.addEventListener('openlights-open-fixture-options', openFixtureOptions)
+    return () => {
+      window.removeEventListener('openlights-open-beam-color', openBeamColor)
+      window.removeEventListener('openlights-open-fixture-options', openFixtureOptions)
+    }
+  }, [])
 
   // A spinner click steps the value without a normal text-field click, so
   // Chromium may leave focus elsewhere — and with focus outside any input
@@ -42,11 +57,6 @@ export function PreviewEditPanel() {
 
   if (!editing) return null
 
-  const addTruss = () => {
-    const item: PreviewTruss = { id: crypto.randomUUID(), name: 'Truss', shape: newTrussShape, x: 400, y: 170, width: 200, height: newTrussShape === 'straight' ? 100 : 200, rotation: 0, ...(newTrussShape === 'curved' ? { startAngle: -90, endAngle: 0 } : {}) }
-    setPreviewTrusses([...trusses, item])
-    setSelectedPreviewTrussId(item.id)
-  }
   const duplicateTruss = (source: PreviewTruss) => {
     const item = { ...source, id: crypto.randomUUID(), x: source.x + 20, y: source.y + 20 }
     setPreviewTrusses([...trusses, item])
@@ -57,23 +67,26 @@ export function PreviewEditPanel() {
     if (!selectedTruss) return
     setPreviewTrusses(trusses.map((item) => item.id === selectedTruss.id ? { ...item, ...patch } : item))
   }
+  const selectedFixtures = selectedFixtureIds.map((id) => fixtures.find((f) => f.id === id)).filter((f): f is FixtureDef => Boolean(f))
+  const firstFixture = selectedFixtures[0]
+  // Beam Color… is only for fixtures with a fixed colour (Guide p.61);
+  // greyed out when every selected fixture changes colour through DMX.
+  const beamColorSupported = selectedFixtures.some((f) => !fixtureHasDmxColourControl(f))
+  // LED fixture icon options (Guide pp.56–57): two sizes for LED strips
+  // and matrixes, line/ring for LED strips. Greyed out for anything else.
+  const ledKind = firstFixture ? fixtureIconKind(firstFixture) : 'generic'
+  const ledRowEnabled = ['led-bar', 'led-matrix', 'led-strip-open', 'led-strip-closed'].includes(ledKind)
+  const ledShapeEnabled = ledRowEnabled && ledKind !== 'led-matrix'
+  const setLedIcon = (patch: Partial<Pick<FixtureDef, 'iconSize' | 'ledIconShape'>>) => {
+    const state = useShowStore.getState()
+    state.beginHistoryGroup()
+    for (const id of selectedFixtureIds) state.updateFixture(id, patch)
+    state.endHistoryGroup()
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-      <section>
-        <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Shapes</h3>
-        <StageObjectTools editing={editing} variant="panel" selectedId={selectedStageObjectId} select={setSelectedStageObjectId} />
-      </section>
-
-      <section className="rounded border border-line bg-panel p-2 text-xs">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-dim">Layout</h3>
-        <div className="mt-1 flex flex-wrap gap-1">
-          <select aria-label="New truss shape" value={newTrussShape} onChange={(event) => setNewTrussShape(event.target.value as PreviewTruss['shape'])} className="rounded bg-panel2 px-2 py-1"><option value="straight">Straight</option><option value="u">U</option><option value="curved">Curved</option><option value="circular">Circular</option></select>
-          <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={addTruss}>+ Add truss</button>
-          <button type="button" className="rounded bg-panel2 px-2 py-1" onClick={() => { selectFixtures(fixtures.map((f) => f.id)); setSelectedLayoutTrussIds(trusses.map((t) => t.id)); setSelectedPreviewTrussId(trusses[0]?.id ?? null) }}>Select all</button>
-          <select aria-label="Align selected preview objects" defaultValue="" className="rounded bg-panel2 px-2 py-1" onChange={(e) => { if (e.target.value) window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: e.target.value as AlignMode })); e.target.value = '' }}><option value="">Align / distribute…</option>{(['left', 'right', 'top', 'bottom', 'center-x', 'center-y', 'space-x', 'space-y'] as const).map((mode) => <option key={mode} value={mode}>{mode}</option>)}</select>
-        </div>
-      </section>
+      <StageObjectTools editing={editing} selectedId={selectedStageObjectId} select={setSelectedStageObjectId} />
 
       {selectedTruss && <section className="rounded border border-line bg-panel p-2 text-xs">
         <div className="flex items-center justify-between gap-2"><strong>Truss properties</strong><button type="button" onClick={() => setSelectedPreviewTrussId(null)} className="text-dim">Close</button></div>
@@ -83,34 +96,55 @@ export function PreviewEditPanel() {
       </section>}
 
       {selectedFixtureIds.length > 0 && <section className="rounded border border-line bg-panel p-2 text-xs">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wide text-dim">Fixture properties</h3>
-        <div className="mt-1 flex flex-wrap items-end gap-2">
-          <label>Beam angle<input aria-label="Preview beam angle" type="number" className="ml-1 w-16 rounded bg-panel2 p-1" value={(() => { const f = fixtures.find((f) => f.id === selectedFixtureIds[0]); return f && typeof f.previewBeam?.direction === 'number' ? f.previewBeam.direction : 0 })()} onClick={focusNumberInput} onMouseUp={focusNumberInput} onChange={(event) => { const direction = Number(event.target.value); if (!Number.isFinite(direction)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) { const f = fixtures.find((f) => f.id === id); state.updateFixture(id, { previewBeam: { ...f?.previewBeam, direction } }) } state.endHistoryGroup() }} /></label>
-          <button type="button" onClick={() => window.dispatchEvent(new Event('openlights-open-calibration'))} className="rounded bg-panel2 px-2 py-1">Beam Direction…</button>
-          <label>Name position<select aria-label="Fixture name position" className="ml-1 rounded bg-panel2 p-1" value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.namePosition ?? 'above'} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { namePosition: event.target.value as FixtureDef['namePosition'] }); state.endHistoryGroup() }}><option value="above">Above</option><option value="below">Below</option><option value="hidden">Hidden</option></select></label>
-          {(['iconSize', 'rotation'] as const).map((key) => <label key={key}>{key === 'iconSize' ? 'Icon size' : 'Rotation'}<input aria-label={`Fixture ${key}`} type="number" min={key === 'iconSize' ? 4 : undefined} max={key === 'iconSize' ? 80 : undefined} value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? (key === 'iconSize' ? 10 : 0)} onClick={focusNumberInput} onMouseUp={focusNumberInput} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: key === 'iconSize' ? Math.max(4, Math.min(80, value)) : value }); state.endHistoryGroup() }} className="ml-1 w-16 rounded bg-panel2 p-1" /></label>)}
-          {([['minDimmer', 'Min dimmer'], ['maxDimmer', 'Max dimmer']] as const).map(([key, label]) => <label key={key}>{label}<input aria-label={`Fixture ${key}`} type="number" min={0} max={255} value={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? (key === 'minDimmer' ? 0 : 255)} onClick={focusNumberInput} onMouseUp={focusNumberInput} onChange={(event) => { const value = Number(event.target.value); if (!Number.isFinite(value)) return; const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: Math.max(0, Math.min(255, Math.round(value))) }); state.endHistoryGroup() }} className="ml-1 w-16 rounded bg-panel2 p-1" /></label>)}
+        <div className="flex flex-col gap-1">
+          <button type="button" onClick={() => window.dispatchEvent(new Event('openlights-open-calibration'))} className="rounded bg-panel2 px-2 py-1 text-left">Beam Direction…</button>
+          <button type="button" disabled={!beamColorSupported} title={beamColorSupported ? undefined : 'The selected fixtures change colour through DMX'} onClick={() => setBeamColorOpen(true)} className="rounded bg-panel2 px-2 py-1 text-left disabled:opacity-40">Beam Color…</button>
+          <button type="button" onClick={() => setFixtureOptionsOpen(true)} className="rounded bg-panel2 px-2 py-1 text-left">Fixture Options…</button>
         </div>
         {/* Fixture options (Guide p.62; wizard Build Your Preview step,
             video 04:45): Disable, Hide light beam, Ignore Master Dimmer —
             applied to every selected fixture. */}
-        <div className="mt-2 flex flex-wrap gap-3">
+        <div className="mt-2 flex flex-col gap-1">
           {([['disabled', 'Disable'], ['hideBeam', 'Hide light beam'], ['ignoreMasterDimmer', 'Ignore Master Dimmer']] as const).map(([key, label]) => (
             <label key={key} className="flex items-center gap-1">
-              <input type="checkbox" checked={fixtures.find((f) => f.id === selectedFixtureIds[0])?.[key] ?? false} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: event.target.checked }); state.endHistoryGroup() }} />
+              <input type="checkbox" checked={firstFixture?.[key] ?? false} onChange={(event) => { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of selectedFixtureIds) state.updateFixture(id, { [key]: event.target.checked }); state.endHistoryGroup() }} />
               {label}
             </label>
           ))}
         </div>
+        {/* LED fixture icon options (Guide pp.56–57): the two sizes and
+            the line/ring choice, greyed out unless an LED fixture is
+            selected. Small/large set the icon size; line/ring switch a
+            strip between its open and closed icon (unset keeps the bar). */}
+        <div className="mt-2 flex items-center gap-1" role="group" aria-label="LED fixture icon">
+          <button type="button" aria-label="Small LED icon" title="Small LED icon" aria-pressed={(firstFixture?.iconSize ?? 10) === 10} disabled={!ledRowEnabled} onClick={() => setLedIcon({ iconSize: 10 })} className="flex h-7 w-8 items-center justify-center rounded bg-panel2 disabled:opacity-40"><svg width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="4" y="3" width="10" height="6" /></svg></button>
+          <button type="button" aria-label="Large LED icon" title="Large LED icon" aria-pressed={(firstFixture?.iconSize ?? 10) === 20} disabled={!ledRowEnabled} onClick={() => setLedIcon({ iconSize: 20 })} className="flex h-7 w-8 items-center justify-center rounded bg-panel2 disabled:opacity-40"><svg width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><rect x="1" y="1" width="16" height="10" /></svg></button>
+          <button type="button" aria-label="LED strip as a line" title="LED strip as a line" aria-pressed={ledKind === 'led-strip-open'} disabled={!ledShapeEnabled} onClick={() => setLedIcon({ ledIconShape: ledKind === 'led-strip-open' ? undefined : 'line' })} className="flex h-7 w-8 items-center justify-center rounded bg-panel2 disabled:opacity-40"><svg width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><path d="M1 8 4 3 7 8 10 3 13 8 16 3 18 6" /></svg></button>
+          <button type="button" aria-label="LED strip as a ring" title="LED strip as a ring" aria-pressed={ledKind === 'led-strip-closed'} disabled={!ledShapeEnabled} onClick={() => setLedIcon({ ledIconShape: ledKind === 'led-strip-closed' ? undefined : 'ring' })} className="flex h-7 w-8 items-center justify-center rounded bg-panel2 disabled:opacity-40"><svg width="18" height="12" viewBox="0 0 18 12" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="9" cy="6" r="4.5" /><circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" /></svg></button>
+        </div>
       </section>}
 
-      <section id="fixture-storage-tray" className="rounded border border-line bg-panel p-2 text-xs">
-        <strong>Fixture storage</strong>
-        <p className="text-[10px] text-dim">Drag fixtures here to remove them from the layout.</p>
-        <div className="mt-1 flex flex-wrap gap-1">{storedFixtures.map((fixture) => <span key={fixture.id} draggable onDragStart={(event) => event.dataTransfer.setData('application/x-openlights-fixture', fixture.id)} className="cursor-grab rounded bg-panel2 p-1">{fixture.name}</span>)}</div>
-      </section>
+      {beamColorOpen && <BeamColorDialog fixtureIds={selectedFixtureIds} onClose={() => setBeamColorOpen(false)} />}
+      {fixtureOptionsOpen && <FixtureOptionsDialog fixtureIds={selectedFixtureIds} onClose={() => setFixtureOptionsOpen(false)} />}
 
       {!selectedTruss && selectedFixtureIds.length === 0 && <p className="text-[11px] text-dim">Click a truss or a fixture on the canvas to edit its properties here.</p>}
     </div>
+  )
+}
+
+// Fixture Storage (Guide p.70): "an area for keeping fixtures that are
+// temporarily not in use" — it lives BELOW the Preview, not in the side
+// panel. Drag a fixture from the canvas onto this tray to store it; drag
+// a stored fixture back onto the canvas to place it again. The id is
+// the drop target StagePreview's pointer-up handler looks up.
+export function FixtureStorageTray() {
+  const show = useShowStore((s) => s.show)
+  const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
+  return (
+    <section id="fixture-storage-tray" className="flex shrink-0 items-center gap-2 border-t border-line bg-panel px-2 py-1 text-xs">
+      <strong>Fixture storage</strong>
+      <span className="text-[10px] text-dim">Drag fixtures here to remove them from the layout.</span>
+      <div className="flex flex-wrap gap-1">{storedFixtures.map((fixture) => <span key={fixture.id} draggable onDragStart={(event) => event.dataTransfer.setData('application/x-openlights-fixture', fixture.id)} className="cursor-grab rounded bg-panel2 p-1">{fixture.name}</span>)}</div>
+    </section>
   )
 }

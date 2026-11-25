@@ -151,7 +151,7 @@ it('opens the patch options dialog on profile drop instead of patching immediate
 
 it('shows short names in the Preview and gives each Count instance its own position', () => {
   const preview = readFileSync('src/renderer/src/components/StagePreview.tsx', 'utf8')
-  expect(preview).toContain('{f.shortName ?? f.name}')
+  expect(preview).toContain('f.shortName ?? f.name')
   expect(preview).toContain('instancePositions(f)')
   expect(preview).toContain('instanceKey(f.id, instance)')
   expect(preview).toContain('setFixtureInstancePositions')

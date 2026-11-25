@@ -51,7 +51,9 @@ export function FixtureIcon({
   cells?: number
 }) {
   const fill = on ? color : 'var(--panel2)'
-  const stroke = selected ? 'var(--accent)' : 'var(--line)'
+  // Selected fixtures show LightKey's blue (Guide p.53 — the selected
+  // fixture's blue handles and label), not the app's purple accent.
+  const stroke = selected ? '#0A84FF' : 'var(--line)'
   const strokeWidth = selected ? 2 : 1.5
   // Dark detail on a lit icon, dark detail on a dark (off) one.
   const detail = on ? 'rgba(0,0,0,0.55)' : 'var(--bg)'
@@ -63,7 +65,7 @@ export function FixtureIcon({
       <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
       {selected &&
         (isBar && !smallBar ? null : fixtureIconIsRound(kind) && !smallBar ? (
-          <circle cx={x} cy={y} r="9" fill="var(--accent)" fillOpacity="0.22" stroke="var(--accent)" strokeWidth="2" />
+          <circle cx={x} cy={y} r="9" fill="#0A84FF" fillOpacity="0.22" stroke="#0A84FF" strokeWidth="2" />
         ) : (
           (() => {
             const { halfWidth, halfHeight } = smallBar ? { halfWidth: 9.5, halfHeight: 6 } : fixtureIconSelectionRect(kind)
@@ -74,9 +76,9 @@ export function FixtureIcon({
                 width={halfWidth * 2}
                 height={halfHeight * 2}
                 rx="3"
-                fill="var(--accent)"
+                fill="#0A84FF"
                 fillOpacity="0.22"
-                stroke="var(--accent)"
+                stroke="#0A84FF"
                 strokeWidth="2"
               />
             )

@@ -13,7 +13,7 @@ import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } fr
 import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
 import { FixtureIcon } from './FixtureIcon'
-import { fixtureIconKind } from '../lib/fixtureIcon'
+import { fixtureIconKind, fixtureIconSelectionRect } from '../lib/fixtureIcon'
 import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
@@ -73,7 +73,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, highlightMode, toggleHighlightMode, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -525,29 +525,14 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       onPointerEnter={() => { pointerOverRef.current = true }}
       onPointerLeave={() => { pointerOverRef.current = false }}
     >
-      {/* The Preview toolbar carries no buttons of its own any more: the
-          header Edit toggle owns edit mode (LightKey Guide p.53), the
-          Fanning HUD is opened from the Design panel (Guide §8, p.119),
-          and Locate has no button — LightKey's nearest equivalent is
-          Highlight Mode, which OpenLights does not replicate yet (see
-          NOTES.md). The edit tools live in the side-panel Inspector
-          (Guide p.53) in edit mode, so the canvas stays clean — only
-          the Preview label and the zoom cluster remain on it. */}
-      <div className="absolute left-3 top-3 z-10 flex items-center gap-1">
-        <span className="rounded bg-bg/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-dim">Preview</span>
-      </div>
+      {/* The Preview canvas carries no floating controls of its own:
+          LightKey's edit-mode Preview is a clean canvas (Guide p.53) —
+          Highlight lives in the header toolbar (the bulb icon, Cmd-Shift-H)
+          and zoom/fit live in the View menu, on their keyboard shortcuts
+          and on the scroll wheel. The edit tools live in the side-panel
+          Inspector (Guide p.53) in edit mode. */}
       {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={activeCue?.fans ?? []} selectedCount={selectedFixtureIds.length} hasActiveCue={Boolean(activeCue)} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => { setFanDraft(null); pendingAlsoFan.current = null }} />}
       {calibrationFixtureIds && <CalibrationDialog fixtureIds={calibrationFixtureIds} onClose={() => setCalibrationFixtureIds(null)} />}
-      <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded bg-bg/80 p-1">
-        <button type="button" aria-label="Toggle highlight mode" aria-pressed={highlightMode} title="Highlight mode (Cmd-Shift-H): only the selected fixtures light up" onClick={() => toggleHighlightMode()} className={highlightMode ? 'rounded bg-amber-400 px-2 py-0.5 text-[10px] font-bold text-black' : 'px-2 text-[10px] text-dim'}>Highlight</button>
-        <button type="button" aria-label="Zoom out preview" onClick={() => setZoom((z) => Math.max(1, z - 0.25))} className="px-2 text-sm text-text">−</button>
-        <button type="button" onClick={() => { setZoom(1); setViewCentre({ x: 400, y: 170 }) }} className="px-1 text-[10px] text-dim" title="Reset preview zoom">{Math.round(zoom * 100)}%</button>
-        <button type="button" className="px-1 text-[10px] text-dim" onClick={() => fit(false)}>Fit</button><button type="button" className="px-1 text-[10px] text-dim" disabled={!selectedFixtureIds.length && !selectedPreviewTrussId} onClick={() => fit(true)}>Selection</button><button type="button" aria-label="Zoom in preview" onClick={() => setZoom((z) => Math.min(8, z * 1.2))} className="px-2 text-sm text-text">+</button>
-      </div>
-      {/* Truss / fixture properties and the storage tray live in the
-          side-panel Inspector in edit mode now (Guide p.53) — see
-          PreviewEditPanel. The canvas keeps only the Preview label
-          and the zoom cluster. */}
       <svg
         ref={svgRef}
         className="h-full w-full"
@@ -664,7 +649,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           // the length (a beam pointing at the viewer is a dot), never
           // the colour or opacity.
           const beamBottom = top + (bottom - top) * op * appearance.lengthFactor
-          const beamFarHalf = 7 + (34 - 7) * op * appearance.lengthFactor
+          const beamNearHalf = 7 * appearance.widthFactor
+          const beamFarHalf = (7 + (34 - 7) * op * appearance.lengthFactor) * appearance.widthFactor
           // One beam per cell (LightKey Guide p.57, §8 p.119 — cells
           // are "beams"; `fixtureBeams` derives them from the
           // repeating colour pods). Each cell's beam starts at its
@@ -727,7 +713,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 // The cell's own centre: the rects are 9 apart,
                 // centred on the fixture (see the cell rects below).
                 const cx = x + (index - (cells.length - 1) / 2) * 9
-                const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity * appearance.lengthFactor)
+                const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity * appearance.lengthFactor, appearance.widthFactor)
                 const cellBottom = top + length
                 return (
                   <polygon
@@ -744,7 +730,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               })}
               {on && !f.hideBeam && !multiBeam && (
                 <polygon
-                  points={`${x - 7},${top} ${x + 7},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
+                  points={`${x - beamNearHalf},${top} ${x + beamNearHalf},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
                   transform={`rotate(${appearance.direction} ${x} ${y})`}
                   fill={appearance.color}
                   fillOpacity={op * 0.28}
@@ -763,7 +749,13 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   the same selectFixture the icon click uses, Shift
                   included; in edit mode the group's pointerdown still
                   owns selection + dragging. */}
-              {selectable && f.namePosition !== 'hidden' && <text x={x} y={f.namePosition === 'below' ? y + 20 : y - 13} textAnchor="middle" fill="var(--text)" fontSize="8" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) selectFixture(f.id, event.shiftKey) }}>{f.shortName ?? f.name}</text>}
+              {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const labelY = f.namePosition === 'below' ? y + 20 : y - 13; const width = label.length * 4.6 + 10; return (<>
+                {/* LightKey's blue label pill for the selected fixture
+                    (Guide p.53): a blue rounded pill with white text
+                    while editing; the plain text label otherwise. */}
+                {editing && selected && <rect x={x - width / 2} y={labelY - 10} width={width} height="13" rx="6.5" fill="#0A84FF" pointerEvents="none" />}
+                <text x={x} y={labelY} textAnchor="middle" fill={editing && selected ? '#ffffff' : 'var(--text)'} fontSize="8" paintOrder="stroke" stroke={editing && selected ? 'none' : 'var(--bg)'} strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) selectFixture(f.id, event.shiftKey) }}>{label}</text>
+              </>) })()}
               {/* The blue dot left of the name (Guide ch.11, p.116; Jake's
                   LightKey screenshots 20 Nov 2026): a fixture with
                   overridden properties. Clicking it shows the override
@@ -784,7 +776,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               {setupWizardStep === 'directions' && isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? y + 48 : y + 36} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
               <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
-                <FixtureIcon kind={kind} x={x} y={y} on={on} color={f.color} selected={selected} cells={beams.length} />
+                <FixtureIcon kind={kind} x={x} y={y} on={on} color={appearance.color} selected={selected} cells={beams.length} />
               </g>
               <circle
                 cx={x}
@@ -823,11 +815,17 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   same accent surround the other icons get. */}
               {kind === 'led-bar' && beams.length >= 2 && (() => { const width = (beams.length - 1) * 9 + 11; return (
                 <>
-                  {selected && <rect x={x - width / 2 - 3} y={y - 8} width={width + 6} height="16" rx="3" fill="var(--accent)" fillOpacity="0.22" stroke="var(--accent)" strokeWidth="2" />}
-                  <rect x={x - width / 2} y={y - 5} width={width} height="10" rx="1.5" fill={on ? f.color : 'var(--panel2)'} stroke={selected ? 'var(--accent)' : 'var(--line)'} strokeWidth={selected ? '2' : '1.5'} />
+                  {selected && <rect x={x - width / 2 - 3} y={y - 8} width={width + 6} height="16" rx="3" fill="#0A84FF" fillOpacity="0.22" stroke="#0A84FF" strokeWidth="2" />}
+                  <rect x={x - width / 2} y={y - 5} width={width} height="10" rx="1.5" fill={on ? appearance.color : 'var(--panel2)'} stroke={selected ? '#0A84FF' : 'var(--line)'} strokeWidth={selected ? '2' : '1.5'} />
                 </>
               ) })()}
-              {beams.map((beam, index) => <rect key={beam.id} x={x + (index - (beams.length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? 'var(--accent)' : cells[index]?.color ?? f.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {beams.map((beam, index) => <rect key={beam.id} x={x + (index - (beams.length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? '#0A84FF' : cells[index]?.color ?? appearance.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}
+              {/* LightKey's blue selection handles (Guide p.55): four
+                  squares at the corners of the icon's bounding box while
+                  editing — the icon's own selected outline (FixtureIcon)
+                  is blue too. Purely visual: clicks pass through to the
+                  fixture's drag/selection handlers below. */}
+              {editing && selected && (() => { const rect = fixtureIconSelectionRect(kind); const scale = (f.iconSize ?? 10) / 10; const hw = rect.halfWidth * scale + 3; const hh = rect.halfHeight * scale + 3; return ([[x - hw, y - hh], [x + hw, y - hh], [x - hw, y + hh], [x + hw, y + hh]] as const).map(([hx, hy]) => <rect key={`${hx},${hy}`} x={hx - 3} y={hy - 3} width="6" height="6" fill="#0A84FF" stroke="#ffffff" strokeWidth="1" pointerEvents="none" />) })()}
               {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
             </g>
           )

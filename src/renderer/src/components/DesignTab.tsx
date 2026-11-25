@@ -14,7 +14,7 @@ import { ColorWheelControl } from './ColorWheelControl'
 import { EffectEditor, EffectIndicator, EffectsChooser } from './EffectEditor'
 import { FillFader } from './FillFader'
 import { PositionControl } from './PositionControl'
-import { positionFractions } from '../lib/position'
+import { positionDegrees, positionFractions } from '../lib/position'
 import { dispatchFanHud, FanDeleteDot, FanMenuButton, FannedIcon } from './PropertyFan'
 
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
@@ -211,12 +211,33 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // the fixture's LED channels by it.
   const isVirtualDimmer = (fixture: FixtureDef) =>
     !fixtureAttributes(fixture).includes('intensity') && colorChannels(fixtureAttributes(fixture)).length > 0
-  // Pan/tilt as one XY pad (LightKey-style position control) instead of two
-  // raw 0–255 sliders — only when every selected fixture has pan+tilt and no
-  // individual beam is selected (beam values are keyed by beam property, not
-  // by pan/tilt). Otherwise the raw sliders stay as the fallback.
+  // Pan/tilt as LightKey's circular position control (Guide ch.8,
+  // pp.90–91: angle around the circle is pan, distance from the centre
+  // is tilt) instead of two raw 0–255 sliders — only when every selected
+  // fixture has pan+tilt and no individual beam is selected (beam values
+  // are keyed by beam property, not by pan/tilt). Otherwise the raw
+  // sliders stay as the fallback.
   const hasPanTilt = selectedBeams.length === 0 && selectedFixtures.length > 0 &&
     selectedFixtures.every((fixture) => fixtureAttributes(fixture).includes('pan') && fixtureAttributes(fixture).includes('tilt'))
+  // The position the control shows (and the readout under it): the same
+  // precedence as every other Design control (fixtureAttr above) — the
+  // preset being edited, then a defined (overridden) property, then the
+  // cue's resolved look — with no fixture-default fallback, so an
+  // undefined position still reads exactly home. The old pad read the
+  // cue values only, so a drag — which writes an override, never the
+  // cue — left the dot and the readout frozen at the cue's position
+  // (caught by the real-app probe, 26 Nov 2026).
+  const positionAttr = (attribute: 'pan' | 'tilt'): number | undefined => {
+    const fixtureId = selectedFixtures[0]?.id
+    if (!fixtureId) return undefined
+    return editingPreset?.fixtureValues[fixtureId]?.[attribute]
+      ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute])
+      ?? cueValues[fixtureId]?.[attribute]
+  }
+  const positionNow = selectedFixtures[0] ? positionFractions(
+    Object.fromEntries(['pan', 'tilt'].map((attribute) => [attribute, positionAttr(attribute as 'pan' | 'tilt')]).filter(([, value]) => value !== undefined)) as Record<string, number>,
+    fixtureAttributes(selectedFixtures[0])) : undefined
+  const positionNowDegrees = positionNow ? positionDegrees(positionNow.pan, positionNow.tilt) : undefined
   const channelAttributes = selectedFixtures.length
     ? commonAttributes.filter((attribute) => attribute !== 'intensity' && !(hasPanTilt && POSITION_ATTRIBUTES.includes(attribute)))
     : []
@@ -662,7 +683,7 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
       // empty space in the panel clears the control selection. Control
       // clicks never reach here — each control's wrapper stops
       // propagation on pointerdown — so this only fires for spare
-      // space. The Position pad is not a selectable control: clicking
+      // space. The Position control is not a selectable control: clicking
       // it clears the selection like spare space.
       onPointerDown={clearSelection}
     >
@@ -1142,9 +1163,13 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
               </div>
             ) : (
               <>
-                <PositionControl fixtures={selectedFixtures} update={updateValues} current={selectedFixtures[0] ? positionFractions(cueValues[selectedFixtures[0].id] ?? {}, fixtureAttributes(selectedFixtures[0])) : undefined} />
-                <span className="font-mono text-[10px] text-dim">
-                  Pan {valueFor('pan')} · Tilt {valueFor('tilt')}
+                <PositionControl fixtures={selectedFixtures} update={updateValues} current={positionNow} />
+                {/* Fixed 112px width, centred: the readout at its widest
+                    ("Pan +270° · Tilt -135°") is wider than the circle,
+                    and a widening column would shift the svg right
+                    mid-drag (see PositionControl's frozen drag rect). */}
+                <span className="w-28 whitespace-nowrap text-center font-mono text-[10px] text-dim">
+                  Pan {positionNowDegrees ? `${positionNowDegrees.pan >= 0 ? '+' : ''}${Math.round(positionNowDegrees.pan)}°` : '—'} · Tilt {positionNowDegrees ? `${positionNowDegrees.tilt >= 0 ? '+' : ''}${Math.round(positionNowDegrees.tilt)}°` : '—'}
                 </span>
               </>
             )}

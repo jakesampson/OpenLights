@@ -901,8 +901,12 @@ select optgroup { background: #555658; color: #fff; }
 
 .live-master-bpm-text { position: relative; z-index: 1; }
 
-.preview-stack { position: relative; min-height: 0; overflow: hidden; }
-.preview-stack > .stage { height: 100%; }
+/* The Preview column is a flex column so Fixture Storage (Guide p.70)
+   can sit below the canvas in edit mode; the stage takes the remaining
+   height. With no tray (non-edit mode, or the setup wizard) the stage
+   fills the column exactly as before. */
+.preview-stack { position: relative; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.preview-stack > .stage { flex: 1 1 auto; min-height: 0; }
 .design-property-overlay { position: absolute; left: 12px; bottom: 12px; z-index: 20; width: min(720px, calc(100% - 24px)); max-height: 42%; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--panel) 94%, transparent); padding: 8px; box-shadow: 0 8px 30px #0008; }
 .playback-shell { position: relative; min-height: 0; overflow: hidden; padding: 10px; }
 .live-page-shell { min-height: 0; overflow: auto; padding: 6px; }
@@ -1033,6 +1037,19 @@ select optgroup { background: #555658; color: #fff; }
    through the marker, which moves with the arrow keys. */
 .color-wheel [role="slider"] {
   outline: none;
+}
+
+/* Position circle (LightKey's round Position control): the same focus
+   treatment as the colour wheel — no white bounding-box outline on
+   the svg itself while dragging (the same report as the wheel arcs,
+   Jake 19 Nov 2026); keyboard focus still shows, as a circular ring. */
+.position-circle {
+  outline: none;
+}
+.position-circle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 50%;
 }
 
 /* Colour wheel value popup: the small `Label: value` pill above the

@@ -115,11 +115,13 @@ describe('Dimmer and channel faders share the Master fill-bar style', () => {
   })
 
   it('every other readout in the panel is already an integer', () => {
-    // Audit, same batch: Dimmer % is Math.round'd; Pan/Tilt and the
-    // channel values all go through valueFor, which rounds — so no
-    // other raw float can be rendered into the panel.
+    // Audit, same batch: Dimmer % is Math.round'd; Pan/Tilt show
+    // rounded degrees (LightKey's form, Guide p.91) and the channel
+    // values all go through valueFor, which rounds — so no other raw
+    // float can be rendered into the panel.
     expect(design).toContain('Math.round((dimmer / 255) * 100)}%')
-    expect(design).toContain("Pan {valueFor('pan')} · Tilt {valueFor('tilt')}")
+    expect(design).toContain("Math.round(positionNowDegrees.pan)}°")
+    expect(design).toContain("Math.round(positionNowDegrees.tilt)}°")
     expect(design).toContain('const value = valueFor(attribute)')
     expect(design).toContain('Math.round(')
   })

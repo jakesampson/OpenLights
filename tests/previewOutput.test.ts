@@ -67,6 +67,12 @@ describe('cell beam geometry', () => {
     expect(cellBeamGeometry(0.5).farHalf).toBeCloseTo(3 + 27 * (CELL_BEAM_FULL_LENGTH / 2 / SINGLE_BEAM_FULL_LENGTH), 5)
     expect(cellBeamGeometry(0)).toEqual({ length: 0, nearHalf: 3, farHalf: 3 })
   })
+
+  it('scales the cone widths with the beam-angle factor, keeping the cone angle at 1', () => {
+    expect(cellBeamGeometry(1, 2).nearHalf).toBe(6)
+    expect(cellBeamGeometry(1, 2).farHalf).toBeCloseTo((3 + 27 * (CELL_BEAM_FULL_LENGTH / SINGLE_BEAM_FULL_LENGTH)) * 2, 5)
+    expect(cellBeamGeometry(0, 2)).toEqual({ length: 0, nearHalf: 6, farHalf: 6 })
+  })
 })
 
 describe('live preview output', () => {
@@ -82,9 +88,32 @@ describe('live preview output', () => {
 
 it('uses the stored beam direction and the fixture live colour, without changing the decoded DMX output', () => {
  const fixture: FixtureDef = { id: 'd', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1, previewBeam: { direction: 45 } }
- expect(previewBeamAppearance(fixture, { x: 100, y: 100 }, '#ffffff')).toEqual({ direction: 45, lengthFactor: 1, color: '#ffffff' })
+ expect(previewBeamAppearance(fixture, { x: 100, y: 100 }, '#ffffff')).toEqual({ direction: 45, lengthFactor: 1, color: '#ffffff', widthFactor: 1 })
  expect(previewFixtureValues(fixture, [128])).toEqual({ intensity: 128 })
- expect(previewBeamAppearance({ ...fixture, previewBeam: { direction: 'auto' } }, { x: 100, y: 250 }, '#123456')).toEqual({ direction: 180, lengthFactor: 1, color: '#123456' })
+ expect(previewBeamAppearance({ ...fixture, previewBeam: { direction: 'auto' } }, { x: 100, y: 250 }, '#123456')).toEqual({ direction: 180, lengthFactor: 1, color: '#123456', widthFactor: 1 })
+})
+
+describe('Beam Color… and Beam angle (Guide pp.61–62)', () => {
+  it('uses the stored beam colour only for fixtures with no DMX colour control', () => {
+    const dimmer: FixtureDef = { id: 'd', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1, previewBeam: { direction: 45, color: '#ff0000' } }
+    expect(previewBeamAppearance(dimmer, { x: 100, y: 100 }, '#ffffff').color).toBe('#ff0000')
+    // A colour fixture already shows its live colour — the stored
+    // colour is ignored for it.
+    const wash: FixtureDef = { id: 'w', name: 'Wash', type: 'led-wash', channels: 7, channelStart: 1, previewBeam: { direction: 45, color: '#ff0000' } }
+    expect(previewBeamAppearance(wash, { x: 100, y: 100 }, '#00ff00').color).toBe('#00ff00')
+    // And a moving head (RGB channels) likewise ignores it.
+    const head: FixtureDef = { id: 'mh', name: 'MH1', type: 'moving-head', channels: 8, channelStart: 1, previewBeam: { direction: 45, color: '#ff0000' } }
+    expect(previewBeamAppearance(head, { x: 100, y: 100 }, '#0000ff').color).toBe('#0000ff')
+  })
+
+  it('scales the beam width from the stored beam angle (default cone ~21°)', () => {
+    const base: FixtureDef = { id: 'd', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1, previewBeam: { direction: 45 } }
+    expect(previewBeamAppearance(base, { x: 100, y: 100 }, '#ffffff').widthFactor).toBe(1)
+    // 42° is twice the default angle — the cone is about twice as wide.
+    expect(previewBeamAppearance({ ...base, previewBeam: { direction: 45, beamAngle: 42 } }, { x: 100, y: 100 }, '#ffffff').widthFactor).toBeCloseTo(Math.tan((21 * Math.PI) / 180) / Math.tan((10.5 * Math.PI) / 180), 5)
+    // A narrow beam is narrower than the default.
+    expect(previewBeamAppearance({ ...base, previewBeam: { direction: 45, beamAngle: 10 } }, { x: 100, y: 100 }, '#ffffff').widthFactor).toBeLessThan(1)
+  })
 })
 
 describe('beam direction from live pan/tilt (Guide p.91)', () => {

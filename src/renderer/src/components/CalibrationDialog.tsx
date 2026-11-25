@@ -152,13 +152,31 @@ function StepIcon({ step }: { step: CalibrationStep }) {
 
 function PerspectiveGlyph({ perspective }: { perspective: CalibrationPerspective }) {
   if (perspective === 'parallel') return (
-    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1.5"><circle cx="22" cy="22" r="14" /><circle cx="22" cy="22" r="7" /><circle cx="22" cy="22" r="2" fill="currentColor" /></svg>
+    // LightKey's parallel tile: a lens face — an octagonal outer ring
+    // with a ring of short radial ticks, an inner ring, a filled centre
+    // dot and small side tabs at left/right mid-height.
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <polygon points="37,22 32.6,11.4 22,7 11.4,11.4 7,22 11.4,32.6 22,37 32.6,32.6" />
+      <path d="M32 22h3M29.1 14.9l2.1-2.1M22 12V9M14.9 14.9l-2.1-2.1M12 22H9M14.9 29.1l-2.1 2.1M22 32v3M29.1 29.1l2.1 2.1" />
+      <circle cx="22" cy="22" r="8" />
+      <circle cx="22" cy="22" r="3" fill="currentColor" stroke="none" />
+      <rect x="3" y="20" width="4" height="4" />
+      <rect x="37" y="20" width="4" height="4" />
+    </svg>
   )
-  const rotate = perspective === 'up' ? 0 : perspective === 'down' ? 180 : perspective === 'left' ? -90 : 90
+  // LightKey's fixture glyph (copied for now, per Jake 26 Nov 2026 —
+  // redesign before launch): a vase-shaped moving-head body, wide
+  // rounded dome at the head end tapering to a narrower flat end, small
+  // yoke-arm rectangles on the sides near the base end and a short flat
+  // base bar at the tail. Drawn head-down and rotated: Down is the
+  // base orientation, Up is 180°, Left/Right are ±90°.
+  const rotate = perspective === 'down' ? 0 : perspective === 'up' ? 180 : perspective === 'left' ? 90 : -90
   return (
     <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ transform: `rotate(${rotate}deg)` }}>
-      <rect x="15" y="6" width="14" height="20" rx="7" />
-      <path d="M15 30h14M19 30v6M25 30v6" />
+      <rect x="18" y="4" width="8" height="3" />
+      <path d="M18 8v6c0 4-6 6-6 13 0 8 4 13 10 13s10-5 10-13c0-7-6-9-6-13V8Z" />
+      <rect x="8" y="12" width="4" height="7" rx="1" />
+      <rect x="32" y="12" width="4" height="7" rx="1" />
     </svg>
   )
 }

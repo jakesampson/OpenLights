@@ -483,7 +483,7 @@ function createWindow() {
   // menuGroupsFor; Windows and Linux get exactly WINDOWS_MENU.
   const template: MenuItemConstructorOptions[] = menuGroupsFor(process.platform, app.name).map((group) => ({
     label: group.label,
-    submenu: group.items.map((item) => item.type === 'separator' ? { type: 'separator' } : item.role ? { label: item.label, role: item.role } : { label: item.label, click: () => item.command && mainWindow?.webContents.send('menu:command', item.command) })
+    submenu: group.items.map((item) => item.type === 'separator' ? { type: 'separator' } : item.role ? { label: item.label, role: item.role } : item.submenu ? { label: item.label, submenu: item.submenu.map((sub) => ({ label: sub.label, click: () => mainWindow?.webContents.send('menu:command', sub.command) })) } : { label: item.label, click: () => item.command && mainWindow?.webContents.send('menu:command', item.command) })
   }))
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   mainWindow.setMenuBarVisibility(true)

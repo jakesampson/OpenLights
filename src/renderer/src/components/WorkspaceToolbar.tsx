@@ -65,6 +65,12 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
   }, [])
   return <div ref={toolbarRef} role="toolbar" aria-label="Lighting controls" className="lighting-toolbar">
     <button className={`header-icon ${state.locked ? 'on' : ''}`} aria-label={state.locked ? 'Unlock project' : 'Lock project'} aria-pressed={state.locked} onClick={openLockDialog} title={state.locked ? 'Unlock project' : 'Lock project'}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10" width="13" height="10" rx="2"/><path d={state.locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M16 10V7a4 4 0 0 0-8 0'} /></svg></button>
+    {/* Highlight Mode lives in the header toolbar, not on the Preview
+        canvas (LightKey Guide ch.7: "Click [bulb] in the toolbar", and
+        Jake's LightKey edit-mode screenshot shows the bulb among the
+        header icons). The floating Highlight button on the canvas is
+        gone — this is the same toggle (Ctrl+Shift+H). */}
+    <button className={`header-icon ${state.highlightMode ? 'on' : ''}`} aria-label="Highlight mode" aria-pressed={state.highlightMode} onClick={state.toggleHighlightMode} title="Highlight mode (Ctrl+Shift+H): only the selected fixtures light up"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.4 1 2.3h6c0-.9.4-1.8 1-2.3A7 7 0 0 0 12 2Z" /><path d="M9 18h6M10 21h4" /></svg></button>
     <button className={`header-icon ${state.blind ? 'on' : ''}`} aria-label="Blind mode" aria-pressed={state.blind} onClick={state.toggleBlind} title="Blind mode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6S2 12 2 12Z"/><path d="m4 4 16 16"/></svg></button>
     <button className={`header-icon ${state.freeze ? 'on' : ''}`} aria-label="Freeze output" aria-pressed={state.freeze} onClick={state.toggleFreeze} title="Freeze output"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V5a2 2 0 0 1 4 0v5-7a2 2 0 0 1 4 0v7-5a2 2 0 0 1 4 0v9c0 5-3 8-8 8S5 18 4 14l-1-3a2 2 0 0 1 4-1l1 1Z"/></svg></button>
     <details className="header-more"><summary className="header-icon" aria-label="Fixture property menu" title="Fixture property menu">•••<span aria-hidden="true">⌄</span></summary><div className="header-more-menu property-menu">

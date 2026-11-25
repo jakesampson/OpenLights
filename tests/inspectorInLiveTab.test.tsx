@@ -132,7 +132,7 @@ describe('Inspector in edit mode, either tab (Jake, 24 Nov 2026)', () => {
     expect(sidePanel()?.getAttribute('aria-label')).toBe('Preview inspector')
     // …and once a fixture is selected its properties show.
     selectFixture('p1')
-    expect(sidePanel()?.textContent).toContain('Fixture properties')
+    expect(sidePanel()?.textContent).toContain('Beam Direction…')
     expect(sidePanel()?.textContent).not.toContain('Preset Palette')
   })
 
@@ -153,7 +153,7 @@ describe('Inspector in edit mode, either tab (Jake, 24 Nov 2026)', () => {
     click(headerEditButton()!)
     selectFixture('p1')
     expect(sidePanel()?.getAttribute('aria-label')).toBe('Preview inspector')
-    expect(sidePanel()?.textContent).toContain('Fixture properties')
+    expect(sidePanel()?.textContent).toContain('Beam Direction…')
   })
 
   it("Jake's sequence: NDI click in the Live tab does not lose the Inspector", async () => {
@@ -178,6 +178,6 @@ describe('Inspector in edit mode, either tab (Jake, 24 Nov 2026)', () => {
     click(headerEditButton()!)
     selectFixture('p1')
     expect(sidePanel()?.getAttribute('aria-label')).toBe('Preview inspector')
-    expect(sidePanel()?.textContent).toContain('Fixture properties')
+    expect(sidePanel()?.textContent).toContain('Beam Direction…')
   })
 })

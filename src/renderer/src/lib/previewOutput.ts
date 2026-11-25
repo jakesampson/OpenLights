@@ -78,14 +78,23 @@ export function previewCellBeams(fixture: FixtureDef, values: Record<string, num
  * +27 per 146 of length), starting from the cell's own width: the cell
  * rects are 7 wide, so the near half-width is 3. Length scales with
  * brightness exactly like the single beam — 0 is no beam, 1 is the
- * full 64.
+ * full 64. widthFactor scales the cone widths for Fixture Options'
+ * Beam angle (Guide p.62).
  */
-export function cellBeamGeometry(opacity: number) {
+export function cellBeamGeometry(opacity: number, widthFactor = 1) {
   const op = Math.max(0, Math.min(1, opacity))
   const length = CELL_BEAM_FULL_LENGTH * op
-  const nearHalf = 3
-  const farHalf = nearHalf + 27 * (length / SINGLE_BEAM_FULL_LENGTH)
+  const nearHalf = 3 * widthFactor
+  const farHalf = nearHalf + 27 * (length / SINGLE_BEAM_FULL_LENGTH) * widthFactor
   return { length, nearHalf, farHalf }
+}
+
+/** Whether the fixture's colour can be changed through DMX (RGB/CMY
+ *  mixing channels). Beam Color… (Guide p.61) is only for fixtures
+ *  without it — a fixed colour that can't be changed through DMX. */
+export function fixtureHasDmxColourControl(fixture: FixtureDef): boolean {
+  const map = fixtureChannelMap(fixture)
+  return ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow'].some((attribute) => attribute in map)
 }
 
 /** The beam's drawn direction and foreshortening for one fixture. */
@@ -194,15 +203,22 @@ export function previewBeamVector(fixture: FixtureDef, values: Record<string, nu
 /** Preview artwork settings never change transmitted channel values. */
 export function previewBeamAppearance(fixture: FixtureDef, position: { x: number; y: number }, liveColor: string, values: Record<string, number> = {}) {
   const vector = previewBeamVector(fixture, values, position)
-  // The beam is always drawn in the fixture's own live colour. There is
-  // no stored beam-colour override any more: the manual "Beam colour"
-  // input, the "Auto beam" reset and the "Beam Color…" dialog were all
-  // removed from Fixture Properties (Jake, 19 Nov 2026) — they all wrote
-  // the same previewBeam.color override, and a colour fixture already
-  // shows its live colour. A monochrome fixture's beam colour, if Jake
-  // ever wants it, is a separate feature gated on fixture type, not a
-  // stored override — nothing here reads one.
-  return { direction: vector.direction, lengthFactor: vector.lengthFactor, color: liveColor }
+  // Beam Color… (Guide p.61): for fixtures with a fixed colour that
+  // can't be changed through DMX (e.g. a PAR with a colour gel), the
+  // stored colour is the virtual beam colour — and the dot inside the
+  // fixture icon. A fixture with DMX colour control always shows its
+  // live colour; the stored colour is ignored for it. (The 19 Nov 2026
+  // removal took out the manual input that wrote this override for
+  // every fixture — this restores it gated on fixture type, as the
+  // guide has it.)
+  const color = !fixtureHasDmxColourControl(fixture) && typeof fixture.previewBeam?.color === 'string' && fixture.previewBeam.color ? fixture.previewBeam.color : liveColor
+  // Beam angle (Fixture Options, Guide p.62): the beam's width in the
+  // Preview; empty = the default cone (near half-width 7 → far 34 over
+  // 146, i.e. a ~21° full angle). The factor scales the cone widths
+  // relative to that default.
+  const angle = typeof fixture.previewBeam?.beamAngle === 'number' && Number.isFinite(fixture.previewBeam.beamAngle) ? fixture.previewBeam.beamAngle : 21
+  const widthFactor = Math.max(0.25, Math.min(4, Math.tan(((angle / 2) * Math.PI) / 180) / Math.tan(((21 / 2) * Math.PI) / 180)))
+  return { direction: vector.direction, lengthFactor: vector.lengthFactor, color, widthFactor }
 }
 
 /** Decode the actual 1-based universe values for preview, retaining dimmer gel colour. */

@@ -80,7 +80,13 @@ function kindFromType(type: FixtureType | undefined): FixtureIconKind | null {
  */
 export function fixtureIconKind(fixture: FixtureDef): FixtureIconKind {
   const profile = fixtureProfile(fixture)
-  return kindFromOflCategories(oflCategories(profile)) ?? kindFromType(profile?.legacyType ?? fixture.type) ?? 'generic'
+  const base = kindFromOflCategories(oflCategories(profile)) ?? kindFromType(profile?.legacyType ?? fixture.type) ?? 'generic'
+  // LED strip icon shape (LightKey Guide p.56): an LED bar drawn as a
+  // strip can be a line or a ring, chosen in the Inspector; unset keeps
+  // the bar icon it always had.
+  if (base === 'led-bar' && fixture.ledIconShape === 'line') return 'led-strip-open'
+  if (base === 'led-bar' && fixture.ledIconShape === 'ring') return 'led-strip-closed'
+  return base
 }
 
 /** Round icons keep the circular selection ring; rectangular icons get a rounded-rect one. */

@@ -9,7 +9,7 @@ import {
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 
 const fixtures: FixtureDef[] = [
-  { id: 'f1', name: 'Wash', type: 'led-wash', channelStart: 1, channels: 7, profileId: 'wash-rgbaw', positionOptions: { invertPan: true } },
+  { id: 'f1', name: 'Wash', type: 'led-wash', channelStart: 1, channels: 7, profileId: 'wash-rgbaw' },
   { id: 'f2', name: 'Head', type: 'moving-head', channelStart: 10, channels: 8, profileId: 'head-8ch' },
   { id: 'f3', name: 'Dim', type: 'dimmer', channelStart: 20, channels: 1, profileId: 'dimmer-1ch' }
 ]

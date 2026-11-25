@@ -28,7 +28,9 @@ export interface FixtureDef {
    *  there too (see NOTES.md). Absent = 0 / 255. */
   minDimmer?: number
   maxDimmer?: number
-  positionOptions?: { invertPan?: boolean; invertTilt?: boolean; swapPanTilt?: boolean }
+  /** LED strip icon shape (LightKey Guide p.56 — line or ring, chosen
+   *  in the Inspector; only applies to LED strip fixtures). */
+  ledIconShape?: 'line' | 'ring'
   propertyOrder?: string[]
   hiddenProperties?: string[]
   defaultValues?: Record<string, number>
@@ -63,7 +65,12 @@ export interface FixtureDef {
   inStorage?: boolean
   iconSize?: number
   namePosition?: 'above' | 'below' | 'hidden'
-  previewBeam?: { direction: number | 'auto' }
+  /** Preview beam artwork (LightKey Fixture Options, Guide p.62, and
+   *  Beam Color…, p.61): direction is the home direction; color is the
+   *  virtual beam colour for a fixture with a fixed colour and no DMX
+   *  colour control; beamAngle is the beam width in degrees (empty =
+   *  the default cone). None of these change transmitted DMX. */
+  previewBeam?: { direction: number | 'auto'; color?: string; beamAngle?: number }
   rotation?: number
 }
 
@@ -499,7 +506,7 @@ export interface PresetGroup { id: string; name: string; parentId?: string | nul
 
 export interface StageObject {
   id: string
-  kind: 'rectangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss' | 'screen'
+  kind: 'rectangle' | 'rounded-rectangle' | 'triangle' | 'ellipse' | 'line' | 'image' | 'text' | 'truss' | 'screen'
   name: string
   x: number
   y: number

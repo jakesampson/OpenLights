@@ -242,3 +242,56 @@ describe('selection border is outset and has room at the panel edge', () => {
     expect(rule).not.toContain('outline-offset: -')
   })
 })
+
+describe('Position circle follows a manual override (26 Nov 2026)', () => {
+  it('the dot and the degrees readout track an override, not just the cue', () => {
+    // The old pad read the cue values only, so a drag — which writes
+    // an override, never the cue — left the dot and the readout frozen
+    // at the cue's position (caught by the real-app probe). The cue
+    // below defines pan/tilt 128/128 (+1°/+1°); the override must win.
+    setShow(255, 'moving-head')
+    renderInRoot(<DesignTab />)
+    const circle = () => container?.querySelector('svg[aria-label="Pan and tilt position control"]') as SVGSVGElement | null
+    expect(circle()?.getAttribute('aria-valuetext')).toBe('Pan +1°, Tilt +1°')
+    act(() => {
+      useShowStore.setState({ manualOverrides: { fx1: { pan: 255, tilt: 0 } } })
+    })
+    expect(circle()?.getAttribute('aria-valuetext')).toBe('Pan +270°, Tilt -135°')
+    expect(container?.textContent).toContain('Pan +270° · Tilt -135°')
+  })
+
+  it('the circle has a circular focus ring, not a white bounding box', () => {
+    // Same report as the colour wheel arcs (Jake, 19 Nov 2026): the
+    // svg's bounding-box outline drew a white box around the control
+    // while dragging.
+    const rule = cssRule('.position-circle:focus-visible')
+    expect(rule).toContain('outline: 2px solid var(--accent)')
+    expect(rule).toContain('border-radius: 50%')
+    expect(cssRule('.position-circle')).toContain('outline: none')
+  })
+
+  it('a drag measures against the box at drag start, not a shifted box', () => {
+    // The readout widens as the values grow, which widens the column
+    // and shifts the svg right mid-drag; re-reading the box each move
+    // fed that shift back in, so a horizontal drag stopped short
+    // (real-app probe: Tilt +56° instead of +73°). The control freezes
+    // the box at pointerdown.
+    setShow(255, 'moving-head')
+    renderInRoot(<DesignTab />)
+    const circle = container?.querySelector('svg[aria-label="Pan and tilt position control"]') as SVGSVGElement | null
+    if (!circle) throw new Error('no position circle')
+    // The mocked box is 150x150 at (0,0): centre (75,75).
+    ;(Element.prototype as unknown as { hasPointerCapture: (id: number) => boolean }).hasPointerCapture = () => true
+    try {
+      act(() => { circle.dispatchEvent(pointer('pointerdown', 75, 75)) })
+      // Mid-drag the layout shifts the svg 20px right (the widening
+      // readout column) — the frozen box must still be the original.
+      Element.prototype.getBoundingClientRect = () => ({ ...RECT, left: 20, right: 170, x: 20 }) as unknown as DOMRect
+      act(() => { circle.dispatchEvent(pointer('pointermove', 115, 75)) })
+      act(() => { circle.dispatchEvent(pointer('pointerup', 115, 75, 0)) })
+      expect(circle.getAttribute('aria-valuetext')).toBe('Pan +134°, Tilt +73°')
+    } finally {
+      delete (Element.prototype as unknown as { hasPointerCapture?: unknown }).hasPointerCapture
+    }
+  })
+})

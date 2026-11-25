@@ -31,6 +31,15 @@ describe('fixtureIconKind', () => {
     expect(fixtureIconKind(fixture({ type: 'dimmer', profile: profile({ legacyType: 'moving-head' }) }))).toBe('moving-head')
   })
 
+  it('switches an LED bar between its strip icons (Guide p.56 — line or ring)', () => {
+    const bar = fixture({ type: 'pixel-bar-17ch' })
+    expect(fixtureIconKind(bar)).toBe('led-bar')
+    expect(fixtureIconKind({ ...bar, ledIconShape: 'line' })).toBe('led-strip-open')
+    expect(fixtureIconKind({ ...bar, ledIconShape: 'ring' })).toBe('led-strip-closed')
+    // The shape only applies to LED bars — other fixtures ignore it.
+    expect(fixtureIconKind(fixture({ type: 'par', ledIconShape: 'line' }))).toBe('par')
+  })
+
   it('prefers OFL categories over the profile type — a wash and a PAR can share a channel profile', () => {
     const wash = fixture({
       type: 'par',

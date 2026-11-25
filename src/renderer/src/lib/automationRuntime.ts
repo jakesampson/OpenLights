@@ -1,4 +1,3 @@
-import { transformPosition } from './position'
 import { BUILTIN_PROFILES, fixtureChannelMap, fixtureMode } from '@shared/fixtureProfiles'
 import type { AutomationDef, FixtureDef, CueDef, ShowDef } from '@shared/types'
 
@@ -77,7 +76,7 @@ export function computeCueChannels(
   const channels: Record<number, number> = {}
 
   for (const fixture of fixtures) {
-    const attrs = transformPosition(cue.fixtureValues[fixture.id] ?? {}, fixture.positionOptions)
+    const attrs = cue.fixtureValues[fixture.id] ?? {}
     const map = fixtureChannelMap(fixture)
     // Ignore Master Dimmer (LightKey Fixture Options, Guide p.62): the
     // master fader never scales this fixture — its effective master is full.

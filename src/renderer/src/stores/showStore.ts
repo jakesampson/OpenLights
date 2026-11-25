@@ -403,7 +403,7 @@ interface ShowState {
   pasteStageObjects: () => string[]
   duplicateStageObjects: (ids: string[]) => string[]
   flipStageObjects: (ids: string[], axis: 'x' | 'y') => void
-  orderStageObjects: (ids: string[], side: 'front' | 'back') => void
+  orderStageObjects: (ids: string[], side: 'front' | 'back' | 'forward' | 'backward') => void
   removeFixture: (id: string) => void
   duplicateFixture: (id: string) => void
   reassignFixtureProfile: (id: string, profile: FixtureProfile, modeId?: string) => void
@@ -2571,7 +2571,15 @@ const actions: ShowState = {
   flipStageObjects: (ids, axis) => get().setStageObjects((get().show?.stageObjects ?? []).map((o) => ids.includes(o.id) ? { ...o, [axis === 'x' ? 'flipX' : 'flipY']: !(axis === 'x' ? o.flipX : o.flipY) } : o)),
   orderStageObjects: (ids, side) => {
     const objects = get().show?.stageObjects ?? [], selected = objects.filter((o) => ids.includes(o.id)), others = objects.filter((o) => !ids.includes(o.id))
-    get().setStageObjects(side === 'front' ? [...others, ...selected] : [...selected, ...others])
+    if (side === 'front') { get().setStageObjects([...others, ...selected]); return }
+    if (side === 'back') { get().setStageObjects([...selected, ...others]); return }
+    // One step (Layout > Order > Bring Forward / Send Backward): each
+    // selected object swaps with the next unselected one in that
+    // direction, so a multi-selection keeps its relative order.
+    const moved = [...objects]
+    if (side === 'forward') { for (let i = moved.length - 2; i >= 0; i--) if (ids.includes(moved[i].id) && !ids.includes(moved[i + 1].id)) { const tmp = moved[i]; moved[i] = moved[i + 1]; moved[i + 1] = tmp } }
+    else { for (let i = 1; i < moved.length; i++) if (ids.includes(moved[i].id) && !ids.includes(moved[i - 1].id)) { const tmp = moved[i]; moved[i] = moved[i - 1]; moved[i - 1] = tmp } }
+    get().setStageObjects(moved)
   },
 
   removeFixture: (id) =>

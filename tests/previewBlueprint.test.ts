@@ -47,13 +47,19 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
     // No inset frame: the stage has no padding (neither the .stage CSS
     // rule nor the component's p-2), so the grid fills the whole panel
     // in edit mode and the blank window fills it in preview mode. The
-    // Preview label and zoom cluster are absolute overlays, not a frame.
+    // canvas carries no floating controls at all any more (Jake,
+    // 26 Nov 2026): no Preview label, no zoom cluster, no Highlight
+    // button — zoom lives in the View menu, on its shortcuts and on the
+    // scroll wheel, Highlight in the header toolbar.
     const css = readFileSync('src/renderer/src/index.css', 'utf8')
     expect(previewSource).toContain('className="panel stage min-h-0 overflow-hidden relative bg-bg"')
     expect(previewSource).not.toContain('bg-bg p-2')
     expect(css).not.toMatch(/\.stage \{[^}]*padding/)
-    expect(previewSource).toContain('>Preview</span>')
-    expect(previewSource).toContain('Zoom out preview')
+    expect(previewSource).not.toContain('>Preview</span>')
+    expect(previewSource).not.toContain('Zoom out preview')
+    expect(previewSource).not.toContain('Toggle highlight mode')
+    expect(previewSource).toContain("window.addEventListener('openlights-preview-zoom'")
+    expect(readFileSync('src/renderer/src/components/WorkspaceToolbar.tsx', 'utf8')).toContain('Highlight mode')
     // The blank-drag hit rect stays exactly the viewBox — only the
     // grid paint extends — so pan/marquee behaviour is unchanged.
     expect(previewSource).toContain('<rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="transparent"')
@@ -90,43 +96,54 @@ describe('blueprint scrollable canvas (LightKey Guide p.53, Jake 19 Nov 2026)', 
   })
 
   it('keeps the canvas clean: edit tools live in the side panel', () => {
-    // Nothing editing-related overlays the canvas any more — only the
-    // Preview label and the zoom cluster remain on it.
+    // Nothing editing-related overlays the canvas any more — no Preview
+    // label, no zoom cluster, no Highlight button (Jake, 26 Nov 2026).
     expect(previewSource).not.toContain('+ Add truss')
     expect(previewSource).not.toContain('Align / distribute')
     expect(previewSource).not.toContain('Truss properties')
     expect(previewSource).not.toContain('Fixture storage')
     expect(previewSource).not.toContain('StageObjectTools')
-    expect(previewSource).toContain('>Preview</span>')
-    expect(previewSource).toContain('Zoom out preview')
+    expect(previewSource).not.toContain('>Preview</span>')
+    expect(previewSource).not.toContain('Zoom out preview')
     // The side panel becomes the Inspector in Preview edit mode,
     // in either tab (Jake, 24 Nov 2026).
     expect(appSource).toContain("{previewEditing ? <PreviewEditPanel />")
     expect(appSource).toContain("aria-label={previewEditing ? 'Preview inspector' : 'Preset palette sidebar'}")
-    // The panel holds the shape tools, layout tools, truss/fixture
-    // properties and the storage tray.
+    // The panel holds the shape tools and the truss/fixture properties.
+    // The Layout section is gone — Select All and Align / Distribute
+    // live in the native menus now, trusses are shape tools, and Fixture
+    // Storage sits below the Preview (Guide p.70).
     expect(panelSource).toContain('StageObjectTools')
-    expect(panelSource).toContain('variant="panel"')
-    expect(panelSource).toContain('+ Add truss')
-    expect(panelSource).toContain('Select all')
-    expect(panelSource).toContain('Align / distribute')
+    expect(panelSource).toContain('Beam Direction…')
+    expect(panelSource).toContain('Beam Color…')
+    expect(panelSource).toContain('Fixture Options…')
+    expect(panelSource).not.toContain('+ Add truss')
+    expect(panelSource).not.toContain('Select all')
+    expect(panelSource).not.toContain('Align / distribute')
+    expect(panelSource).not.toContain('Fixture properties')
+    expect(panelSource).not.toContain('Beam angle 0')
+    expect(panelSource).not.toContain('Name position')
+    expect(panelSource).not.toContain('Icon size 20')
     expect(panelSource).toContain('Truss properties')
-    expect(panelSource).toContain('Fixture properties')
-    expect(panelSource).toContain('Fixture storage')
-    // No manual beam-colour override (Jake, 19 Nov 2026): the inline
-    // "Beam colour" input, the "Auto beam" reset and the "Beam Color…"
-    // dialog are gone — the beam is always the fixture's live colour.
-    expect(panelSource).not.toContain('Beam colour')
-    expect(panelSource).not.toContain('Auto beam')
-    expect(panelSource).not.toContain('Beam Color')
-    expect(panelSource).not.toContain('BeamColorDialog')
+    expect(panelSource).toContain('FixtureStorageTray')
+    expect(appSource).toContain('<FixtureStorageTray />')
     expect(panelSource).toContain('id="fixture-storage-tray"')
-    // Align is dispatched to the canvas (it needs the live fixture
-    // positions); the canvas listens for it.
-    expect(panelSource).toContain("openlights-preview-align")
+    // Beam Color… is back, gated on fixture type (Jake, 26 Nov 2026):
+    // the 19 Nov removal took out the manual input that wrote the
+    // override for every fixture; the guide's version only applies to
+    // fixtures with a fixed colour and no DMX colour control.
+    expect(panelSource).toContain('Beam Color')
+    expect(panelSource).toContain('BeamColorDialog')
+    expect(readFileSync('src/renderer/src/lib/previewOutput.ts', 'utf8')).toContain('fixtureHasDmxColourControl')
+    // Align is dispatched from the Layout menu (it needs the live
+    // fixture positions); the canvas listens for it.
+    expect(appSource).toContain("openlights-preview-align")
     expect(previewSource).toContain("window.addEventListener('openlights-preview-align', handler)")
-    // The shape tools support both placements.
-    expect(objectsSource).toContain("variant?: 'overlay' | 'panel'")
+    // The shape tools are LightKey's tabbed Shapes / Images grid, with
+    // the truss types as drawing tools.
+    expect(objectsSource).toContain('role="tablist"')
+    expect(objectsSource).toContain('curved-truss')
+    expect(objectsSource).toContain('circular-truss')
   })
 
   it('holds preview selection in the store, session-only like previewEditing', () => {

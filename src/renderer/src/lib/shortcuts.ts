@@ -43,6 +43,15 @@ export const SHORTCUTS: ShortcutBinding[] = [
   { key: 'Ctrl+Shift+Alt+P', label: 'Beam Direction…', command: 'beamDirection', code: 'p', ctrl: true, shift: true, alt: true },
   // Group (Guide p.35): Layout > Group, Control-click → Group — Command-Option-G on Mac (ctrl matches Cmd there).
   { key: 'Ctrl+Alt+G', label: 'Group', command: 'group', code: 'g', ctrl: true, alt: true },
+  // Select All / Deselect All (Guide pp.53, 72: Edit > Select All,
+  // Cmd-A; Deselect All, Cmd-Shift-A). matchShortcut skips text fields,
+  // so Cmd-A still selects text while typing.
+  { key: 'Ctrl+A', label: 'Select all', command: 'selectAll', code: 'a', ctrl: true },
+  { key: 'Ctrl+Shift+A', label: 'Deselect all', command: 'deselectAll', code: 'a', ctrl: true, shift: true },
+  // Beam Color… (Guide p.61) and Fixture Options… (Guide p.62):
+  // Cmd-Shift-Option-C / -F on Mac (ctrl matches Cmd there).
+  { key: 'Ctrl+Shift+Alt+C', label: 'Beam Color…', command: 'beamColor', code: 'c', ctrl: true, shift: true, alt: true },
+  { key: 'Ctrl+Shift+Alt+F', label: 'Fixture Options…', command: 'fixtureOptions', code: 'f', ctrl: true, shift: true, alt: true },
   { key: 'F11', label: 'Full screen', command: 'fullscreen', code: 'f11' },
   { key: 'B', label: 'Blackout', command: 'blackout', code: 'b' },
   { key: 'Space', label: 'Go / play automation', command: 'go', code: ' ' },
