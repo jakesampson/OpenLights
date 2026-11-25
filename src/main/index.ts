@@ -64,16 +64,15 @@ function shutdownNdi() {
   const worker = ndiWorker
   ndiWorker = null
   ndiWorkerReady = null
+  // Kill the worker immediately on quit rather than posting 'shutdown'
+  // and waiting for it to exit. The worker's native NDI cleanup
+  // (grandi.destroy()) can hang, and a surviving child process keeps the
+  // macOS Dock icon alive even after the main process exits — the user
+  // then has to Force Quit. None of the worker's state matters when the
+  // app is going away, so there is nothing to preserve by being gentle.
   try {
-    worker.postMessage({ type: 'shutdown' })
+    worker.kill()
   } catch { /* Already gone. */ }
-  // Best-effort, like shutdownDmx: give the worker a moment to exit
-  // cleanly, then kill it — Electron exits regardless once quit proceeds.
-  setTimeout(() => {
-    try {
-      worker.kill()
-    } catch { /* Already gone. */ }
-  }, 1000).unref()
 }
 
 function ensureNdiWorker(): UtilityProcess {
@@ -556,6 +555,19 @@ app.whenReady().then(async () => {
 // app is re-activated while running.
 app.on('window-all-closed', () => {
   app.quit()
+})
+
+// Last line of defence for the macOS quit hang: if a native handle (a
+// wedged DMX serial port, or a child process that ignored its kill) still
+// keeps the main process alive after the normal quit sequence, force the
+// process down. The timer is deliberately ref'd (no .unref()) so it fires
+// even when nothing else is keeping the event loop alive. In a healthy
+// quit the process exits before it fires and the timer disappears with it.
+// (Jake, 25 Nov 2026 — quit-fix branch.)
+app.on('will-quit', () => {
+  setTimeout(() => {
+    app.exit(0)
+  }, 2000)
 })
 
 // Quit notes (Jake, 24 Nov 2026 — Mac quit hang): app.quit() runs the

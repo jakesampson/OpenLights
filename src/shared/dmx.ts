@@ -174,9 +174,22 @@ export class DMXEngine {
     if (this.port) {
       const port = this.port
       this.port = null
-      await new Promise<void>((resolve) => {
-        port.close(() => resolve())
-      })
+      // Bound the close: a wedged USB device can leave the close callback
+      // pending forever, and the native serial handle then keeps the main
+      // process alive after app.quit() — the macOS Dock hang. Give the
+      // graceful close a short window, then force-destroy the handle if it
+      // is still open; either way this method always resolves.
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          port.close(() => resolve())
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 500))
+      ])
+      if (port.isOpen) {
+        try {
+          port.destroy()
+        } catch { /* Best effort — the failsafe timer in main handles the rest. */ }
+      }
     }
     this.emitStatus()
   }
