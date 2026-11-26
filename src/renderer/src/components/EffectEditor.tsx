@@ -1824,7 +1824,11 @@ function curvePointToSvg(point: CurveControlPoint): { x: number; y: number } {
 }
 
 function svgToCurvePoint(clientX: number, clientY: number, rect: DOMRect): CurveControlPoint {
-  const x = Math.max(0, Math.min(1, ((clientX - rect.left) / rect.width) * CURVE_WIDTH - CURVE_PAD) / (CURVE_WIDTH - CURVE_PAD * 2))
+  // The division by the inner width must happen BEFORE clamping to 0..1:
+  // clamping the raw SVG-pixel value first collapsed every x to 1/616
+  // (≈0%), so added and dragged points always landed at the left edge
+  // (Jake, 26 Nov 2026). The y line below already had the right order.
+  const x = Math.max(0, Math.min(1, (((clientX - rect.left) / rect.width) * CURVE_WIDTH - CURVE_PAD) / (CURVE_WIDTH - CURVE_PAD * 2)))
   const y = Math.max(0, Math.min(1, 1 - (((clientY - rect.top) / rect.height) * CURVE_HEIGHT - CURVE_PAD) / (CURVE_HEIGHT - CURVE_PAD * 2)))
   return { id: '', x, y }
 }
