@@ -90,16 +90,20 @@ describe('DesignTab — every control carries its own fan affordance', () => {
     expect(design).toContain('deleteFan(fan.id, true)')
   })
 
-  it('reads the fanned state from the active cue’s fans', () => {
-    expect(design).toContain("const fans = activeCue?.fans ?? []")
+  it('reads the fanned state from the session fans, then the cue’s', () => {
+    // A fan lives in the session's manual fans — unless a cue's ad-hoc
+    // layer is being edited, when it lives on that cue (Jake, 26 Nov
+    // 2026: fanned values are clearable overrides, not cue values).
+    expect(design).toContain("const fans = [...manualFans, ...(activeCue?.fans ?? []).filter((f) => !manualFans.some((m) => m.id === f.id))]")
     expect(design).toContain("const fanFor = (attribute: string) => fans.find((f) => f.attribute === attribute && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))")
   })
 })
 
 describe('StagePreview — the HUD opens for the picked property, editing an existing fan', () => {
   it('reopens a saved fan for editing instead of starting a new draft', () => {
-    // Guide p.122: "Click the icon in the Design view" to edit.
-    expect(preview).toContain("const existing = activeCue?.fans?.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))")
+    // Guide p.122: "Click the icon in the Design view" to edit. The
+    // lookup checks the session's manual fans first, then the cue's.
+    expect(preview).toContain("const existing = state.manualFans.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))")
     expect(preview).toContain('if (existing) { setFanDraft(structuredClone(existing)); return }')
   })
 

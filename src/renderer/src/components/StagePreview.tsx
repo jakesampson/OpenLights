@@ -73,7 +73,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -118,12 +118,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     const channels = fannableProperties(selected)
     const wanted = attribute && channels.some((c) => c.attribute === attribute) ? attribute : undefined
     const chosen = wanted ?? (channels.some((c) => c.attribute === 'intensity') ? 'intensity' : channels[0]?.attribute ?? 'intensity')
-    // A property that is already fanned on the active cue reopens its fan
-    // for editing (Guide p.122: "Click the icon in the Design view") —
-    // the Design panel's fanned-property icon dispatches this same event.
+    // A property that is already fanned reopens its fan for editing
+    // (Guide p.122: "Click the icon in the Design view") — the Design
+    // panel's fanned-property icon dispatches this same event. The fan
+    // lives in the session's manual fans, or on the cue being edited
+    // ad-hoc.
     const state = useShowStore.getState()
     const activeCue = state.cues.find((c) => c.id === state.activeCueId)
-    const existing = activeCue?.fans?.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+    const existing = state.manualFans.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+      ?? activeCue?.fans?.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
     if (existing) { setFanDraft(structuredClone(existing)); return }
     // Beams selected in the Preview fan across themselves (Guide p.119):
     // the new draft's targets are those beams, not the whole fixtures.
@@ -162,16 +165,19 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     return () => window.removeEventListener('openlights-open-fan-hud', handler)
   }, [designMode, locked, show, selectedFixtureIds])
   const commitFan = (next: FanDef) => {
-    // saveFan is a no-op with no active cue, so make sure one exists and
-    // is active first — ensureActiveCue creates AND activates in one
-    // update. The old two-step addCue() + activateCue() repeated the
-    // pre-98cd019 orphan bug: addCue does not activate, so a second
-    // writer could mint another cue before the activation landed.
+    // A Design fan writes into the manual overrides, never into a cue
+    // (Guide ch.8, p.122: fanned properties appear in Overrides) — so
+    // no cue is minted here; saveFan decides where the fan lives.
+    // isNew is what creates the second fan of a Pan + Tilt pair, so it
+    // must look in both places a fan can live — the session's manual
+    // fans and the cue being edited ad-hoc — or every re-edit would
+    // mint a duplicate second fan.
     const committed = { ...next, id: next.id || crypto.randomUUID() }
     setFanDraft(committed)
-    useShowStore.getState().ensureActiveCue()
-    const isNew = !useShowStore.getState().cues.find((c) => c.id === useShowStore.getState().activeCueId)?.fans?.some((f) => f.id === committed.id)
-    useShowStore.getState().saveFan(committed)
+    const state = useShowStore.getState()
+    const isNew = !state.manualFans.some((f) => f.id === committed.id)
+      && !state.cues.find((c) => c.id === state.activeCueId)?.fans?.some((f) => f.id === committed.id)
+    state.saveFan(committed)
     const pending = pendingAlsoFan.current
     if (isNew && pending) {
       pendingAlsoFan.current = null
@@ -370,6 +376,10 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
   const cues: CueDef[] = show?.cues ?? []
   const activeCue = activeCueId ? cues.find((s) => s.id === activeCueId) : null
+  // The HUD lists every saved fan: the session's manual fans first,
+  // then the fans on the cue being edited ad-hoc — a fan id lives in
+  // exactly one place, so the two lists never overlap.
+  const savedFans = [...manualFans, ...(activeCue?.fans ?? []).filter((f) => !manualFans.some((m) => m.id === f.id))]
   // The cue's resolved look (Piece 8) for the preview's dimmer-fixture
   // colours; memoised so the fixture views only recompute when the cue
   // or a preset it references changes.
@@ -592,7 +602,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           and zoom/fit live in the View menu, on their keyboard shortcuts
           and on the scroll wheel. The edit tools live in the side-panel
           Inspector (Guide p.53) in edit mode. */}
-      {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={activeCue?.fans ?? []} selectedCount={selectedFixtureIds.length} hasActiveCue={Boolean(activeCue)} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => { setFanDraft(null); pendingAlsoFan.current = null }} />}
+      {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={savedFans} selectedCount={selectedFixtureIds.length} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => { setFanDraft(null); pendingAlsoFan.current = null }} />}
       {calibrationFixtureIds && <CalibrationDialog fixtureIds={calibrationFixtureIds} onClose={() => setCalibrationFixtureIds(null)} />}
       <svg
         ref={svgRef}

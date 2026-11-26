@@ -112,6 +112,13 @@ interface ShowState {
   selectedPageObjects: PageObjectRef[]
   pageClipboard: PageClipboard | null
   manualOverrides: Record<string, Record<string, number>>
+  /** Fanned values saved in Design without a cue being edited ad-hoc
+   * live here, beside the overrides they ride on (Guide ch.8, p.122:
+   * fanned properties appear in Overrides) — session-only, never
+   * persisted, so a fan stays re-editable from the Design panel without
+   * minting a cue. A fan id lives in exactly one place: here, or on
+   * the cue being edited ad-hoc (its `fans`). */
+  manualFans: FanDef[]
   /** The OFL library as the main process last reported it (Jake,
    *  20 Nov 2026, image-18): the migration needs it to heal stale OFL
    *  fixture snapshots, and migrateShow cannot see the main process on
@@ -605,6 +612,45 @@ function mergeManualOverrides(current: Record<string, Record<string, number>>, p
   const next = { ...current }
   for (const [fixtureId, values] of Object.entries(patch)) next[fixtureId] = { ...next[fixtureId], ...values }
   return next
+}
+
+/** Remove exactly the keys a fan's evaluation wrote, from a
+ * fixture-values map (a cue's fixtureValues or the manual overrides).
+ * The evaluated keys — not the fan's attribute name — so a beam fan
+ * (whose keys are the beams' own properties) and a colour fan (whose
+ * values land as red/green/blue, or cyan/magenta/yellow on a CMY
+ * fixture) scrub precisely what was written. Empty fixture entries
+ * are kept, as deleteFan always has. */
+function scrubFanValues(
+  fixtureValues: Record<string, Record<string, number>>,
+  values: Record<string, Record<string, number>>
+): Record<string, Record<string, number>> {
+  const next = structuredClone(fixtureValues)
+  for (const [fixtureId, patch] of Object.entries(values)) {
+    if (!next[fixtureId]) continue
+    for (const attr of Object.keys(patch)) delete next[fixtureId][attr]
+  }
+  return next
+}
+
+/** Drop session fans whose values no longer exist in the overrides:
+ * clearing a fanned property (brush, per-fixture ✕, Clear all)
+ * removes the fan with it (Guide p.123: delete fanning and clear
+ * the property) — otherwise a fan with no values would sit in the
+ * Design panel and re-create them on its next commit. A fan
+ * survives while any of its fixtures still holds one of its
+ * evaluated attributes. */
+function pruneManualFans(
+  manualOverrides: Record<string, Record<string, number>>,
+  manualFans: FanDef[],
+  fixtures: FixtureDef[]
+): FanDef[] {
+  if (!manualFans.length) return manualFans
+  return manualFans.filter((fan) => {
+    const values = evaluateFan(fixtures, fan)
+    return Object.entries(values).some(([fixtureId, patch]) =>
+      Object.keys(patch).some((attr) => manualOverrides[fixtureId]?.[attr] !== undefined))
+  })
 }
 
 /** Merge the current overrides into an ad-hoc layer (a cue's
@@ -1174,6 +1220,7 @@ const actions: ShowState = {
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
+  manualFans: [],
   oflProfiles: [],
   oflHealRevision: 0,
   automations: defaultShow.automations,
@@ -1262,6 +1309,7 @@ const actions: ShowState = {
       selectedPageObjects: [],
       pageClipboard: null,
       manualOverrides: {},
+      manualFans: [],
       editingCueAdHocId: null,
       showOverrideLabels: false,
       previewPresetId: null,
@@ -1518,8 +1566,11 @@ const actions: ShowState = {
   // the brush clears overridden fixture properties only). The base
   // is re-sent by the App effect, which runs on every
   // manualOverrides change, so no refresh is needed here.
-  clearManualOverrides: () => set({ manualOverrides: {} }),
-  releaseManualOverrides: (fixtureIds, property) => set((state) => ({ manualOverrides: releaseOverrides(state.manualOverrides, fixtureIds, property) })),
+  clearManualOverrides: () => set({ manualOverrides: {}, manualFans: [] }),
+  releaseManualOverrides: (fixtureIds, property) => set((state) => {
+    const manualOverrides = releaseOverrides(state.manualOverrides, fixtureIds, property)
+    return { manualOverrides, manualFans: pruneManualFans(manualOverrides, state.manualFans, state.show?.fixtures ?? []) }
+  }),
   copyFixtureProperties: (property) => {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
@@ -1546,24 +1597,57 @@ const actions: ShowState = {
     get().updateCue(cue.id, { fixtureValues })
   },
   saveFan: (fan) => {
-    if (!get().activeCueId) get().ensureActiveCue()
-    const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId)
-    if (!cue || !state.show) return
+    const state = get()
+    if (!state.show) return
+    const values = evaluateFan(state.show.fixtures, fan)
+    // A Design fan defines the property for the fixture (Guide ch.8,
+    // p.80) — like every other Design write it lands in the manual
+    // overrides, never in a cue, so no cue is minted for a fan (Jake,
+    // 26 Nov 2026: fanned values were invisible to the Overrides
+    // brush). The fan definition lives in the session-only manualFans
+    // list, so it stays re-editable from the Design panel. Only when
+    // a cue's ad-hoc layer is being edited does the fan belong to
+    // that cue. A fan id lives in exactly one place: committing a fan
+    // whose id lives in the other place MOVES it, with its values, so
+    // clearing the overrides later cannot resurrect the cue's copy
+    // (or the other way round).
+    if (!state.editingCueAdHocId) {
+      const cue = state.cues.find((s) => (s.fans ?? []).some((f) => f.id === fan.id))
+      if (cue) get().updateCue(cue.id, { fans: (cue.fans ?? []).filter((f) => f.id !== fan.id), fixtureValues: scrubFanValues(cue.fixtureValues, values) })
+      const next = get()
+      set({ manualOverrides: mergeManualOverrides(next.manualOverrides, values), manualFans: [...next.manualFans.filter((f) => f.id !== fan.id), structuredClone(fan)] })
+      return
+    }
+    const cue = state.cues.find((s) => s.id === state.activeCueId)
+    if (!cue) return
+    const manualFans = state.manualFans.filter((f) => f.id !== fan.id)
+    const manualOverrides = manualFans.length === state.manualFans.length
+      ? state.manualOverrides
+      : Object.fromEntries(Object.entries(scrubFanValues(state.manualOverrides, values)).filter(([, patch]) => Object.keys(patch).length))
+    if (manualFans.length !== state.manualFans.length) set({ manualFans, manualOverrides })
     const fixtureValues = structuredClone(cue.fixtureValues)
-    for (const [id, values] of Object.entries(evaluateFan(state.show.fixtures, fan))) fixtureValues[id] = { ...fixtureValues[id], ...values }
+    for (const [id, patch] of Object.entries(values)) fixtureValues[id] = { ...fixtureValues[id], ...patch }
     get().updateCue(cue.id, { fixtureValues, fans: [...(cue.fans ?? []).filter((f) => f.id !== fan.id), structuredClone(fan)] })
   },
   deleteFan: (id, keepValues) => {
-    const state = get(), cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
-    if (!cue || !fan) return
-    const fixtureValues = structuredClone(cue.fixtureValues)
-    // A colour fan stores no 'color' key in the fixture values — its
-    // values land as red/green/blue (or cyan/magenta/yellow) — so
-    // clearing it removes those channels instead.
-    if (!keepValues) for (const fixtureId of fan.fixtureIds) if (fixtureValues[fixtureId]) {
-      if (fan.attribute === 'color') for (const attr of ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow']) delete fixtureValues[fixtureId][attr]
-      else delete fixtureValues[fixtureId][fan.attribute]
+    const state = get()
+    if (!state.show) return
+    // A session fan: drop it from the manual fans; unless its values
+    // are kept, release exactly the keys it wrote from the overrides
+    // (Guide p.123) — empty fixture entries are dropped, or the
+    // Overrides brush would show with nothing to clear — and prune
+    // any other fan left valueless by that.
+    const manualFan = state.manualFans.find((f) => f.id === id)
+    if (manualFan) {
+      if (keepValues) { set({ manualFans: state.manualFans.filter((f) => f.id !== id) }); return }
+      const scrubbed = scrubFanValues(state.manualOverrides, evaluateFan(state.show.fixtures, manualFan))
+      const manualOverrides = Object.fromEntries(Object.entries(scrubbed).filter(([, patch]) => Object.keys(patch).length))
+      set({ manualOverrides, manualFans: pruneManualFans(manualOverrides, state.manualFans.filter((f) => f.id !== id), state.show.fixtures) })
+      return
     }
+    const cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
+    if (!cue || !fan) return
+    const fixtureValues = keepValues ? cue.fixtureValues : scrubFanValues(cue.fixtureValues, evaluateFan(state.show.fixtures, fan))
     get().updateCue(cue.id, { fans: cue.fans?.filter((f) => f.id !== id), fixtureValues })
   },
   setSelectedColor: (color, manual = false) => {

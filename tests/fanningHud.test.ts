@@ -49,10 +49,40 @@ it('orders right-to-left and bottom-to-top, with spacing', () => {
   expect(evaluateFan(show.fixtures, { ...baseFan, order: 'bottom-top', considerSpacing: true })).toEqual({ b: { intensity: 0 }, c: { intensity: 150 }, a: { intensity: 200 } })
 })
 
-it('creates, edits and deletes a fan through the HUD commit path with values landing on the fixtures', () => {
+it('creates, edits and deletes a fan through the HUD commit path with values landing in the overrides', () => {
+  // Jake, 26 Nov 2026: a plain Design fan is a clearable override, not
+  // a cue — the HUD commit writes it into the manual overrides.
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
   s().activateCue('s')
+  // Create: the HUD opens a default fan over the selection and commits it.
+  const created = { ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-1' }
+  s().saveFan(created)
+  expect(s().manualFans).toEqual([created])
+  expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
+  expect(s().cues[0].fans).toEqual([])
+  // Edit the last row (endpoint) — the values move with it.
+  s().saveFan(setFanRowValue(created, 2, 100))
+  expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 50 }, c: { intensity: 100 } })
+  // Edit a middle row — an anchor bends the fan through that fixture.
+  const anchored = setFanRowValue({ ...created, end: 100 }, 1, 90)
+  s().saveFan(anchored)
+  expect(s().manualOverrides.b.intensity).toBe(90)
+  expect(s().manualFans).toEqual([anchored])
+  // Delete and keep values, then delete and clear (Guide p.122–123).
+  s().deleteFan('hud-1', true)
+  expect(s().manualFans).toEqual([])
+  expect(s().manualOverrides.b.intensity).toBe(90)
+  s().saveFan(anchored)
+  s().deleteFan('hud-1', false)
+  expect(s().manualOverrides.b).toBeUndefined()
+  expect(s().manualOverrides.a).toBeUndefined()
+})
+
+it('creates, edits and deletes a fan through the HUD commit path on the cue being edited ad-hoc', () => {
+  const s = () => useShowStore.getState()
+  s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  s().startEditingCueAdHoc('s')
   // Create: the HUD opens a default fan over the selection and commits it.
   const created = { ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-1' }
   s().saveFan(created)
@@ -76,17 +106,19 @@ it('creates, edits and deletes a fan through the HUD commit path with values lan
   expect(s().cues[0].fixtureValues.a.intensity).toBeUndefined()
 })
 
-it('starts a cue when the HUD commits with no active cue, then the fan lands', () => {
+it('mints no cue when the HUD commits with no active cue — the fan lands in the overrides', () => {
+  // Jake, 26 Nov 2026: fanning in Design used to mint a cue ("Cue 1",
+  // "Cue 4"…) as a side effect. A plain Design fan is a clearable
+  // override — no cue is created, and the fan stays re-editable from
+  // the Design panel.
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({ fixtures: dimmers, cues: [] }))
   expect(s().activeCueId).toBeNull()
-  // The commit path the HUD uses: addCue does not activate on its own.
-  s().addCue()
-  expect(s().activeCueId).toBeNull()
-  const created = s().cues[s().cues.length - 1]
-  s().activateCue(created.id)
   s().saveFan({ ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-2' })
-  expect(s().cues[0].fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
+  expect(s().cues).toHaveLength(0)
+  expect(s().activeCueId).toBeNull()
+  expect(s().manualFans).toHaveLength(1)
+  expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
 })
 
 it('offers a synthetic Color property for colour fixtures, and none for dimmers', () => {

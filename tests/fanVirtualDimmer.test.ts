@@ -81,7 +81,11 @@ describe('virtual-dimmer fanning', () => {
     })
   })
 
-  it('saving a dimmer fan on Q12BTs mints a lit cue', () => {
+  it('saving a dimmer fan on Q12BTs lights them as overrides, minting no cue', () => {
+    // Jake, 26 Nov 2026: a plain Design fan is a clearable override,
+    // not a cue — the fanned intensity rides the overrides layer and
+    // lights the Q12BTs (default blue at the fanned dimmer) exactly
+    // as the old minted cue did, without creating one.
     const store = useShowStore.getState()
     store.setShow(makeShow())
     store.saveFan({
@@ -89,18 +93,18 @@ describe('virtual-dimmer fanning', () => {
       mode: 'linear', order: 'selection', start: 0, end: 255,
     })
     const state = useShowStore.getState()
-    expect(state.cues).toHaveLength(1)
-    expect(state.cues[0].name).toBe('Cue 1')
-    // The new cue starts from the current look (default blue, dimmer 0)
-    // and the fan writes its intensity on top of that.
-    expect(state.cues[0].fixtureValues).toEqual({
-      q1: { intensity: 0, red: 0, green: 0, blue: 255, amber: 0 },
-      q2: { intensity: 128, red: 0, green: 0, blue: 255, amber: 0 },
-      q3: { intensity: 255, red: 0, green: 0, blue: 255, amber: 0 },
+    expect(state.cues).toHaveLength(0)
+    expect(state.activeCueId).toBeNull()
+    expect(state.manualFans).toHaveLength(1)
+    expect(state.manualOverrides).toEqual({
+      q1: { intensity: 0 },
+      q2: { intensity: 128 },
+      q3: { intensity: 255 },
     })
-    expect(state.activeCueId).toBe(state.cues[0].id)
-    // Land the fade the save starts: the middle and last fixtures light
-    // (default blue at the fanned dimmer), the first stays dark.
+    // Land the base look the overrides ride on: the middle and last
+    // fixtures light (default blue at the fanned dimmer), the first
+    // stays dark.
+    store.refreshBaseOutput()
     step(performance.now() + 2000)
     expect(engine.getChannel(3)).toBe(0)
     expect(engine.getChannel(7)).toBe(128)

@@ -78,7 +78,6 @@ interface FanningHudProps {
   fixtures: FixtureDef[]
   fans: FanDef[]
   selectedCount: number
-  hasActiveCue: boolean
   onCommit: (next: FanDef) => void
   onEditFan: (fan: FanDef) => void
   onNewFan: () => void
@@ -96,7 +95,7 @@ interface FanningHudProps {
 // fan's endpoints (start/end) and any row in between sets an intermediate
 // anchor the fan interpolates through (Guide p.121). Blue dots mark the
 // fixtures with a defined value, on the rows and on the canvas icons.
-export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue, onCommit, onEditFan, onNewFan, onDeleteFan, onClose }: FanningHudProps) {
+export function FanningHud({ draft, fixtures, fans, selectedCount, onCommit, onEditFan, onNewFan, onDeleteFan, onClose }: FanningHudProps) {
   const isCreating = draft.id === ''
   const draftFixtures = fixtures.filter((f) => draft.fixtureIds.includes(f.id))
   const channels = fannableProperties(draftFixtures)
@@ -119,10 +118,9 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
       </div>
       <p className="mt-1 text-[10px] text-dim">
         {isCreating ? `New fan across ${draft.beams ? `${draft.beams.length} beam${draft.beams.length === 1 ? '' : 's'}` : `${draft.fixtureIds.length} selected fixture${draft.fixtureIds.length === 1 ? '' : 's'}`}` : `Editing fan across ${draft.beams ? `${draft.beams.length} beam${draft.beams.length === 1 ? '' : 's'}` : `${draft.fixtureIds.length} fixture${draft.fixtureIds.length === 1 ? '' : 's'}`}`}
-        {!hasActiveCue && ' — saving starts a new cue'}
       </p>
       {isCreating && !canCreate && (
-        <p className="mt-2 rounded bg-panel2 p-2 text-[11px] text-text">Select at least three fixtures — or one fixture with at least three beams — to fan a property (Guide §8, p.119). Fans already saved on the active cue can still be edited below.</p>
+        <p className="mt-2 rounded bg-panel2 p-2 text-[11px] text-text">Select at least three fixtures — or one fixture with at least three beams — to fan a property (Guide §8, p.119). Fans already saved can still be edited below.</p>
       )}
       {channels.length === 0 ? (
         <p className="mt-2 text-[11px] text-dim">No fannable properties on these fixtures.</p>
@@ -204,7 +202,7 @@ export function FanningHud({ draft, fixtures, fans, selectedCount, hasActiveCue,
       {fans.length > 0 && (
         <div className="mt-3 border-t border-line pt-2">
           <div className="flex items-center justify-between">
-            <span className="text-[10px] font-semibold uppercase tracking-wide text-dim">Saved fans on this cue</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wide text-dim">Saved fans</span>
             {!isCreating && <button type="button" onClick={onNewFan} className="text-[11px] text-text underline">+ New fan</button>}
           </div>
           {fans.map((fan) => (

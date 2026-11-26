@@ -167,6 +167,7 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
     editingPresetId,
     editingCueAdHocId,
     manualOverrides,
+    manualFans,
     updateEditingPresetValues,
     deleteFan,
     effects,
@@ -632,11 +633,12 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // Per-property fanning (LightKey Guide §8, p.118–123): each property's
   // own control carries the entry point — the property name's menu,
   // "Add (property name) Fanning…" — and when a property is fanned its
-  // area shows an icon instead of the normal controls. Fans live on the
-  // active cue; fanning is hidden while editing a preset (fans are
-  // cue-level). With beams selected the fan opens across those beams
-  // (Guide p.119) — see StagePreview openFanHud.
-  const fans = activeCue?.fans ?? []
+  // area shows an icon instead of the normal controls. A fan lives in
+  // the session's manual fans — unless a cue's ad-hoc layer is being
+  // edited, when it lives on that cue. Fanning is hidden while editing
+  // a preset (fans are cue-level). With beams selected the fan opens
+  // across those beams (Guide p.119) — see StagePreview openFanHud.
+  const fans = [...manualFans, ...(activeCue?.fans ?? []).filter((f) => !manualFans.some((m) => m.id === f.id))]
   const fanFor = (attribute: string) => fans.find((f) => f.attribute === attribute && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
   const deleteFanKeep = (fan: FanDef | undefined) => { if (fan) deleteFan(fan.id, true) }
   const showFanButtons = !editingPreset
