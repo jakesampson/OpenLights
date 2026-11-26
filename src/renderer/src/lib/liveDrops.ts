@@ -9,15 +9,20 @@ export const LEGACY_PRESET_MIME = 'application/x-openlights-preset'
 
 const snap = (value: number) => Math.max(0, Math.round(value / 10) * 10)
 
-/** What is being dragged: any mix of presets and sequences, or the NDI
- *  Ambience entry (Jake, 23 Nov 2026) — a standalone Live button with no
- *  presets or sequences attached. */
+/** What is being dragged: any mix of presets, sequences and effects, or
+ *  the NDI Ambience entry (Jake, 23 Nov 2026) — a standalone Live button
+ *  with no presets or sequences attached. Effects land on the Live panel
+ *  as buttons too (Jake, 26 Nov 2026 — proven in LightKey by his own
+ *  test: dragging a colour effect onto the Live window creates a button
+ *  that runs the effect while it is active). */
 export interface LiveDropPayload {
   presetIds: string[]
   sequenceIds: string[]
+  effectIds: string[]
   /** Names used only to derive a sensible cue label. */
   presetNames?: Record<string, string>
   sequenceNames?: Record<string, string>
+  effectNames?: Record<string, string>
   ndiAmbience?: boolean
 }
 
@@ -33,7 +38,7 @@ export type LiveDropTarget =
 
 export interface LiveDropResult { page: LivePage; refs: PageObjectRef[] }
 
-export const emptyDropPayload = (): LiveDropPayload => ({ presetIds: [], sequenceIds: [] })
+export const emptyDropPayload = (): LiveDropPayload => ({ presetIds: [], sequenceIds: [], effectIds: [] })
 
 const uniqueIds = (ids: string[] | undefined): string[] =>
   [...new Set((ids ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0))]
@@ -44,6 +49,7 @@ export function normalizeDropPayload(payload: LiveDropPayload): LiveDropPayload 
     ...payload,
     presetIds: uniqueIds(payload.presetIds),
     sequenceIds: uniqueIds(payload.sequenceIds),
+    effectIds: uniqueIds(payload.effectIds),
     ndiAmbience: payload.ndiAmbience === true ? true : undefined
   }
 }
@@ -59,6 +65,9 @@ export function decodeLiveDrop(text: string): LiveDropPayload | null {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
     const value = raw as Record<string, unknown>
     if (!Array.isArray(value.presetIds) || !Array.isArray(value.sequenceIds)) return null
+    // effectIds is newer than the first payloads (Jake, 26 Nov 2026):
+    // absent is an old payload, present-but-not-an-array is malformed.
+    if (value.effectIds !== undefined && !Array.isArray(value.effectIds)) return null
     const names = (field: unknown): Record<string, string> | undefined => {
       if (!field || typeof field !== 'object' || Array.isArray(field)) return undefined
       return Object.fromEntries(Object.entries(field as Record<string, unknown>).filter(
@@ -68,8 +77,10 @@ export function decodeLiveDrop(text: string): LiveDropPayload | null {
     return normalizeDropPayload({
       presetIds: value.presetIds as string[],
       sequenceIds: value.sequenceIds as string[],
+      effectIds: (value.effectIds ?? []) as string[],
       presetNames: names(value.presetNames),
       sequenceNames: names(value.sequenceNames),
+      effectNames: names(value.effectNames),
       ndiAmbience: value.ndiAmbience === true ? true : undefined
     })
   } catch {
@@ -79,17 +90,19 @@ export function decodeLiveDrop(text: string): LiveDropPayload | null {
 
 /** A readable label for a new cue built from the dragged items. */
 export function dropLabel(payload: LiveDropPayload): string {
-  const { presetIds, sequenceIds, presetNames, sequenceNames } = normalizeDropPayload(payload)
+  const { presetIds, sequenceIds, effectIds, presetNames, sequenceNames, effectNames } = normalizeDropPayload(payload)
   if (payload.ndiAmbience) return 'NDI Ambience'
-  const total = presetIds.length + sequenceIds.length
+  const total = presetIds.length + sequenceIds.length + effectIds.length
   if (!total) return 'New cue'
   if (total === 1) {
     if (presetIds.length) return presetNames?.[presetIds[0]] || 'Preset'
-    return sequenceNames?.[sequenceIds[0]] || 'Sequence'
+    if (sequenceIds.length) return sequenceNames?.[sequenceIds[0]] || 'Sequence'
+    return effectNames?.[effectIds[0]] || 'Effect'
   }
   const parts: string[] = []
   if (presetIds.length) parts.push(`${presetIds.length} preset${presetIds.length === 1 ? '' : 's'}`)
   if (sequenceIds.length) parts.push(`${sequenceIds.length} sequence${sequenceIds.length === 1 ? '' : 's'}`)
+  if (effectIds.length) parts.push(`${effectIds.length} effect${effectIds.length === 1 ? '' : 's'}`)
   return parts.join(' + ')
 }
 
@@ -126,9 +139,27 @@ export function activeCueSequenceIds(
   return [...ids]
 }
 
+/** Effect ids run by active Live buttons, deduplicated across all pages —
+ *  the same derivation as activeCueSequenceIds, for effects (Jake,
+ *  26 Nov 2026). A button drives its effects while its level is above
+ *  zero, so pressing, flashing, releasing, clearing and page-switching
+ *  all flow through the one place — no per-action flag syncing. */
+export function activeLiveEffectIds(
+  pages: LivePage[] | undefined,
+  active: Record<string, number>
+): string[] {
+  const ids = new Set<string>()
+  for (const page of pages ?? []) for (const cue of page.controls) {
+    if ((active[cue.id] ?? 0) <= 0) continue
+    for (const id of cue.effectIds ?? []) ids.add(id)
+  }
+  return [...ids]
+}
+
 /**
- * Pure drop logic for presets/sequences onto a Live page. The three targets
- * either create a new cue (page/frame) or extend an existing one (cue button).
+ * Pure drop logic for presets/sequences/effects onto a Live page. The
+ * three targets either create a new cue (page/frame) or extend an
+ * existing one (cue button).
  */
 export function applyLiveDrop(
   page: LivePage,
@@ -139,12 +170,16 @@ export function applyLiveDrop(
   split = false
 ): LiveDropResult {
   const clean = normalizeDropPayload(payload)
-  if (!clean.presetIds.length && !clean.sequenceIds.length && !clean.ndiAmbience) return { page, refs: [] }
+  if (!clean.presetIds.length && !clean.sequenceIds.length && !clean.effectIds.length && !clean.ndiAmbience) return { page, refs: [] }
 
   if (target.kind === 'cue') {
     // An ambience button is standalone — it never joins a cue, and
     // dropping it onto one does nothing rather than corrupting it.
     if (clean.ndiAmbience) return { page, refs: [] }
+    // Effects are the same: a cue cannot hold effects (cues still don't
+    // capture running effects), so an effect drop onto a cue button does
+    // nothing — drop it on the page to make a button for it.
+    if (clean.effectIds.length) return { page, refs: [] }
     const cue = page.controls.find((item) => item.id === target.cueId)
     if (!cue) return { page, refs: [] }
     const updated = {
@@ -170,8 +205,9 @@ export function applyLiveDrop(
     ? [clean]
     : split
       ? [
-          ...clean.presetIds.map((id): LiveDropPayload => ({ presetIds: [id], sequenceIds: [], presetNames: clean.presetNames })),
-          ...clean.sequenceIds.map((id): LiveDropPayload => ({ presetIds: [], sequenceIds: [id], sequenceNames: clean.sequenceNames }))
+          ...clean.presetIds.map((id): LiveDropPayload => ({ presetIds: [id], sequenceIds: [], effectIds: [], presetNames: clean.presetNames })),
+          ...clean.sequenceIds.map((id): LiveDropPayload => ({ presetIds: [], sequenceIds: [id], effectIds: [], sequenceNames: clean.sequenceNames })),
+          ...clean.effectIds.map((id): LiveDropPayload => ({ presetIds: [], sequenceIds: [], effectIds: [id], effectNames: clean.effectNames }))
         ]
       : [clean]
   const controls: LiveControl[] = []
@@ -194,7 +230,19 @@ export function applyLiveDrop(
       : {
           name: dropLabel(unit),
           presetIds: unit.presetIds,
-          sequenceIds: unit.sequenceIds
+          sequenceIds: unit.sequenceIds,
+          effectIds: unit.effectIds,
+          // A dropped effect button carries LightKey's 0.5s fade in/out
+          // (Jake, 26 Nov 2026 — his screenshot's inspector shows Fade In
+          // 00:00.5 / Fade Out 00:00.5 on the dragged "Crazy Colors"
+          // button). The inspector's Timing section edits it from there.
+          // Note the fade itself is not yet wired to the effect layer —
+          // no Live button's timing is (cueTransitionLevel is unused);
+          // the press still gets the page/global base fade every other
+          // toggle button gets. Parked, not faked.
+          ...(unit.effectIds.length
+            ? { timing: { fadeInMs: 500, fadeOutMs: 500, delayMs: 0, curve: 'linear' as const } }
+            : {})
         })
     controls.push(control)
     refs.push({ type: 'cue' as const, id: control.id })

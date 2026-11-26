@@ -28,7 +28,7 @@ import { completePresetBaseColour } from './lib/presetColor'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
-import { activeCueSequenceIds } from './lib/liveDrops'
+import { activeCueSequenceIds, activeLiveEffectIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { configureAmbienceFixtures } from './lib/ndiAmbience'
 import { ensureNdiSession, getNdiSessionState, initNdiSession, setSessionActive, useNdiSession } from './lib/ndiSession'
@@ -399,7 +399,7 @@ export default function App() {
     // It is session-only (never in show.effects), so it can never be
     // captured into a cue or survive a reload.
     configureEffects({
-      effects: [...activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues }), ...(previewEffect ? [previewEffect] : [])],
+      effects: [...activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues, liveEffects: activeLiveEffectIds(show?.livePages, activeLiveValues) }), ...(previewEffect ? [previewEffect] : [])],
       fixtures: show?.fixtures ?? [],
       movementPaths: show?.movementPaths ?? [],
       bpm,
@@ -407,7 +407,7 @@ export default function App() {
       blackout,
       baseValues: baseAttributeValues
     })
-  }, [effects, previewEffect, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, bpm, master, blackout, baseAttributeValues])
+  }, [effects, previewEffect, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, show?.livePages, bpm, master, blackout, baseAttributeValues])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active

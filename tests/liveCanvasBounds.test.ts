@@ -24,7 +24,7 @@ function makePage(): LivePage {
 }
 
 const payload = (): LiveDropPayload => ({
-  presetIds: ['p1'], sequenceIds: [], presetNames: { p1: 'Blue' }
+  presetIds: ['p1'], sequenceIds: [], effectIds: [], presetNames: { p1: 'Blue' }
 })
 let counter = 0
 const makeId = () => `new-${++counter}`

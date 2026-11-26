@@ -162,7 +162,7 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
         height: validLiveSize(object.height) ? object.height : size.height,
         style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults),
         ...(kind === 'frame' ? { frame: frameConfigFor(record(object.frame) as FrameConfig | undefined) } : {}),
-        ...(kind === 'cue' ? { sequenceIds: Array.isArray(object.sequenceIds) ? object.sequenceIds.filter((id): id is string => typeof id === 'string') : [], timing: { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear', ...record(object.timing) }, appearance: { color: '#47235a', releaseOthers: false, ...record(object.appearance) }, modifiers: { intensity: 100, speed: 100, size: 100, ...record(object.modifiers) }, priority: typeof object.priority === 'number' ? object.priority : 0 } : {})
+        ...(kind === 'cue' ? { sequenceIds: Array.isArray(object.sequenceIds) ? object.sequenceIds.filter((id): id is string => typeof id === 'string') : [], effectIds: Array.isArray(object.effectIds) ? object.effectIds.filter((id): id is string => typeof id === 'string') : [], timing: { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear', ...record(object.timing) }, appearance: { color: '#47235a', releaseOthers: false, ...record(object.appearance) }, modifiers: { intensity: 100, speed: 100, size: 100, ...record(object.modifiers) }, priority: typeof object.priority === 'number' ? object.priority : 0 } : {})
       }
     }
     return {

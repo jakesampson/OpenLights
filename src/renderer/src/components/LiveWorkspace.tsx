@@ -63,7 +63,7 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
 
 export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null } = {}) {
   const {
-    locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
+    locked, show, cues, presets, effects, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, addCueList, addCueToList, liveEditing, setLiveEditing,
     editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
@@ -227,7 +227,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // active accent never paints over the light colour, and the 44px
   // min-height from `.pad` is overridden to fit the 40px button.
   const cueBody = (control: LiveControl, level: number, textColor: string) =>
-    control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.name}{control.type === 'flash' && ' (hold)'}</button>
+    control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.effectIds?.length ? '∿ ' : ''}{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{control.type === 'flash' && ' (hold)'}</button>
 
   const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
     <label className="text-dim">Attached to
@@ -311,7 +311,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     const encoded = event.dataTransfer.getData(LIVE_DROP_MIME)
     if (encoded) return decodeLiveDrop(encoded)
     const legacy = event.dataTransfer.getData(LEGACY_PRESET_MIME)
-    return legacy ? { presetIds: [legacy], sequenceIds: [] } : null
+    return legacy ? { presetIds: [legacy], sequenceIds: [], effectIds: [] } : null
   }
   const pagePoint = (event: React.DragEvent) => {
     const rect = pageCanvas.current?.getBoundingClientRect()
@@ -701,6 +701,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           </div>}
           {!isAmbienceControl && <details><summary className="cursor-pointer">Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>}
           {!isAmbienceControl && <details><summary className="cursor-pointer">Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>}
+          {!isAmbienceControl && <details><summary className="cursor-pointer">Effects ({(selectedControl.effectIds ?? []).length})</summary>{effects.map((e) => <label key={e.id} className="block"><input type="checkbox" checked={(selectedControl.effectIds ?? []).includes(e.id)} onChange={(event) => patchControl(selectedControl.id, { effectIds: event.target.checked ? [...(selectedControl.effectIds ?? []), e.id] : (selectedControl.effectIds ?? []).filter((id) => id !== e.id) })} /> {e.name}</label>)}</details>}
           <details><summary className="cursor-pointer">More</summary>
             <div className="mt-1 flex flex-wrap items-end gap-2">
               <label className="text-dim">Colour<input aria-label="Cue colour" type="color" value={selectedControl.appearance?.color ?? '#47235a'} className="ml-1" onChange={(event) => configureCueAppearance(selectedControl.id, { color: event.target.value })} /></label>

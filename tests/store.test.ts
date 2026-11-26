@@ -779,6 +779,7 @@ describe('dropping presets and sequences on live pages (7.10)', () => {
   const payload = (overrides: Partial<LiveDropPayload> = {}): LiveDropPayload => ({
     presetIds: ['p1', 'p2'],
     sequenceIds: ['s1'],
+    effectIds: [],
     presetNames: { p1: 'Blue', p2: 'Red' },
     sequenceNames: { s1: 'Chase' },
     ...overrides

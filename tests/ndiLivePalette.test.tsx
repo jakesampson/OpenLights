@@ -124,10 +124,10 @@ describe('NDI Ambience live drop', () => {
   })
   let counter = 0
   const makeId = () => `ndi-${++counter}`
-  const payload: LiveDropPayload = { presetIds: [], sequenceIds: [], ndiAmbience: true }
+  const payload: LiveDropPayload = { presetIds: [], sequenceIds: [], effectIds: [], ndiAmbience: true }
 
   it('round-trips the ambience flag through encode/decode', () => {
-    expect(decodeLiveDrop(encodeLiveDrop(payload))).toEqual({ presetIds: [], sequenceIds: [], ndiAmbience: true })
+    expect(decodeLiveDrop(encodeLiveDrop(payload))).toEqual({ presetIds: [], sequenceIds: [], effectIds: [], ndiAmbience: true })
     expect(dropLabel(payload)).toBe('NDI Ambience')
   })
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { LivePage } from '../src/shared/types'
 import {
-  activeCueSequenceIds, applyLiveDrop, decodeLiveDrop, dropLabel, emptyDropPayload,
+  activeCueSequenceIds, activeLiveEffectIds, applyLiveDrop, decodeLiveDrop, dropLabel, emptyDropPayload,
   encodeLiveDrop, normalizeDropPayload, type LiveDropPayload
 } from '../src/renderer/src/lib/liveDrops'
 import { frameForCue } from '../src/renderer/src/lib/liveFrames'
@@ -24,6 +24,7 @@ function makePage(): LivePage {
 const payload = (overrides: Partial<LiveDropPayload> = {}): LiveDropPayload => ({
   presetIds: ['p1', 'p2'],
   sequenceIds: ['s1'],
+  effectIds: [],
   presetNames: { p1: 'Blue', p2: 'Red' },
   sequenceNames: { s1: 'Chase' },
   ...overrides
@@ -52,7 +53,7 @@ describe('live drop payload encoding (7.10)', () => {
   })
 
   it('starts from an empty payload', () => {
-    expect(emptyDropPayload()).toEqual({ presetIds: [], sequenceIds: [] })
+    expect(emptyDropPayload()).toEqual({ presetIds: [], sequenceIds: [], effectIds: [] })
     expect(applyLiveDrop(makePage(), emptyDropPayload(), { kind: 'page', x: 100, y: 100 }, makeId).refs).toEqual([])
   })
 })
@@ -164,5 +165,65 @@ describe('sequences started by active cues (7.10)', () => {
     const second: LivePage = { id: 'other', name: 'Other', controls: [{ id: 'c3', name: 'Three', type: 'toggle', presetIds: [], sequenceIds: ['s2', 's1'] }] }
     expect(activeCueSequenceIds([first, second], { c1: 255, c2: 0, c3: 128 })).toEqual(['s1', 's2'])
     expect(activeCueSequenceIds([first, second], { c2: 255 })).toEqual([])
+  })
+})
+
+describe('dropping an effect on a page (Jake, 26 Nov 2026)', () => {
+  const effectPayload = (overrides: Partial<LiveDropPayload> = {}): LiveDropPayload => ({
+    presetIds: [], sequenceIds: [], effectIds: ['kitt'], effectNames: { kitt: 'K.I.T.T.' }, ...overrides
+  })
+
+  it('round-trips an effect payload and decodes old payloads without effectIds', () => {
+    expect(decodeLiveDrop(encodeLiveDrop(effectPayload()))).toMatchObject({ presetIds: [], sequenceIds: [], effectIds: ['kitt'], effectNames: { kitt: 'K.I.T.T.' } })
+    expect(decodeLiveDrop(JSON.stringify({ presetIds: ['p1'], sequenceIds: [] }))).toMatchObject({ presetIds: ['p1'], effectIds: [] })
+    expect(decodeLiveDrop(JSON.stringify({ presetIds: [], sequenceIds: [], effectIds: 'kitt' }))).toBeNull()
+    expect(emptyDropPayload()).toEqual({ presetIds: [], sequenceIds: [], effectIds: [] })
+  })
+
+  it('labels a single effect button with the effect name', () => {
+    expect(dropLabel(effectPayload())).toBe('K.I.T.T.')
+    expect(dropLabel(effectPayload({ effectIds: ['a', 'b'] }))).toBe('2 effects')
+  })
+
+  it('creates a toggle button holding the effect, with LightKey 0.5s timing', () => {
+    const { page, refs } = applyLiveDrop(makePage(), effectPayload(), { kind: 'page', x: 100, y: 100 }, makeId)
+    expect(page.controls).toHaveLength(3)
+    const control = page.controls[2]
+    expect(control).toMatchObject({ name: 'K.I.T.T.', type: 'toggle', presetIds: [], sequenceIds: [], effectIds: ['kitt'] })
+    expect(control.timing).toEqual({ fadeInMs: 500, fadeOutMs: 500, delayMs: 0, curve: 'linear' })
+    expect(refs).toEqual([{ type: 'cue', id: control.id }])
+  })
+
+  it('does not give preset or sequence buttons the effect timing', () => {
+    const { page } = applyLiveDrop(makePage(), payload(), { kind: 'page', x: 100, y: 100 }, makeId)
+    expect(page.controls[2].timing).toBeUndefined()
+  })
+
+  it('creates one button per effect when split is requested', () => {
+    const { page, refs } = applyLiveDrop(makePage(), effectPayload({ effectIds: ['e1', 'e2'], effectNames: { e1: 'One', e2: 'Two' } }), { kind: 'page', x: 100, y: 100 }, makeId, undefined, true)
+    expect(page.controls).toHaveLength(4)
+    expect(page.controls.slice(2).map((c) => c.name)).toEqual(['One', 'Two'])
+    expect(page.controls.slice(2).map((c) => c.effectIds)).toEqual([['e1'], ['e2']])
+    expect(refs).toHaveLength(2)
+  })
+
+  it('does nothing when an effect is dropped onto a cue button', () => {
+    const page = makePage()
+    expect(applyLiveDrop(page, effectPayload(), { kind: 'cue', cueId: 'c1' }, makeId).page).toBe(page)
+  })
+})
+
+describe('effects run by active Live buttons (Jake, 26 Nov 2026)', () => {
+  it('collects effect ids from lit buttons on every page, deduplicated', () => {
+    const pages: LivePage[] = [
+      { id: 'a', name: 'A', controls: [
+        { id: 'b1', name: 'One', type: 'toggle', presetIds: [], effectIds: ['kitt'] },
+        { id: 'b2', name: 'Two', type: 'toggle', presetIds: [], effectIds: [] }
+      ] },
+      { id: 'b', name: 'B', controls: [{ id: 'b3', name: 'Three', type: 'flash', presetIds: [], effectIds: ['kitt', 'chase'] }] }
+    ]
+    expect(activeLiveEffectIds(pages, { b1: 255, b2: 0, b3: 128 })).toEqual(['kitt', 'chase'])
+    expect(activeLiveEffectIds(pages, { b1: 0, b3: 0 })).toEqual([])
+    expect(activeLiveEffectIds(pages, { b2: 255 })).toEqual([])
   })
 })

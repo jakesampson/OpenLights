@@ -31,11 +31,12 @@ function testShow(): ShowDef {
     ],
     livePages: [{
       id: 'page', name: 'Page', controls: [
-        { id: 'b1', name: 'Full On', type: 'toggle', presetIds: ['p1', 'p2'], sequenceIds: ['s1'], x: 0, y: 0 },
+        { id: 'b1', name: 'Full On', type: 'toggle', presetIds: ['p1', 'p2'], sequenceIds: ['s1'], effectIds: ['e1'], x: 0, y: 0 },
         { id: 'b2', name: 'Cue 1', type: 'toggle', cueId: 'c1', presetIds: [], x: 0, y: 100 },
         { id: 'b3', name: 'Cue 2', type: 'toggle', cueId: 'c2', presetIds: [], x: 0, y: 200 }
       ]
     }],
+    effects: [{ id: 'e1', name: 'K.I.T.T.', fixtureIds: ['d1'], attribute: 'intensity', waveform: 'sine', speed: 1, syncToBpm: false, size: 255, offset: 0, enabled: true, phaseSpread: 0 }],
     cueLists: [{ id: 'list1', name: 'List', steps: [{ id: 'ls1', cueId: 'c1', fadeMs: 0, holdMs: 0 }, { id: 'ls2', cueId: 'c2', fadeMs: 0, holdMs: 0 }] }],
     automations: []
   }
@@ -76,5 +77,16 @@ describe('deleting a referenced preset, sequence or cue', () => {
     expect(control('b2').cueId).toBeUndefined()
     expect(control('b3').cueId).toBe('c2')
     expect(s().cueLists[0].steps.map((step) => step.cueId)).toEqual(['c2'])
+  })
+
+  it('removeEffect strips the id from Live buttons', () => {
+    s().setShow(testShow())
+    s().removeEffect('e1')
+    expect(s().effects.map((e) => e.id)).toEqual([])
+    // The button keeps its name and its other contents; it just no
+    // longer points at the deleted effect.
+    expect(control('b1').effectIds).toEqual([])
+    expect(control('b1').presetIds).toEqual(['p1', 'p2'])
+    expect(control('b1').name).toBe('Full On')
   })
 })

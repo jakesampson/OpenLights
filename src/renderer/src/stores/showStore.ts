@@ -2903,7 +2903,17 @@ const actions: ShowState = {
     if (state.editingLiveEffectId === id) editingLiveEffectSnapshot = null
     set((s) => {
       const effects = s.effects.filter((effect) => effect.id !== id)
-      return persistState(s, { effects }, { effects })
+      // Same stale-reference class as deletePreset/deleteSequence/deleteCue
+      // (Jake, 26 Nov 2026): a Live button bound to the deleted effect
+      // would keep its name, light up, and drive nothing. Strip the id
+      // from every Live button; migrateShow heals shows already broken.
+      // deleteEffectAndKeepValues funnels through here, so it is covered.
+      const strip = (ids?: string[]) => (ids ?? []).filter((item) => item !== id)
+      const livePages = (s.show?.livePages ?? []).map((page) => ({
+        ...page,
+        controls: page.controls.map((control) => ({ ...control, effectIds: strip(control.effectIds) }))
+      }))
+      return persistState(s, { effects, livePages }, { effects })
     })
   },
 

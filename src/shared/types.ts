@@ -420,6 +420,15 @@ export interface LiveControl {
   presetIds: string[]
   /** Sequences started while this cue is active (7.10). */
   sequenceIds?: string[]
+  /** Effects run while this button is active (Jake, 26 Nov 2026 — proven
+   *  in LightKey by his own test, not the guide: dragging a colour effect
+   *  onto the Live window creates a button for it, and pressing the button
+   *  runs the effect. Guide ch.11 never mentions effects on Live buttons;
+   *  his test wins where they conflict. The button is the switch: the
+   *  effect runs while the button's level is above zero (see
+   *  activeLiveEffectIds / activeOwnedEffects), for toggle and flash
+   *  alike. */
+  effectIds?: string[]
   adHocValues?: Record<string, Record<string, number>>
   x?: number
   y?: number

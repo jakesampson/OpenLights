@@ -569,11 +569,15 @@ export function GroupsPresetsPanel() {
   const dragPayloadFor = (item: PaletteItem): LiveDropPayload | null => {
     if (item.kind === 'preset') {
       const preset = presets.find((p) => p.id === item.id)
-      return preset ? { presetIds: [preset.id], sequenceIds: [], presetNames: { [preset.id]: preset.name } } : null
+      return preset ? { presetIds: [preset.id], sequenceIds: [], effectIds: [], presetNames: { [preset.id]: preset.name } } : null
     }
     if (item.kind === 'sequence') {
       const sequence = sequences.find((s) => s.id === item.id)
-      return sequence ? { presetIds: [], sequenceIds: [sequence.id], sequenceNames: { [sequence.id]: sequence.name } } : null
+      return sequence ? { presetIds: [], sequenceIds: [sequence.id], effectIds: [], sequenceNames: { [sequence.id]: sequence.name } } : null
+    }
+    if (item.kind === 'effect') {
+      const effect = effects.find((e) => e.id === item.id)
+      return effect ? { presetIds: [], sequenceIds: [], effectIds: [effect.id], effectNames: { [effect.id]: effect.name } } : null
     }
     return null
   }
@@ -805,7 +809,7 @@ export function GroupsPresetsPanel() {
           className="flex items-center gap-1 pr-1"
           draggable={usable}
           onDragStart={usable ? (event) => {
-            event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop({ presetIds: [], sequenceIds: [], ndiAmbience: true }))
+            event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop({ presetIds: [], sequenceIds: [], effectIds: [], ndiAmbience: true }))
             event.dataTransfer.effectAllowed = 'copy'
           } : undefined}
           onClick={() => window.dispatchEvent(new CustomEvent('openlights-menu-command', { detail: { command: 'ndiAmbience' } }))}
@@ -891,10 +895,21 @@ export function GroupsPresetsPanel() {
           {ungroupedSequences.map((sequence) => sequenceRow(sequence.id, null))}
           {effects.filter((effect) => matchesQuery(effect.name)).map((effect) => {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
+            const payload = dragPayloadFor(item)
             return (
               <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) || effect.enabled ? 'bg-panel2' : ''}`}
                 onMouseEnter={() => setHoveredRow(`effect:${effect.id}`)}
                 onMouseLeave={() => setHoveredRow((current) => (current === `effect:${effect.id}` ? null : current))}
+                draggable={payload !== null}
+                onDragStart={(event) => {
+                  // Effects drag onto the Live panel as buttons (Jake,
+                  // 26 Nov 2026 — proven in LightKey by his own test).
+                  // No paletteDrag: effects belong to no palette group,
+                  // so there is no palette-internal move to offer — only
+                  // the Live drop. Click behaviour is untouched.
+                  if (!payload) return
+                  event.dataTransfer.setData(LIVE_DROP_MIME, encodeLiveDrop(payload))
+                }}
               >
                 <button type="button" role="treeitem" aria-selected={isSelected(item)}
                   className={`min-w-0 flex flex-1 items-center gap-2 rounded px-2 py-1.5 text-left text-xs ${effect.enabled ? 'selected' : 'hover:bg-panel2'}`}
