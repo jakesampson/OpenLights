@@ -3,46 +3,89 @@ import type { MovementPoint } from './movementEffects'
 import { pathPointAt } from './movementRuntime'
 
 /**
- * Polar mapping for LightKey's Position HUD (Guide ch.10, pp.167-169) and
- * for the movement-path tiles. Angle around the circle is PAN — 0° at
- * the bottom, +90° at the right, ±180° at the top, −90° at the left
- * (the same convention as the Rotation dial in CalibrationDialog,
- * `polarRotation`) — and radius from the centre is |TILT|. Path points
- * are normalized pan/tilt in −1..1, so a point's pan angle is pan × 180°
- * and its radius is |tilt| × the chart radius.
+ * Polar mapping for LightKey's Position HUD (Guide ch.10, pp.90-91,
+ * 167-169, and Jake's LightKey recording, 26 Nov 2026) and for the
+ * movement-path tiles. Angle around the circle IS the pan angle in
+ * degrees — 0° at the bottom, +90° at the right, ±180° at the top,
+ * −90° at the left — and radius from the centre is the SIGNED tilt:
+ * a negative tilt flips the point through the centre, so (pan θ,
+ * tilt −ρ) draws where (pan θ + 180°, tilt +ρ) would. That is the
+ * guide's p.91 equivalence — (pan −60°, tilt +45°) and (pan +120°,
+ * tilt −45°) are the same point — and it is confirmed by pixel
+ * measurement of Jake's recording: the Flower's four tilt maxima
+ * (pan ±43°/±48°, tilt ±89°) land at chart angles −43°, +132°,
+ * +43°, −132° under this mapping, matching the measured petal tips
+ * (+44.3°, +135.5°, −134.7°, −45.1°) within readout jitter, while a
+ * radius = |tilt| mapping cannot produce the upper petals at all.
+ * Path points are normalized pan/tilt in −1..1, so a point's pan angle
+ * is pan × (panRange/2)° — normalized ±1 is the fixture's full pan
+ * range (default 540°, so ±270°), NOT ±180°. A 540° head's pan wraps
+ * one and a half times around the circle, so pan values a full turn
+ * (360°) apart draw at the same point.
  *
- * The sign of tilt is NOT encoded in the screen position: (pan, +tilt)
- * and (pan, −tilt) draw at the same point. It is carried by the drag
- * state instead — dragging without Command keeps the point's existing
- * tilt sign, and a Command-drag flips it when the pointer crosses the
- * centre (Guide p.169: "Hold down Command and drag a point beyond the
- * center to move it to a negative tilt angle"). See
- * `chartOffsetToNormalized` and `cmdDragTiltSign`.
+ * The tilt sign IS encoded in the screen position, but ambiguously: a
+ * chart position is two (pan, tilt) pairs at once — (pan α, tilt +ρ)
+ * and (pan α + 180°, tilt −ρ). The sign is carried by the drag state
+ * to pick the branch — dragging without Command keeps the point's
+ * existing tilt sign, and a Command-drag flips it when the pointer
+ * crosses the centre (Guide p.169: "Hold down Command and drag a
+ * point beyond the center to move it to a negative tilt angle"). See
+ * `chartOffsetToNormalized` and `cmdDragTiltSign`. The Design pad
+ * (lib/position.ts) uses this same mapping, so the pad, the HUD and
+ * the tile previews agree for the same pan/tilt.
  */
 
-/** Screen offset from the chart centre for a normalized path point. */
+/** Screen offset from the chart centre for a normalized path point.
+ *  `panRange` is the fixture's total pan range in degrees (default
+ *  540°); the tile previews use the default. */
 export function normalizedToChartOffset(
   pan: number,
   tilt: number,
-  radius: number
+  radius: number,
+  panRange = 540
 ): { x: number; y: number } {
-  const angle = pan * Math.PI
-  const r = Math.abs(tilt) * radius
-  return { x: r * Math.sin(angle), y: r * Math.cos(angle) }
+  const angle = (pan * (panRange / 2) * Math.PI) / 180
+  return { x: radius * tilt * Math.sin(angle), y: radius * tilt * Math.cos(angle) }
 }
 
 /** Normalized {pan, tilt} for a screen offset from the chart centre.
  *  `tiltSign` (+1 or −1) is the tilt sign carried by the drag — sticky
- *  per drag, see `cmdDragTiltSign`. Radius clamps to the chart rim. */
+ *  per drag, see `cmdDragTiltSign` — and picks which of the two
+ *  (pan, tilt) pairs at this screen point is returned (Guide p.91).
+ *  Pan comes back as the principal value in (−180°, 180°] normalized
+ *  by the pan range; radius clamps to the chart rim. `nearPan` (the
+ *  dragged point's current pan) picks the representative nearest it,
+ *  so dragging a point with |pan| > 180° does not teleport it to the
+ *  aliased reading a full turn away on the first move. */
 export function chartOffsetToNormalized(
   dx: number,
   dy: number,
   radius: number,
-  tiltSign: number
+  tiltSign: number,
+  panRange = 540,
+  nearPan?: number
 ): { pan: number; tilt: number } {
   const r = Math.min(1, Math.hypot(dx, dy) / radius)
   // atan2(dx, dy): 0 at the bottom, +90° at the right, ±180° at the top.
-  const pan = ((Math.atan2(dx, dy) * 180) / Math.PI / 180)
+  const angle = (Math.atan2(dx, dy) * 180) / Math.PI
+  let panDegrees: number
+  if (tiltSign < 0) {
+    // Negative tilt is the same screen point with the pan angle
+    // rotated by 180° (Guide p.91): a point at pan angle θ and tilt
+    // −ρ draws where (θ + 180°, +ρ) would.
+    panDegrees = (((angle + 180 + 180) % 360) + 360) % 360 - 180
+  } else {
+    panDegrees = angle
+  }
+  let pan = panDegrees / (panRange / 2)
+  if (nearPan !== undefined) {
+    // One full turn in normalized units; shift the reading by whole
+    // turns until it is the representative nearest the point's
+    // current pan.
+    const turn = 360 / (panRange / 2)
+    while (pan - nearPan > turn / 2) pan -= turn
+    while (nearPan - pan > turn / 2) pan += turn
+  }
   return { pan: Math.max(-1, Math.min(1, pan)), tilt: (tiltSign < 0 ? -1 : 1) * r }
 }
 
@@ -91,7 +134,8 @@ export function nearestSegmentMidpoint(
   dx: number,
   dy: number,
   radius: number,
-  threshold: number
+  threshold: number,
+  panRange = 540
 ): { index: number; point: MovementPoint } | null {
   if (type === 'points' || points.length < 2) return null
   const n = points.length
@@ -99,7 +143,7 @@ export function nearestSegmentMidpoint(
   let bestDistance = Infinity
   for (let i = 0; i < n; i++) {
     const mid = pathPointAt(points, type, (i + 0.5) / n)
-    const at = normalizedToChartOffset(mid.pan, mid.tilt, radius)
+    const at = normalizedToChartOffset(mid.pan, mid.tilt, radius, panRange)
     const distance = Math.hypot(at.x - dx, at.y - dy)
     if (distance < bestDistance) {
       bestDistance = distance

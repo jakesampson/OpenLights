@@ -6,8 +6,8 @@ import { useDragEnd } from './useDragEnd'
 import { useEffect, useRef, useState } from 'react'
 
 // LightKey's position control is a CIRCLE (Guide ch.8, pp.90–91): the
-// angle around the circle is the pan angle (home at the top), the
-// distance from the centre is the tilt, and the centre is home (pan 0°,
+// angle around the circle is the pan angle (home at the bottom), the
+// distance from the centre is the signed tilt, and the centre is home (pan 0°,
 // tilt 0°). The dot is red in the negative pan range and green in the
 // positive pan range, lighter for negative tilt; the shaded outer ring
 // marks tilt beyond 90° (2/3 of the ±135° tilt range). There are no
@@ -58,10 +58,10 @@ export function PositionControl({ fixtures, update, current }: { fixtures: Fixtu
   // Axis locks (Guide ch.8, p.93): hold Ctrl (the guide's Command key on
   // Windows) to lock the pan angle, Shift to lock the tilt angle, while
   // clicking or dragging. The locked axis holds its value from drag start,
-  // captured here so the live value cannot drift mid-drag. A point fixes
-  // the pan angle and the tilt magnitude, not the tilt sign — the guide's
-  // circle shows both tilt signs at the same point (p.91) — so the sign
-  // is kept from drag start and only changes via Flip Tilt below.
+  // captured here so the live value cannot drift mid-drag. A point is two
+  // positions at once — (pan α, tilt +ρ) and (pan α + 180°, tilt −ρ) draw
+  // at the same place (Guide p.91) — so the tilt sign is kept from drag
+  // start and only changes via Flip Tilt below.
   const setPosition = (event: React.PointerEvent<SVGSVGElement>) => {
     const rect = dragRectRef.current ?? svgRef.current?.getBoundingClientRect()
     if (!rect) return
@@ -96,8 +96,8 @@ export function PositionControl({ fixtures, update, current }: { fixtures: Fixtu
       <circle cx={CENTRE} cy={CENTRE} r={BEYOND_90} fill="var(--panel2)" stroke="var(--line)" strokeWidth="0.5" />
       <line x1={CENTRE} y1={CENTRE - RIM} x2={CENTRE} y2={CENTRE + RIM} stroke="var(--line)" strokeWidth="0.5" />
       <line x1={CENTRE - RIM} y1={CENTRE} x2={CENTRE + RIM} y2={CENTRE} stroke="var(--line)" strokeWidth="0.5" />
-      {/* Home marker at the top (Guide p.91: the home angle). */}
-      <polygon points={`${CENTRE},2 ${CENTRE - 4},9 ${CENTRE + 4},9`} fill="var(--text)" opacity="0.7" />
+      {/* Home marker at the bottom (Guide p.91: the home angle is 0° at the bottom of the circle). */}
+      <polygon points={`${CENTRE},${SIZE - 2} ${CENTRE - 4},${SIZE - 9} ${CENTRE + 4},${SIZE - 9}`} fill="var(--text)" opacity="0.7" />
       <circle cx={CENTRE} cy={CENTRE} r="2" fill="var(--text)" opacity="0.5" />
       {/* Current position dot (Guide p.91: red negative pan, green
           positive pan, lighter for negative tilt). */}

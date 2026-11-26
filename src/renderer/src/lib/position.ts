@@ -31,31 +31,40 @@ export function positionFractions(values: Record<string, number>, supported: str
 }
 
 // LightKey's position control is a CIRCLE (Guide ch.8, pp.90–91), not
-// a square pad: the angle around the circle is the pan angle (home at
-// the top, 0°), the distance from the centre is the tilt, and the
-// centre is the home position (pan 0°, tilt 0°). The helpers below map
-// between the 0..1 DMX fractions the rest of the app works in and a
+// a square pad: the angle around the circle IS the pan angle in degrees
+// — home (0°) at the BOTTOM, +90° to the right, ±180° at the top —
+// and the distance from the centre is the SIGNED tilt, so (pan θ,
+// tilt −ρ) draws at the same point as (pan θ + 180°, tilt +ρ) (Guide
+// p.91). Pan increases counterclockwise from the bottom. This is the
+// same mapping as the movement chart (lib/movementChart.ts), so the pad
+// dot and the chart dot agree for the same pan/tilt. The helpers below
+// map between the 0..1 DMX fractions the rest of the app works in and a
 // point in the disc (x/y also 0..1 of the control box).
-/** Where the dot sits for a pan/tilt fraction pair: angle = pan around
- *  the circle clockwise from the top, radius = |tilt| from the centre. */
+/** Where the dot sits for a pan/tilt fraction pair: angle = pan in
+ *  degrees from the bottom (fraction ±0.5 is ±270°), radius = signed
+ *  tilt from the centre (negative tilt flips the point through it). */
 export function positionPoint(pan: number, tilt: number): { x: number; y: number } {
-  const angle = (pan - 0.5) * Math.PI * 2
-  const radius = Math.abs(tilt - 0.5) * 2
-  return { x: 0.5 + radius * Math.sin(angle) * 0.5, y: 0.5 - radius * Math.cos(angle) * 0.5 }
+  const angle = (pan - 0.5) * 540 * (Math.PI / 180)
+  const radius = (tilt - 0.5) * 2
+  return { x: 0.5 + radius * Math.sin(angle) * 0.5, y: 0.5 + radius * Math.cos(angle) * 0.5 }
 }
-/** Which pan/tilt fractions a point in the disc means. A point fixes
- *  the pan angle and the tilt magnitude, but not the tilt sign — the
- *  guide's circle shows both signs at the same point (p.91: pan −60° /
- *  tilt +45° and pan +120° / tilt −45° are the same point), so the sign
- *  is kept from the drag start (or the current value on a click) and
- *  only changes via Flip Tilt. Points outside the disc clamp to the rim. */
+/** Which pan/tilt fractions a point in the disc means. A point is two
+ *  positions at once — (pan α, tilt +ρ) and (pan α + 180°, tilt −ρ)
+ *  draw at the same place (Guide p.91: pan −60° / tilt +45° and pan
+ *  +120° / tilt −45° are the same point) — so the sign is kept from
+ *  the drag start (or the current value on a click) and only changes
+ *  via Flip Tilt. Points outside the disc clamp to the rim. */
 export function positionFromPoint(x: number, y: number, tiltSign: 1 | -1): { pan: number; tilt: number } {
   const dx = x - 0.5
   const dy = y - 0.5
   const radius = Math.min(1, Math.hypot(dx, dy) * 2)
-  const angle = Math.atan2(dx, -dy)
-  const pan = angle / (Math.PI * 2) + 0.5
-  return { pan: pan >= 1 ? pan - 1 : pan < 0 ? pan + 1 : pan, tilt: 0.5 + (tiltSign * radius) / 2 }
+  // atan2(dx, dy): 0° at the bottom, +90° at the right, ±180° at the top.
+  const angle = (Math.atan2(dx, dy) * 180) / Math.PI
+  const panDegrees = tiltSign < 0
+    ? (((angle + 180 + 180) % 360) + 360) % 360 - 180
+    : angle
+  const pan = 0.5 + panDegrees / 540
+  return { pan: Math.max(0, Math.min(1, pan)), tilt: 0.5 + (tiltSign * radius) / 2 }
 }
 /** Pan/tilt fractions as degrees, for the readout under the control
  *  (LightKey shows degrees, e.g. "Pan: −60° Tilt: +45°", Guide p.91).

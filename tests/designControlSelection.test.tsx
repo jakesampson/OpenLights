@@ -289,7 +289,10 @@ describe('Position circle follows a manual override (26 Nov 2026)', () => {
       Element.prototype.getBoundingClientRect = () => ({ ...RECT, left: 20, right: 170, x: 20 }) as unknown as DOMRect
       act(() => { circle.dispatchEvent(pointer('pointermove', 115, 75)) })
       act(() => { circle.dispatchEvent(pointer('pointerup', 115, 75, 0)) })
-      expect(circle.getAttribute('aria-valuetext')).toBe('Pan +134°, Tilt +73°')
+      // Due right of centre is pan +90° (the circle angle IS the pan
+      // angle in degrees, Guide p.91) — the same drag read +134° under
+      // the old fraction×360° mapping.
+      expect(circle.getAttribute('aria-valuetext')).toBe('Pan +90°, Tilt +73°')
     } finally {
       delete (Element.prototype as unknown as { hasPointerCapture?: unknown }).hasPointerCapture
     }

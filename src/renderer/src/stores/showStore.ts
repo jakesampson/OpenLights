@@ -2025,7 +2025,20 @@ const actions: ShowState = {
     const steps = [...sequence.steps], [step] = steps.splice(index, 1); steps.splice(Math.max(0, Math.min(steps.length, toIndex)), 0, step); get().updateSequence(id, { steps })
   },
   reorderSequenceSteps: (id, order, seed = Date.now()) => { const sequence = get().show?.sequences?.find((s) => s.id === id); if (sequence) get().updateSequence(id, { steps: sequenceOrder(sequence.steps.length, order, seed).map((index) => sequence.steps[index]) }) },
-  deleteSequence: (id) => set((state) => persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })) })),
+  deleteSequence: (id) => set((state) => {
+    // A Live button or a cue that keeps pointing at a deleted sequence
+    // lights up and drives nothing (Jake, 26 Nov 2026 — the same stale
+    // reference that broke his "Full On" Live button after its preset
+    // was deleted and re-captured). Strip the id everywhere it is
+    // referenced; migrateShow heals shows that were already broken.
+    const strip = (ids?: string[]) => (ids ?? []).filter((item) => item !== id)
+    const livePages = (state.show?.livePages ?? []).map((page) => ({
+      ...page,
+      controls: page.controls.map((control) => ({ ...control, sequenceIds: strip(control.sequenceIds) }))
+    }))
+    const cues = state.cues.map((cue) => ({ ...cue, sequenceIds: strip(cue.sequenceIds) }))
+    return persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })), livePages, cues }, { cues })
+  }),
   duplicateSequence: (id) => set((state) => {
     const source = state.show?.sequences?.find((s) => s.id === id)
     if (!source) return state
@@ -2256,7 +2269,23 @@ const actions: ShowState = {
     set((state) => {
       const presets = state.presets.filter((preset) => preset.id !== id)
       resendActiveCueForPreset(state, id, presets)
-      return persistState(state, { presets }, { presets, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
+      // This is the bug Jake hit on 26 Nov 2026: a Live button whose
+      // preset was deleted and re-captured kept the old id, lit up when
+      // pressed, and drove nothing. Strip the id from every reference —
+      // Live buttons, cues and sequence steps — so nothing can point at
+      // a preset that no longer exists; migrateShow heals shows that
+      // were already broken.
+      const strip = (ids?: string[]) => (ids ?? []).filter((item) => item !== id)
+      const livePages = (state.show?.livePages ?? []).map((page) => ({
+        ...page,
+        controls: page.controls.map((control) => ({ ...control, presetIds: strip(control.presetIds) }))
+      }))
+      const cues = state.cues.map((cue) => ({ ...cue, presetIds: strip(cue.presetIds) }))
+      const sequences = (state.show?.sequences ?? []).map((sequence) => ({
+        ...sequence,
+        steps: sequence.steps.map((step) => ({ ...step, presetIds: strip(step.presetIds) }))
+      }))
+      return persistState(state, { presets, livePages, cues, sequences }, { presets, cues, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
     })
     get().refreshBaseOutput()
   },
@@ -2401,9 +2430,16 @@ const actions: ShowState = {
         ...list,
         steps: list.steps.filter((step) => step.cueId !== id)
       }))
+      // Same stale-reference class as deletePreset (Jake, 26 Nov 2026):
+      // a Live button bound to the deleted cue would keep its name, light
+      // up, and drive nothing. Unbind it; migrateShow heals old shows.
+      const livePages = (state.show?.livePages ?? []).map((page) => ({
+        ...page,
+        controls: page.controls.map((control) => control.cueId === id ? { ...control, cueId: undefined } : control)
+      }))
       return persistState(
         state,
-        { cues, cueLists },
+        { cues, cueLists, livePages },
         {
           cues,
           cueLists,

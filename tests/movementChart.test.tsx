@@ -21,7 +21,7 @@ import {
   normalizedToChartOffset,
   samplePathPoints
 } from '../src/renderer/src/lib/movementChart'
-import { pathPointAt } from '../src/renderer/src/lib/movementRuntime'
+import { builtinMovementPathPoints, pathPointAt } from '../src/renderer/src/lib/movementRuntime'
 import type { EffectDef, MovementPathDef } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -121,26 +121,57 @@ describe('polar chart mapping (Rotation-dial convention)', () => {
   const R = 118
 
   it('maps pan 0° to the bottom, +90° to the right, ±180° to the top, −90° to the left', () => {
+    // Pan in degrees: normalized pan ±1 is the fixture's full pan
+    // range (default 540°), so +90° is normalized 1/3, +180° is 2/3.
     expect(normalizedToChartOffset(0, 1, R)).toEqual({ x: 0, y: R })
-    expect(normalizedToChartOffset(0.5, 1, R).x).toBeCloseTo(R)
-    expect(normalizedToChartOffset(0.5, 1, R).y).toBeCloseTo(0)
-    expect(normalizedToChartOffset(1, 1, R).x).toBeCloseTo(0)
-    expect(normalizedToChartOffset(1, 1, R).y).toBeCloseTo(-R)
-    expect(normalizedToChartOffset(-1, 1, R).y).toBeCloseTo(-R)
-    expect(normalizedToChartOffset(-0.5, 1, R).x).toBeCloseTo(-R)
-    expect(normalizedToChartOffset(-0.5, 1, R).y).toBeCloseTo(0)
+    expect(normalizedToChartOffset(1 / 3, 1, R).x).toBeCloseTo(R)
+    expect(normalizedToChartOffset(1 / 3, 1, R).y).toBeCloseTo(0)
+    expect(normalizedToChartOffset(2 / 3, 1, R).x).toBeCloseTo(0)
+    expect(normalizedToChartOffset(2 / 3, 1, R).y).toBeCloseTo(-R)
+    expect(normalizedToChartOffset(-2 / 3, 1, R).y).toBeCloseTo(-R)
+    expect(normalizedToChartOffset(-1 / 3, 1, R).x).toBeCloseTo(-R)
+    expect(normalizedToChartOffset(-1 / 3, 1, R).y).toBeCloseTo(0)
+    // A 540° head's pan wraps past ±180°: +270° sits at the left,
+    // −270° at the right.
+    expect(normalizedToChartOffset(1, 1, R).x).toBeCloseTo(-R)
+    expect(normalizedToChartOffset(1, 1, R).y).toBeCloseTo(0)
+    expect(normalizedToChartOffset(-1, 1, R).x).toBeCloseTo(R)
+    expect(normalizedToChartOffset(-1, 1, R).y).toBeCloseTo(0)
   })
 
-  it('maps |tilt| to radius from the centre', () => {
+  it('maps signed tilt to radius from the centre', () => {
     expect(normalizedToChartOffset(0, 0, R)).toEqual({ x: 0, y: 0 })
     expect(normalizedToChartOffset(0, 0.5, R)).toEqual({ x: 0, y: R / 2 })
-    // Tilt sign is not encoded in the position: +tilt and −tilt draw
-    // at the same point (the sign is carried by the drag state).
-    expect(normalizedToChartOffset(0.25, -0.5, R)).toEqual(normalizedToChartOffset(0.25, 0.5, R))
+    // The tilt sign flips the point through the centre: +tilt and
+    // −tilt sit at opposite points (Guide p.91).
+    const pos = normalizedToChartOffset(0.25, 0.5, R)
+    const neg = normalizedToChartOffset(0.25, -0.5, R)
+    expect(neg.x).toBeCloseTo(-pos.x)
+    expect(neg.y).toBeCloseTo(-pos.y)
+    // Guide p.91: (pan −60°, tilt +45°) and (pan +120°, tilt −45°)
+    // are the same point in the circle.
+    const a = normalizedToChartOffset(-60 / 270, 45 / 135, R)
+    const b = normalizedToChartOffset(120 / 270, -45 / 135, R)
+    expect(a.x).toBeCloseTo(b.x)
+    expect(a.y).toBeCloseTo(b.y)
+  })
+
+  it('uses the fixture’s pan range for the angle scale', () => {
+    // A 360° head: normalized pan 0.5 is +90° (due right); the
+    // default 540° head reads the same normalized pan as +135°.
+    const at360 = normalizedToChartOffset(0.5, 1, R, 360)
+    expect(at360.x).toBeCloseTo(R)
+    expect(at360.y).toBeCloseTo(0)
+    const at540 = normalizedToChartOffset(0.5, 1, R)
+    expect(at540.x).toBeCloseTo(R * Math.SQRT1_2)
+    expect(at540.y).toBeCloseTo(-R * Math.SQRT1_2)
+    // And the inverse honours the range too.
+    expect(chartOffsetToNormalized(R, 0, R, 1, 360).pan).toBeCloseTo(0.5)
+    expect(chartOffsetToNormalized(R, 0, R, 1).pan).toBeCloseTo(1 / 3)
   })
 
   it('round-trips through the inverse mapping', () => {
-    for (const [pan, tilt] of [[0, 0.8], [0.5, 0.4], [-0.5, 1], [1, 0.25], [-0.25, -0.6]] as const) {
+    for (const [pan, tilt] of [[0, 0.8], [0.5, 0.4], [-0.5, 1], [2 / 3, 0.25], [-0.25, -0.6]] as const) {
       const at = normalizedToChartOffset(pan, tilt, R)
       const back = chartOffsetToNormalized(at.x, at.y, R, Math.sign(tilt))
       expect(back.pan).toBeCloseTo(pan)
@@ -148,10 +179,82 @@ describe('polar chart mapping (Rotation-dial convention)', () => {
     }
   })
 
+  it('reads pan a full turn apart at the same point, and nearPan picks the nearest turn', () => {
+    // Pan +270° (normalized 1) draws at the left rim, where the
+    // principal reading is pan −90°.
+    const at = normalizedToChartOffset(1, 0.25, R)
+    const plain = chartOffsetToNormalized(at.x, at.y, R, 1)
+    expect(plain.pan).toBeCloseTo(-1 / 3)
+    expect(plain.tilt).toBeCloseTo(0.25)
+    // With the dragged point's pan as a hint, the same screen point
+    // reads back as pan +270° instead of teleporting the point.
+    const near = chartOffsetToNormalized(at.x, at.y, R, 1, 540, 1)
+    expect(near.pan).toBeCloseTo(1)
+    expect(near.tilt).toBeCloseTo(0.25)
+  })
+
   it('formats pan/tilt degrees LightKey’s way', () => {
     expect(formatPanTiltDegrees(-113.5)).toBe('−113.5°')
     expect(formatPanTiltDegrees(78.1)).toBe('+78.1°')
     expect(formatPanTiltDegrees(0)).toBe('+0.0°')
+  })
+})
+
+describe('Flower path (Jake\'s LightKey recording, 26 Nov 2026)', () => {
+  it('runs pan 1 cycle and tilt 2 cycles per period at the recorded amplitudes', () => {
+    const flower = builtinMovementPathPoints('builtin-flower')
+    if (!flower) throw new Error('no Flower path')
+    expect(flower.points).toHaveLength(16)
+    // Amplitudes from the recording: PAN ±57° on a 540° head,
+    // TILT ±89° on a 270° head — asymmetric, not the 0.8 convention.
+    const pans = flower.points.map((p) => p.pan)
+    const tilts = flower.points.map((p) => p.tilt)
+    expect(Math.max(...pans)).toBeCloseTo(57 / 270, 3)
+    expect(Math.min(...pans)).toBeCloseTo(-57 / 270, 3)
+    expect(Math.max(...tilts)).toBeCloseTo(89 / 135, 3)
+    expect(Math.min(...tilts)).toBeCloseTo(-89 / 135, 3)
+    // Zero crossings over the closed loop: pan twice (1 cycle),
+    // tilt four times (2 cycles). Zeros are skipped — the crossing is
+    // counted where the nonzero signs change around the loop.
+    const crossings = (values: number[]) => {
+      const signs = values.map((v) => (Math.abs(v) < 1e-9 ? 0 : Math.sign(v))).filter((s) => s !== 0)
+      let count = 0
+      for (let i = 0; i < signs.length; i++) {
+        if (signs[i] !== signs[(i + 1) % signs.length]) count++
+      }
+      return count
+    }
+    expect(crossings(pans)).toBe(2)
+    expect(crossings(tilts)).toBe(4)
+  })
+
+  it('draws 4 lobes on the chart, with tips at the recorded chart angles', () => {
+    const flower = builtinMovementPathPoints('builtin-flower')
+    if (!flower) throw new Error('no Flower path')
+    // Sample the drawn curve and take the local maxima of |tilt| —
+    // one per lobe. Each tip's chart angle is the pan angle, flipped
+    // through the centre when the tilt is negative.
+    const sampled = samplePathPoints(flower.points, flower.type, 128)
+    const tips: { angle: number; radius: number }[] = []
+    for (let i = 0; i < sampled.length; i++) {
+      const prev = sampled[(i - 1 + sampled.length) % sampled.length]
+      const next = sampled[(i + 1) % sampled.length]
+      const at = Math.abs(sampled[i].tilt)
+      if (at >= Math.abs(prev.tilt) && at >= Math.abs(next.tilt) && at > 0.5) {
+        const angle = sampled[i].pan * 270 + (sampled[i].tilt < 0 ? 180 : 0)
+        const wrapped = (((angle + 180) % 360) + 360) % 360 - 180
+        tips.push({ angle: wrapped, radius: at })
+      }
+    }
+    expect(tips).toHaveLength(4)
+    for (const tip of tips) {
+      expect(tip.radius).toBeCloseTo(89 / 135, 1)
+    }
+    const angles = tips.map((t) => t.angle).sort((a, b) => a - b)
+    // Recorded petal tips: +44.3°, +135.5°, −134.7°, −45.1°.
+    for (const [got, want] of [[angles[0], -135], [angles[1], -45], [angles[2], 45], [angles[3], 135]] as const) {
+      expect(Math.abs(got - want)).toBeLessThan(10)
+    }
   })
 })
 

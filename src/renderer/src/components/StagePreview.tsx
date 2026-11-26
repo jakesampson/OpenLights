@@ -86,18 +86,26 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   // Beam Direction dialog (Piece 4, Guide pp.58–60): opens from Layout >
   // Beam Direction…, the fixture's shortcut menu, or the Preview edit
   // panel's Beam Direction… button — for the selected fixtures. It
-  // closes when leaving Design or when the project locks, like the HUD.
+  // closes when leaving the edit view or when the project locks, like
+  // the HUD. The edit view is the Design tab OR Preview edit mode:
+  // the Inspector (and its Beam Direction… button) stays visible in
+  // the Live tab while edit mode is on (Jake, 26 Nov 2026 — the button
+  // went dead there because this gate only knew about the Design tab,
+  // so a live-looking button silently did nothing on every fixture).
+  // The wizard's Set… pills still work: the wizard forces the Design
+  // tab with edit mode off for its directions step, so designMode
+  // alone keeps that path open.
   const [calibrationFixtureIds, setCalibrationFixtureIds] = useState<string[] | null>(null)
-  useEffect(() => { if (!designMode || locked) setCalibrationFixtureIds(null) }, [designMode, locked])
+  useEffect(() => { if ((!designMode && !previewEditing) || locked) setCalibrationFixtureIds(null) }, [designMode, previewEditing, locked])
   useEffect(() => {
     const handler = () => {
-      if (!designMode || locked) return
+      if ((!designMode && !previewEditing) || locked) return
       const ids = useShowStore.getState().selectedFixtureIds
       if (ids.length) setCalibrationFixtureIds([...ids])
     }
     window.addEventListener('openlights-open-calibration', handler)
     return () => window.removeEventListener('openlights-open-calibration', handler)
-  }, [designMode, locked])
+  }, [designMode, previewEditing, locked])
   // LightKey's Position fanning lets you fan pan, tilt, or both (video:
   // "we can choose whether the pan angles tilt angles or both should be
   // fanned"). OpenLights fans one attribute per fan, so "both" is two

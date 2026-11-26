@@ -180,4 +180,62 @@ describe('Inspector in edit mode, either tab (Jake, 24 Nov 2026)', () => {
     expect(sidePanel()?.getAttribute('aria-label')).toBe('Preview inspector')
     expect(sidePanel()?.textContent).toContain('Beam Direction…')
   })
+
+  // Jake, 26 Nov 2026 — the "Beam Direction…" button went unresponsive
+  // after messing around in the editor, then would not come back, on
+  // every fixture. Root cause: the calibration dialog's open handler
+  // in StagePreview was gated on designMode (tab === 'Design'), while
+  // the Inspector — and its button — stays visible in the Live tab
+  // whenever Preview edit mode is on. So in Live the button looked
+  // live and silently did nothing. The fix: the dialog opens whenever
+  // the edit view is showing (Design tab OR Preview edit mode on).
+  function beamDirectionButton() {
+    return Array.from(sidePanel()!.querySelectorAll('button')).find((b) => b.textContent === 'Beam Direction…') as HTMLElement | undefined
+  }
+  function calibrationDialog() {
+    return container!.querySelector('[role="dialog"][aria-label="Beam Direction"]') as HTMLElement | null
+  }
+  function closeCalibrationDialog() {
+    const dialog = calibrationDialog()
+    expect(dialog).toBeTruthy()
+    const done = Array.from(dialog!.querySelectorAll('button')).find((b) => b.textContent === 'Done')!
+    click(done)
+  }
+
+  it('Beam Direction… opens the calibration dialog in the Live tab too', () => {
+    switchTab('Live')
+    click(headerEditButton()!)
+    selectFixture('p1')
+    expect(beamDirectionButton()).toBeTruthy()
+    click(beamDirectionButton()!)
+    expect(calibrationDialog()).toBeTruthy()
+    // …and it comes back: close it and open it again on another fixture.
+    closeCalibrationDialog()
+    expect(calibrationDialog()).toBeNull()
+    selectFixture('q1')
+    click(beamDirectionButton()!)
+    expect(calibrationDialog()).toBeTruthy()
+  })
+
+  it('Beam Direction… opens in Design, and the dialog survives switching to Live with edit mode on', () => {
+    click(headerEditButton()!)
+    selectFixture('p1')
+    click(beamDirectionButton()!)
+    expect(calibrationDialog()).toBeTruthy()
+    switchTab('Live')
+    expect(calibrationDialog()).toBeTruthy()
+    // Turning edit mode off while it is open closes it.
+    click(headerEditButton()!)
+    expect(calibrationDialog()).toBeNull()
+  })
+
+  it('Beam Direction… stays closed in the Live tab with edit mode off', () => {
+    switchTab('Live')
+    selectFixture('p1')
+    // The palette is showing, not the Inspector — no button to click,
+    // and dispatching the event directly must not open the dialog.
+    expect(beamDirectionButton()).toBeUndefined()
+    act(() => { window.dispatchEvent(new Event('openlights-open-calibration')) })
+    expect(calibrationDialog()).toBeNull()
+  })
 })

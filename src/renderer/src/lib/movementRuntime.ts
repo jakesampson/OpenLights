@@ -20,8 +20,10 @@ import { movementPoint, type MovementPoint } from './movementEffects'
  * Random Dots, Tilt Track 1/2, Triangle Small/Wide, Wedge Curved/Straight and
  * Zigzag 2/5. The named paths' exact geometry is not in the guide — the point
  * sets below approximate each name's shape, and are flagged to confirm against
- * LightKey. Path points are normalized pan/tilt coordinates (-1..1); they map
- * to DMX via the fixture's pan/tilt range (Guide p.60, lib/calibration.ts).
+ * LightKey — EXCEPT the Flower, which is re-derived from Jake's LightKey
+ * recording (26 Nov 2026), see `flowerPoints`. Path points are normalized
+ * pan/tilt coordinates (-1..1); they map to DMX via the fixture's pan/tilt
+ * range (Guide p.60, lib/calibration.ts).
  */
 
 export interface BuiltinMovementPath {
@@ -45,6 +47,38 @@ function rosePoints(petals: number, span: number, count = 16): MovementPoint[] {
   return points
 }
 
+/** LightKey's Flower, re-derived from Jake's LightKey recording
+ *  (26 Nov 2026, PAN/TILT readout every 0.5 s over the full 10 s
+ *  cycle): PAN completes ONE cycle and TILT completes TWO per period —
+ *  a Lissajous with frequency ratio 1:2 — and the drawn path has 4
+ *  lobes. Recorded extremes on a generic moving head at its default
+ *  ranges (540° pan / 270° tilt, no limits applied): PAN ±57°, TILT
+ *  ±89°, i.e. normalized amplitudes pan 57/270 = 0.211, tilt 89/135 =
+ *  0.659 — asymmetric, NOT the 0.8 convention the other paths use.
+ *  The least-squares fit over the 21 readout samples pins the phase
+ *  difference at ≈0° (pan 1 cycle, amplitude 60.67°, phase −157.36°;
+ *  tilt 2 cycles, amplitude 89.09°, phase +44.78°; RMS 3.11°/2.04°),
+ *  so the curve is pan = Ap·sin(2πt), tilt = At·sin(4πt). Under the
+ *  chart mapping (angle = pan, radius = signed tilt,
+ *  lib/movementChart.ts) the tilt maxima land at chart angles ±40° /
+ *  ±140°, matching the measured petal tips (+44.3°, +135.5°, −134.7°,
+ *  −45.1°) within readout jitter. The old `rosePoints(2, 2π)` had the
+ *  ratio swapped (pan 2 cycles, tilt 1) and collapsed to a single
+ *  bottom lobe under the signed-radius mapping. */
+const FLOWER_PAN_AMPLITUDE = 57 / 270
+const FLOWER_TILT_AMPLITUDE = 89 / 135
+function flowerPoints(count = 16): MovementPoint[] {
+  const points: MovementPoint[] = []
+  for (let i = 0; i < count; i++) {
+    const t = i / count
+    points.push({
+      pan: FLOWER_PAN_AMPLITUDE * Math.sin(2 * Math.PI * t),
+      tilt: FLOWER_TILT_AMPLITUDE * Math.sin(4 * Math.PI * t)
+    })
+  }
+  return points
+}
+
 export const BUILTIN_MOVEMENT_PATHS: BuiltinMovementPath[] = [
   { id: 'builtin-circle', name: 'Circle' },
   { id: 'builtin-figure-eight', name: 'Figure Eight' },
@@ -57,7 +91,7 @@ export const BUILTIN_MOVEMENT_PATHS: BuiltinMovementPath[] = [
       { pan: 0, tilt: 0 }
     ]
   },
-  { id: 'builtin-flower', name: 'Flower', type: 'smooth', points: rosePoints(2, Math.PI * 2) },
+  { id: 'builtin-flower', name: 'Flower', type: 'smooth', points: flowerPoints() },
   { id: 'builtin-half-flower-3', name: 'Half Flower 3', type: 'smooth', points: rosePoints(3, Math.PI) },
   { id: 'builtin-half-flower-5', name: 'Half Flower 5', type: 'smooth', points: rosePoints(5, Math.PI) },
   {

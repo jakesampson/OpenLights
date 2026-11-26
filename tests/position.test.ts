@@ -12,31 +12,45 @@ describe('fixture position mapping', () => {
 describe('position circle (Guide ch.8, pp.90–91)', () => {
   it('maps home to the centre and pan around the circle, tilt as radius', () => {
     expect(positionPoint(0.5, 0.5)).toEqual({ x: 0.5, y: 0.5 })
-    // Pan +90° (fraction 0.75) sits at the right rim at full tilt.
-    const right = positionPoint(0.75, 1)
+    // Pan +90° (fraction 2/3) sits at the right rim at full tilt;
+    // pan −90° (fraction 1/3) sits at the left rim.
+    const right = positionPoint(0.5 + 90 / 540, 1)
     expect(right.x).toBeCloseTo(1, 5)
     expect(right.y).toBeCloseTo(0.5, 5)
-    // Pan −90° (fraction 0.25) sits at the left rim at full tilt.
-    const left = positionPoint(0.25, 1)
+    const left = positionPoint(0.5 - 90 / 540, 1)
     expect(left.x).toBeCloseTo(0, 5)
     expect(left.y).toBeCloseTo(0.5, 5)
-    // Full negative tilt sits at the rim on the pan ray (the same point
-    // as full positive tilt — the guide's circle shows both signs there).
+    // Pan 0° at the bottom rim at full positive tilt, at the top rim at
+    // full negative tilt — the tilt sign flips the point through the centre.
+    const bottom = positionPoint(0.5, 1)
+    expect(bottom.x).toBeCloseTo(0.5, 5)
+    expect(bottom.y).toBeCloseTo(1, 5)
     const top = positionPoint(0.5, 0)
     expect(top.x).toBeCloseTo(0.5, 5)
     expect(top.y).toBeCloseTo(0, 5)
-    expect(positionPoint(0.5, 1)).toEqual(top)
+    // Guide p.91: (pan −60°, tilt +45°) and (pan +120°, tilt −45°)
+    // are the same point in the circle.
+    const a = positionPoint(0.5 - 60 / 540, 0.5 + 45 / 270)
+    const b = positionPoint(0.5 + 120 / 540, 0.5 - 45 / 270)
+    expect(a.x).toBeCloseTo(b.x, 5)
+    expect(a.y).toBeCloseTo(b.y, 5)
   })
 
   it('round-trips a point to the same fractions, keeping the tilt sign', () => {
-    for (const [pan, tilt] of [[0.6, 0.8], [0.3, 0.2], [0.9, 0.65], [0.1, 0.4]] as const) {
+    for (const [pan, tilt] of [[0.6, 0.8], [0.3, 0.2], [0.8, 0.65], [0.2, 0.4]] as const) {
       const point = positionPoint(pan, tilt)
       const back = positionFromPoint(point.x, point.y, tilt >= 0.5 ? 1 : -1)
       expect(back.pan).toBeCloseTo(pan, 5)
       expect(back.tilt).toBeCloseTo(tilt, 5)
     }
-    // Outside the disc clamps to the rim.
-    expect(positionFromPoint(1, 0.5, 1)).toEqual({ pan: 0.75, tilt: 1 })
+    // Pan a full turn apart draws at the same point: pan +216°
+    // (fraction 0.9) reads back as pan −144° — the same chart point,
+    // one turn apart (the chart angle only pins pan modulo 360°).
+    const aliased = positionFromPoint(positionPoint(0.9, 0.65).x, positionPoint(0.9, 0.65).y, 1)
+    expect(aliased.pan).toBeCloseTo(0.5 - 144 / 540, 5)
+    expect(aliased.tilt).toBeCloseTo(0.65, 5)
+    // Outside the disc clamps to the rim: due right is pan +90°.
+    expect(positionFromPoint(1, 0.5, 1)).toEqual({ pan: 2 / 3, tilt: 1 })
   })
 
   it('reads pan/tilt in degrees on the calibration ranges (±270° / ±135°)', () => {

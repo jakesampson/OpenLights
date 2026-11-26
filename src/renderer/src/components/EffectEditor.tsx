@@ -2315,10 +2315,12 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
   // fixture (or a reopened editor, which remounts the HUD) pans once
   // for that fixture. Null until the first pan check runs.
   const pannedForRef = useRef<string | null>(null)
-  // Tilt-sign state for the current drag (lib/movementChart.ts): the
-  // screen position cannot encode the sign, so it is sticky per drag —
-  // without Command it stays the point's sign; with Command held it
-  // flips when the pointer crosses the centre.
+  // Tilt-sign state for the current drag (lib/movementChart.ts): a
+  // chart position is two (pan, tilt) pairs at once — (pan α, tilt +ρ)
+  // and (pan α + 180°, tilt −ρ) draw at the same point (Guide p.91) —
+  // so the sign is sticky per drag to pick the branch: without Command
+  // it stays the point's sign; with Command held it flips when the
+  // pointer crosses the centre.
   const dragSignRef = useRef<{ sign: number; armed: boolean }>({ sign: 1, armed: false })
 
   useEffect(() => {
@@ -2367,9 +2369,11 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
 
   const points = path.points
 
-  /** Chart coordinates for a normalized point, clamped to the rim. */
+  /** Chart coordinates for a normalized point, clamped to the rim. The
+   *  chart angle is the pan angle in degrees, so the mapping needs the
+   *  fixture's pan range (lib/movementChart.ts). */
   const toSvg = (pan: number, tilt: number) => {
-    const at = normalizedToChartOffset(pan, tilt, HUD_R)
+    const at = normalizedToChartOffset(pan, tilt, HUD_R, range.pan)
     const length = Math.hypot(at.x, at.y)
     const scale = length > HUD_R ? HUD_R / length : 1
     return { x: HUD_C + at.x * scale, y: HUD_C + at.y * scale }
@@ -2402,7 +2406,7 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
     // Click near the middle of a connection line inserts a point there
     // (smooth/line types, Guide p.169); a 'points' path has no lines.
     if (path.type !== 'points') {
-      const mid = nearestSegmentMidpoint(points, path.type, at.dx, at.dy, HUD_R, 12)
+      const mid = nearestSegmentMidpoint(points, path.type, at.dx, at.dy, HUD_R, 12, range.pan)
       if (mid) {
         const next = [...points.slice(0, mid.index + 1), mid.point, ...points.slice(mid.index + 1)]
         onChange({ ...path, points: next })
@@ -2426,7 +2430,11 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
       dragSignRef.current = cmdDragTiltSign(dragSignRef.current, radiusFraction)
     }
     const sign = dragSignRef.current.sign
-    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, sign)
+    // The chart position is two (pan, tilt) pairs at once (Guide p.91),
+    // so the inverse reads the representative nearest the dragged
+    // point's current pan — otherwise a point with |pan| > 180° would
+    // jump a full turn on the first move.
+    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, sign, range.pan, points[dragIndex].pan)
     // At the centre the pan angle is undefined — keep the point's pan
     // until the pointer comes out the other side.
     const pan = radiusFraction < 0.03 ? points[dragIndex].pan : next.pan
@@ -2439,7 +2447,7 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
     if (path.type !== 'points') return
     const at = pointerOffset(event.clientX, event.clientY)
     if (!at) return
-    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, 1)
+    const next = chartOffsetToNormalized(at.dx, at.dy, HUD_R, 1, range.pan)
     onChange({ ...path, points: [...points, next] })
     setSelectedIndex(points.length)
   }
@@ -2500,19 +2508,19 @@ export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
         {/* Radial spokes every 30° of pan. */}
         {Array.from({ length: 12 }, (_, i) => {
           const angle = i * 30
-          const at = normalizedToChartOffset(angle / 180, 1, HUD_R)
+          const at = normalizedToChartOffset(angle / (range.pan / 2), 1, HUD_R)
           return <line key={angle} x1={HUD_C} y1={HUD_C} x2={HUD_C + at.x} y2={HUD_C + at.y} stroke="var(--line, #333)" strokeWidth="0.5" opacity="0.35" />
         })}
         {/* Rim ticks every 5°, longer every 30°. */}
         {Array.from({ length: 72 }, (_, i) => {
           const angle = i * 5
-          const outer = normalizedToChartOffset(angle / 180, 1, HUD_R)
-          const inner = normalizedToChartOffset(angle / 180, 1, HUD_R - (angle % 30 === 0 ? 8 : 4))
+          const outer = normalizedToChartOffset(angle / (range.pan / 2), 1, HUD_R)
+          const inner = normalizedToChartOffset(angle / (range.pan / 2), 1, HUD_R - (angle % 30 === 0 ? 8 : 4))
           return <line key={angle} x1={HUD_C + inner.x} y1={HUD_C + inner.y} x2={HUD_C + outer.x} y2={HUD_C + outer.y} stroke="var(--dim, #888)" strokeWidth={angle % 30 === 0 ? 1.5 : 0.75} />
         })}
         {/* Degree labels around the rim: 0° at the bottom, ±180° at the top. */}
         {degreeLabels.map((angle) => {
-          const at = normalizedToChartOffset(angle / 180, 1, HUD_R + 13)
+          const at = normalizedToChartOffset(angle / (range.pan / 2), 1, HUD_R + 13)
           const label = angle === 180 ? '±180°' : angle === 0 ? '0°' : `${angle > 0 ? '+' : ''}${angle}°`
           return <text key={angle} x={HUD_C + at.x} y={HUD_C + at.y} textAnchor="middle" dominantBaseline="middle" fill="var(--dim, #888)" fontSize="9">{label}</text>
         })}
