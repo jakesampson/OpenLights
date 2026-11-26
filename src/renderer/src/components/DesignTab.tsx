@@ -154,6 +154,7 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
     cues,
     presets,
     activeCueId,
+    activePresetIds,
     selectedFixtureIds,
     selectedBeams,
     updateSelectedBeamValues,
@@ -187,6 +188,19 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // ad-hoc layer is being edited, when they write into that stored
   // layer instead.
   const cueValues = activeCue ? resolveCueValues(activeCue, presets, fixtures) : {}
+  // The active palette presets, in activation order (later wins) —
+  // the same layer the output applies on top of the cue (cue →
+  // presets → overrides; see effectiveIntensityLevels). The panel
+  // must read it too (Jake, 26 Nov 2026): a fixture lit by an active
+  // preset read 0/dark here while the Preview showed it lit.
+  const activePresetValues: Record<string, Record<string, number>> = {}
+  for (const id of activePresetIds) {
+    const preset = presets.find((p) => p.id === id)
+    if (!preset) continue
+    for (const [fixtureId, patch] of Object.entries(preset.fixtureValues ?? {})) {
+      activePresetValues[fixtureId] = { ...activePresetValues[fixtureId], ...patch }
+    }
+  }
   // In-place preset editing (LightKey, Guide ch.9): the bottom panel edits
   // the preset's own values, not the active cue's. Where the preset does
   // not define an attribute for a fixture, the cue value shows as the
@@ -200,8 +214,9 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   const fixtureAttr = (fixtureId: string, attribute: string, fallback: number) => {
     const fixture = fixtures.find((f) => f.id === fixtureId)
     // While a preset is being edited the panel reads the preset's own
-    // values; otherwise a defined (overridden) property reads first.
-    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute]) ?? cueValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
+    // values; otherwise a defined (overridden) property reads first,
+    // then the active palette presets, then the cue's resolved look.
+    return editingPreset?.fixtureValues[fixtureId]?.[attribute] ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute]) ?? (editingPreset ? undefined : activePresetValues[fixtureId]?.[attribute]) ?? cueValues[fixtureId]?.[attribute] ?? (fixture ? defaultFixtureValues(fixture)[attribute] : undefined) ?? fallback
   }
   const selectedFixtures = fixtures.filter((fixture) => selectedFixtureIds.includes(fixture.id))
   const beamProperties = selectedBeams.map((b) => { const f = fixtures.find((f) => f.id === b.fixtureId); return f && fixtureMode(f)?.beams?.find((beam) => beam.id === b.beamId)?.properties }).filter((b): b is Record<string, string> => Boolean(b))
@@ -223,16 +238,18 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // The position the control shows (and the readout under it): the same
   // precedence as every other Design control (fixtureAttr above) — the
   // preset being edited, then a defined (overridden) property, then the
-  // cue's resolved look — with no fixture-default fallback, so an
-  // undefined position still reads exactly home. The old pad read the
-  // cue values only, so a drag — which writes an override, never the
-  // cue — left the dot and the readout frozen at the cue's position
-  // (caught by the real-app probe, 26 Nov 2026).
+  // active palette presets, then the cue's resolved look — with no
+  // fixture-default fallback, so an undefined position still reads
+  // exactly home. The old pad read the cue values only, so a drag —
+  // which writes an override, never the cue — left the dot and the
+  // readout frozen at the cue's position (caught by the real-app
+  // probe, 26 Nov 2026).
   const positionAttr = (attribute: 'pan' | 'tilt'): number | undefined => {
     const fixtureId = selectedFixtures[0]?.id
     if (!fixtureId) return undefined
     return editingPreset?.fixtureValues[fixtureId]?.[attribute]
       ?? (editingPreset ? undefined : manualOverrides[fixtureId]?.[attribute])
+      ?? (editingPreset ? undefined : activePresetValues[fixtureId]?.[attribute])
       ?? cueValues[fixtureId]?.[attribute]
   }
   const positionNow = selectedFixtures[0] ? positionFractions(
@@ -247,11 +264,22 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // property's area in Design shows an effect icon instead of its normal
   // controls. Colour effects own the wheel's channels; Position effects
   // own pan and tilt; beam attributes match their base (e.g. 'red 2' is
-  // owned by a 'red' effect).
+  // owned by a 'red' effect). Controlling means for THESE fixtures
+  // (Jake, 26 Nov 2026): an enabled effect whose fixture list does not
+  // cover the selection owns nothing here, so the property keeps its
+  // normal controls instead of showing the effect's card. An empty
+  // fixture list means all fixtures. The effect must cover every
+  // selected fixture (or selected beam's fixture) — for a mixed
+  // selection the un-owned fixtures keep their editable controls.
   const effectForAttribute = (attribute: string) => {
     const base = attribute.replace(/ ?\d+$/, '')
+    const selectedIds = selectedBeams.length > 0
+      ? [...new Set(selectedBeams.map((b) => b.fixtureId))]
+      : selectedFixtureIds
     return effects.find((effect) =>
       effect.enabled &&
+      selectedIds.length > 0 &&
+      (effect.fixtureIds.length === 0 || selectedIds.every((id) => effect.fixtureIds.includes(id))) &&
       (effect.attribute === attribute ||
         effect.attribute === base ||
         (effect.attribute === 'color' && isColourAttribute(attribute)) ||
