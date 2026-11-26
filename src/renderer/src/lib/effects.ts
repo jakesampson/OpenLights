@@ -303,6 +303,45 @@ export function writeEffectChannel(
   channels[channel] = blendEffectValue(blendMode, channels[channel], Math.round(value))
 }
 
+/** Colour attributes (plus their numbered cell variants, red2 …) — a
+ *  colour write to one of these is light, so it also opens the dimmer
+ *  (see writeColourDimmer). */
+export const COLOUR_ATTRIBUTE = /^(red|green|blue|cyan|magenta|yellow|white|amber|uv|lime)\d*$/
+
+/**
+ * Open a fixture's physical dimmer for a colour effect (Jake,
+ * 27 Nov 2026 — PB1): a colour effect writes colour channels only,
+ * so a fixture with a real dimmer channel stays dark — the dimmer
+ * gates the colour both on DMX (intensity 0 = no light, whatever the
+ * RGB) and in the Preview (the cell colours are multiplied by the
+ * dimmer) — while a fixture with no dimmer channel (virtual dimmer:
+ * Q12BT and the like) lights from the colour alone. A colour effect
+ * must therefore light every fixture it writes to, as it does a
+ * single-light fixture. The dimmer opens to full (master-scaled)
+ * whenever the effect writes a non-black colour to the fixture, so
+ * the effect's colour shows exactly as on a virtual-dimmer fixture;
+ * when the effect writes black the intensity channel is left alone,
+ * so the base look's dimmer stands and is never closed by the effect.
+ * Guide ch.10 p.148 says the dimmers should be open so the effect
+ * can be seen — this is the app opening them for the effect, the
+ * state LightKey's own guidance assumes. A fixture with no intensity
+ * channel is untouched (its colour channels are already its output).
+ */
+export function writeColourDimmer(
+  into: Record<number, number>,
+  fixture: FixtureDef,
+  peakColour255: number,
+  effect: EffectDef,
+  master: number
+): void {
+  if (peakColour255 <= 0) return
+  const map = fixtureChannelMap(fixture)
+  const offset = map['intensity']
+  if (offset === undefined) return
+  const next = scaleAttribute('intensity', 255, fixture.ignoreMasterDimmer ? 255 : master)
+  writeEffectChannel(into, fixture.channelStart + offset, next, effect.blendMode)
+}
+
 /**
  * Per-channel values produced by all enabled effects at a moment in time.
  * Effects override the base look on the channels they target; later effects
@@ -324,7 +363,11 @@ export function computeEffectPatch(
 
   for (const effect of enabled) {
     const ids = new Set(effect.fixtureIds)
-    const targets = ids.size > 0 ? fixtures.filter((f) => ids.has(f.id)) : fixtures
+    // An effect with no fixtures runs on nothing (Jake, 27 Nov 2026):
+    // an empty fixtureIds used to mean "all fixtures" and is expanded
+    // to every fixture on load (migrateShow), so a stored effect never
+    // carries an empty list unless the editor emptied it on purpose.
+    const targets = fixtures.filter((f) => ids.has(f.id))
     if (targets.length === 0) continue
     const kind = effect.kind ?? 'curve'
     if (kind === 'pattern' && effect.pattern) {
@@ -350,6 +393,10 @@ export function computeEffectPatch(
     const spread = Math.max(0, effect.phaseSpread) / 360
     const size = Math.max(0, Math.min(255, effect.size))
     const offset = Math.max(0, Math.min(255, effect.offset))
+    // Colour effects also open the dimmer (writeColourDimmer): the peak
+    // colour written to each fixture, so a fixture with a physical
+    // dimmer lights exactly when the effect lights it.
+    const colourPeaks = COLOUR_ATTRIBUTE.test(effect.attribute) ? new Map<string, number>() : null
 
     pixels.forEach((pixel, index) => {
       const { fixture, attribute } = pixel
@@ -364,6 +411,7 @@ export function computeEffectPatch(
       const value = effect.minValue !== undefined || effect.maxValue !== undefined
         ? Math.max(0, Math.min(255, effect.minValue ?? 0)) + ((wave + 1) / 2) * (Math.max(0, Math.min(255, effect.maxValue ?? 255)) - Math.max(0, Math.min(255, effect.minValue ?? 0)))
         : offset + wave * size
+      if (colourPeaks) colourPeaks.set(fixture.id, Math.max(colourPeaks.get(fixture.id) ?? 0, value))
       // No dimmer channel (LightKey virtual dimmer, Piece 12): the level
       // scales the fixture's LED channels instead.
       if (channelOffset === undefined) {
@@ -380,6 +428,7 @@ export function computeEffectPatch(
       )
       writeEffectChannel(channels, channel, next, effect.blendMode)
     })
+    if (colourPeaks) for (const fixture of targets) writeColourDimmer(channels, fixture, colourPeaks.get(fixture.id) ?? 0, effect, master)
   }
 
   return channels

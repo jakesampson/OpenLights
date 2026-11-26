@@ -21,7 +21,9 @@ function effect(overrides: Partial<EffectDef> = {}): EffectDef {
   return {
     id: 'e1',
     name: 'Test effect',
-    fixtureIds: [],
+    // An empty fixtureIds runs on nothing (Jake, 27 Nov 2026), so the
+    // helper names both fixtures explicitly.
+    fixtureIds: ['f1', 'f2'],
     attribute: 'intensity',
     waveform: 'sine',
     speed: 1,
@@ -110,6 +112,7 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
     // in red only — the white foreground is 100% of red, not a white beam.
     const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
     const fx = effect({
+      fixtureIds: ['w1'],
       kind: 'pattern',
       pattern: 'chase',
       attribute: 'red',
@@ -148,6 +151,7 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
     // base look carries — a red cue chases in red, even at dimmer 0.
     const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
     const fx = effect({
+      fixtureIds: ['w1'],
       kind: 'pattern',
       pattern: 'chase',
       samples: [{ id: 'sample-bg', value: 100 }, { id: 'sample-1', value: 0 }],
@@ -170,6 +174,7 @@ describe('pattern effects (Guide ch.10, pp.153-160)', () => {
     // fresh Q12BT chases in its default blue, like raising its dimmer.
     const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
     const fx = effect({
+      fixtureIds: ['w1'],
       kind: 'pattern',
       pattern: 'chase',
       samples: [{ id: 'sample-bg', value: 100 }, { id: 'sample-1', value: 0 }],
@@ -266,6 +271,7 @@ describe('drawable curve effects (Guide ch.10, pp.161-164)', () => {
     // half of the base look's colour — a red cue at half red.
     const wash: FixtureDef = { id: 'w1', name: 'Wash', type: 'rgba-4ch', channelStart: 1, channels: 4 }
     const fx = effect({
+      fixtureIds: ['w1'],
       kind: 'curve',
       curveComponents: [{ component: 'intensity', points: defaultCurvePoints(), curvedSegments: [false] }],
       durationMs: 2000,

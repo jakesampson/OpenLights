@@ -17,7 +17,9 @@ function effect(overrides: Partial<EffectDef> = {}): EffectDef {
   return {
     id: 'e1',
     name: 'Sine intensity',
-    fixtureIds: [],
+    // An empty fixtureIds runs on nothing (Jake, 27 Nov 2026), so the
+    // helper names both fixtures explicitly.
+    fixtureIds: ['f1', 'f2'],
     attribute: 'intensity',
     waveform: 'sine',
     speed: 1,

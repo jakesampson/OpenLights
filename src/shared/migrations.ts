@@ -258,6 +258,23 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
     const fixtures = doc.fixtures as Record<string, unknown>[]
     doc.fixtureGroups = [...new Set(fixtures.map((f) => typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped'))].map((name) => ({ id: `group:${encodeURIComponent(name)}`, name, parentId: null, fixtureIds: fixtures.filter((f) => (typeof f.group === 'string' && f.group.trim() ? f.group.trim() : 'Ungrouped') === name).map((f) => f.id) }))
   }
+  // Effect fixture membership (Jake, 27 Nov 2026): an empty fixtureIds
+  // used to mean "all fixtures"; it now means "no fixtures" — an
+  // effect with no fixtures runs on nothing — so an old effect (or
+  // saved template) with no list is expanded to every fixture in the
+  // show. Its behaviour is preserved exactly, and the members are now
+  // visible in the editor, where they can be added and removed.
+  {
+    const allFixtureIds = (doc.fixtures as Record<string, unknown>[]).map((f) => f.id as string)
+    for (const key of ['effects', 'effectTemplates'] as const) {
+      doc[key] = ((doc[key] as unknown[] | undefined) ?? []).map((raw) => {
+        const effect = record(raw)
+        return Array.isArray(effect.fixtureIds) && effect.fixtureIds.length === 0
+          ? { ...effect, fixtureIds: [...allFixtureIds] }
+          : effect
+      })
+    }
+  }
   for (const key of ['cues', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
   doc.midiMappings = (doc.midiMappings as unknown[]).map((raw) => {
     const mapping = record(raw)

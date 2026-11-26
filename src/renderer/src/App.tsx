@@ -288,6 +288,15 @@ export default function App() {
   const editingCueAdHoc = editingCueAdHocId ? cues.find((c) => c.id === editingCueAdHocId) : undefined
   // In-place cue ad-hoc editing opens in Design (Guide ch.11, p.201).
   useEffect(() => { if (editingCueAdHocId) setTab('Design') }, [editingCueAdHocId])
+  // Editing an effect opens in Design (Jake, 27 Nov 2026): the effect
+  // editor lives in the Design panel only, so Edit on a palette effect
+  // row from the Live tab set the session and showed nothing — there
+  // is nowhere for the editor to render in Live. The switch uses
+  // setTab directly, not goTab: goTab exits the editor, which would
+  // cancel the edit just opened. Gated on editingEffectId, not just
+  // the live-effect session, so editing a saved template from Live
+  // opens the editor too.
+  useEffect(() => { if (editingEffectId) setTab('Design') }, [editingEffectId])
   // "Show in Cue" from the Preset Palette (LightKey Guide p.144): reveal
   // a Live cue — select its page, select the button (accent border),
   // switch to Live and scroll it into view. Mirrors ProjectSearch's

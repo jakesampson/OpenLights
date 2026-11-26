@@ -267,10 +267,11 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // owned by a 'red' effect). Controlling means for THESE fixtures
   // (Jake, 26 Nov 2026): an enabled effect whose fixture list does not
   // cover the selection owns nothing here, so the property keeps its
-  // normal controls instead of showing the effect's card. An empty
-  // fixture list means all fixtures. The effect must cover every
-  // selected fixture (or selected beam's fixture) — for a mixed
-  // selection the un-owned fixtures keep their editable controls.
+  // normal controls instead of showing the effect's card. An effect
+  // with no fixtures (empty list — Jake, 27 Nov 2026) owns nothing.
+  // The effect must cover every selected fixture (or selected beam's
+  // fixture) — for a mixed selection the un-owned fixtures keep their
+  // editable controls.
   const effectForAttribute = (attribute: string) => {
     const base = attribute.replace(/ ?\d+$/, '')
     const selectedIds = selectedBeams.length > 0
@@ -279,7 +280,7 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
     return effects.find((effect) =>
       effect.enabled &&
       selectedIds.length > 0 &&
-      (effect.fixtureIds.length === 0 || selectedIds.every((id) => effect.fixtureIds.includes(id))) &&
+      selectedIds.every((id) => effect.fixtureIds.includes(id)) &&
       (effect.attribute === attribute ||
         effect.attribute === base ||
         (effect.attribute === 'color' && isColourAttribute(attribute)) ||

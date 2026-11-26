@@ -7,6 +7,7 @@ import type {
   EffectFixtureOrder,
   EffectSample,
   EffectWaveform,
+  FixtureDef,
   MovementPathDef,
   PatternEffect
 } from '@shared/types'
@@ -295,6 +296,13 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     () => (show?.fixtures ?? []).filter((f) => selectedFixtureIds.includes(f.id)),
     [show?.fixtures, selectedFixtureIds]
   )
+  // Fixtures a new effect is created for (Jake, 27 Nov 2026): an empty
+  // fixtureIds now means "no fixtures", so creating with nothing
+  // selected must spell out all fixtures — the old "no selection =
+  // all" behaviour — instead of minting a dead effect.
+  const targetFixtureIds = selectedFixtureIds.length > 0
+    ? [...selectedFixtureIds]
+    : (show?.fixtures ?? []).map((f) => f.id)
   const effectable = useMemo(
     () => new Set(effectableProperties(fixtures).map((p) => p.attribute)),
     [fixtures]
@@ -348,7 +356,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
 
   const existingFor = (property: string) =>
     effects.find(
-      (e) => e.enabled && e.attribute === property && (e.fixtureIds.length === 0 || e.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
+      (e) => e.enabled && e.attribute === property && e.fixtureIds.some((id) => selectedFixtureIds.includes(id))
     )
 
   const openEditor = (id: string) => {
@@ -364,17 +372,17 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
   // so it can never be captured into a cue or survive a reload.
   const togglePreview = (template: LightKeyTemplate) => {
     if (previewEffectTemplateId === template.id) { setPreviewEffect(null); return }
-    setPreviewEffect({ ...createEffectFromTemplate(template, selectedFixtureIds), enabled: true }, template.id)
+    setPreviewEffect({ ...createEffectFromTemplate(template, targetFixtureIds), enabled: true }, template.id)
   }
   const toggleProjectPreview = (template: EffectDef) => {
     if (previewEffectTemplateId === template.id) { setPreviewEffect(null); return }
-    setPreviewEffect({ ...structuredClone(template), id: crypto.randomUUID(), fixtureIds: [...selectedFixtureIds], enabled: true }, template.id)
+    setPreviewEffect({ ...structuredClone(template), id: crypto.randomUUID(), fixtureIds: [...targetFixtureIds], enabled: true }, template.id)
   }
 
   const addBuiltIn = (template: LightKeyTemplate) => {
     setPreviewEffect(null)
     const run = () => {
-      const effect = createEffectFromTemplate(template, selectedFixtureIds)
+      const effect = createEffectFromTemplate(template, targetFixtureIds)
       addEffect(effect)
       openEditor(effect.id)
     }
@@ -432,7 +440,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
     const base: EffectDef = {
       id: newEffectId(),
       name: `${attributeLabel(templateProperty)} Effect`,
-      fixtureIds: [...selectedFixtureIds],
+      fixtureIds: [...targetFixtureIds],
       attribute: templateProperty,
       waveform: 'sine',
       speed: 1,
@@ -2935,6 +2943,84 @@ export function EffectIndicator({ effect, onEdit }: { effect: EffectDef; onEdit:
   )
 }
 
+/**
+ * Fixtures this effect runs on (Jake, 27 Nov 2026 — K.I.T.T./PB1):
+ * the editor used to show no membership at all, and the only way to
+ * change it was the Fixture Order menu's "Change Fixtures…", which
+ * silently replaced the whole list from the Preview selection. This
+ * section lists the members, removes one at a time, and adds fixtures
+ * — one at a time from a dropdown, or the Preview's current selection
+ * with "Add selected". Removing the last fixture is allowed: an
+ * effect with no fixtures runs on nothing (empty fixtureIds no
+ * longer means "all fixtures" — old shows are migrated on load).
+ * Edits write live into the effect like every other editor field, so
+ * Update keeps them and Cancel restores the snapshot.
+ */
+function EffectFixturesSection({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
+  const fixtures = useShowStore((s) => s.show?.fixtures ?? [])
+  const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
+  const [addId, setAddId] = useState('')
+  const members = effect.fixtureIds
+    .map((id) => fixtures.find((f) => f.id === id))
+    .filter((f): f is FixtureDef => Boolean(f))
+  const staleIds = effect.fixtureIds.filter((id) => !fixtures.some((f) => f.id === id))
+  const addable = fixtures.filter((f) => !effect.fixtureIds.includes(f.id))
+  const addableSelected = selectedFixtureIds.filter((id) => !effect.fixtureIds.includes(id))
+  const remove = (id: string) => update({ fixtureIds: effect.fixtureIds.filter((member) => member !== id) })
+  const add = (id: string) => {
+    if (!id || effect.fixtureIds.includes(id)) return
+    update({ fixtureIds: [...effect.fixtureIds, id] })
+    setAddId('')
+  }
+  return (
+    <section aria-label="Effect fixtures" className="flex flex-wrap items-center gap-2 rounded border border-line bg-panel2 p-2 text-xs">
+      <strong className="shrink-0">Fixtures</strong>
+      {members.length === 0 && staleIds.length === 0 ? (
+        <span className="text-dim">No fixtures — this effect runs on nothing.</span>
+      ) : (
+        <ul className="flex flex-wrap items-center gap-1">
+          {members.map((fixture) => (
+            <li key={fixture.id} className="flex items-center gap-1 rounded bg-bg px-2 py-0.5">
+              <span>{fixture.name}</span>
+              <button type="button" aria-label={`Remove ${fixture.name} from effect`} className="rounded px-1 text-dim hover:text-[var(--text)]" onClick={() => remove(fixture.id)}>✕</button>
+            </li>
+          ))}
+          {staleIds.map((id) => (
+            <li key={id} className="flex items-center gap-1 rounded bg-bg px-2 py-0.5 text-dim">
+              <span title="Fixture no longer in this show">{id}</span>
+              <button type="button" aria-label={`Remove ${id} from effect`} className="rounded px-1 text-dim hover:text-[var(--text)]" onClick={() => remove(id)}>✕</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="ml-auto flex flex-wrap items-center gap-1">
+        <select
+          aria-label="Add fixture to effect"
+          value={addId}
+          disabled={addable.length === 0}
+          onChange={(event) => setAddId(event.target.value)}
+          className="min-w-32 rounded bg-bg px-2 py-1 text-xs disabled:opacity-50"
+        >
+          <option value="">{addable.length === 0 ? 'All fixtures are in this effect' : 'Add a fixture…'}</option>
+          {addable.map((fixture) => (
+            <option key={fixture.id} value={fixture.id}>{fixture.name}</option>
+          ))}
+        </select>
+        <button type="button" className="btn-theme text-xs" disabled={!addId} onClick={() => add(addId)}>Add</button>
+        <button
+          type="button"
+          title="Add the fixtures currently selected in the Preview"
+          className="btn-theme text-xs"
+          disabled={addableSelected.length === 0}
+          onClick={() => update({ fixtureIds: [...effect.fixtureIds, ...addableSelected] })}
+        >
+          Add selected
+        </button>
+      </span>
+    </section>
+  )
+}
+
 export function EffectEditor({ effectTabHost, effectToolsHost, movementChartHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; movementChartHost?: HTMLElement | null } = {}) {
   const editingEffectId = useShowStore((s) => s.editingEffectId)
   const setEditingEffectId = useShowStore((s) => s.setEditingEffectId)
@@ -3109,12 +3195,13 @@ export function EffectEditor({ effectTabHost, effectToolsHost, movementChartHost
           <button type="button" className="text-xs text-dim" onClick={() => setSavingTemplate(false)}>Cancel</button>
         </div>
       )}
-      {/* Body (Jake's screenshots): the timing column on the left, the
-          pattern samples / curve canvas / movement path in the centre,
-          and the pattern picker + parameters on the right. The centre
-          column is a flex column so the sample strip (pattern) and
-          the canvas (curve) stretch to fill the panel height instead
-          of scrolling. */}
+      {/* Body (Jake's screenshots): the fixture membership on top, then
+          the timing column on the left, the pattern samples / curve
+          canvas / movement path in the centre, and the pattern picker
+          + parameters on the right. The centre column is a flex column
+          so the sample strip (pattern) and the canvas (curve) stretch
+          to fill the panel height instead of scrolling. */}
+      <EffectFixturesSection effect={effect} update={update} />
       <div className="flex min-h-0 flex-1 gap-3">
         <TimingColumn effect={effect} update={update} />
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">

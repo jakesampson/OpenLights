@@ -250,7 +250,7 @@ export type EffectFixtureOrder =
 export interface EffectDef {
   id: string
   name: string
-  fixtureIds: string[] // empty = all fixtures
+  fixtureIds: string[] // empty = no fixtures (the effect runs on nothing); old shows are migrated on load, expanding an empty list to every fixture (Jake, 27 Nov 2026)
   attribute: string // e.g. 'intensity', 'pan', 'tilt', 'red'
   waveform: EffectWaveform
   speed: number // cycles per beat when synced, cycles per second otherwise
@@ -530,6 +530,10 @@ export interface StageObject {
   fontSize?: number
   flipX?: boolean
   flipY?: boolean
+  /** Locked in place on the Preview (Jake, 27 Nov 2026): a locked image
+   *  cannot be dragged or corner-resized, but stays selectable so it can
+   *  be unlocked again. */
+  locked?: boolean
   trussShape?: PreviewTruss['shape']
   /** Curved truss only — see PreviewTruss.startAngle / endAngle. */
   startAngle?: number

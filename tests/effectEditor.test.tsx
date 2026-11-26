@@ -1121,7 +1121,7 @@ describe('effect editor pill bar, sample strip, params and fixture order (Jake, 
   it('Fixture Order menu lists LightKey entries in order and wires them', () => {
     setShow()
     act(() => {
-      useShowStore.getState().addEffect({ ...chaseEffect(), fixtureIds: [] })
+      useShowStore.getState().addEffect(chaseEffect())
       useShowStore.setState({ editingEffectId: 'e-chase' })
     })
     renderInRoot(<DesignTab />)

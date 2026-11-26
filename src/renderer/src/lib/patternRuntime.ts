@@ -4,6 +4,7 @@ import { scaleAttribute } from './automationRuntime'
 import {
   effectDurationSeconds,
   orderedEffectPixels,
+  writeColourDimmer,
   writeEffectChannel,
   writeVirtualDimmer,
   type EffectPixel
@@ -495,15 +496,24 @@ export function computePatternPatch(
   const pixels = orderedEffectPixels(effect, fixtures, primaryAttribute, activationSeed)
   const count = pixels.length
   if (count === 0) return into
+  // Peak colour written to each fixture, for the colour-dimmer rule
+  // (writeColourDimmer): a colour effect opens the dimmer of every
+  // fixture it writes a non-black colour to.
+  const colourPeaks = new Map<string, number>()
 
   pixels.forEach((pixel) => {
     if (pixel.fixture.disabled) return
     const value = patternPixelValue(pattern, effect, samples, timeSeconds, duration, pixel.phaseIndex, count, color)
     if (color && value.color) {
+      // Colour effects also open the dimmer (writeColourDimmer): the
+      // peak colour written to each fixture, so a fixture with a
+      // physical dimmer lights exactly when the effect lights it.
+      colourPeaks.set(pixel.fixture.id, Math.max(colourPeaks.get(pixel.fixture.id) ?? 0, value.color.r, value.color.g, value.color.b))
       writeColor(into, pixel, value.color, effect, master)
     } else if (value.intensity !== undefined) {
       writeIntensity(into, pixel, value.intensity, effect, master, baseValues)
     }
   })
+  if (color) for (const fixture of fixtures) writeColourDimmer(into, fixture, colourPeaks.get(fixture.id) ?? 0, effect, master)
   return into
 }

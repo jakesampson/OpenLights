@@ -85,6 +85,9 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     if (additive) { selectFixtures(selectedFixtureIds.includes(id) ? selectedFixtureIds.filter((item) => item !== id) : [...selectedFixtureIds, id]); return }
     selectFixtures(resolveFixtureClickSelection(show?.fixtureGroups ?? [], id, selectedFixtureIds))
   }
+  // Selecting a stage object also clears the truss and fixture
+  // selections — one selection at a time on the canvas.
+  const selectStageObject = (id: string | null) => { setSelectedStageObjectId(id); setSelectedPreviewTrussId(null); selectFixtures([]) }
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -704,6 +707,10 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           setMarquee({ start, current: start, additive: event.shiftKey })
           svgRef.current?.setPointerCapture(event.pointerId)
         }} />
+        {/* Images paint first so they always sit behind the trusses
+            and fixtures (Jake, 27 Nov 2026) — the second layer below
+            carries everything else. See StageObjectLayer. */}
+        <StageObjectLayer imagesOnly editing={editing} selectedId={selectedStageObjectId} select={selectStageObject} />
         {trusses.map((savedTruss) => { const truss = trussDraft?.id === savedTruss.id ? trussDraft : savedTruss; return <g key={truss.id} transform={`translate(${truss.x} ${truss.y}) rotate(${truss.rotation})`} onPointerDown={(event) => { if (!editing) return; event.preventDefault(); event.stopPropagation(); const start = pointAt(event); if (!start) return; setSelectedPreviewTrussId(truss.id); trussDragRef.current = { mode: 'move', start, original: truss, current: truss }; svgRef.current?.setPointerCapture(event.pointerId) }} style={{ cursor: editing ? 'grab' : 'default', touchAction: 'none' }}>
           {(() => { const isArc = truss.shape === 'curved' || truss.shape === 'circular'; const path = isArc ? trussArcPath(truss) : truss.shape === 'u' ? `M ${-truss.width / 2} ${truss.height / 2} V ${-truss.height / 2} H ${truss.width / 2} V ${truss.height / 2}` : `M ${-truss.width / 2} 0 H ${truss.width / 2}`; return <>
             <path d={path} fill="none" stroke={(selectedPreviewTrussId === truss.id || selectedLayoutTrussIds.includes(truss.id)) && editing ? 'var(--sel)' : 'var(--line)'} strokeWidth="8" strokeLinecap="round" />
@@ -725,7 +732,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           {editing && <text x="0" y="-10" transform={`rotate(${-truss.rotation} 0 -10)`} textAnchor="middle" fill="var(--text)" fontSize="8">{truss.name}</text>}
         </g>})}
 
-        <StageObjectLayer editing={editing} selectedId={selectedStageObjectId} select={(id) => { setSelectedStageObjectId(id); setSelectedPreviewTrussId(null); selectFixtures([]) }} />
+        <StageObjectLayer editing={editing} selectedId={selectedStageObjectId} select={selectStageObject} />
         {/* Beams — one icon per Count instance (Guide p.30), each with
             its own stored position and draggable on its own. Dragging
             one instance moves only it, plus the icons of any other

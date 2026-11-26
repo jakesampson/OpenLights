@@ -5,6 +5,7 @@ import {
   effectDurationSeconds,
   orderedEffectPixels,
   waveformValue,
+  writeColourDimmer,
   writeEffectChannel,
   writeVirtualDimmer,
   type EffectPatchOptions,
@@ -209,6 +210,16 @@ export function computeDrawableCurvePatch(
   }
 
   if (isColor) {
+    // Colour effects also open the dimmer (writeColourDimmer): the
+    // peak colour written to each fixture, so a fixture with a
+    // physical dimmer lights exactly when the effect lights it.
+    const colourPeaks = new Map<string, number>()
+    const notePeak = (fixtureId: string, value: number) => {
+      colourPeaks.set(fixtureId, Math.max(colourPeaks.get(fixtureId) ?? 0, value))
+    }
+    const flushColourDimmer = () => {
+      for (const fixture of fixtures) writeColourDimmer(into, fixture, colourPeaks.get(fixture.id) ?? 0, effect, master)
+    }
     // Color: one curve per color-model component; HSB converts to RGB.
     const model = effect.colorModel ?? 'rgb'
     if (model === 'hsb') {
@@ -223,10 +234,12 @@ export function computeDrawableCurvePatch(
         const s = saturation ? evaluateCurve(saturation.points, saturation.curvedSegments, t) : 1
         const v = brightness ? evaluateCurve(brightness.points, brightness.curvedSegments, t) : 1
         const { r, g, b } = hsvToRgb({ h, s, v })
+        notePeak(pixel.fixture.id, Math.max(r, g, b))
         writePixelChannel(into, pixel, r, effect, master, options)
         writePixelChannel(into, siblingPixel(pixel, 'green'), g, effect, master, options)
         writePixelChannel(into, siblingPixel(pixel, 'blue'), b, effect, master, options)
       })
+      flushColourDimmer()
       return into
     }
     // RGB / CMY: each component writes its own channel.
@@ -237,6 +250,7 @@ export function computeDrawableCurvePatch(
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
         const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
+        notePeak(pixel.fixture.id, value)
         writePixelChannel(into, pixel, value, effect, master, options)
       })
     }
@@ -248,9 +262,11 @@ export function computeDrawableCurvePatch(
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
         const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
+        notePeak(pixel.fixture.id, value)
         writePixelChannel(into, pixel, value, effect, master, options)
       })
     }
+    flushColourDimmer()
     return into
   }
 

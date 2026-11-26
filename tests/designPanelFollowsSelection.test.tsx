@@ -8,7 +8,8 @@
 //
 // Two fixes under test, both in DesignTab:
 // (1) effectForAttribute only matches an enabled effect whose fixture
-//     list covers every selected fixture (empty = all fixtures) —
+//     list covers every selected fixture (empty = no fixtures — the
+//     effect runs on nothing, Jake, 27 Nov 2026) —
 //     Guide ch.10, p.149: the property area shows the effect icon when
 //     an effect is *controlling* the property.
 // (2) fixtureAttr/positionAttr read the active palette presets layer
@@ -124,10 +125,11 @@ describe('Design panel follows the selected fixtures', () => {
     expect(showsWheel()).toBe(false)
   })
 
-  it('an effect with an empty fixture list (all fixtures) shows its card for any selection', () => {
+  it('an effect with an empty fixture list (no fixtures) shows no card for any selection', () => {
     setShow({ effects: [kittEffect([])], selectedFixtureIds: ['fx1'] })
     renderInRoot(<DesignTab />)
-    expect(showsEffectCard()).toBe(true)
+    expect(showsEffectCard()).toBe(false)
+    expect(showsWheel()).toBe(true)
   })
 
   it('a mixed selection keeps the wheel when the effect does not cover every selected fixture', () => {
