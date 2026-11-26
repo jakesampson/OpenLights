@@ -649,6 +649,10 @@ export default function App() {
       else if (command === 'deselectAll') { state.selectFixtures([]); state.setSelectedLayoutTrussIds([]); state.setSelectedPreviewTrussId(null); state.setSelectedStageObjectId(null) }
       else if (command === 'beamColor') window.dispatchEvent(new Event('openlights-open-beam-color'))
       else if (command === 'fixtureOptions') window.dispatchEvent(new Event('openlights-open-fixture-options'))
+      // Ungroup (Guide p.64): no keyboard binding — the fixture menu
+      // and the Layout menu dispatch it through this event (the Group
+      // shortcut stays bound to Group).
+      else if (command === 'ungroup') state.ungroupSelectedFixtures()
       else if (command.startsWith('align')) window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: ({ alignLeft: 'left', alignRight: 'right', alignTop: 'top', alignBottom: 'bottom', alignCenterX: 'center-x', alignCenterY: 'center-y' } as Record<string, string>)[command] }))
       else if (command === 'distributeX') window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: 'space-x' }))
       else if (command === 'distributeY') window.dispatchEvent(new CustomEvent('openlights-preview-align', { detail: 'space-y' }))

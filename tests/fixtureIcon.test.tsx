@@ -35,10 +35,10 @@ afterEach(() => {
   container = undefined
 })
 
-function renderIcon(kind: FixtureIconKind, props: Partial<{ on: boolean; color: string; selected: boolean; cells: number }> = {}) {
+function renderIcon(kind: FixtureIconKind, props: Partial<{ on: boolean; color: string; selected: boolean; cells: number; editing: boolean }> = {}) {
   const el = renderInRoot(
     <svg>
-      <FixtureIcon kind={kind} x={100} y={100} on={props.on ?? true} color={props.color ?? '#ff0000'} selected={props.selected ?? false} cells={props.cells} />
+      <FixtureIcon kind={kind} x={100} y={100} on={props.on ?? true} color={props.color ?? '#ff0000'} selected={props.selected ?? false} cells={props.cells} editing={props.editing ?? false} />
     </svg>
   )
   return el.querySelector('svg')!
@@ -140,11 +140,16 @@ describe('FixtureIcon', () => {
     expect(svg.querySelector('circle[r="2.6"]')).toBeNull()
   })
 
-  it('selected round icons get a circular ring, rectangular icons a rounded-rect ring', () => {
-    expect(renderIcon('par', { selected: true }).querySelector('circle[r="9"]')).not.toBeNull()
-    const panel = renderIcon('panel', { selected: true })
+  it('selected round icons get a blue surround in edit mode, rectangular icons a blue rounded-rect ring', () => {
+    expect(renderIcon('par', { selected: true, editing: true }).querySelector('circle[r="9"]')?.getAttribute('stroke')).toBe('#0A84FF')
+    const panel = renderIcon('panel', { selected: true, editing: true })
     expect(panel.querySelector('circle[r="9"]')).toBeNull()
-    expect(panel.querySelector('rect[rx="3"]')).not.toBeNull()
+    expect(panel.querySelector('rect[width="16"]')?.getAttribute('stroke')).toBe('#0A84FF')
+  })
+
+  it('selected icons get no surround outside edit mode — StagePreview draws the LightKey box there (Jake, 26 Nov 2026)', () => {
+    expect(renderIcon('par', { selected: true }).querySelector('circle[r="9"]')).toBeNull()
+    expect(renderIcon('panel', { selected: true }).querySelector('rect[width="16"]')).toBeNull()
   })
 })
 
@@ -196,7 +201,7 @@ describe('StagePreview fixture icons', () => {
     channels = []
   })
 
-  async function renderShow(selectedFixtureIds: string[] = []) {
+  async function renderShow(selectedFixtureIds: string[] = [], editing = false) {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     const show = {
@@ -230,7 +235,7 @@ describe('StagePreview fixture icons', () => {
         editingCueAdHocId: null,
         manualOverrides: {},
         showOverrideLabels: false,
-        previewEditing: false
+        previewEditing: editing
       })
     })
     const el = renderInRoot(<StagePreview />)
@@ -264,11 +269,19 @@ describe('StagePreview fixture icons', () => {
     expect(group.querySelectorAll('rect[width="7"]')).toHaveLength(4)
   })
 
-  it('selected fixtures keep their selection ring, shaped to the icon', async () => {
-    const el = await renderShow(['par1', 'bar1'])
-    expect(fixtureGroup(el, 'P1').querySelector('circle[r="9"]')).not.toBeNull()
+  it('selected fixtures keep their blue selection ring in edit mode, shaped to the icon', async () => {
+    const el = await renderShow(['par1', 'bar1'], true)
+    expect(fixtureGroup(el, 'P1').querySelector('circle[r="9"]')?.getAttribute('stroke')).toBe('#0A84FF')
     // The bar's selection surround is drawn with its housing, not as a circle.
     expect(fixtureGroup(el, 'B1').querySelector('circle[r="9"]')).toBeNull()
-    expect(fixtureGroup(el, 'B1').querySelector('rect[rx="3"]')).not.toBeNull()
+    expect(fixtureGroup(el, 'B1').querySelector('rect[rx="3"]')?.getAttribute('stroke')).toBe('#0A84FF')
+  })
+
+  it('selected fixtures get the LightKey box, not the blue ring, outside edit mode (Jake, 26 Nov 2026)', async () => {
+    const el = await renderShow(['par1', 'bar1'])
+    expect(fixtureGroup(el, 'P1').querySelector('rect[fill="#000000"]')).not.toBeNull()
+    expect(fixtureGroup(el, 'P1').querySelector('circle[r="9"]')).toBeNull()
+    expect(fixtureGroup(el, 'B1').querySelector('rect[fill="#000000"]')).not.toBeNull()
+    expect(fixtureGroup(el, 'B1').querySelector('rect[rx="3"]')).toBeNull()
   })
 })

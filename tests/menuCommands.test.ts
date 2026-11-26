@@ -18,6 +18,12 @@ describe('macOS application menu (Jake, 24 Nov 2026 — Cmd+Q did nothing)', () 
 })
 
 describe('Windows and context menu commands', () => {
+  it('lists Ungroup right after Group in the Layout menu (Guide p.64)', () => {
+    const layout = WINDOWS_MENU.find((group) => group.label === 'Layout')!
+    const commands = layout.items.map((item) => item.command).filter(Boolean)
+    expect(commands).toContain('ungroup')
+    expect(commands.indexOf('ungroup')).toBe(commands.indexOf('group') + 1)
+  })
   it('maps every menu command to a shortcut action or a labelled binding-less command', () => {
     const commands = new Set(SHORTCUTS.map((binding) => binding.command))
     const menuCommands = WINDOWS_MENU.flatMap((group) => group.items.flatMap((item) => item.command ? [item.command] : []))

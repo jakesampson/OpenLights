@@ -1052,6 +1052,16 @@ select optgroup { background: #555658; color: #fff; }
   border-radius: 50%;
 }
 
+/* No bounding-box outline on fixture groups in the Preview (Jake,
+   26 Nov 2026): the focused fixture group's outline drew a white box
+   around the whole fixture + beam, because the <g> bounding box spans
+   the label, the icon and the beam cone. Selection is shown by the
+   LightKey box + blue label instead; keyboard focus still lands on
+   the fixture, and Enter/Space selects it (which draws the box). */
+.stage-preview [role="button"] {
+  outline: none;
+}
+
 /* Colour wheel value popup: the small `Label: value` pill above the
    pointer while dragging only. pointer-events: none, so it can never
    intercept input or cover the wheel's hit area. Positioned by the

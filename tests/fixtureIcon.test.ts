@@ -2,7 +2,7 @@
 // p.32). The kind resolves from OFL categories first, then the
 // profile's legacy type, then the fixture's own type.
 import { describe, it, expect } from 'vitest'
-import { fixtureIconKind } from '../src/renderer/src/lib/fixtureIcon'
+import { fixtureIconKind, lightKeySelectionBox } from '../src/renderer/src/lib/fixtureIcon'
 import type { FixtureDef, FixtureProfile } from '../src/shared/types'
 
 function fixture(partial: Partial<FixtureDef>): FixtureDef {
@@ -79,5 +79,29 @@ describe('fixtureIconKind', () => {
   it('ignores a missing OFL source and uses the type instead', () => {
     const f = fixture({ type: 'moving-head', profile: profile({ legacyType: 'moving-head', ofl: { manufacturerKey: 'm', fixtureKey: 'f' } }) })
     expect(fixtureIconKind(f)).toBe('moving-head')
+  })
+})
+
+describe('lightKeySelectionBox (Jake, 26 Nov 2026 — his LightKey screenshot)', () => {
+  it('hugs a round icon with the same padding the edit-mode handles use', () => {
+    expect(lightKeySelectionBox('par', 1)).toEqual({ halfWidth: 12, halfHeight: 12 })
+    expect(lightKeySelectionBox('moving-head', 1.5)).toEqual({ halfWidth: 16.5, halfHeight: 16.5 })
+  })
+
+  it('hugs a rectangular icon from its selection rect', () => {
+    expect(lightKeySelectionBox('panel', 1)).toEqual({ halfWidth: 11, halfHeight: 10 })
+    expect(lightKeySelectionBox('strobe', 2)).toEqual({ halfWidth: 20, halfHeight: 14 })
+  })
+
+  it('sizes a multi-cell LED bar to its housing, a single-cell bar to its small bar', () => {
+    // 4 cells: (4-1)*9 + 11 = 38 wide, +3 padding each side; 16 tall.
+    expect(lightKeySelectionBox('led-bar', 1, 4)).toEqual({ halfWidth: 22, halfHeight: 8 })
+    expect(lightKeySelectionBox('led-bar', 1, 1)).toEqual({ halfWidth: 12.5, halfHeight: 9 })
+  })
+
+  it('is always bigger than the icon but far smaller than a beam', () => {
+    const box = lightKeySelectionBox('par', 1)
+    expect(box.halfWidth).toBeGreaterThan(9) // the icon's r=9 surround
+    expect(box.halfWidth).toBeLessThan(40) // a beam at full length is 146
   })
 })

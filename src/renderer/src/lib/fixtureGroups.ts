@@ -44,6 +44,20 @@ export function canParentGroup(groups: { id: string; parentId?: string | null }[
   return true
 }
 
+/** Which Group/Ungroup entries the fixture menu shows (Jake, 26 Nov
+ *  2026 — the right-click menu had Group but no Ungroup; LightKey
+ *  Guide p.64 shows them as alternatives). All selected fixtures in
+ *  groups → Ungroup only; none in groups → Group only; a mix → both
+ *  (the menu shows both, the operator picks). The 'Ungrouped' record
+ *  is not a group, so its members count as ungrouped. */
+export function fixtureGroupMenuCommands(groups: FixtureGroup[], selectedIds: string[]): Array<'group' | 'ungroup'> {
+  if (selectedIds.length === 0) return ['group']
+  const inGroup = selectedIds.filter((id) => groups.some((g) => g.name !== 'Ungrouped' && g.fixtureIds.includes(id)))
+  if (inGroup.length === 0) return ['group']
+  if (inGroup.length === selectedIds.length) return ['ungroup']
+  return ['group', 'ungroup']
+}
+
 /** Next free "Group N" name for the Group command (Layout > Group,
  *  Control-click → Group, Guide p.35). LightKey's auto-name for a group
  *  created from a selection is not documented in the guide; "Group N" is

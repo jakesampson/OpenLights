@@ -39,7 +39,8 @@ export function FixtureIcon({
   on,
   color,
   selected,
-  cells = 1
+  cells = 1,
+  editing = false
 }: {
   kind: FixtureIconKind
   x: number
@@ -49,12 +50,20 @@ export function FixtureIcon({
   selected: boolean
   /** Number of cells (beams) — an LED bar with fewer than two draws a small bar here. */
   cells?: number
+  /** Edit mode: the blue surround + blue icon outline (Guide p.53).
+   *  Outside edit mode a selected fixture shows LightKey's black box
+   *  + blue label instead (Jake, 26 Nov 2026), drawn by StagePreview,
+   *  so the icon keeps its normal outline there. */
+  editing?: boolean
 }) {
   const fill = on ? color : 'var(--panel2)'
   // Selected fixtures show LightKey's blue (Guide p.53 — the selected
-  // fixture's blue handles and label), not the app's purple accent.
-  const stroke = selected ? '#0A84FF' : 'var(--line)'
-  const strokeWidth = selected ? 2 : 1.5
+  // fixture's blue handles and label), not the app's purple accent —
+  // in edit mode only. Outside edit mode the LightKey selection box
+  // (StagePreview) carries the selection, so the icon outline stays
+  // its normal colour, as in Jake's LightKey screenshot.
+  const stroke = selected && editing ? '#0A84FF' : 'var(--line)'
+  const strokeWidth = selected && editing ? 2 : 1.5
   // Dark detail on a lit icon, dark detail on a dark (off) one.
   const detail = on ? 'rgba(0,0,0,0.55)' : 'var(--bg)'
   const line = on ? color : 'var(--line)'
@@ -63,7 +72,7 @@ export function FixtureIcon({
   return (
     <>
       <line x1={x} y1={y} x2={x} y2={y - 8} stroke="var(--text)" strokeWidth="1.5" />
-      {selected &&
+      {selected && editing &&
         (isBar && !smallBar ? null : fixtureIconIsRound(kind) && !smallBar ? (
           <circle cx={x} cy={y} r="9" fill="#0A84FF" fillOpacity="0.22" stroke="#0A84FF" strokeWidth="2" />
         ) : (

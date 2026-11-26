@@ -165,7 +165,7 @@ describe('Layout / Edit menus are the new home for the removed panel controls', 
     expect(edit.items.map((i) => i.command)).toContain('selectAll')
     expect(edit.items.map((i) => i.command)).toContain('deselectAll')
     const layout = WINDOWS_MENU.find((g) => g.label === 'Layout')!
-    expect(layout.items.map((i) => i.label)).toEqual(['Beam Direction…', 'Beam Color…', 'Fixture Options…', '', 'Align', 'Distribute', 'Flip', 'Order', '', 'Group'])
+    expect(layout.items.map((i) => i.label)).toEqual(['Beam Direction…', 'Beam Color…', 'Fixture Options…', '', 'Align', 'Distribute', 'Flip', 'Order', '', 'Group', 'Ungroup'])
     const align = layout.items.find((i) => i.label === 'Align')!
     expect(align.submenu?.map((s) => s.command)).toEqual(['alignLeft', 'alignRight', 'alignTop', 'alignBottom', 'alignCenterX', 'alignCenterY'])
     expect(layout.items.find((i) => i.label === 'Distribute')!.submenu?.map((s) => s.command)).toEqual(['distributeX', 'distributeY'])

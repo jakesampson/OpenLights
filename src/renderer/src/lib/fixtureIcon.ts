@@ -111,3 +111,19 @@ export function fixtureIconSelectionRect(kind: FixtureIconKind): { halfWidth: nu
       return { halfWidth: 7.5, halfHeight: 7.5 }
   }
 }
+
+/** Half-size of LightKey's selection box (Jake, 26 Nov 2026 — his
+ *  LightKey screenshot): one light black opaque rounded box per
+ *  selected fixture, hugging the icon only, never the beam. Round
+ *  icons get a square box around the icon's r=9 surround; rectangular
+ *  icons use their selection rect; an LED bar with two or more cells
+ *  uses its housing (fixed 9-unit spacing, not scaled by icon size —
+ *  see StagePreview), a single-cell bar its small bar. The +3 is the
+ *  same padding the edit-mode handles use. */
+export function lightKeySelectionBox(kind: FixtureIconKind, iconScale: number, cells = 1): { halfWidth: number; halfHeight: number } {
+  if (kind === 'led-bar' && cells >= 2) return { halfWidth: ((cells - 1) * 9 + 11) / 2 + 3, halfHeight: 8 }
+  if (kind === 'led-bar') return { halfWidth: 9.5 * iconScale + 3, halfHeight: 6 * iconScale + 3 }
+  if (fixtureIconIsRound(kind)) return { halfWidth: 9 * iconScale + 3, halfHeight: 9 * iconScale + 3 }
+  const rect = fixtureIconSelectionRect(kind)
+  return { halfWidth: rect.halfWidth * iconScale + 3, halfHeight: rect.halfHeight * iconScale + 3 }
+}

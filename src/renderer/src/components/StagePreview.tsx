@@ -13,7 +13,7 @@ import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } fr
 import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
 import { FixtureIcon } from './FixtureIcon'
-import { fixtureIconKind, fixtureIconSelectionRect } from '../lib/fixtureIcon'
+import { fixtureIconKind, fixtureIconSelectionRect, lightKeySelectionBox } from '../lib/fixtureIcon'
 import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
@@ -624,7 +624,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
       {calibrationFixtureIds && <CalibrationDialog fixtureIds={calibrationFixtureIds} onClose={() => setCalibrationFixtureIds(null)} />}
       <svg
         ref={svgRef}
-        className="h-full w-full"
+        className="stage-preview h-full w-full select-none"
         style={{ touchAction: 'none' }}
         onDragOver={(event) => { if (editing && event.dataTransfer.types.includes('application/x-openlights-fixture')) event.preventDefault() }}
         onDrop={(event) => { if (!editing) return; const id = event.dataTransfer.getData('application/x-openlights-fixture'), point = pointAt(event); if (point && storedFixtures.some((f) => f.id === id)) { event.preventDefault(); setFixturePositions({ [id]: point }); selectFixtures([id]) } }}
@@ -878,10 +878,13 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   selection + dragging. */}
               {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const labelY = f.namePosition === 'below' ? y + 20 : y - 13; const width = label.length * 4.6 + 10; return (<>
                 {/* LightKey's blue label pill for the selected fixture
-                    (Guide p.53): a blue rounded pill with white text
-                    while editing; the plain text label otherwise. */}
-                {editing && selected && <rect x={x - width / 2} y={labelY - 10} width={width} height="13" rx="6.5" fill="#0A84FF" pointerEvents="none" />}
-                <text x={x} y={labelY} textAnchor="middle" fill={editing && selected ? '#ffffff' : 'var(--text)'} fontSize="8" paintOrder="stroke" stroke={editing && selected ? 'none' : 'var(--bg)'} strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) clickFixture(f.id, event.shiftKey) }}>{label}</text>
+                    (Guide p.53): a blue rounded pill with white text.
+                    Jake's LightKey screenshot 26 Nov 2026: the pill
+                    shows for a selected fixture in the normal view too,
+                    not just while editing — so it is no longer gated on
+                    edit mode. */}
+                {selected && <rect x={x - width / 2} y={labelY - 10} width={width} height="13" rx="6.5" fill="#0A84FF" pointerEvents="none" />}
+                <text x={x} y={labelY} textAnchor="middle" fill={selected ? '#ffffff' : 'var(--text)'} fontSize="8" paintOrder="stroke" stroke={selected ? 'none' : 'var(--bg)'} strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) clickFixture(f.id, event.shiftKey) }}>{label}</text>
               </>) })()}
               {/* The blue dot left of the name (Guide ch.11, p.116; Jake's
                   LightKey screenshots 20 Nov 2026): a fixture with
@@ -902,8 +905,17 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   guide's claim does not hold there. */}
               {setupWizardStep === 'directions' && isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? y + 48 : y + 36} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
+              {/* LightKey's selection box (Jake, 26 Nov 2026 — his
+                  LightKey screenshot): a light black opaque rounded
+                  box behind the fixture icon, white border — one per
+                  selected fixture, hugging the icon only, never the
+                  beam. Painted after the beam so it sits over the
+                  beam's top sliver, before the icon so the icon stays
+                  on top. Edit mode keeps its blue surround + handles
+                  (FixtureIcon) instead. */}
+              {selected && !editing && (() => { const box = lightKeySelectionBox(kind, (f.iconSize ?? 10) / 10, beams.length); return <rect x={x - box.halfWidth} y={y - box.halfHeight} width={box.halfWidth * 2} height={box.halfHeight * 2} rx="6" fill="#000000" fillOpacity="0.55" stroke="#ffffff" strokeWidth="1.5" pointerEvents="none" /> })()}
               <g data-fixture-icon={f.id} transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
-                <FixtureIcon kind={kind} x={x} y={y} on={on} color={appearance.color} selected={selected} cells={beams.length} />
+                <FixtureIcon kind={kind} x={x} y={y} on={on} color={appearance.color} selected={selected} cells={beams.length} editing={editing} />
               </g>
               <circle
                 cx={x}
@@ -939,11 +951,13 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   small margin — drawn here, with the rects, so it
                   shares their fixed 9-unit spacing rather than the
                   icon group's rotation/scale. A selected bar gets the
-                  same accent surround the other icons get. */}
+                  same accent surround the other icons get — in edit
+                  mode; outside it the LightKey box above (sized to
+                  this housing) carries the selection. */}
               {kind === 'led-bar' && beams.length >= 2 && (() => { const width = (beams.length - 1) * 9 + 11; return (
                 <>
-                  {selected && <rect x={x - width / 2 - 3} y={y - 8} width={width + 6} height="16" rx="3" fill="#0A84FF" fillOpacity="0.22" stroke="#0A84FF" strokeWidth="2" />}
-                  <rect x={x - width / 2} y={y - 5} width={width} height="10" rx="1.5" fill={on ? appearance.color : 'var(--panel2)'} stroke={selected ? '#0A84FF' : 'var(--line)'} strokeWidth={selected ? '2' : '1.5'} />
+                  {selected && editing && <rect x={x - width / 2 - 3} y={y - 8} width={width + 6} height="16" rx="3" fill="#0A84FF" fillOpacity="0.22" stroke="#0A84FF" strokeWidth="2" />}
+                  <rect x={x - width / 2} y={y - 5} width={width} height="10" rx="1.5" fill={on ? appearance.color : 'var(--panel2)'} stroke={selected && editing ? '#0A84FF' : 'var(--line)'} strokeWidth={selected && editing ? '2' : '1.5'} />
                 </>
               ) })()}
               {beams.map((beam, index) => <rect key={beam.id} x={x + (index - (beams.length - 1) / 2) * 9 - 3} y={y - 4} width="7" height="8" fill={useShowStore.getState().selectedBeams.some((b) => b.fixtureId === f.id && b.beamId === beam.id) ? '#0A84FF' : cells[index]?.color ?? appearance.color} stroke="var(--text)" role="button" tabIndex={0} aria-label={`${f.name} ${beam.name}`} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) }} onKeyDown={(event) => { if (event.key === 'Enter') { event.stopPropagation(); useShowStore.getState().selectFixtureBeam(f.id, beam.id, event.shiftKey) } }} />)}

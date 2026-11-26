@@ -280,6 +280,13 @@ interface ShowState {
   parentFixtureGroup: (id: string, parentId: string | null) => void
   moveFixtureGroup: (id: string, direction: -1 | 1) => void
   removeFixtureGroup: (id: string) => void
+  /** Dissolve every group containing a selected fixture (Layout >
+   *  Ungroup / right-click → Ungroup, Guide p.64). The fixtures stay
+   *  selected and become ungrouped; groups that contained no selected
+   *  fixture are untouched. Unlike the Fixture groups panel's Delete
+   *  (which removes one named group record), this works from the
+   *  canvas selection. */
+  ungroupSelectedFixtures: () => void
   updateSelectedFixtures: (values: Record<string, number>, manual?: boolean) => void
   setSelectedColor: (color: RgbColor, manual?: boolean) => void
   /** Set the base colour (the wheel's hue / saturation / brightness) on
@@ -1970,6 +1977,26 @@ const actions: ShowState = {
     const fixtures = (state.show?.fixtures ?? []).map((f) => group?.fixtureIds.includes(f.id) && !groups.some((g) => g.fixtureIds.includes(f.id)) ? { ...f, group: 'Ungrouped' } : f)
     return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
   }),
+  // Ungroup (Guide p.64): the same dissolve as removeFixtureGroup, but
+  // for every group containing a selected fixture, in one set. A
+  // surviving child of a dissolved group is reparented to the nearest
+  // surviving ancestor (or none) — removeFixtureGroup's single-group
+  // reparent would strand it if its new parent is dissolved too.
+  ungroupSelectedFixtures: () => set((state) => {
+    if (!state.show || state.selectedFixtureIds.length === 0) return state
+    const selected = new Set(state.selectedFixtureIds)
+    const affected = (state.show.fixtureGroups ?? []).filter((g) => g.name !== 'Ungrouped' && g.fixtureIds.some((id) => selected.has(id)))
+    if (affected.length === 0) return state
+    const affectedIds = new Set(affected.map((g) => g.id))
+    const groups = (state.show.fixtureGroups ?? []).filter((g) => !affectedIds.has(g.id)).map((g) => {
+      if (!g.parentId || !affectedIds.has(g.parentId)) return g
+      let parentId: string | null = affected.find((a) => a.id === g.parentId)?.parentId ?? null
+      while (parentId && affectedIds.has(parentId)) parentId = affected.find((a) => a.id === parentId)?.parentId ?? null
+      return { ...g, parentId }
+    })
+    const fixtures = (state.show?.fixtures ?? []).map((f) => affected.some((g) => g.fixtureIds.includes(f.id)) && !groups.some((g) => g.name !== 'Ungrouped' && g.fixtureIds.includes(f.id)) ? { ...f, group: 'Ungrouped' } : f)
+    return persistState(state, { fixtures, fixtureGroups: syncFixtureGroups(groups, fixtures) })
+  }),
 
   refreshBaseOutput: (fadeMs?: number) => {
     const state = get()
@@ -3369,7 +3396,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
