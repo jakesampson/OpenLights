@@ -1,8 +1,8 @@
 import { useRef } from 'react'
 import { useShowStore } from '../stores/showStore'
-import { getPresetColor } from '../lib/presetColor'
 import { calculateTapTempo } from '../lib/tapTempo'
 import { LiveWorkspace } from './LiveWorkspace'
+import { LiveCueButtons } from './LiveCueButtons'
 import { MasterFader } from './MasterFader'
 import { XfadeSlider } from './XfadeSlider'
 
@@ -14,10 +14,8 @@ export function LiveTab() {
     togglePreset,
     clearPresets,
     cueLists,
-    activeCueId,
     activeCueListId,
     activeCueIndex,
-    activateCue,
     goToCue,
     cueNext,
     cuePrev,
@@ -46,29 +44,7 @@ export function LiveTab() {
       <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />
       <div className="flex min-w-0 flex-1 flex-col gap-3">
       <LiveWorkspace />
-      <section className="flex flex-col gap-1">
-        <h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Cues</h3>
-        {cues.length === 0 ? (
-          <p className="py-2 text-xs text-dim">No cues yet — edit fixtures in Design to start a new cue, then add it in Live Edit.</p>
-        ) : (
-          <div className="grid grid-cols-4 gap-1.5">
-            {cues.map((cue) => (
-              <button
-                key={cue.id}
-                type="button"
-                onClick={() => activateCue(cue.id)}
-                className={`pad rounded border border-line px-2 py-2 text-xs transition-colors ${
-                  cue.id === activeCueId
-                    ? 'active'
-                    : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'
-                }`}
-              >
-                <span className="flex items-center justify-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: getPresetColor(cue, presets) }} />{cue.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
+      <LiveCueButtons />
 
       <section className="flex flex-col gap-1">
         <div className="flex items-center justify-between"><h3 className="text-[10px] font-semibold uppercase tracking-wider text-dim">Preset layers</h3>{activePresetIds.length > 0 && <button type="button" className="text-xs text-dim underline" onClick={clearPresets}>Clear presets</button>}</div>

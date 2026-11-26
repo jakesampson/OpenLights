@@ -302,6 +302,12 @@ interface ShowState {
   saveFan: (fan: FanDef) => void
   deleteFan: (id: string, keepValues: boolean) => void
   activateCue: (id: string) => void
+  /** Turn the active cue off (Jake, 26 Nov 2026): clicking the lit cue
+   * in the Live tab's Cues section deactivates it — the rig fades back
+   * to the base look with no cue. Activation-only callers (wizard,
+   * cue-list playback, MIDI, number keys, search) keep using
+   * activateCue; only the LiveTab cue button toggles. */
+  deactivateCue: () => void
   /** Re-send the base look (the active cue, or the defaults when no cue
    * is active) with the current effective intensities — the base is
    * otherwise only recomputed when a cue activates, so a dimmer drag
@@ -1858,6 +1864,26 @@ const actions: ShowState = {
       if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: cue.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueId: id,
+        cuePlaying: false
+      }
+    }),
+
+  deactivateCue: () =>
+    set((state) => {
+      if (!state.activeCueId) return state
+      const cue = state.cues.find((s) => s.id === state.activeCueId)
+      // Fade time mirrors activation (Jake, 24 Nov 2026): the cue's own
+      // fadeMs where set, the global Default fade otherwise — the rig
+      // fades out over the same time it faded in. The base look is
+      // computed with the cue already cleared, so its values cannot
+      // leak back in; active presets, overrides and Live values still
+      // apply, as in refreshBaseOutput.
+      if (!state.blackout) reassertBase(defaultsPatch({ ...state, activeCueId: null }), resolveFadeMs({ explicitFadeMs: cue?.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
+      return {
+        activeCueId: null,
+        // A cue list playing this cue stops with it. The list position
+        // (activeCueListId/activeCueIndex) is kept, so Go resumes from
+        // the current step with cueNext.
         cuePlaying: false
       }
     }),

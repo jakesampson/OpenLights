@@ -22,8 +22,14 @@ describe('Lightkey-style bottom panel', () => {
     // The workspace takes a masterOverlay flag now (18 Nov 2026): the
     // Master column lives in the bottom panel shell in App.tsx, as an
     // overlay on top of the workspace — the workspace itself still renders
-    // the canvas inline, with no master fader inside it.
-    expect(app).toContain("tab === 'Live' ? <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />")
+    // the canvas inline, with no master fader inside it. The Cues section
+    // sits below the workspace in the scrolling body (Jake, 26 Nov 2026
+    // — the cue list must exist in the main window too, because the
+    // separate Live window is unreachable on Windows); it is a sibling
+    // of the canvas, not forced into it.
+    expect(app).toContain("<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />")
+    expect(app).toContain('<LiveCueButtons className="pl-3" />')
+    expect(app.indexOf('<LiveWorkspace masterOverlay')).toBeLessThan(app.indexOf('<LiveCueButtons'))
     expect(live.indexOf('<MasterFader')).toBe(-1)
     expect(app).not.toContain('liveEditorOpen')
     expect(app).not.toContain('<BottomPlayback view={tab}')
