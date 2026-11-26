@@ -9,6 +9,7 @@ import { findRelatedCues, findRelatedCuesForSequence, findUnusedItems } from '..
 import { getPresetDotColor } from '../lib/presetColor'
 import { exportPresetPalette, importPresetPalette, serializePresetPalette } from '../lib/presetPaletteIo'
 import type { PresetGroup } from '@shared/types'
+import { useClampedMenuPosition } from '../lib/menuPosition'
 
 // LightKey Preset Palette (18 Nov 2026, Jake's screenshots): ONE combined
 // tree in the right sidebar — presets of every kind (colour, movement,
@@ -1055,17 +1056,9 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
   const [showInCueOpen, setShowInCueOpen] = useState(false)
   // A menu opened at the click point can run off the bottom of the
   // window when the row is low in the palette; clamp it into the
-  // viewport after mount so every item stays clickable.
-  const [pos, setPos] = useState({ left: x, top: y })
-  useLayoutEffect(() => {
-    const el = contextMenuRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    setPos({
-      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
-      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))
-    })
-  }, [x, y, contextMenuRef])
+  // viewport after mount so every item stays clickable (shared helper
+  // in lib/menuPosition — the same clamp every other menu uses).
+  const pos = useClampedMenuPosition(x, y, contextMenuRef)
   const item = (action: PaletteMenuAction, label: string, disabled = false) => (
     <button key={action} type="button" role="menuitem" disabled={disabled}
       className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40"

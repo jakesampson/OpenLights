@@ -3,6 +3,7 @@ import { fixtureAttributes } from '../lib/automationRuntime'
 import { flipPosition, positionDegrees, positionFractions, positionFromPoint, positionPoint, positionValues } from '../lib/position'
 import { useShowStore } from '../stores/showStore'
 import { useDragEnd } from './useDragEnd'
+import { useClampedMenuPosition } from '../lib/menuPosition'
 import { useEffect, useRef, useState } from 'react'
 
 // LightKey's position control is a CIRCLE (Guide ch.8, pp.90–91): the
@@ -35,6 +36,10 @@ export function PositionControl({ fixtures, update, current }: { fixtures: Fixtu
   const dragStartRef = useRef<{ pan: number; tilt: number } | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  // Jake, 26 Nov 2026 — the Flip menu used to open at the raw click
+  // point and run off the window near an edge; clamped into the
+  // viewport once mounted (see lib/menuPosition).
+  const menuPos = useClampedMenuPosition(menu?.x ?? 0, menu?.y ?? 0, menuRef)
   const svgRef = useRef<SVGSVGElement>(null)
   // The drag measures the pointer against the svg's box — frozen at
   // drag start, not re-read per move. The degrees readout under the
@@ -103,7 +108,7 @@ export function PositionControl({ fixtures, update, current }: { fixtures: Fixtu
           positive pan, lighter for negative tilt). */}
       <circle cx={dot.x * SIZE} cy={dot.y * SIZE} r="6" fill={dotFill} fillOpacity={now.tilt < 0.5 ? 0.55 : 1} stroke="var(--bg)" strokeWidth="1.5" />
     </svg>
-    {menu && <div ref={menuRef} role="menu" className="fixed z-50 flex flex-col rounded-lg border border-line bg-panel p-1 shadow-xl" style={{ left: menu.x, top: menu.y }}>
+    {menu && <div ref={menuRef} role="menu" className="fixed z-50 flex flex-col rounded-lg border border-line bg-panel p-1 shadow-xl" style={{ left: menuPos.left, top: menuPos.top }}>
       <button type="button" role="menuitem" className="rounded px-3 py-1.5 text-left text-xs text-text hover:bg-panel2" onClick={() => flip('pan')}>Flip Pan</button>
       <button type="button" role="menuitem" className="rounded px-3 py-1.5 text-left text-xs text-text hover:bg-panel2" onClick={() => flip('tilt')}>Flip Tilt</button>
     </div>}

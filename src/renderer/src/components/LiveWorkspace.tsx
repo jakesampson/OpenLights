@@ -8,6 +8,7 @@ import {
 } from '../lib/liveDrops'
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor } from '../lib/liveButtonColor'
+import { useClampedMenuPosition } from '../lib/menuPosition'
 import {
   isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectLabel, positionedObjects,
   type PageObjectRef, type Rect
@@ -148,6 +149,10 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // actions the old bottom-strip buttons used.
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; at: { x: number; y: number }; alt: boolean } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
+  // Jake, 26 Nov 2026 — the canvas menu used to open at the raw click
+  // point and run off the window near the bottom/right edge; it is
+  // clamped into the viewport once mounted (see lib/menuPosition).
+  const menuPos = useClampedMenuPosition(contextMenu?.x ?? 0, contextMenu?.y ?? 0, menuRef)
   useEffect(() => {
     if (!contextMenu) return
     const close = (event: PointerEvent) => {
@@ -702,7 +707,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       </div>}
       </>}
     </div>
-    {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contextMenu.x, top: contextMenu.y }}>
+    {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: menuPos.left, top: menuPos.top }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>
       <button type="button" role="menuitem" disabled={!cueLists.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addList(contextMenu.at); setContextMenu(null) }}>Insert Cuelist</button>

@@ -27,6 +27,7 @@ import {
   samplePathPoints
 } from '../lib/movementChart'
 import { movementPoint } from '../lib/movementEffects'
+import { useClampedMenuPosition } from '../lib/menuPosition'
 import { effectableProperties } from '../lib/availableProperties'
 import {
   EFFECT_TEMPLATE_SECTIONS,
@@ -853,17 +854,10 @@ function EffectTemplateContextMenu({ x, y, templateId, templateName, menuRef, on
 }) {
   // The chooser lives in the bottom panel, so a menu opened at the
   // click point can run off the bottom of the window (its lower items
-  // then can't be clicked). Clamp it into the viewport after mount.
-  const [pos, setPos] = useState({ left: x, top: y })
-  useLayoutEffect(() => {
-    const el = menuRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    setPos({
-      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
-      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))
-    })
-  }, [x, y, menuRef])
+  // then can't be clicked). Clamp it into the viewport after mount
+  // (shared helper in lib/menuPosition — the same clamp every other
+  // menu uses).
+  const pos = useClampedMenuPosition(x, y, menuRef)
   const item = (action: EffectTemplateMenuAction, label: string) => (
     <button key={action} type="button" role="menuitem"
       className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2"

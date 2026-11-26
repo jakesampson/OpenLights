@@ -1,10 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CONTEXT_MENUS, MENU_LABELS, type AppMenuCommand } from '@shared/menuModel'
 import { SHORTCUTS } from '../lib/shortcuts'
+import { useClampedMenuPosition } from '../lib/menuPosition'
 
 type ContextKind = keyof typeof CONTEXT_MENUS
 export function ContextMenu() {
   const [menu, setMenu] = useState<{ kind: ContextKind; x: number; y: number; alt: boolean } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  // Jake, 26 Nov 2026 — the menu used to open at the raw click point
+  // and run off the window near an edge; it is clamped into the
+  // viewport once mounted (see lib/menuPosition).
+  const pos = useClampedMenuPosition(menu?.x ?? 0, menu?.y ?? 0, menuRef)
   useEffect(() => {
     const open = (event: MouseEvent) => {
       const element = event.target as Element | null
@@ -25,7 +31,7 @@ export function ContextMenu() {
     if (command === 'addOverrides' && menu.alt) return 'Add Overrides for Selected Fixtures'
     return MENU_LABELS[command] ?? SHORTCUTS.find((item) => item.command === command)?.label ?? command
   }
-  return <div role="menu" aria-label={`${menu.kind} actions`} className="fixed z-[300] min-w-36 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: menu.x, top: menu.y }}>
+  return <div ref={menuRef} role="menu" aria-label={`${menu.kind} actions`} className="fixed z-[300] min-w-36 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
     {CONTEXT_MENUS[menu.kind].map((command) => {
       const binding = SHORTCUTS.find((item) => item.command === command)
       return <button key={command} role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => {
