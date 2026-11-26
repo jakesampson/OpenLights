@@ -1,7 +1,7 @@
 import type { FanDef, FixtureChannel, FixtureDef } from '@shared/types'
 import { availableProperties } from './availableProperties'
 import { fixtureBeams } from '@shared/fixtureProfiles'
-import { evaluateFan, fanTargetColors, orderedFanTargets } from './fanning'
+import { evaluateFan, fanTargetColors, fixtureSupportsDimmer, orderedFanTargets } from './fanning'
 import { normalizeColorFavorite } from './colorMix'
 
 // Pure helpers for the Fanning HUD (Guide §8, p.118 to 123). The HUD lives
@@ -54,10 +54,20 @@ export function defaultFan(attribute: string, fixtureIds: string[], channel?: Fi
  */
 export function fannableProperties(fixtures: FixtureDef[]): FixtureChannel[] {
   const props = availableProperties(fixtures)
-  const hasRgb = ['red', 'green', 'blue'].every((a) => props.some((c) => c.attribute === a))
-  const hasCmy = ['cyan', 'magenta', 'yellow'].every((a) => props.some((c) => c.attribute === a))
-  if (!hasRgb && !hasCmy) return props
-  return [...props, { number: -1, attribute: 'color', propertyType: 'color', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }]
+  const result = [...props]
+  // A colour fixture with no dimmer channel still has a Dimmer — the
+  // virtual dimmer (Piece 12) — so it is fannable whenever every selected
+  // fixture supports one, physically or virtually. Same rule as the
+  // effects chooser (effectableProperties). Without this entry, "Add
+  // Dimmer Fanning…" on Q12BTs silently fanned Red instead (openFanHud
+  // falls back to channels[0] when 'intensity' is not offered).
+  if (!props.some((c) => c.attribute === 'intensity') && fixtures.length > 0 && fixtures.every(fixtureSupportsDimmer)) {
+    result.push({ number: -1, attribute: 'intensity', propertyType: 'intensity', min: 0, max: 255, defaultValue: 0, highlightValue: 0 })
+  }
+  const hasRgb = ['red', 'green', 'blue'].every((a) => result.some((c) => c.attribute === a))
+  const hasCmy = ['cyan', 'magenta', 'yellow'].every((a) => result.some((c) => c.attribute === a))
+  if (!hasRgb && !hasCmy) return result
+  return [...result, { number: -1, attribute: 'color', propertyType: 'color', min: 0, max: 255, defaultValue: 0, highlightValue: 0 }]
 }
 
 export function defaultColorFan(fixtureIds: string[], startColor: string, endColor: string): FanDef {

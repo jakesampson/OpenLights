@@ -65,7 +65,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
-    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, liveEditing, setLiveEditing,
+    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, addCueList, liveEditing, setLiveEditing,
     editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep, addOverridesToCues, startEditingCueAdHoc,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
@@ -345,6 +345,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     if (!page || !cueLists[0]) return
     const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
     const widget = newWidgetObject(crypto.randomUUID(), cueLists[0].id, point.x, point.y, page.defaultStyles)
+    savePage({ ...page, cueListWidgets: [...(page.cueListWidgets ?? []), widget] }); setPageObjectSelection([{ type: 'list', id: widget.id }])
+  }
+  // There was no UI to create a cue list at all (Jake, 26 Nov 2026 —
+  // Option 2): addCueList existed in the store with no callers, so
+  // "Insert Cuelist" stayed disabled in a fresh project and a cuelist
+  // could only arrive inside a loaded show file. "New Cue List" creates
+  // the list and places its widget on the page in one go, LightKey's way
+  // (Guide ch.11 p.189: a cuelist is an object placed on the page).
+  const addNewList = (at?: { x: number; y: number }) => {
+    if (!page) return
+    const listId = addCueList()
+    const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
+    const widget = newWidgetObject(crypto.randomUUID(), listId, point.x, point.y, page.defaultStyles)
     savePage({ ...page, cueListWidgets: [...(page.cueListWidgets ?? []), widget] }); setPageObjectSelection([{ type: 'list', id: widget.id }])
   }
   const addAnnotation = (type: 'label' | 'frame', at?: { x: number; y: number }) => {
@@ -629,7 +642,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
             <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? cues.find((s) => s.id === list?.steps[current]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</p><p className="text-dim">Next: {next ? cues.find((s) => s.id === next.cueId)?.name ?? 'Missing cue' : 'End of list'}</p>
-            {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={stopCue} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={cuePrev} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
+            {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={() => stopCue()} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={() => cuePrev()} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
             {list && <div className="mt-2"><XfadeSlider listId={list.id} /></div>}
             {resizeHandle(ref, lw, lh)}
           </div>
@@ -709,6 +722,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     </div>
     {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: menuPos.left, top: menuPos.top }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
+      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addNewList(contextMenu.at); setContextMenu(null) }}>New Cue List</button>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>
       <button type="button" role="menuitem" disabled={!cueLists.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addList(contextMenu.at); setContextMenu(null) }}>Insert Cuelist</button>
       <div className="my-1 border-t border-line" />

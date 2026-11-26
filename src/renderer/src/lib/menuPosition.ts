@@ -2,7 +2,7 @@ import { useLayoutEffect, useState, type RefObject } from 'react'
 
 // Jake, 26 Nov 2026 — a right-click menu opened at the raw click point
 // ran off the bottom / right of the window when the click was near an
-// edge (Live canvas menu: New Button / Insert Text / Insert Cuelist /
+// edge (Live canvas menu: New Button / New Cue List / Insert Text / Insert Cuelist /
 // Cut / Copy — the items below the fold could not be seen or clicked).
 // Every menu positioned at a click point must land fully inside the
 // viewport instead: flip it above / to the left of the click when there

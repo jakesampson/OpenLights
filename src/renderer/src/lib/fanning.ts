@@ -2,6 +2,27 @@ import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { hexToRgb, rgbToHex } from './colorMix'
 
+const COLOUR_COMPONENT_BASES = ['red', 'green', 'blue', 'cyan', 'magenta', 'yellow', 'white', 'amber', 'uv', 'lime'] as const
+
+function colourBase(attribute: string): string {
+  return attribute.replace(/ ?\d+$/, '')
+}
+
+/**
+ * Whether the fixture has a dimmer at all — a real intensity channel, or
+ * the virtual dimmer (Piece 12): a colour fixture with no dimmer channel
+ * still has a Dimmer, fanned to its colour channels at output time. Same
+ * rule as the effects chooser (effectableProperties). The fan HUD used to
+ * miss this: on Q12BTs "Add Dimmer Fanning…" silently fanned Red instead
+ * (openFanHud falls back to channels[0]), and evaluateFan skipped every
+ * fixture for an intensity fan, so a fanned dimmer cue came out dark.
+ */
+export function fixtureSupportsDimmer(fixture: FixtureDef): boolean {
+  const modeAttrs = (fixtureMode(fixture)?.channels ?? []).map((c) => c.attribute)
+  return modeAttrs.includes('intensity') ||
+    modeAttrs.some((a) => (COLOUR_COMPONENT_BASES as readonly string[]).includes(colourBase(a)))
+}
+
 /**
  * A fixture's position along a fan, 0 at the first fixture and 1 at the
  * last — from the fixture order (and, when Consider Spacing is on, the
@@ -171,7 +192,15 @@ export function evaluateFan(fixtures: FixtureDef[], fan: FanDef): Record<string,
   targets.forEach((target, i) => {
     const attribute = target.beam?.properties[fan.attribute] ?? fan.attribute
     const channel = fixtureMode(target.fixture)?.channels.find((c) => c.attribute === attribute)
-    if (!channel) return
+    if (!channel) {
+      // No DMX channel for this attribute — but a virtual-dimmer fan is
+      // still real: the intensity value lands in the cue and the cue
+      // layer fans it to the colour channels at output time.
+      if (attribute === 'intensity' && !target.beam && fixtureSupportsDimmer(target.fixture)) {
+        result[target.fixture.id] = { ...result[target.fixture.id], intensity: Math.max(0, Math.min(255, values[i])) }
+      }
+      return
+    }
     result[target.fixture.id] = { ...result[target.fixture.id], [attribute]: Math.max(channel.min, Math.min(channel.max, values[i])) }
   })
   return result

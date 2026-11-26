@@ -214,44 +214,100 @@ describe('cue deactivation', () => {
     expect(useShowStore.getState().activeCueIndex).toBe(1)
   })
 
-  it('wizard Go! still creates and activates a Home cue', () => {
+  it('wizard Go! creates a "Full" preset and no cue at all', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow({ cues: [] }))
     store.startSetupWizard()
     store.setSetupWizardStep('done')
     store.finishSetupWizard()
     expect(useShowStore.getState().setupWizardStep).toBeNull()
-    expect(useShowStore.getState().cues).toHaveLength(1)
-    const home = useShowStore.getState().cues[0]
-    expect(home.name).toBe('Home')
-    expect(useShowStore.getState().activeCueId).toBe(home.id)
+    // New projects start cue-free (Jake, 26 Nov 2026): no Home cue.
+    expect(useShowStore.getState().cues).toHaveLength(0)
+    expect(useShowStore.getState().activeCueId).toBeNull()
+    // Instead the first preset carries the old Home cue's values and
+    // starts active, so the rig still comes on full at the start.
+    expect(useShowStore.getState().presets).toHaveLength(1)
+    const full = useShowStore.getState().presets[0]
+    expect(full.name).toBe('Full')
+    expect(full.category).toBe('intensity')
+    expect(full.fixtureValues).toEqual({
+      q1: { intensity: 255 },
+      w1: { intensity: 255 },
+    })
+    expect(useShowStore.getState().activePresetIds).toEqual([full.id])
+  })
+
+  it('Stop deactivates the playing list’s cue instead of only pausing', () => {
+    const store = useShowStore.getState()
+    store.setShow(makeShow({
+      cues: [
+        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
+        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
+      ],
+    }))
+    store.goToCue('c1', 0)
+    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
+    store.cueNext()
+    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(engine.getChannel(1)).toBe(255)
+    store.cuePrev()
+    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(useShowStore.getState().activeCueIndex).toBe(0)
+    store.stopCue()
+    // LightKey p.218: Stop deactivates the cues in the cuelist. The
+    // lights go out (not just the playback), but the list keeps its
+    // place, so Go resumes from the current step.
+    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(useShowStore.getState().cuePlaying).toBe(false)
+    expect(useShowStore.getState().activeCueListId).toBe('c1')
+    expect(useShowStore.getState().activeCueIndex).toBe(0)
+    expect(engine.getChannel(1)).toBe(0)
+    expect(engine.getChannel(5)).toBe(0)
+    store.cueNext()
+    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
+  })
+
+  it('Stop with nothing playing is a no-op for the active cue', () => {
+    const store = useShowStore.getState()
+    store.setShow(makeShow({
+      cues: [
+        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
+        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
+      ],
+    }))
+    store.activateCue('lit')
+    expect(useShowStore.getState().activeCueId).toBe('lit')
+    store.stopCue()
+    // Not playing, so Stop only ever meant "stop playback" — the
+    // plain active cue stays put (its own off switch is the toggle).
+    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(engine.getChannel(1)).toBe(255)
   })
 })
 
-describe('cue toggle wiring (Cues section)', () => {
-  it('the shared cue button deactivates when active and activates otherwise', () => {
-    const buttons = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveCueButtons.tsx'), 'utf8')
-    expect(buttons).toContain('onClick={() => (cue.id === activeCueId ? deactivateCue() : activateCue(cue.id))}')
-  })
-
-  it('the separate Live window renders the shared section', () => {
+describe('cue toggle wiring (cuelist rows)', () => {
+  it('the cuelist row deactivates when active and activates otherwise', () => {
+    // The cue grid is gone (Jake, 26 Nov 2026 — Option 2): the toggle
+    // lives on the cuelist rows in the separate Live window.
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
-    expect(liveTab).toContain('<LiveCueButtons />')
-    // The inline Cues section is gone — one copy, shared.
-    expect(liveTab).not.toContain('>Cues</h3>')
+    expect(liveTab).toContain('onClick={() => (active ? deactivateCue() : goToCue(list.id, index))}')
   })
 
-  it('the main window renders the shared section below the Live canvas', () => {
+  it('neither Live view renders a cue grid any more', () => {
+    const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
+    expect(liveTab).not.toContain('LiveCueButtons')
+    const app = readFileSync(resolve(__dirname, '..', 'src/renderer/src/App.tsx'), 'utf8')
+    expect(app).not.toContain('LiveCueButtons')
+  })
+
+  it('the main window renders only the Live canvas, no Cues section below it', () => {
     const app = readFileSync(resolve(__dirname, '..', 'src/renderer/src/App.tsx'), 'utf8')
     const body = app.slice(app.indexOf('live-page-shell'))
     expect(body).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />')
-    expect(body).toContain('<LiveCueButtons className="pl-3" />')
-    // After the workspace, inside the scrolling body — reached by
-    // scrolling, as in the Live window.
-    expect(body.indexOf('<LiveWorkspace masterOverlay')).toBeLessThan(body.indexOf('<LiveCueButtons'))
-    // The Master-column inset, as for the canvas, so the buttons start
-    // clear of the overlay column at rest.
-    expect(body).toContain('<div className="master-overlay-inset">')
+    expect(body).not.toContain('LiveCueButtons')
+    expect(body).not.toContain('>Cues</h3>')
   })
 
   it('activateCue itself is still activation-only — no toggle inside the store', () => {

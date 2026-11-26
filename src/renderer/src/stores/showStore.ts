@@ -510,7 +510,7 @@ interface ShowState {
   removeMovementPath: (id: string) => void
   duplicateMovementPath: (id: string) => string | null
 
-  addCueList: (name?: string) => void
+  addCueList: (name?: string) => string
   updateCueList: (id: string, patch: Partial<CueListDef>) => void
   renameCueList: (id: string, name: string) => void
   removeCueList: (id: string) => void
@@ -1723,18 +1723,25 @@ const actions: ShowState = {
   finishSetupWizard: () => {
     const state = get()
     if (state.setupWizardStep === null) return
-    if (state.show && state.cues.length === 0) {
-      // Go! assigns a default home position with the lights on (video
-      // 09:30): a "Home" cue — dimmer full, pan/tilt at home — activated
-      // so the rig is lit in the Design view.
-      const fixtureValues: CueDef['fixtureValues'] = {}
-      for (const fixture of state.show.fixtures) fixtureValues[fixture.id] = homeFixtureValues(fixture)
-      const homeCue: CueDef = { id: crypto.randomUUID(), name: 'Home', presetIds: [], sequenceIds: [], fixtureValues, fadeMs: state.show.preferences?.defaultFadeMs ?? 1000 }
-      set((s) => {
-        const cues = [...s.cues, homeCue]
-        return persistState(s, { cues }, { cues })
-      })
-      get().activateCue(homeCue.id)
+    if (state.show && state.presets.length === 0) {
+      // Go! used to mint a "Home" cue and activate it, so the rig came
+      // on full (LightKey video 09:30). Jake, 26 Nov 2026: new projects
+      // start with ZERO cues — instead the first preset, "Full", carries
+      // the Home cue's values (dimmer full, pan/tilt at home, colour
+      // unset so the default colour applies) and starts ACTIVE in the
+      // palette, so the rig still comes on full at the start and he turns
+      // it off by clicking "Full" in the palette. No cue is created or
+      // activated here any more.
+      const fixtureValues: PresetDef['fixtureValues'] = {}
+      for (const fixture of state.show.fixtures) {
+        const values = homeFixtureValues(fixture)
+        if (Object.keys(values).length) fixtureValues[fixture.id] = values
+      }
+      if (Object.keys(fixtureValues).length) {
+        const preset: PresetDef = { id: crypto.randomUUID(), name: 'Full', category: derivePresetCategory(fixtureValues), fixtureValues }
+        set((s) => persistState(s, { presets: [...s.presets, preset] }, { presets: [...s.presets, preset] }))
+        get().setActivePresets([preset.id])
+      }
     }
     set({ setupWizardStep: null })
   },
@@ -2985,10 +2992,15 @@ const actions: ShowState = {
     return path.id
   },
 
-  addCueList: (name) =>
+  addCueList: (name) => {
+    // Returns the new list's id, so the caller can place a widget for it
+    // (Live Edit's "New Cue List" inserts the list and its widget in one
+    // go — there was no UI to create a cue list at all before, so a fresh
+    // project could never get a cuelist).
+    const id = crypto.randomUUID()
     set((state) => {
       const list: CueListDef = {
-        id: crypto.randomUUID(),
+        id,
         name: name?.trim() || `Cue List ${state.cueLists.length + 1}`,
         steps: [],
         loop: false
@@ -2999,7 +3011,9 @@ const actions: ShowState = {
         { cueLists },
         { cueLists, activeCueListId: list.id, activeCueIndex: -1, cuePlaying: false }
       )
-    }),
+    })
+    return id
+  },
 
   updateCueList: (id, patch) =>
     set((state) => {
@@ -3147,7 +3161,18 @@ const actions: ShowState = {
       }
     }),
 
-  stopCue: () => set({ cuePlaying: false }),
+  stopCue: () => {
+    const state = get()
+    // LightKey p.218: Stop deactivates the cues in the cuelist — it is an
+    // off switch, not just a playback pause. The old stopCue only cleared
+    // cuePlaying and left the active cue's values driving the rig, so
+    // Stop looked broken: the lights stayed on. While a list is playing,
+    // the active cue IS the list's current cue (goToCue sets both
+    // together), so deactivating it is deactivating the list's cue; the
+    // list position is kept, so Go resumes from the current step.
+    if (state.cuePlaying && state.activeCueId) get().deactivateCue()
+    else set({ cuePlaying: false })
+  },
   /**
    * Manual crossfade (8.8a, LightKey Guide ch.11, pp.193, 219): dragging
    * the Xfade slider blends live output between the current cue and the

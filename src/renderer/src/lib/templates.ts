@@ -52,12 +52,29 @@ export function demoShowTemplate(demoShow: ShowDef): ShowTemplate {
 }
 
 /** A new project started from a template: a deep copy with a fresh id and
- *  name, so editing the project never mutates the template. */
+ *  name, so editing the project never mutates the template. New projects
+ *  start cue-free (Jake, 26 Nov 2026 — "delete all cues by default"): a
+ *  template is a starting point for fixtures, patch and Preview layout,
+ *  not cues. A template saved from a cue-heavy show (SaveTemplateDialog
+ *  stores the whole show) used to clone every cue into the new project —
+ *  that is how a new project could load with hundreds of cues. Cue lists,
+ *  cuelist widgets, Live-button cue bindings, the startup cue and
+ *  cue-targeted MIDI mappings all point at those cues, so they go too;
+ *  presets, sequences, fixture groups and Live buttons bound to presets
+ *  survive untouched. */
 export function newShowFromTemplate(template: ShowTemplate, name: string): ShowDef {
   const show = structuredClone(template.show)
   show.id = crypto.randomUUID()
   show.name = name.trim() || template.name
   show.createdAt = Date.now()
   show.updatedAt = Date.now()
+  show.cues = []
+  show.cueLists = []
+  if (show.startup) show.startup = { ...show.startup, cueId: undefined }
+  for (const page of show.livePages ?? []) {
+    for (const control of page.controls) delete control.cueId
+    page.cueListWidgets = []
+  }
+  show.midiMappings = (show.midiMappings ?? []).filter((m) => m.targetType !== 'cue')
   return show
 }

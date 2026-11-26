@@ -11,7 +11,6 @@ import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, buildShortcutsList, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
-import { LiveCueButtons } from './components/LiveCueButtons'
 import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
 import { PreviewEditPanel, FixtureStorageTray } from './components/PreviewEditPanel'
@@ -765,19 +764,12 @@ export default function App() {
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
             {tab === 'Live' ? <>
               <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />
-              {/* The Cues section below the canvas (Jake, 26 Nov 2026):
-                  the same grid as the separate Live window's LiveTab —
-                  shared via LiveCueButtons — because the Live window is
-                  unreachable on Windows and the main window had no cue
-                  list at all. It sits below the workspace in this
-                  scrolling body, so it is reached by scrolling like in
-                  the Live window. The wrapper carries the Master-column
-                  inset (98px, as for the canvas) and the section its
-                  own 12px left padding, so the buttons start 10px clear
-                  of the overlay column at rest, exactly like the canvas. */}
-              <div className="master-overlay-inset">
-                <LiveCueButtons className="pl-3" />
-              </div>
+              {/* No cue grid below the canvas any more (Jake, 26 Nov 2026
+                  — Option 2): LightKey has no cue list in its Live view;
+                  cues live on the page as buttons or inside a cuelist.
+                  The canvas keeps its own internal scroll for the user's
+                  own buttons; the tab body no longer scrolls for a cue
+                  section. */}
             </> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
         </div>

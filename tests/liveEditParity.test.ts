@@ -56,8 +56,13 @@ describe('Live / Live Edit parity', () => {
     // Go / Back / Stop used to be rendered only when `!editing`.
     expect(workspace).not.toContain('{!editing && list &&')
     expect(workspace).toContain('onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button>')
-    expect(workspace).toContain('onClick={cuePrev}')
-    expect(workspace).toContain('onClick={stopCue}')
+    // Arrow calls, not bare handler references: React passes the click
+    // event to a bare onClick={stopCue}, and in the Live window that
+    // action is an IPC proxy that forwards every argument — Electron's
+    // structured clone rejects the event, so Stop/Back silently did
+    // nothing there (26 Nov 2026, found by the real-app probe).
+    expect(workspace).toContain('onClick={() => cuePrev()}')
+    expect(workspace).toContain('onClick={() => stopCue()}')
   })
 
   it('selects the pressed cue button or cue list in both modes, so the inspector follows it', () => {

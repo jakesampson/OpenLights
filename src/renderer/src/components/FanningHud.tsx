@@ -3,6 +3,7 @@ import type { FanDef, FixtureDef } from '@shared/types'
 import { clearFanRowValue, fanBeamTargets, fanRows, FAN_MODE_OPTIONS, FAN_ORDER_OPTIONS, fannableProperties, setFanRowColor, setFanRowValue } from '../lib/fanningHud'
 
 function attributeLabel(attribute: string) {
+  if (attribute === 'intensity') return 'Dimmer'
   return attribute.charAt(0).toUpperCase() + attribute.slice(1)
 }
 

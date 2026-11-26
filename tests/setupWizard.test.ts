@@ -99,7 +99,7 @@ describe('wizard store actions (Piece 5)', () => {
     expect(state().show!.fixtures.every((f) => f.group === 'All Fixtures')).toBe(true)
   })
 
-  it('Go! creates and activates a Home cue, then exits the wizard', () => {
+  it('Go! creates a "Full" preset and starts it active — no Home cue', () => {
     const state = () => useShowStore.getState()
     state().setShow(migrateShow({ fixtures: [par('p1', 1), head('mh1', 5)], cues: [] } as unknown as ShowDef))
     state().startSetupWizard()
@@ -107,17 +107,24 @@ describe('wizard store actions (Piece 5)', () => {
     state().setSetupWizardStep('done')
     state().finishSetupWizard()
     expect(state().setupWizardStep).toBeNull()
-    expect(state().cues).toHaveLength(1)
-    const home = state().cues[0]
-    expect(home.name).toBe('Home')
-    expect(home.fixtureValues.p1).toEqual({ intensity: 255 })
-    expect(home.fixtureValues.mh1).toEqual({ intensity: 255, pan: 128, tilt: 212 })
-    expect(state().activeCueId).toBe(home.id)
-    // A second Go! does not stack another Home cue.
+    // New projects start with zero cues (Jake, 26 Nov 2026). Instead of
+    // the old Home cue, the wizard creates a first preset holding the
+    // Home cue's values, and starts it active in the palette.
+    expect(state().cues).toHaveLength(0)
+    expect(state().activeCueId).toBeNull()
+    expect(state().presets).toHaveLength(1)
+    const full = state().presets[0]
+    expect(full.name).toBe('Full')
+    expect(full.category).toBe('intensity')
+    expect(full.fixtureValues.p1).toEqual({ intensity: 255 })
+    expect(full.fixtureValues.mh1).toEqual({ intensity: 255, pan: 128, tilt: 212 })
+    expect(state().activePresetIds).toEqual([full.id])
+    // A second Go! does not stack another "Full" preset.
     state().startSetupWizard()
     state().setSetupWizardStep('done')
     state().finishSetupWizard()
-    expect(state().cues).toHaveLength(1)
+    expect(state().presets).toHaveLength(1)
+    expect(state().cues).toHaveLength(0)
   })
 
   it('exiting the wizard leaves the show untouched', () => {
@@ -193,14 +200,18 @@ describe('templates (Piece 5 groundwork)', () => {
     expect(listed.show.fixtures).toHaveLength(2)
     expect(listed.show.fixtures[0].calibration?.homeDirection).toBe(90)
     expect(listed.show.previewTrusses).toHaveLength(1)
-    // Starting a project from it reproduces the rig exactly, under a new id.
+    // Starting a project from it reproduces the rig exactly, under a new
+    // id — but NOT its cues (Jake, 26 Nov 2026: new projects start
+    // cue-free; a template is a starting point for the rig, not the cue
+    // list). The template itself still holds its cue for the next copy.
     const started = newShowFromTemplate(listed, 'Friday Gig')
     expect(started.id).not.toBe(rig.id)
     expect(started.name).toBe('Friday Gig')
     expect(started.fixtures).toEqual(rig.fixtures)
     expect(started.previewTrusses).toEqual(rig.previewTrusses)
     expect(started.fixtureGroups?.map((g) => g.name).sort()).toEqual(['Movers', 'Wash'])
-    expect(started.cues).toHaveLength(1)
+    expect(started.cues).toHaveLength(0)
+    expect(listed.show.cues).toHaveLength(1)
     // The template itself is untouched by the copy.
     expect(template.show.fixtures[0].name).toBe('MH1')
   })
