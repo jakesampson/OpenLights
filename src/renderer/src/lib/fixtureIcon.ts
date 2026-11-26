@@ -127,3 +127,16 @@ export function lightKeySelectionBox(kind: FixtureIconKind, iconScale: number, c
   const rect = fixtureIconSelectionRect(kind)
   return { halfWidth: rect.halfWidth * iconScale + 3, halfHeight: rect.halfHeight * iconScale + 3 }
 }
+
+/** Clear gap between LightKey's selection box and the label pill (Jake,
+ *  26 Nov 2026 — his Q4 close-up: the pill straddled the box's top
+ *  border, its bottom 2 units below the box top for a par). The pill
+ *  is 13 tall starting at labelY - 10, so its bottom is labelY + 3
+ *  (above) and its top is labelY - 10 (below). With no box the legacy
+ *  position stands. */
+export const SELECTION_LABEL_GAP = 4
+
+export function selectionLabelY(y: number, namePosition: 'above' | 'below' | 'hidden' | undefined, box: { halfHeight: number } | null): number {
+  if (namePosition === 'below') return box ? y + box.halfHeight + SELECTION_LABEL_GAP + 10 : y + 20
+  return box ? y - box.halfHeight - SELECTION_LABEL_GAP - 3 : y - 13
+}

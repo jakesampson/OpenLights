@@ -2,7 +2,7 @@
 // p.32). The kind resolves from OFL categories first, then the
 // profile's legacy type, then the fixture's own type.
 import { describe, it, expect } from 'vitest'
-import { fixtureIconKind, lightKeySelectionBox } from '../src/renderer/src/lib/fixtureIcon'
+import { fixtureIconKind, lightKeySelectionBox, selectionLabelY, SELECTION_LABEL_GAP } from '../src/renderer/src/lib/fixtureIcon'
 import type { FixtureDef, FixtureProfile } from '../src/shared/types'
 
 function fixture(partial: Partial<FixtureDef>): FixtureDef {
@@ -103,5 +103,34 @@ describe('lightKeySelectionBox (Jake, 26 Nov 2026 — his LightKey screenshot)',
     const box = lightKeySelectionBox('par', 1)
     expect(box.halfWidth).toBeGreaterThan(9) // the icon's r=9 surround
     expect(box.halfWidth).toBeLessThan(40) // a beam at full length is 146
+  })
+})
+
+describe('selectionLabelY (Jake, 26 Nov 2026 — his Q4 close-up)', () => {
+  // The pill is 13 tall starting at labelY - 10: its bottom is
+  // labelY + 3 (above) and its top is labelY - 10 (below). With a box
+  // the pill must clear the box edge by exactly SELECTION_LABEL_GAP.
+  it('lifts the label above a round icon\'s box with a clear gap', () => {
+    const box = lightKeySelectionBox('par', 1) // halfHeight 12
+    const labelY = selectionLabelY(100, 'above', box)
+    expect(labelY + 3).toBe(100 - box.halfHeight - SELECTION_LABEL_GAP)
+  })
+
+  it('lifts the label above a multi-cell LED bar and a rectangular icon', () => {
+    const bar = lightKeySelectionBox('led-bar', 1, 4) // halfHeight 8
+    expect(selectionLabelY(100, 'above', bar) + 3).toBe(100 - bar.halfHeight - SELECTION_LABEL_GAP)
+    const panel = lightKeySelectionBox('panel', 1) // halfHeight 10
+    expect(selectionLabelY(100, 'above', panel) + 3).toBe(100 - panel.halfHeight - SELECTION_LABEL_GAP)
+  })
+
+  it('drops the label below the box with the same gap', () => {
+    const box = lightKeySelectionBox('par', 1)
+    const labelY = selectionLabelY(100, 'below', box)
+    expect(labelY - 10).toBe(100 + box.halfHeight + SELECTION_LABEL_GAP)
+  })
+
+  it('keeps the legacy position with no box', () => {
+    expect(selectionLabelY(100, 'above', null)).toBe(87)
+    expect(selectionLabelY(100, 'below', null)).toBe(120)
   })
 })

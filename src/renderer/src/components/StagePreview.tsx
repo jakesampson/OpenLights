@@ -13,7 +13,7 @@ import { defaultColorFan, defaultFan, definedFanIndexes, fannableProperties } fr
 import { fixtureValuesToHex } from '../lib/colorMix'
 import { StageObjectLayer } from './StageObjects'
 import { FixtureIcon } from './FixtureIcon'
-import { fixtureIconKind, fixtureIconSelectionRect, lightKeySelectionBox } from '../lib/fixtureIcon'
+import { fixtureIconKind, fixtureIconSelectionRect, lightKeySelectionBox, selectionLabelY } from '../lib/fixtureIcon'
 import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
@@ -676,6 +676,10 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGrid)" pointerEvents="none" />}
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGridMajor)" pointerEvents="none" />}
         <rect x={viewCentre.x - 400 / zoom} y={viewCentre.y - 170 / zoom} width={800 / zoom} height={340 / zoom} fill="transparent" onPointerDown={(event) => {
+          // Right-click never changes the selection (Jake, 26 Nov
+          // 2026): a right-drag on blank canvas must not start a
+          // marquee — only the primary button pans or marquees.
+          if (event.button !== 0) return
           // Clicking anywhere in the Preview hides the override labels
           // (Guide ch.11, p.116).
           if (showOverrideLabels) setShowOverrideLabels(false)
@@ -776,6 +780,16 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const kind = fixtureIconKind(f)
           const selectable = fixtures.length > 0
           const selected = selectable && selectedFixtureIds.includes(f.id)
+          // Selection label gap (Jake, 26 Nov 2026 — his Q4 close-up):
+          // the blue label pill straddled the black selection box's top
+          // border — for a par the pill bottom sat 2 units BELOW the box
+          // top. When the box is drawn (selected, normal view) the label
+          // is placed from the box geometry with a 4-unit clear gap
+          // (selectionLabelY); otherwise the legacy position stands —
+          // edit mode keeps it, because the blue surround there is only
+          // r=9 and the pill already clears it.
+          const selectionBox = selected && !editing ? lightKeySelectionBox(kind, (f.iconSize ?? 10) / 10, beams.length) : null
+          const labelY = selectionLabelY(y, f.namePosition, selectionBox)
           return (
             <g
               key={f.key}
@@ -787,10 +801,15 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               aria-pressed={selectable ? selected : undefined}
               className={newFixtureIds.includes(f.id) ? 'fixture-appear' : undefined}
               style={selectable ? { cursor: editing ? 'grab' : 'pointer', touchAction: 'none' } : undefined}
-              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const resolved = resolveFixtureClickSelection(show?.fixtureGroups ?? [], f.id, selectedFixtureIds); const singlesOut = resolved.length === 1 && resolved[0] === f.id && selectedFixtureIds.includes(f.id); const ids = singlesOut || selectedFixtureIds.includes(f.id) ? selectedFixtureIds : resolved; if (singlesOut) pendingSingleOut.current = f.id; else if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((view) => view.key === f.key || (ids.includes(view.id) && view.id !== f.id)).map((view) => [view.key, view.pos])); dragRef.current = { start: position, originals, positions: originals, fixtureIds: ids }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
-              // Right-click selects the fixture first, so the fixture
-              // shortcut menu (Highlight…) acts on the fixture that was
-              // clicked, not on whatever was selected before.
+              onPointerDown={selectable && editing ? (event) => { if (event.button !== 0) return; event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const resolved = resolveFixtureClickSelection(show?.fixtureGroups ?? [], f.id, selectedFixtureIds); const singlesOut = resolved.length === 1 && resolved[0] === f.id && selectedFixtureIds.includes(f.id); const ids = singlesOut || selectedFixtureIds.includes(f.id) ? selectedFixtureIds : resolved; if (singlesOut) pendingSingleOut.current = f.id; else if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((view) => view.key === f.key || (ids.includes(view.id) && view.id !== f.id)).map((view) => [view.key, view.pos])); dragRef.current = { start: position, originals, positions: originals, fixtureIds: ids }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
+              // Right-click never changes the selection (Jake, 26 Nov
+              // 2026 — a right-click on one fixture of a multi-selection
+              // used to single it out via the pointerdown single-out
+              // above, so Group in the menu only ever saw one fixture).
+              // The menu target is handled here: a fixture already in
+              // the selection stays selected; one outside it (or with
+              // nothing selected) is selected alone so the menu still
+              // has a target. Standard app behaviour.
               onContextMenu={selectable ? () => { if (!selectedFixtureIds.includes(f.id)) selectFixtures([f.id]) } : undefined}
               onClick={
                 selectable
@@ -876,7 +895,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   first click, single on the second, Shift toggles one;
                   in edit mode the group's pointerdown still owns
                   selection + dragging. */}
-              {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const labelY = f.namePosition === 'below' ? y + 20 : y - 13; const width = label.length * 4.6 + 10; return (<>
+              {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const width = label.length * 4.6 + 10; return (<>
                 {/* LightKey's blue label pill for the selected fixture
                     (Guide p.53): a blue rounded pill with white text.
                     Jake's LightKey screenshot 26 Nov 2026: the pill
@@ -891,8 +910,8 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   overridden properties. Clicking it shows the override
                   labels. The name is centre-anchored, so the dot sits
                   left of the estimated text edge. */}
-              {selectable && f.namePosition !== 'hidden' && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0 && (() => { const nameY = f.namePosition === 'below' ? y + 20 : y - 13; const halfWidth = ((f.shortName ?? f.name).length * 4.6) / 2; return (
-                <circle cx={x - halfWidth - 7} cy={nameY - 3} r="3" fill="#0A84FF" stroke="var(--bg)" strokeWidth="1" role="button" aria-label={`Overridden properties for ${f.name}`} style={{ cursor: 'pointer' }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setShowOverrideLabels(true) }}><title>Overridden properties — click to show</title></circle>
+              {selectable && f.namePosition !== 'hidden' && manualOverrides[f.id] && Object.keys(manualOverrides[f.id]).length > 0 && (() => { const halfWidth = ((f.shortName ?? f.name).length * 4.6) / 2; return (
+                <circle cx={x - halfWidth - 7} cy={labelY - 3} r="3" fill="#0A84FF" stroke="var(--bg)" strokeWidth="1" role="button" aria-label={`Overridden properties for ${f.name}`} style={{ cursor: 'pointer' }} onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); setShowOverrideLabels(true) }}><title>Overridden properties — click to show</title></circle>
               ) })()}
               {/* Calibration checkmark — setup wizard directions step ONLY
                   (Guide Step 6, p.36: "a checkmark appears below the

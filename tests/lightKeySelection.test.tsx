@@ -30,17 +30,21 @@ function renderInRoot(node: React.ReactElement) {
   return el
 }
 
-function setShow(grouped = false) {
+function setShow(grouped = false, specs: Array<{ id: string; name: string; type: 'par' | 'moving-head' | 'pixel-bar-17ch'; namePosition?: 'above' | 'below' }> = [
+  { id: 'f1', name: 'Wash 1', type: 'par' },
+  { id: 'f2', name: 'Wash 2', type: 'par' }
+]) {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
   const show = {
     ...base,
     id: 'test-show',
-    fixtures: [
-      { id: 'f1', name: 'Wash 1', type: 'par', channelStart: 1, channels: 1, ...(grouped ? { group: 'Wash' } : {}) },
-      { id: 'f2', name: 'Wash 2', type: 'par', channelStart: 2, channels: 1, ...(grouped ? { group: 'Wash' } : {}) }
-    ],
-    fixtureGroups: grouped ? [{ id: 'group:Wash', name: 'Wash', parentId: null, fixtureIds: ['f1', 'f2'] }] : [],
+    fixtures: specs.map((s, i) => ({
+      id: s.id, name: s.name, type: s.type, channelStart: i + 1, channels: 1,
+      ...(s.namePosition ? { namePosition: s.namePosition } : {}),
+      ...(grouped ? { group: 'Wash' } : {})
+    })),
+    fixtureGroups: grouped ? [{ id: 'group:Wash', name: 'Wash', parentId: null, fixtureIds: specs.map((s) => s.id) }] : [],
     cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: {
       f1: { intensity: 255 },
       f2: { intensity: 255 }
@@ -57,12 +61,70 @@ function setChannels() {
   channels[1] = 255
 }
 
-async function renderPreview(grouped = false, selected: string[] = [], editing = false) {
-  setShow(grouped)
+async function renderPreview(grouped = false, selected: string[] = [], editing = false, specs?: Array<{ id: string; name: string; type: 'par' | 'moving-head' | 'pixel-bar-17ch'; namePosition?: 'above' | 'below' }>) {
+  setShow(grouped, specs)
   setChannels()
   act(() => { useShowStore.setState({ selectedFixtureIds: selected, previewEditing: editing }) })
   renderInRoot(<StagePreview />)
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+  // jsdom has no getScreenCTM/createSVGPoint, so pointAt() returns
+  // null and the edit-mode pointerdown never arms a drag — which would
+  // make the right-click tests pass vacuously (the single-out only
+  // applies on pointerup after a drag was armed). Stub an identity
+  // transform so the drag path runs as in the real app.
+  const svg = container?.querySelector('svg.stage-preview') as unknown as Record<string, unknown> | null
+  if (svg) {
+    svg.getScreenCTM = () => ({ inverse: () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }) })
+    svg.createSVGPoint = () => {
+      const point = { x: 0, y: 0, matrixTransform: () => ({ x: point.x, y: point.y }) }
+      return point
+    }
+  }
+}
+
+function fixtureGroupEl(id: string) {
+  const el = container?.querySelector(`g[data-fixture-id="${id}"]`)
+  if (!el) throw new Error(`no fixture group for ${id}`)
+  return el as unknown as HTMLElement
+}
+
+// The label pill is the 13-tall rounded rect (rx 6.5) inside the
+// fixture's group; the selection box is the black rect there. The gap
+// between them is what Jake's Q4 close-up complained about.
+function labelGapFor(id: string) {
+  const group = fixtureGroupEl(id)
+  const pill = group.querySelector('rect[fill="#0A84FF"][rx="6.5"]')
+  const box = group.querySelector('rect[fill="#000000"]')
+  if (!pill || !box) throw new Error(`no pill/box for ${id}`)
+  const pillY = Number(pill.getAttribute('y'))
+  const boxY = Number(box.getAttribute('y'))
+  const boxBottom = boxY + Number(box.getAttribute('height'))
+  // Above: pill bottom (pillY + 13) sits above the box top; below: the
+  // pill top (pillY) sits below the box bottom.
+  return pillY + 13 <= boxY ? boxY - (pillY + 13) : pillY - boxBottom
+}
+
+function labelPillY(id: string) {
+  const pill = fixtureGroupEl(id).querySelector('rect[fill="#0A84FF"][rx="6.5"]')
+  if (!pill) throw new Error(`no pill for ${id}`)
+  return Number(pill.getAttribute('y'))
+}
+
+// A real right-click: pointerdown + pointerup with button 2, then the
+// contextmenu event the menu opens from. Each dispatch gets its own
+// act() so the component re-renders between them — otherwise the
+// contextmenu handler keeps the pre-pointerdown selection in its
+// closure and masks what the pointerdown did (the stale closure
+// singles the fixture out again, hiding the group-select).
+function rightClick(id: string) {
+  const el = fixtureGroupEl(id)
+  act(() => { el.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 2, pointerId: 1, clientX: 100, clientY: 100 })) })
+  act(() => { el.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 2, pointerId: 1, clientX: 100, clientY: 100 })) })
+  act(() => { el.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 })) })
+}
+
+function selectedIds() {
+  return [...useShowStore.getState().selectedFixtureIds]
 }
 
 function labelFor(name: string) {
@@ -97,6 +159,7 @@ function beamMaxY(polygon: HTMLElement) {
 beforeEach(() => {
   Element.prototype.setPointerCapture = () => {}
   Element.prototype.releasePointerCapture = () => {}
+  ;(Element.prototype as unknown as { hasPointerCapture: () => boolean }).hasPointerCapture = () => false
   Element.prototype.getBoundingClientRect = () => RECT as unknown as DOMRect
   ;(window as unknown as { electronAPI: unknown }).electronAPI = {
     setChannels: () => {},
@@ -162,5 +225,69 @@ describe('LightKey selection boxes', () => {
     const svg = container?.querySelector('svg.stage-preview')
     expect(svg).not.toBeNull()
     expect(svg?.classList.contains('select-none')).toBe(true)
+  })
+})
+
+describe('Selection label gap (Jake, 26 Nov 2026 — his Q4 close-up)', () => {
+  it('lifts the label pill clear of the box top for a par', async () => {
+    await renderPreview(false, ['f1'])
+    expect(labelGapFor('f1')).toBe(4)
+  })
+
+  it('lifts the label pill clear of the box top for a moving head and an LED bar', async () => {
+    await renderPreview(false, ['f1'], false, [
+      { id: 'f1', name: 'MH 1', type: 'moving-head' },
+      { id: 'f2', name: 'Bar 1', type: 'pixel-bar-17ch' }
+    ])
+    expect(labelGapFor('f1')).toBe(4)
+    act(() => { useShowStore.setState({ selectedFixtureIds: ['f2'] }) })
+    expect(labelGapFor('f2')).toBe(4)
+  })
+
+  it('drops the label below the box with the same gap', async () => {
+    await renderPreview(false, ['f1'], false, [
+      { id: 'f1', name: 'Wash 1', type: 'par', namePosition: 'below' },
+      { id: 'f2', name: 'Wash 2', type: 'par' }
+    ])
+    expect(labelGapFor('f1')).toBe(4)
+  })
+
+  it('keeps the legacy label position in edit mode — no box, no lift', async () => {
+    await renderPreview(false, ['f1'], true)
+    // A par: the icon circle sits at the fixture centre; the legacy
+    // label is labelY y-13, so the pill (labelY - 10) starts at y-23.
+    const icon = fixtureGroupEl('f1').querySelector('circle[r="5.5"]')
+    const cy = Number(icon?.getAttribute('cy'))
+    expect(labelPillY('f1')).toBe(cy - 23)
+  })
+})
+
+describe('Right-click keeps the selection (Jake, 26 Nov 2026)', () => {
+  it('right-clicking a fixture in a multi-selection leaves it untouched', async () => {
+    await renderPreview(true, ['f1', 'f2'], true)
+    rightClick('f1')
+    expect(selectedIds()).toEqual(['f1', 'f2'])
+  })
+
+  it('right-clicking a fixture outside the selection selects just that fixture', async () => {
+    await renderPreview(true, ['f1'], true)
+    rightClick('f2')
+    expect(selectedIds()).toEqual(['f2'])
+  })
+
+  it('right-clicking with nothing selected selects just that fixture', async () => {
+    await renderPreview(true, [], true)
+    rightClick('f1')
+    expect(selectedIds()).toEqual(['f1'])
+  })
+
+  it('a right-drag on blank canvas does not start a marquee', async () => {
+    await renderPreview(true, ['f1'], true)
+    const blank = container?.querySelector('svg rect[fill="transparent"]')
+    if (!blank) throw new Error('no blank canvas rect')
+    act(() => { blank.dispatchEvent(new window.PointerEvent('pointerdown', { bubbles: true, button: 2, pointerId: 1, clientX: 100, clientY: 100 })) })
+    act(() => { blank.dispatchEvent(new window.PointerEvent('pointermove', { bubbles: true, button: 2, buttons: 2, pointerId: 1, clientX: 700, clientY: 300 })) })
+    act(() => { blank.dispatchEvent(new window.PointerEvent('pointerup', { bubbles: true, button: 2, pointerId: 1, clientX: 700, clientY: 300 })) })
+    expect(selectedIds()).toEqual(['f1'])
   })
 })
