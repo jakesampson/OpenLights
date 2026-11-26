@@ -361,6 +361,16 @@ export function findLightKeyTemplate(id: string): LightKeyTemplate | undefined {
   return ALL_LIGHTKEY_TEMPLATES.find((t) => t.id === id)
 }
 
+/** Default fixed duration for a new effect (Jake, 26 Nov 2026): position
+ *  (movement) effects run a full path, so 10s; every other new effect
+ *  keeps the 2s default. The guide (p.150) pins no LightKey default —
+ *  the duration is a field the user can change. Only new effects take
+ *  the default; a saved effect keeps its own duration. Shared by the
+ *  template path below and the Custom Effect editor. */
+export function defaultEffectDurationMs(property: string): number {
+  return property === 'position' ? 10000 : 2000
+}
+
 /** Build a fresh effect from a template (Guide p.148: LightKey adds the
  *  effect to the selected fixtures and shows its settings). The effect
  *  takes the template's name — what LightKey names a template-added
@@ -380,7 +390,7 @@ export function createEffectFromTemplate(template: LightKeyTemplate, fixtureIds:
     phaseSpread: 0,
     enabled: true,
     kind: template.kind,
-    durationMs: 2000,
+    durationMs: defaultEffectDurationMs(template.property),
     timingMode: template.beat ? 'beat' : 'fixed',
     beatMultiplier: template.beat ? template.beatMultiplier ?? 1 : undefined
   }

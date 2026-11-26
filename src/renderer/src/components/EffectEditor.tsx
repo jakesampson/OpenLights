@@ -28,6 +28,7 @@ import {
   EFFECT_TEMPLATE_SECTIONS,
   createEffectFromTemplate,
   defaultCurveComponents,
+  defaultEffectDurationMs,
   type LightKeyTemplate
 } from '../lib/effectTemplates'
 import { getEffectTime } from '../lib/output'
@@ -436,7 +437,7 @@ export function EffectsChooser({ chooserLeftHost, chooserSearchHost }: { chooser
       phaseSpread: 0,
       enabled: true,
       kind: templateKind,
-      durationMs: 2000,
+      durationMs: defaultEffectDurationMs(templateProperty),
       timingMode: 'fixed'
     }
     if (templateKind === 'pattern') {

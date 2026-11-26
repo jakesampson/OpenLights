@@ -12,6 +12,8 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { CalibrationDialog } from '../src/renderer/src/components/CalibrationDialog'
 import { StagePreview } from '../src/renderer/src/components/StagePreview'
+import { previewBeamVector } from '../src/renderer/src/lib/previewOutput'
+import { degreesToChannel } from '../src/renderer/src/lib/calibration'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import type { FixtureDef } from '../src/shared/types'
 
@@ -410,6 +412,50 @@ describe('calibration dialog', () => {
     }
     // Tilt stems from the centre glyph to the tilt handles.
     expect(svg.querySelectorAll('line[stroke="#ef4444"], line[stroke="#22c55e"]').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('Home drag moves the Preview beam live, and Esc leaves the stored direction alone', async () => {
+    // Jake, 26 Nov 2026: when setting direction, the beam in the
+    // Preview behind the dialog should move instantly as the arrow is
+    // dragged — not only after Done. Esc closes without saving, so the
+    // draft must not stick.
+    const calibrated: FixtureDef = { ...head, previewBeam: { direction: 270 }, calibration: { homeDirection: 90, perspective: 'down' } }
+    setShow([calibrated])
+    const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    const stored = () => useShowStore.getState().show!.fixtures[0]
+    const beamAtHome = () => previewBeamVector(stored(), { pan: degreesToChannel(540, 0), tilt: degreesToChannel(270, 90) }, { x: 100, y: 100 }).direction
+    expect(beamAtHome()).toBeCloseTo(270, -1)
+    const svg = dialSvg(el)
+    pointer(svg, 'pointerdown', 320, 170) // compass 90°, the stored direction
+    pointer(svg, 'pointermove', 170, 20) // compass 0° (arrow up)
+    pointer(svg, 'pointerup', 170, 20)
+    expect(beamAtHome()).toBeCloseTo(180, -1)
+    // The store still holds the old direction until Done.
+    expect(stored().calibration?.homeDirection).toBe(90)
+    expect(stored().previewBeam?.direction).toBe(270)
+    act(() => { window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })) })
+    expect(beamAtHome()).toBeCloseTo(270, -1)
+    expect(stored().calibration?.homeDirection).toBe(90)
+    expect(stored().previewBeam?.direction).toBe(270)
+  })
+
+  it('Home drag then Done writes the dragged direction to the fixture', async () => {
+    const calibrated: FixtureDef = { ...head, previewBeam: { direction: 270 }, calibration: { homeDirection: 90, perspective: 'down' } }
+    setShow([calibrated])
+    const el = renderInRoot(<CalibrationDialog fixtureIds={['mh1']} onClose={() => {}} />)
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)) })
+    const svg = dialSvg(el)
+    pointer(svg, 'pointerdown', 320, 170)
+    pointer(svg, 'pointermove', 170, 20) // compass 0°
+    pointer(svg, 'pointerup', 170, 20)
+    const done = Array.from(el.querySelectorAll('button')).find((b) => b.textContent === 'Done')
+    if (!done) throw new Error('no Done button')
+    act(() => { done.dispatchEvent(new window.Event('click', { bubbles: true })) })
+    const saved = useShowStore.getState().show!.fixtures[0]
+    expect(saved.calibration?.homeDirection).toBe(0)
+    expect(saved.previewBeam?.direction).toBe(180)
+    expect(previewBeamVector(saved, { pan: degreesToChannel(540, 0), tilt: degreesToChannel(270, 90) }, { x: 100, y: 100 }).direction).toBeCloseTo(180, -1)
   })
 })
 

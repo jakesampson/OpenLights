@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CalibrationPerspective, FixtureCalibration, FixtureDef } from '@shared/types'
 import { CALIBRATION_PERSPECTIVES, CALIBRATION_STEPS, calibrationStepPatch, calibrationSteps, compassToPreviewDirection, panTiltRange, wrapRotationDegrees, type CalibrationStep } from '../lib/calibration'
 import { setCalibrationOutput } from '../lib/output'
+import { setCalibrationHomePreview } from '../lib/previewOutput'
 import { useShowStore } from '../stores/showStore'
 
 const CX = 170, CY = 170, R = 150
@@ -218,7 +219,7 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
   const svgRef = useRef<SVGSVGElement | null>(null)
   const dragRef = useRef<string | null>(null)
 
-  const close = () => { setCalibrationOutput({}); onClose() }
+  const close = () => { setCalibrationOutput({}); setCalibrationHomePreview(null, 0); onClose() }
 
   const done = () => {
     const state = useShowStore.getState()
@@ -241,6 +242,7 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
     }
     state.endHistoryGroup()
     setCalibrationOutput({})
+    setCalibrationHomePreview(null, 0)
     onDone?.()
     onClose()
   }
@@ -251,6 +253,17 @@ export function CalibrationDialog({ fixtureIds, onClose, onDone }: CalibrationDi
     if (step !== 'rotation') setCalibrationOutput(calibrationStepPatch(fixtures, step))
     return () => { setCalibrationOutput({}) }
   }, [step, fixtures])
+
+  // Home step: the draft direction previews live in the Preview behind
+  // the dialog (Jake, 26 Nov 2026) — the beam follows the arrow while
+  // it is dragged, not only after Done. The stored home direction is
+  // untouched until Done writes it; leaving the step or closing the
+  // dialog clears the preview, so an unsaved draft (Esc closes without
+  // saving) never sticks and the beam goes back to the stored direction.
+  useEffect(() => {
+    if (step === 'home') setCalibrationHomePreview(fixtureIds, homeDirection)
+    return () => { setCalibrationHomePreview(null, 0) }
+  }, [step, homeDirection, fixtureIds])
 
   // Rotation step (Guide p.59): a slow pan sweep that scrolls around
   // the dial forever — in LightKey "the arrow just infinitely

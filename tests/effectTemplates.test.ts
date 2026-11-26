@@ -7,6 +7,7 @@ import {
   ALL_LIGHTKEY_TEMPLATES,
   EFFECT_TEMPLATE_SECTIONS,
   createEffectFromTemplate,
+  defaultEffectDurationMs,
   findLightKeyTemplate
 } from '../src/renderer/src/lib/effectTemplates'
 
@@ -87,6 +88,21 @@ describe('LightKey effect templates', () => {
     expect(bowTie.kind).toBe('movement')
     expect(bowTie.attribute).toBe('position')
     expect(bowTie.movementPathId).toBe('builtin-bow-tie')
+  })
+
+  it('defaults new position effects to 10s and other new effects to 2s', () => {
+    // Jake, 26 Nov 2026: the default duration on all position effects
+    // should be 10 seconds. The guide (p.150) pins no LightKey default
+    // — the duration is a field the user can change. Both the movement
+    // templates and the curve position templates take 10s; a saved
+    // effect keeps its own duration (only new effects take the default).
+    const position = EFFECT_TEMPLATE_SECTIONS[2].templates
+    expect(position.every((t) => createEffectFromTemplate(t, ['fx1']).durationMs === 10000)).toBe(true)
+    const dimmer = EFFECT_TEMPLATE_SECTIONS[0].templates
+    expect(dimmer.every((t) => createEffectFromTemplate(t, ['fx1']).durationMs === 2000)).toBe(true)
+    expect(defaultEffectDurationMs('position')).toBe(10000)
+    expect(defaultEffectDurationMs('color')).toBe(2000)
+    expect(defaultEffectDurationMs('intensity')).toBe(2000)
   })
 
   it('gives Iris five curve tiles from Jake’s screenshot', () => {

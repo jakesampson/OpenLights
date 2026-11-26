@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { previewFixtureValues, previewBeamAppearance, previewBeamVector, previewCellBeams, cellBeamGeometry, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
+import { previewFixtureValues, previewBeamAppearance, previewBeamVector, previewCellBeams, cellBeamGeometry, setCalibrationHomePreview, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
 import { degreesToChannel } from '../src/renderer/src/lib/calibration'
 import type { FixtureDef } from '../src/shared/types'
 
@@ -230,5 +230,27 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
   it('keeps the stored home direction at full length for a fixture with no pan/tilt', () => {
     const v = previewBeamVector(head(), {}, { x: 100, y: 100 })
     expect(v).toEqual({ direction: 90, lengthFactor: 1 })
+  })
+
+  it('follows a live Home-direction draft from the calibration dialog, then goes back when it clears', () => {
+    // Jake, 26 Nov 2026: dragging the Home arrow should move the beam
+    // in the Preview behind the dialog at once, not only after Done.
+    // Stored home direction 90° (Preview direction, clockwise from
+    // down); the draft is compass 89° — a Preview direction of
+    // (89 + 180) % 360 = 269°.
+    const fixture = head({ perspective: 'down' })
+    const home = values(0, 90)
+    try {
+      expect(previewBeamVector(fixture, home, { x: 100, y: 100 }).direction).toBeCloseTo(90, -1)
+      setCalibrationHomePreview(['mh1'], 89)
+      expect(previewBeamVector(fixture, home, { x: 100, y: 100 }).direction).toBeCloseTo(269, -1)
+      // Another fixture is untouched by the draft.
+      expect(previewBeamVector({ ...fixture, id: 'mh2' }, home, { x: 100, y: 100 }).direction).toBeCloseTo(90, -1)
+    } finally {
+      // Clearing (Esc / leaving the step) puts the beam back on the
+      // stored direction.
+      setCalibrationHomePreview(null, 0)
+    }
+    expect(previewBeamVector(fixture, home, { x: 100, y: 100 }).direction).toBeCloseTo(90, -1)
   })
 })

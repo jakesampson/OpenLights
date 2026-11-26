@@ -1,6 +1,6 @@
 import { fixtureBeams, fixtureChannelMap } from '@shared/fixtureProfiles'
 import type { FixtureDef } from '@shared/types'
-import { channelToDegrees, panTiltRange } from './calibration'
+import { channelToDegrees, compassToPreviewDirection, panTiltRange } from './calibration'
 import { FIXTURE_ATTRIBUTE_MAP } from './automationRuntime'
 
 function clamp(v: number, min = 0, max = 255) {
@@ -164,8 +164,26 @@ export interface PreviewBeamVector {
  * points down at tilt centre — the canvas-position heuristic applies
  * only when no perspective was picked.
  */
+/**
+ * Live Home-direction preview while the Beam Direction dialog is open
+ * (Jake, 26 Nov 2026): dragging the Home arrow should move the beam in
+ * the Preview behind the dialog at once, not only after Done. The dialog
+ * holds the draft in local state and mirrors it here; the stored home
+ * direction is untouched until Done writes it, and the dialog clears
+ * the preview when it closes or leaves the Home step — so an unsaved
+ * draft (Esc closes without saving) never sticks, and the beam goes
+ * back to the stored direction.
+ */
+let calibrationHomePreview: { fixtureIds: ReadonlySet<string>; compassDegrees: number } | null = null
+export function setCalibrationHomePreview(fixtureIds: string[] | null, compassDegrees: number): void {
+  calibrationHomePreview = fixtureIds === null ? null : { fixtureIds: new Set(fixtureIds), compassDegrees }
+}
+
 export function previewBeamVector(fixture: FixtureDef, values: Record<string, number>, position: { x: number; y: number }): PreviewBeamVector {
-  const homeDirection = typeof fixture.previewBeam?.direction === 'number' && Number.isFinite(fixture.previewBeam.direction) ? fixture.previewBeam.direction : position.y > 200 ? 180 : 0
+  const previewDirection = calibrationHomePreview?.fixtureIds.has(fixture.id)
+    ? compassToPreviewDirection(calibrationHomePreview.compassDegrees)
+    : fixture.previewBeam?.direction
+  const homeDirection = typeof previewDirection === 'number' && Number.isFinite(previewDirection) ? previewDirection : position.y > 200 ? 180 : 0
   const hasPan = typeof values.pan === 'number'
   const hasTilt = typeof values.tilt === 'number'
   if (!hasPan && !hasTilt) return { direction: homeDirection, lengthFactor: 1 }
