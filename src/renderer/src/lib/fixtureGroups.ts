@@ -18,6 +18,26 @@ export function fixtureGroupMembers(groups: FixtureGroup[], id: string, visited 
   const group = groups.find((g) => g.id === id)
   return [...new Set([...(group?.fixtureIds ?? []), ...groups.filter((g) => g.parentId === id).flatMap((g) => fixtureGroupMembers(groups, g.id, visited))])]
 }
+/** Plain-click selection for a fixture in the Preview (Jake, 26 Nov
+ * 2026): 1 click selects the fixture's whole group; clicking the same
+ * fixture again while its group is selected singles that fixture out.
+ * A fixture in several groups resolves to the smallest direct group
+ * (fewest members, nested children included). The 'Ungrouped' record
+ * is not a group — it is the absence of one (syncFixtureGroups puts
+ * every ungrouped fixture there) — so its members always resolve to
+ * just the fixture. Shift-click does not go through here: it toggles
+ * one fixture at a time (see StagePreview). */
+export function resolveFixtureClickSelection(groups: FixtureGroup[], fixtureId: string, selectedIds: string[]): string[] {
+  const direct = groups.filter((g) => g.name !== 'Ungrouped' && g.fixtureIds.includes(fixtureId))
+  if (direct.length === 0) return [fixtureId]
+  let members = fixtureGroupMembers(groups, direct[0].id)
+  for (const group of direct.slice(1)) {
+    const next = fixtureGroupMembers(groups, group.id)
+    if (next.length < members.length) members = next
+  }
+  if (members.every((id) => selectedIds.includes(id))) return [fixtureId]
+  return members
+}
 export function canParentGroup(groups: { id: string; parentId?: string | null }[], id: string, parentId: string | null): boolean {
   const seen = new Set<string>([id]); let current = parentId
   while (current) { if (seen.has(current)) return false; seen.add(current); const group = groups.find((g) => g.id === current); if (!group) return false; current = group.parentId ?? null }

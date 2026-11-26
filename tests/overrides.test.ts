@@ -52,8 +52,13 @@ it('a new cue captures the current overrides (Guide p.191)', () => {
   s().updateSelectedFixtures({ intensity: 200, red: 255 }, true)
   const cue = s().addCue()
   expect(cue.fixtureValues.a).toMatchObject({ intensity: 200, red: 255 })
-  // The defaults still fill the rest, and the overrides stay defined.
-  expect(cue.fixtureValues.b).toMatchObject({ intensity: 0, red: 0 })
+  // The cue carries ONLY what was overridden (Guide p.191: the ad hoc
+  // item is the overridden properties). A fixture with no overrides
+  // has no entry — the output path fills its defaults itself, and a
+  // full default set written here would clobber the presets the cue
+  // references (resolveCueValues applies the cue's own values after
+  // its presets).
+  expect(cue.fixtureValues.b).toBeUndefined()
   expect(s().manualOverrides.a).toMatchObject({ intensity: 200, red: 255 })
 })
 

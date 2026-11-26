@@ -384,7 +384,13 @@ interface ShowState {
   duplicateSequenceStep: (id: string, stepId: string) => void
   moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
   reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
-  addCue: () => CueDef
+  addCue: (ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => CueDef
+  /** Create a cue AND append it to a cuelist in one update (LightKey,
+      Guide ch.11 pp.191–192): the cuelist "+ Cue" button and a palette
+      drag onto a cuelist widget both land here, so "+ Cue" works from
+      zero cues and a drag mints the cue it drops. Returns the new cue
+      id, or '' when the list does not exist. */
+  addCueToList: (listId: string, ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => string
   /** Create a cue AND make it active when no cue is active (the write
       paths' model — mirroring updateSelectedFixtures). addCue on its own
       deliberately does not activate (the Add-cue button's behaviour), so
@@ -691,6 +697,44 @@ function newCueFixtureValues(fixtures: FixtureDef[], manualOverrides: Record<str
   const fixtureValues: CueDef['fixtureValues'] = {}
   for (const fixture of fixtures) fixtureValues[fixture.id] = { ...defaultFixtureValues(fixture), ...manualOverrides[fixture.id] }
   return fixtureValues
+}
+
+/** The cue's ad-hoc layer (LightKey's "Ad hoc properties", Guide ch.11
+ * p.191): ONLY the overridden properties. The full default set must NOT
+ * be written here — resolveCueValues applies the cue's own values after
+ * its presets, so defaults carried in the cue would clobber the presets
+ * it references (a drag-created cue would resolve to defaults, not the
+ * dragged preset). The output path fills missing attributes with the
+ * fixture defaults itself (computeCueChannels zeroMissing), so a
+ * preset-less cue still comes out at its defaults. */
+function newCueAdHocValues(fixtures: FixtureDef[], manualOverrides: Record<string, Record<string, number>>): CueDef['fixtureValues'] {
+  const fixtureValues: CueDef['fixtureValues'] = {}
+  for (const fixture of fixtures) {
+    const override = manualOverrides[fixture.id]
+    if (override && Object.keys(override).length > 0) fixtureValues[fixture.id] = { ...override }
+  }
+  return fixtureValues
+}
+
+/** Build a new cue the LightKey way (Guide ch.11, p.191): the active
+ * presets and sequences, plus the overridden fixture properties as ad
+ * hoc values. Explicit ids (a palette drag onto a cuelist) replace the
+ * active look — the dragged objects are the cue; the ad hoc layer is
+ * always the current overrides, in both cases. */
+function buildNewCue(state: ShowState, explicit?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string): CueDef {
+  const fixtures = state.show?.fixtures ?? []
+  return {
+    id: crypto.randomUUID(),
+    name: name?.trim() || `Cue ${nextCueNumber(state.cues)}`,
+    presetIds: explicit
+      ? [...new Set(explicit.presetIds ?? [])].filter((id) => state.presets.some((p) => p.id === id))
+      : [...state.activePresetIds].filter((id) => state.presets.some((p) => p.id === id)),
+    sequenceIds: explicit
+      ? [...new Set(explicit.sequenceIds ?? [])].filter((id) => state.show?.sequences?.some((s) => s.id === id))
+      : [...state.activeSequenceIds].filter((id) => state.show?.sequences?.some((s) => s.id === id)),
+    fixtureValues: newCueAdHocValues(fixtures, state.manualOverrides),
+    fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
+  }
 }
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
@@ -2407,24 +2451,29 @@ const actions: ShowState = {
     get().refreshBaseOutput()
   },
 
-  addCue: () => {
+  addCue: (ids, name) => {
     let newCue: CueDef | undefined
     set((state) => {
-      const fixtures = state.show?.fixtures ?? []
-      newCue = {
-        id: crypto.randomUUID(),
-        name: `Cue ${nextCueNumber(state.cues)}`,
-        presetIds: [],
-        sequenceIds: [],
-        // Creating a cue adds the currently overridden properties to it
-        // (Guide ch.11, p.191) — overlaid on LightKey's defaults.
-        fixtureValues: newCueFixtureValues(fixtures, state.manualOverrides),
-        fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
-      }
+      newCue = buildNewCue(state, ids, name)
       const cues = [...state.cues, newCue]
       return persistState(state, { cues }, { cues })
     })
     return newCue!
+  },
+
+  addCueToList: (listId, ids, name) => {
+    let cueId = ''
+    set((state) => {
+      const list = state.cueLists.find((item) => item.id === listId)
+      if (!list) return state
+      const cue = buildNewCue(state, ids, name)
+      cueId = cue.id
+      const step: CueStepDef = { id: crypto.randomUUID(), cueId: cue.id, fadeMs: cue.fadeMs, holdMs: 0 }
+      const cues = [...state.cues, cue]
+      const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps: [...item.steps, step] } : item)
+      return persistState(state, { cues, cueLists }, { cues, cueLists })
+    })
+    return cueId
   },
 
   // A write with no active cue must land somewhere: create the cue the
@@ -3320,7 +3369,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

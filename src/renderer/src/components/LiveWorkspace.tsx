@@ -4,7 +4,7 @@ import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectSty
 import { clampModifier, clampLiveSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
-  decodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
+  decodeLiveDrop, dropLabel, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
 } from '../lib/liveDrops'
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor } from '../lib/liveButtonColor'
@@ -65,7 +65,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   const {
     locked, show, cues, presets, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
-    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, addCueList, liveEditing, setLiveEditing,
+    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, addCueList, addCueToList, liveEditing, setLiveEditing,
     editCueContents, configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep, addOverridesToCues, startEditingCueAdHoc,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
@@ -340,6 +340,20 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     if (!payload) return
     event.preventDefault(); event.stopPropagation()
     dropOnLivePage(payload, { kind: 'cue', cueId })
+  }
+  // Dropping presets/sequences onto a cuelist widget mints a cue holding
+  // them and appends it to that list (LightKey, Guide ch.11 p.192: drag
+  // presets to a blank part of the cuelist and a new cue is created
+  // containing them). The widget has no row list, so the step always
+  // lands at the end. stopPropagation keeps the canvas drop from also
+  // minting a Live button for the same drag; an NDI Ambience drop is a
+  // standalone button, never a cue, so it is ignored here.
+  const dropOnList = (event: React.DragEvent, listId: string | undefined) => {
+    if (!editing || !listId) return
+    const payload = readDrop(event)
+    if (!payload || (!payload.presetIds.length && !payload.sequenceIds.length)) return
+    event.preventDefault(); event.stopPropagation()
+    addCueToList(listId, { presetIds: payload.presetIds, sequenceIds: payload.sequenceIds }, dropLabel(payload))
   }
   const addList = (at?: { x: number; y: number }) => {
     if (!page || !cueLists[0]) return
@@ -639,7 +653,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           const ref: PageObjectRef = { type: 'list', id: widget.id }
           const lw = widget.width ?? LIVE_LIST_SIZE.width, lh = widget.height ?? LIVE_LIST_SIZE.height
           const w = resizeDraft?.id === widget.id ? resizeDraft.width : lw, h = resizeDraft?.id === widget.id ? resizeDraft.height : lh
-          return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }}>
+          return <div key={widget.id} className={`absolute rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 text-xs`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={allowDrop} onDrop={(event) => dropOnList(event, list?.id)}>
             <div className={editing ? 'cursor-grab rounded bg-bg p-1' : 'font-semibold'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }} onDoubleClick={() => openPropertiesPopup(ref)}>{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</div>
             <p className="mt-1 text-dim">Current: {current >= 0 ? cues.find((s) => s.id === list?.steps[current]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</p><p className="text-dim">Next: {next ? cues.find((s) => s.id === next.cueId)?.name ?? 'Missing cue' : 'End of list'}</p>
             {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={() => stopCue()} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={() => cuePrev()} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}

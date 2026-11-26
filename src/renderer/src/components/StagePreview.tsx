@@ -21,6 +21,7 @@ import { isCalibrationComplete } from '../lib/calibration'
 import { useShowStore } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
 import { layoutOverrideLabels, overridePropertyGroups } from '../lib/overrideLabels'
+import { resolveFixtureClickSelection } from '../lib/fixtureGroups'
 import { demoArcPositions, instanceKey, instancePositions } from '../lib/previewLayout'
 import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
 
@@ -73,7 +74,17 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixture, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  // Plain-click selection (Jake, 26 Nov 2026): 1 click selects the
+  // fixture's group, clicking the same fixture again singles it out,
+  // Shift-click toggles one fixture at a time. Non-edit clicks route
+  // here directly; the edit-mode pointerdown below defers the
+  // single-out to pointerup so a drag starting on an already-selected
+  // fixture still moves the whole group.
+  const clickFixture = (id: string, additive: boolean) => {
+    if (additive) { selectFixtures(selectedFixtureIds.includes(id) ? selectedFixtureIds.filter((item) => item !== id) : [...selectedFixtureIds, id]); return }
+    selectFixtures(resolveFixtureClickSelection(show?.fixtureGroups ?? [], id, selectedFixtureIds))
+  }
   // Fanning HUD (LightKey Guide §8, p.118 to 123): the HUD lives in the
   // Preview, around the fixtures' icons, and is a Design-view activity —
   // so its toolbar button only shows in Design mode, and the HUD closes
@@ -262,6 +273,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const [dragPositions, setDragPositions] = useState<Record<string, Pos> | null>(null)
   const svgRef = useRef<SVGSVGElement>(null)
   const dragRef = useRef<{ start: Pos; originals: Record<string, Pos>; positions: Record<string, Pos>; fixtureIds: string[] } | null>(null)
+  // A second click on an already-selected grouped fixture singles it
+  // out — but only once the click completes without a drag (see the
+  // dragRef branch in the svg's onPointerUp): pointerdown must keep
+  // the group selected so a drag that starts there still moves the
+  // whole group.
+  const pendingSingleOut = useRef<string | null>(null)
   // Canvas pan (LightKey Guide p.53: Space+drag pans the Preview; "when
   // the Preview is enlarged you can scroll to move the visible area").
   // A pan starts from a blank drag in non-edit mode (no marquee there)
@@ -281,6 +298,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const cancelCanvasDrag = () => {
     dragGuard.end()
     if (fixtureHandleRef.current) { const f = fixtureHandleRef.current.fixture; useShowStore.getState().updateFixture(f.id, { iconSize: f.iconSize, rotation: f.rotation }); fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup() }
+    pendingSingleOut.current = null
     setMarquee(null); panRef.current = null; dragRef.current = null; setDragPositions(null); trussDragRef.current = null; setTrussDraft(null)
   }
   const pointerOverRef = useRef(false)
@@ -613,7 +631,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
         viewBox={`${viewCentre.x - 400 / zoom} ${viewCentre.y - 170 / zoom} ${800 / zoom} ${340 / zoom}`}
         onPointerDown={() => dragGuard.begin()}
         onPointerMove={(event) => { if (event.buttons === 0) { cancelCanvasDrag(); return } if (fixtureHandleRef.current) { const d = fixtureHandleRef.current, point = pointAt(event); if (point) useShowStore.getState().updateFixture(d.fixture.id, d.mode === 'resize' ? { iconSize: resizeFixtureIcon(d.fixture, d.centre, d.start, point) } : { rotation: rotateFixtureIcon(d.fixture, d.centre, d.start, point) }); return } if (marquee) { const point = pointAt(event); if (point) setMarquee({ ...marquee, current: point }); return } if (trussDragRef.current) { const point = pointAt(event); if (point) { const drag = trussDragRef.current; const next = drag.mode === 'move' ? moveTruss(drag.original, drag.start, point) : drag.mode === 'rotate' ? rotateTruss(drag.original, drag.start, point, event.shiftKey) : drag.mode === 'sweep-start' ? sweepTruss(drag.original, 'start', drag.start, point, event.shiftKey) : drag.mode === 'sweep-end' ? sweepTruss(drag.original, 'end', drag.start, point, event.shiftKey) : resizeTruss(drag.original, drag.start, point, event.shiftKey); drag.current = drag.mode === 'rotate' || drag.mode === 'sweep-start' || drag.mode === 'sweep-end' ? next : snapTrussEndpoints(next, trusses); setTrussDraft(drag.current) } return } if (panRef.current) { const pan = panRef.current; const rect = svgRef.current?.getBoundingClientRect(); if (rect) { const scale = (800 / zoom) / rect.width; if (Math.abs(event.clientX - pan.startClient.x) > 3 || Math.abs(event.clientY - pan.startClient.y) > 3) pan.moved = true; setViewCentre({ x: pan.startCentre.x - (event.clientX - pan.startClient.x) * scale, y: pan.startCentre.y - (event.clientY - pan.startClient.y) * scale }) } return } if (!dragRef.current) return; const position = pointAt(event); if (position) { const drag = dragRef.current; const dx = position.x - drag.start.x, dy = position.y - drag.start.y; const positions = Object.fromEntries(Object.entries(drag.originals).map(([id, original]) => [id, { x: clamp(original.x + dx, 0, 800), y: clamp(original.y + dy, 0, 340) }])); drag.positions = positions; setDragPositions(positions) } }}
-        onPointerUp={(event) => { if (fixtureHandleRef.current) { fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (marquee) { const ids = marqueeSelection([...fixtureViews.map((f) => ({ id: f.key, x: f.pos.x, y: f.pos.y, width: 20, height: 20 })), ...trusses.map((t) => ({ ...t, height: t.shape === 'straight' ? 8 : t.height }))], marquee.start, pointAt(event) ?? marquee.current); const fixtures = [...new Set(ids.map((id) => fixtureViews.find((f) => f.key === id)?.id).filter((id): id is string => Boolean(id)))]; selectFixtures(marquee.additive ? [...new Set([...selectedFixtureIds, ...fixtures])] : fixtures); const selected = ids.filter((id) => trusses.some((t) => t.id === id)); setSelectedLayoutTrussIds(marquee.additive ? [...new Set([...selectedLayoutTrussIds, ...selected])] : selected); setSelectedPreviewTrussId(selected[0] ?? null); setMarquee(null); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (panRef.current) { const pan = panRef.current; panRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); if (!pan.moved && !editing) selectFixtures([]); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); const tray = document.getElementById('fixture-storage-tray')?.getBoundingClientRect(); if (tray && event.clientX >= tray.left && event.clientX <= tray.right && event.clientY >= tray.top && event.clientY <= tray.bottom) { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of drag.fixtureIds) state.updateFixture(id, { inStorage: true }); state.endHistoryGroup(); selectFixtures([]); return } setFixtureInstancePositions(Object.fromEntries(Object.entries(drag.positions).map(([key, position]) => [key, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
+        onPointerUp={(event) => { if (fixtureHandleRef.current) { fixtureHandleRef.current = null; useShowStore.getState().endHistoryGroup(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (marquee) { const ids = marqueeSelection([...fixtureViews.map((f) => ({ id: f.key, x: f.pos.x, y: f.pos.y, width: 20, height: 20 })), ...trusses.map((t) => ({ ...t, height: t.shape === 'straight' ? 8 : t.height }))], marquee.start, pointAt(event) ?? marquee.current); const fixtures = [...new Set(ids.map((id) => fixtureViews.find((f) => f.key === id)?.id).filter((id): id is string => Boolean(id)))]; selectFixtures(marquee.additive ? [...new Set([...selectedFixtureIds, ...fixtures])] : fixtures); const selected = ids.filter((id) => trusses.some((t) => t.id === id)); setSelectedLayoutTrussIds(marquee.additive ? [...new Set([...selectedLayoutTrussIds, ...selected])] : selected); setSelectedPreviewTrussId(selected[0] ?? null); setMarquee(null); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (trussDragRef.current) { const item = trussDragRef.current.current; trussDragRef.current = null; setTrussDraft(null); setPreviewTrusses(trusses.map((truss) => truss.id === item.id ? item : truss)); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); return } if (panRef.current) { const pan = panRef.current; panRef.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId); if (!pan.moved && !editing) selectFixtures([]); return } if (!dragRef.current) return; const drag = dragRef.current; dragRef.current = null; setDragPositions(null); const singleOut = pendingSingleOut.current; pendingSingleOut.current = null; const moved = Object.entries(drag.positions).some(([key, pos]) => pos.x !== drag.originals[key]?.x || pos.y !== drag.originals[key]?.y); const tray = document.getElementById('fixture-storage-tray')?.getBoundingClientRect(); if (tray && event.clientX >= tray.left && event.clientX <= tray.right && event.clientY >= tray.top && event.clientY <= tray.bottom) { const state = useShowStore.getState(); state.beginHistoryGroup(); for (const id of drag.fixtureIds) state.updateFixture(id, { inStorage: true }); state.endHistoryGroup(); selectFixtures([]); return } if (!moved && singleOut) selectFixtures([singleOut]); setFixtureInstancePositions(Object.fromEntries(Object.entries(drag.positions).map(([key, position]) => [key, snapFixtureToTruss(position, trusses)]))); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }}
         onPointerCancel={cancelCanvasDrag}
         onLostPointerCapture={cancelCanvasDrag}
         preserveAspectRatio="xMidYMid meet"
@@ -769,7 +787,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
               aria-pressed={selectable ? selected : undefined}
               className={newFixtureIds.includes(f.id) ? 'fixture-appear' : undefined}
               style={selectable ? { cursor: editing ? 'grab' : 'pointer', touchAction: 'none' } : undefined}
-              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const ids = selectedFixtureIds.includes(f.id) ? selectedFixtureIds : [f.id]; if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((view) => view.key === f.key || (ids.includes(view.id) && view.id !== f.id)).map((view) => [view.key, view.pos])); dragRef.current = { start: position, originals, positions: originals, fixtureIds: ids }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
+              onPointerDown={selectable && editing ? (event) => { event.preventDefault(); event.stopPropagation(); if (event.shiftKey) { selectFixtures(selectedFixtureIds.includes(f.id) ? selectedFixtureIds.filter((id) => id !== f.id) : [...selectedFixtureIds, f.id]); return } const resolved = resolveFixtureClickSelection(show?.fixtureGroups ?? [], f.id, selectedFixtureIds); const singlesOut = resolved.length === 1 && resolved[0] === f.id && selectedFixtureIds.includes(f.id); const ids = singlesOut || selectedFixtureIds.includes(f.id) ? selectedFixtureIds : resolved; if (singlesOut) pendingSingleOut.current = f.id; else if (!selectedFixtureIds.includes(f.id)) selectFixtures(ids); const position = pointAt(event); if (position) { const originals = Object.fromEntries(fixtureViews.filter((view) => view.key === f.key || (ids.includes(view.id) && view.id !== f.id)).map((view) => [view.key, view.pos])); dragRef.current = { start: position, originals, positions: originals, fixtureIds: ids }; setDragPositions(originals); svgRef.current?.setPointerCapture(event.pointerId) } } : undefined}
               // Right-click selects the fixture first, so the fixture
               // shortcut menu (Highlight…) acts on the fixture that was
               // clicked, not on whatever was selected before.
@@ -778,7 +796,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 selectable
                   ? (event) => {
                       event.stopPropagation()
-                      if (!editing) selectFixture(f.id, event.shiftKey)
+                      if (!editing) clickFixture(f.id, event.shiftKey)
                     }
                   : undefined
               }
@@ -787,7 +805,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   ? (event) => {
                       if (event.key !== 'Enter' && event.key !== ' ') return
                       event.preventDefault()
-                      selectFixture(f.id, event.shiftKey)
+                      clickFixture(f.id, event.shiftKey)
                     }
                   : undefined
               }
@@ -854,15 +872,16 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   hit-testable for the same reason (it used to be
                   pointer-events none, so a beam click fell through to
                   the blank canvas and deselected). Both route through
-                  the same selectFixture the icon click uses, Shift
-                  included; in edit mode the group's pointerdown still
-                  owns selection + dragging. */}
+                  the same clickFixture the icon click uses — group on
+                  first click, single on the second, Shift toggles one;
+                  in edit mode the group's pointerdown still owns
+                  selection + dragging. */}
               {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const labelY = f.namePosition === 'below' ? y + 20 : y - 13; const width = label.length * 4.6 + 10; return (<>
                 {/* LightKey's blue label pill for the selected fixture
                     (Guide p.53): a blue rounded pill with white text
                     while editing; the plain text label otherwise. */}
                 {editing && selected && <rect x={x - width / 2} y={labelY - 10} width={width} height="13" rx="6.5" fill="#0A84FF" pointerEvents="none" />}
-                <text x={x} y={labelY} textAnchor="middle" fill={editing && selected ? '#ffffff' : 'var(--text)'} fontSize="8" paintOrder="stroke" stroke={editing && selected ? 'none' : 'var(--bg)'} strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) selectFixture(f.id, event.shiftKey) }}>{label}</text>
+                <text x={x} y={labelY} textAnchor="middle" fill={editing && selected ? '#ffffff' : 'var(--text)'} fontSize="8" paintOrder="stroke" stroke={editing && selected ? 'none' : 'var(--bg)'} strokeWidth="2" onClick={(event) => { event.stopPropagation(); if (!editing) clickFixture(f.id, event.shiftKey) }}>{label}</text>
               </>) })()}
               {/* The blue dot left of the name (Guide ch.11, p.116; Jake's
                   LightKey screenshots 20 Nov 2026): a fixture with
