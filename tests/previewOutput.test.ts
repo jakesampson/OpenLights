@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { previewFixtureValues, previewBeamAppearance, previewBeamVector, previewCellBeams, cellBeamGeometry, setCalibrationHomePreview, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
+import { previewFixtureValues, previewBeamAppearance, previewBeamVector, previewCellBeams, cellBeamGeometry, setCalibrationHomePreview, resetBeamDirectionHold, CELL_BEAM_FULL_LENGTH, SINGLE_BEAM_FULL_LENGTH } from '../src/renderer/src/lib/previewOutput'
 import { degreesToChannel } from '../src/renderer/src/lib/calibration'
 import type { FixtureDef } from '../src/shared/types'
 
@@ -225,6 +225,29 @@ describe('beam direction from live pan/tilt (Guide p.91)', () => {
     expect(angleDiff(at(135).direction, 130)).toBeLessThan(5) // up-left
     expect(at(45).lengthFactor).toBeGreaterThan(0.5)
     expect(at(135).lengthFactor).toBeGreaterThan(0.5)
+  })
+
+  it('holds the last direction through the projection singularity instead of flipping', () => {
+    // Jake, 26 Nov 2026: twice per Figure Eight cycle the beam collapsed
+    // to a dot and flipped up to 151.6° in one step. Home up, perspective
+    // down, pan ≈180°: at tilt −45° the tip terms cancel (the beam points
+    // straight at the viewer) and the atan2 angle is noise. The beam must
+    // hold its direction while short, then emerge pointing the other way
+    // once it regrows — never take a wild intermediate. (The twin
+    // collapse at tilt +135° sits on the channel edge, so this −45° one
+    // is the reachable sweep through it.)
+    resetBeamDirectionHold()
+    const angleDiff = (a: number, b: number) => Math.abs(((a - b + 540) % 360) - 180)
+    const at = (tiltDeg: number) => previewBeamVector(
+      { id: 'mh-sing', name: 'MH', type: 'moving-head', channelStart: 1, channels: 8, previewBeam: { direction: 180 }, calibration: { perspective: 'down' } },
+      values(180, tiltDeg), { x: 100, y: 300 })
+    for (const tilt of [-90, -70, -60, -50]) expect(angleDiff(at(tilt).direction, 180)).toBeLessThan(10)
+    for (const tilt of [-48, -45, -42]) {
+      const v = at(tilt)
+      expect(v.lengthFactor).toBeLessThan(0.15)
+      expect(angleDiff(v.direction, 180)).toBeLessThan(10) // held, not flipped
+    }
+    for (const tilt of [-40, -30, 0]) expect(angleDiff(at(tilt).direction, 0)).toBeLessThan(10)
   })
 
   it('keeps the stored home direction at full length for a fixture with no pan/tilt', () => {

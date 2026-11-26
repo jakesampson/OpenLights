@@ -18,7 +18,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { StagePreview } from '../src/renderer/src/components/StagePreview'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
-import { configureEffects, sendImmediate } from '../src/renderer/src/lib/output'
+import { configureEffects, configurePresetOutput, sendImmediate } from '../src/renderer/src/lib/output'
 import type { FixtureDef } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -89,15 +89,37 @@ function beamGeometry(polygon: HTMLElement) {
 }
 
 function beamFill(polygon: HTMLElement) {
-  return polygon.getAttribute('fill') ?? ''
+  const fill = polygon.getAttribute('fill') ?? ''
+  // The beam is a soft glow now (Jake, 26 Nov 2026): the polygon's
+  // fill is a per-beam gradient, so the colour lives on its stops.
+  const match = fill.match(/^url\(#(.+)\)$/)
+  if (match) {
+    const gradient = container?.querySelector(`#${CSS.escape(match[1])}`)
+    const stop = gradient?.querySelector('stop')
+    return stop?.getAttribute('stop-color') ?? ''
+  }
+  return fill
 }
 
 // The stubbed live DMX frame: Q1's four channels, then W1's seven.
+// Only the heartbeat test below reads it — the Preview takes its
+// frames from the output engine now (Jake, 26 Nov 2026), and the
+// other tests drive the frame through the engine instead.
 function setFrame(q: [number, number, number, number], w: [number, number, number, number, number, number, number] = [255, 255, 0, 0, 0, 0, 0]) {
   channels = new Array(512).fill(0)
   channels[0] = q[0]; channels[1] = q[1]; channels[2] = q[2]; channels[3] = q[3]
   channels[4] = w[0]; channels[5] = w[1]; channels[6] = w[2]; channels[7] = w[3]
   channels[8] = w[4]; channels[9] = w[5]; channels[10] = w[6]
+}
+
+// Push a mid-transition frame through the output engine, as a preset
+// layer would: the frame carries the given colours, but the display
+// dimmer stays at the base look's endpoint brightness — the presets
+// layer is not one of the post-base layers updateDisplayLevels reads
+// the frame for, so the beam length follows the base dimmer, not the
+// frame max.
+function setEngineFrame(q: [number, number, number, number], w: [number, number, number, number, number, number, number] = [255, 255, 0, 0, 0, 0, 0]) {
+  configurePresetOutput({ 1: q[0], 2: q[1], 3: q[2], 4: q[3], 5: w[0], 6: w[1], 7: w[2], 8: w[3], 9: w[4], 10: w[5], 11: w[6] })
 }
 
 // Tell the output engine the base look's endpoint brightness, as a
@@ -127,6 +149,7 @@ afterEach(() => {
   Element.prototype.getBoundingClientRect = originalGetBoundingClientRect
   // Leave the output engine with no levels, so the next test starts
   // from the DMX-only fallback unless it sets levels itself.
+  configurePresetOutput({})
   sendImmediate({})
   configureEffects({ fixtures: [], effects: [] })
 })
@@ -138,7 +161,7 @@ describe('beam length follows the dimmer, not the colour', () => {
     // derivation (max colour channel) read that as half brightness
     // and halved the beam; the display dimmer stays at full.
     setBaseLevels(255)
-    setFrame([128, 0, 128, 0])
+    setEngineFrame([128, 0, 128, 0])
     await renderPreview()
     expect(beamGeometry(beamFor('Q1')).length).toBeCloseTo(146, 5)
     expect(beamFill(beamFor('Q1'))).toBe('#800080')
@@ -146,14 +169,14 @@ describe('beam length follows the dimmer, not the colour', () => {
 
   it('a real-dimmer fixture never dipped, and still does not', async () => {
     setBaseLevels(255)
-    setFrame([128, 0, 128, 0], [255, 128, 0, 128, 0, 0, 0])
+    setEngineFrame([128, 0, 128, 0], [255, 128, 0, 128, 0, 0, 0])
     await renderPreview()
     expect(beamGeometry(beamFor('W1')).length).toBeCloseTo(146, 5)
   })
 
   it('a dimmer change still shrinks the beam', async () => {
     setBaseLevels(128)
-    setFrame([128, 0, 0, 0])
+    setEngineFrame([128, 0, 0, 0])
     await renderPreview()
     expect(beamGeometry(beamFor('Q1')).length).toBeCloseTo(146 * (128 / 255), 5)
   })
@@ -163,17 +186,21 @@ describe('beam length follows the dimmer, not the colour', () => {
     // frame is (64, 0, 64) — half of half. The beam follows the
     // dimmer (half), not the frame max (quarter).
     setBaseLevels(128)
-    setFrame([64, 0, 64, 0])
+    setEngineFrame([64, 0, 64, 0])
     await renderPreview()
     expect(beamGeometry(beamFor('Q1')).length).toBeCloseTo(146 * (128 / 255), 5)
   })
 
   it('with no levels reported the Preview falls back to the frame max, as before', async () => {
     // The engine has not sent a base look yet (fresh load, live
-    // window): the old derivation is the only signal available.
+    // window): the old derivation is the only signal available. The
+    // frame here arrives over the IPC read — the local frame is stale
+    // (the engine is not pushing in this window), so the Preview's
+    // heartbeat falls back to getChannels after 500ms.
     configureEffects({ fixtures: [q1, w1], effects: [], movementPaths: [], bpm: 120, master: 255, blackout: false })
     setFrame([128, 0, 128, 0])
     await renderPreview()
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 650)) })
     expect(beamGeometry(beamFor('Q1')).length).toBeCloseTo(146 * (128 / 255), 5)
   })
 })

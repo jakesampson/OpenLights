@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { previewFixtureValues, previewBeamAppearance, previewCellBeams, cellBeamGeometry } from '../lib/previewOutput'
-import { getDisplayLevels } from '../lib/output'
+import { getDisplayLevels, getLastOutputChannels, getOutputFrameId } from '../lib/output'
 import { alignObjects, type AlignMode } from '../lib/align'
 import { resizeFixtureIcon, rotateFixtureIcon } from '../lib/fixtureGeometry'
 import { marqueeSelection } from '../lib/previewSelection'
@@ -188,22 +188,52 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const [outputChannels, setOutputChannels] = useState<number[]>([])
   // The dimmer the output engine is drawing each fixture at (see
   // lib/output.ts): the beam length follows it, not the transmitted
-  // colour. Read in the same poll as the channels, so the two stay
+  // colour. Read in the same tick as the channels, so the two stay
   // in step.
   const [displayLevels, setDisplayLevels] = useState<Record<string, number>>({})
+  // The beam reads the engine's frames on the same ~60fps rAF loop
+  // the chart dot uses (Jake, 26 Nov 2026): the old 100ms getChannels
+  // poll made the beam jump ~18° per step while the DMX output itself
+  // was smooth. Every push() bumps the frame id in lib/output, so the
+  // loop only re-renders when a new frame arrived — no IPC round trip
+  // while the engine is pushing here. When the local frame goes stale
+  // for 500ms (the live window, where push() early-returns, or a
+  // DMX-test drive from the main process) the loop falls back to the
+  // IPC read — the old poll path, only while stale. The two never run
+  // together, so the beam can't judder between sources.
   useEffect(() => {
     let alive = true
-    let pending = false
-    const readOutput = async () => {
-      if (pending || !window.electronAPI?.getChannels) return
-      pending = true
+    let frameId = getOutputFrameId()
+    let lastIpcAt = performance.now()
+    let ipcPending = false
+    const readViaIpc = async () => {
+      if (ipcPending || !window.electronAPI?.getChannels) return
+      ipcPending = true
       try { const values = await window.electronAPI.getChannels(); if (alive) { setOutputChannels(values); setDisplayLevels(getDisplayLevels()) } }
       catch { /* Keep the last known output if the bridge is unavailable. */ }
-      finally { pending = false }
+      finally { ipcPending = false }
     }
-    void readOutput()
-    const timer = window.setInterval(readOutput, 100)
-    return () => { alive = false; window.clearInterval(timer) }
+    const tick = () => {
+      if (!alive) return
+      const id = getOutputFrameId()
+      if (id !== frameId) {
+        frameId = id
+        lastIpcAt = performance.now()
+        setOutputChannels(getLastOutputChannels())
+        setDisplayLevels(getDisplayLevels())
+      } else if (performance.now() - lastIpcAt > 500) {
+        lastIpcAt = performance.now()
+        void readViaIpc()
+      }
+      requestAnimationFrame(tick)
+    }
+    // First paint: take whatever the engine has already sent; if it
+    // has not pushed a frame yet, seed from the IPC snapshot once.
+    setOutputChannels(getLastOutputChannels())
+    setDisplayLevels(getDisplayLevels())
+    if (frameId === 0) void readViaIpc()
+    const raf = requestAnimationFrame(tick)
+    return () => { alive = false; cancelAnimationFrame(raf) }
   }, [])
   const [trussDraft, setTrussDraft] = useState<PreviewTruss | null>(null)
   const trussDragRef = useRef<{ mode: 'move' | 'resize' | 'rotate' | 'sweep-start' | 'sweep-end'; start: Pos; original: PreviewTruss; current: PreviewTruss } | null>(null)
@@ -473,6 +503,29 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     window.addEventListener('openlights-preview-zoom', handler)
     return () => window.removeEventListener('openlights-preview-zoom', handler)
   }, [fixtures, trusses, selectedFixtureIds, selectedPreviewTrussId])
+  // Pan-by-screen-pixels (Position HUD, Jake 26 Nov 2026: full-size
+  // chart, move the Preview so the fixture fits on screen with it).
+  // The HUD dispatches {dx, dy} in host pixels when its chart would
+  // extend past the visible Preview; the view centre shifts the
+  // opposite way in world units so the contents move by (dx, dy) on
+  // screen. getScreenCTM maps world units to screen pixels (including
+  // the letterboxed viewBox), so matrix.a is the exact px-per-world
+  // scale — the same conversion the drag/wheel pan uses via the
+  // (800/zoom)/rect.width approximation. Fires once per editor open
+  // (the HUD guards it); a later manual pan/zoom is never overridden.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const { dx, dy } = (event as CustomEvent<{ dx: number; dy: number }>).detail
+      if (!Number.isFinite(dx) || !Number.isFinite(dy) || (dx === 0 && dy === 0)) return
+      const svg = svgRef.current
+      const matrix = svg?.getScreenCTM()
+      if (!svg || !matrix || !matrix.a) return
+      const view = viewStateRef.current
+      setViewCentre({ x: view.viewCentre.x - dx / matrix.a, y: view.viewCentre.y - dy / matrix.a })
+    }
+    window.addEventListener('openlights-preview-pan-by', handler)
+    return () => window.removeEventListener('openlights-preview-pan-by', handler)
+  }, [])
   const duplicateTruss = (source: PreviewTruss) => {
     const item = { ...source, id: crypto.randomUUID(), x: source.x + 20, y: source.y + 20 }
     setPreviewTrusses([...trusses, item]); setSelectedPreviewTrussId(item.id)
@@ -571,6 +624,18 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           <pattern id="blueprintGridMajor" width="240" height="240" patternUnits="userSpaceOnUse">
             <path d="M 240 0 H 0 V 240" fill="none" stroke="#8090a0" strokeWidth="1" />
           </pattern>
+          {/* Soft-beam blur (Jake, 26 Nov 2026): LightKey's beam is a
+              diffuse glow with no hard edge or outline, so the cone
+              polygons are blurred at the sides and fade along their
+              length (per-beam gradient, defined with each fixture).
+              The glow is a separate, wider blur for the round pool a
+              beam becomes when it points at the viewer. */}
+          <filter id="beamSoft" x="-40%" y="-20%" width="180%" height="140%">
+            <feGaussianBlur stdDeviation="4" />
+          </filter>
+          <filter id="beamGlow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="7" />
+          </filter>
         </defs>
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGrid)" pointerEvents="none" />}
         {editing && <rect x={viewCentre.x - 800 / zoom} y={viewCentre.y - 340 / zoom} width={1600 / zoom} height={680 / zoom} fill="url(#blueprintGridMajor)" pointerEvents="none" />}
@@ -679,6 +744,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
             <g
               key={f.key}
               data-context-menu="fixture"
+              data-fixture-id={f.id}
               role={selectable ? 'button' : undefined}
               tabIndex={selectable ? 0 : undefined}
               aria-label={selectable ? f.name : undefined}
@@ -708,7 +774,18 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   : undefined
               }
             >
-              {on && !f.hideBeam && multiBeam && cells.map((cell, index) => {
+              {/* Soft beam (Jake, 26 Nov 2026 — LightKey's beam is a
+                  diffuse glow with no hard outline): each cone fades
+                  along its length through a per-beam gradient and is
+                  blurred at the sides. When the projected length
+                  collapses (the beam points at the viewer — the chart
+                  centre for a parallel fixture, or the Figure Eight
+                  singularity) the cone becomes a soft round glow at
+                  the fixture instead of a sliver. */}
+              {on && !f.hideBeam && appearance.lengthFactor < 0.15 && (
+                <circle cx={x} cy={y} r="20" fill={appearance.color} fillOpacity={op * 0.55} filter="url(#beamGlow)" />
+              )}
+              {on && !f.hideBeam && appearance.lengthFactor >= 0.15 && multiBeam && cells.map((cell, index) => {
                 if (cell.opacity <= 0) return null
                 // The cell's own centre: the rects are 9 apart,
                 // centred on the fixture (see the cell rects below).
@@ -716,28 +793,41 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                 const { length, nearHalf, farHalf } = cellBeamGeometry(cell.opacity * appearance.lengthFactor, appearance.widthFactor)
                 const cellBottom = top + length
                 return (
-                  <polygon
-                    key={cell.id}
-                    points={`${cx - nearHalf},${top} ${cx + nearHalf},${top} ${cx + farHalf},${cellBottom} ${cx - farHalf},${cellBottom}`}
-                    transform={`rotate(${appearance.direction} ${cx} ${y})`}
-                    fill={cell.color}
-                    fillOpacity={cell.opacity * 0.28}
-                    stroke={cell.color}
-                    strokeOpacity={cell.opacity * 0.45}
-                    strokeWidth="1"
-                  />
+                  <g key={cell.id}>
+                    <defs>
+                      <linearGradient id={`beam-grad-${f.key}-${cell.id}`} x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={cell.color} stopOpacity={0.42} />
+                        <stop offset="55%" stopColor={cell.color} stopOpacity={0.32} />
+                        <stop offset="100%" stopColor={cell.color} stopOpacity={0.18} />
+                      </linearGradient>
+                    </defs>
+                    <polygon
+                      points={`${cx - nearHalf},${top} ${cx + nearHalf},${top} ${cx + farHalf},${cellBottom} ${cx - farHalf},${cellBottom}`}
+                      transform={`rotate(${appearance.direction} ${cx} ${y})`}
+                      fill={`url(#beam-grad-${f.key}-${cell.id})`}
+                      fillOpacity={cell.opacity}
+                      filter="url(#beamSoft)"
+                    />
+                  </g>
                 )
               })}
-              {on && !f.hideBeam && !multiBeam && (
-                <polygon
-                  points={`${x - beamNearHalf},${top} ${x + beamNearHalf},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
-                  transform={`rotate(${appearance.direction} ${x} ${y})`}
-                  fill={appearance.color}
-                  fillOpacity={op * 0.28}
-                  stroke={appearance.color}
-                  strokeOpacity={op * 0.45}
-                  strokeWidth="1"
-                />
+              {on && !f.hideBeam && appearance.lengthFactor >= 0.15 && !multiBeam && (
+                <g>
+                  <defs>
+                    <linearGradient id={`beam-grad-${f.key}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={appearance.color} stopOpacity={0.42} />
+                      <stop offset="55%" stopColor={appearance.color} stopOpacity={0.32} />
+                      <stop offset="100%" stopColor={appearance.color} stopOpacity={0.18} />
+                    </linearGradient>
+                  </defs>
+                  <polygon
+                    points={`${x - beamNearHalf},${top} ${x + beamNearHalf},${top} ${x + beamFarHalf},${beamBottom} ${x - beamFarHalf},${beamBottom}`}
+                    transform={`rotate(${appearance.direction} ${x} ${y})`}
+                    fill={`url(#beam-grad-${f.key})`}
+                    fillOpacity={op}
+                    filter="url(#beamSoft)"
+                  />
+                </g>
               )}
               {/* The label selects the fixture exactly like the icon
                   (Jake, 19 Nov 2026): its own click handler, so a label
@@ -775,7 +865,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   guide's claim does not hold there. */}
               {setupWizardStep === 'directions' && isCalibrationComplete(f) && <text x={x} y={f.namePosition === 'below' ? y + 48 : y + 36} textAnchor="middle" fill="#22c55e" fontSize="10" fontWeight="700" paintOrder="stroke" stroke="var(--bg)" strokeWidth="2" pointerEvents="none"><title>Beam direction calibrated</title>✓</text>}
               {fanDefined?.get(f.id) && <circle cx={x - 12} cy={y - 12} r="3" fill="#3b82f6" stroke="var(--bg)" strokeWidth="1" pointerEvents="none"><title>Defined fan value</title></circle>}
-              <g transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
+              <g data-fixture-icon={f.id} transform={`translate(${x} ${y}) rotate(${f.rotation ?? 0}) scale(${(f.iconSize ?? 10) / 10}) translate(${-x} ${-y})`}>
                 <FixtureIcon kind={kind} x={x} y={y} on={on} color={appearance.color} selected={selected} cells={beams.length} />
               </g>
               <circle

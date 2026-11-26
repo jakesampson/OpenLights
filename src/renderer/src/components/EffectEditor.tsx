@@ -15,7 +15,11 @@ import { defaultSamples, isColorAttribute, normalizedPatternSamples } from '../l
 import { colorModelComponents, defaultCurvePoints, evaluateCurve, extraColorComponents, waveformPoints } from '../lib/curveEffects'
 import { BUILTIN_MOVEMENT_PATHS, builtinMovementPathPoints, pathPointAt, resolveMovementPath } from '../lib/movementRuntime'
 import {
+  CHART_READOUT_OVERLAP,
+  CHART_READOUT_PANEL_W,
   chartOffsetToNormalized,
+  chartOverlayLayout,
+  chartPanDelta,
   cmdDragTiltSign,
   formatPanTiltDegrees,
   nearestSegmentMidpoint,
@@ -2254,30 +2258,63 @@ function CurveEditor({ effect, update, activeComponent, onActiveComponent }: {
 /* ------------------------------------------------------------------ */
 
 /* LightKey's Position HUD (Guide ch.10, pp.167-169; Jake's "Effects
- * Showcase" screenshots, 26 Nov 2026): a circular pan/tilt chart that
- * floats over the Preview while a movement effect is being edited. The
- * mapping is the Rotation dial's (see lib/movementChart.ts): pan angle
- * around the circle (0° at the bottom, +90° at the right, ±180° at the
- * top), radius from the centre is |tilt|. The path is drawn with the
- * runtime's own interpolation, so the live dot sits on the drawn curve.
- * The hint is LightKey's exact wording, dismissible for the session. */
+ * Showcase" screenshots and his LightKey recording, 26 Nov 2026): a
+ * LARGE circular pan/tilt chart that floats over the Preview, centred
+ * over the fixture being edited, with the PAN/TILT readout in a dark
+ * panel overlapping the chart's right edge. Measured from the
+ * recording's Flower frame at its real 1274×798: the chart is ≈315px
+ * across in a 790×440 Preview — ~72% of the Preview height — with the
+ * fixture's label visible inside it at the top of the blue centre
+ * disc. The mapping is the Rotation dial's (see
+ * lib/movementChart.ts): pan angle around the circle (0° at the
+ * bottom, +90° at the right, ±180° at the top), radius from the centre
+ * is |tilt|. The path is drawn with the runtime's own interpolation,
+ * so the live dot sits on the drawn curve. The hint is LightKey's
+ * exact wording, dismissible for the session. The chart is sized from
+ * the real Preview it opens in (chartOverlayLayout) and centred on
+ * the edited fixture's icon — always full size (72% of the Preview
+ * height, Jake 26 Nov 2026), never shrunk: when the chart would
+ * extend past the visible Preview, the Preview pans once so the
+ * fixture and the whole chart fit on screen (see the pan-to-fit guard
+ * in the tick below and `openlights-preview-pan-by` in StagePreview).
+ * It is NOT a small panel docked top-left: an earlier reading claimed
+ * that from a downscaled frame, and the frame measured at full size
+ * proved it wrong. */
 const HUD_SIZE = 280
 const HUD_C = HUD_SIZE / 2
 const HUD_R = 118
 const HUD_HINT =
   'Click in the center of a connection line to add a control point. Hold down Command and drag a point beyond the center to move it to a negative tilt angle.'
 
-export function PositionHud({ path, onChange, durationMs, range }: {
+export function PositionHud({ path, onChange, durationMs, range, fixtureId }: {
   path: MovementPathDef
   onChange: (next: MovementPathDef) => void
   durationMs: number
   range: { pan: number; tilt: number }
+  /** Fixture being edited — the chart centres over its Preview icon. */
+  fixtureId?: string
 }) {
   const svgRef = useRef<SVGSVGElement>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [dot, setDot] = useState<{ pan: number; tilt: number } | null>(null)
   const [showHint, setShowHint] = useState(true)
+  // Overlay geometry, measured live: the host (the Preview-sized
+  // overlay layer App provides) and the edited fixture's icon centre,
+  // so the chart stays centred over the fixture through zooms, pans
+  // and resizes. Null until measured — the HUD renders the compact
+  // panel until then (and always, in tests, where there is no host).
+  const [hostBox, setHostBox] = useState<{ w: number; h: number } | null>(null)
+  const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null)
+  // Pan-to-fit guard (Jake, 26 Nov 2026: full-size chart, move the
+  // Preview so the fixture fits on screen with it): the fixture id
+  // the Preview was already panned for. The pan fires once, when the
+  // HUD first measures its host and anchor — never again on later
+  // frames, and never after the user pans or zooms manually. A new
+  // fixture (or a reopened editor, which remounts the HUD) pans once
+  // for that fixture. Null until the first pan check runs.
+  const pannedForRef = useRef<string | null>(null)
   // Tilt-sign state for the current drag (lib/movementChart.ts): the
   // screen position cannot encode the sign, so it is sticky per drag —
   // without Command it stays the point's sign; with Command held it
@@ -2290,11 +2327,43 @@ export function PositionHud({ path, onChange, durationMs, range }: {
       const duration = Math.max(50, durationMs) / 1000
       const t = ((getEffectTime() / duration) % 1 + 1) % 1
       setDot(pathPointAt(path.points, path.type, t))
+      // Re-measure the overlay geometry every frame (same cadence as
+      // the live dot): cheap getBoundingClientRect calls, state only
+      // updated when a value actually moved, so a still Preview does
+      // not re-render.
+      const host = rootRef.current?.parentElement
+      if (host) {
+        const rect = host.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          setHostBox((prev) => (prev && Math.abs(prev.w - rect.width) < 0.5 && Math.abs(prev.h - rect.height) < 0.5 ? prev : { w: rect.width, h: rect.height }))
+          const icon = fixtureId ? document.querySelector(`[data-fixture-icon="${CSS.escape(fixtureId)}"]`) : null
+          const box = icon?.getBoundingClientRect()
+          const ax = box && box.width > 0 ? box.left + box.width / 2 - rect.left : rect.width / 2
+          const ay = box && box.height > 0 ? box.top + box.height / 2 - rect.top : rect.height / 2
+          setAnchor((prev) => (prev && Math.abs(prev.x - ax) < 0.5 && Math.abs(prev.y - ay) < 0.5 ? prev : { x: ax, y: ay }))
+          // Pan to fit, once per fixture: the chart is always
+          // full-size and centred on the fixture, so a fixture near
+          // an edge puts part of it outside the host — ask the
+          // Preview to move its view so the whole chart (and the
+          // readout panel) fits on screen. The chart follows the
+          // fixture as the view moves, so one shift is enough; the
+          // guard above stops it ever firing again for this fixture,
+          // so a manual pan or zoom afterwards is left alone.
+          if (fixtureId && pannedForRef.current !== fixtureId) {
+            const layout = chartOverlayLayout(rect.width, rect.height, ax, ay)
+            const { dx, dy } = chartPanDelta(rect.width, rect.height, layout.left, layout.top, layout.containerW, layout.containerH)
+            if (dx !== 0 || dy !== 0) {
+              window.dispatchEvent(new CustomEvent('openlights-preview-pan-by', { detail: { dx, dy } }))
+            }
+            pannedForRef.current = fixtureId
+          }
+        }
+      }
       frame = requestAnimationFrame(tick)
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [path.points, path.type, durationMs])
+  }, [path.points, path.type, durationMs, fixtureId])
 
   const points = path.points
 
@@ -2402,22 +2471,28 @@ export function PositionHud({ path, onChange, durationMs, range }: {
     : ''
   const degreeLabels = [0, 30, 60, 90, 120, 150, 180, -150, -120, -90, -60, -30]
 
-  return (
-    <div
-      className="pointer-events-auto flex w-[300px] flex-col gap-1 rounded border border-line bg-panel p-2 shadow-lg"
-      data-testid="movement-chart"
+  // Overlay geometry (measured live): when the host and the fixture
+  // anchor are known, the HUD renders as LightKey's big chart overlay;
+  // until then — and in tests, where there is no host — it renders the
+  // compact panel below.
+  const overlay = hostBox && anchor ? chartOverlayLayout(hostBox.w, hostBox.h, anchor.x, anchor.y) : null
+  const chartSvg = (
+    <svg
+      ref={svgRef}
+      viewBox={`0 0 ${HUD_SIZE} ${HUD_SIZE}`}
+      className="touch-none select-none"
+      style={overlay ? { width: overlay.chartD, height: overlay.chartD } : { width: '100%' }}
+      role="img"
+      aria-label={`Movement path ${path.name}`}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={() => setDragIndex(null)}
+      onDoubleClick={onDoubleClick}
     >
-      <svg
-        ref={svgRef}
-        viewBox={`0 0 ${HUD_SIZE} ${HUD_SIZE}`}
-        className="w-full touch-none select-none rounded bg-bg"
-        role="img"
-        aria-label={`Movement path ${path.name}`}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={() => setDragIndex(null)}
-        onDoubleClick={onDoubleClick}
-      >
+      {/* Translucent dark disc behind the chart (LightKey's overlay
+          dims the Preview beneath it); the corners stay transparent
+          so the Preview shows around the circle. */}
+      <circle cx={HUD_C} cy={HUD_C} r={HUD_R + 16} fill="rgba(8,16,32,0.78)" />
         {/* Concentric tilt rings (0.25 / 0.5 / 0.75 / full tilt). */}
         {[0.25, 0.5, 0.75, 1].map((fraction) => (
           <circle key={fraction} cx={HUD_C} cy={HUD_C} r={HUD_R * fraction} fill="none" stroke="var(--line, #333)" strokeWidth={fraction === 1 ? 1 : 0.5} opacity={fraction === 1 ? 1 : 0.6} />
@@ -2442,6 +2517,11 @@ export function PositionHud({ path, onChange, durationMs, range }: {
           return <text key={angle} x={HUD_C + at.x} y={HUD_C + at.y} textAnchor="middle" dominantBaseline="middle" fill="var(--dim, #888)" fontSize="9">{label}</text>
         })}
         <circle cx={HUD_C} cy={HUD_C} r="2" fill="var(--dim, #888)" />
+        {/* Blue centre disc (LightKey's recording: the fixture sits
+            inside it at the chart centre, its label just above) —
+            drawn over the grid, under the path and points. */}
+        <circle cx={HUD_C} cy={HUD_C} r={34} fill="none" stroke="var(--line, #333)" strokeWidth="1" />
+        <circle cx={HUD_C} cy={HUD_C} r={30} fill="#2563eb" />
         {path.type !== 'points' && drawnLine && <polyline points={drawnLine} fill="none" stroke="#22d3ee" strokeWidth="1.5" />}
         {path.type === 'points' && points.map((p, i) => {
           const s = toSvg(p.pan, p.tilt)
@@ -2461,25 +2541,92 @@ export function PositionHud({ path, onChange, durationMs, range }: {
           <circle cx={toSvg(dot.pan, dot.tilt).x} cy={toSvg(dot.pan, dot.tilt).y} r="4" fill="#22c55e" />
         )}
       </svg>
-      <div className="flex items-center justify-between px-1 text-[11px] text-dim">
-        <span>PAN</span>
-        <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.pan : '—'}</span>
-        <span>TILT</span>
-        <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.tilt : '—'}</span>
-      </div>
-      {showHint && (
-        <div className="flex items-start gap-1.5 rounded border border-line bg-panel2 px-2 py-1.5 text-[11px] text-dim" data-testid="movement-chart-hint">
-          <span className="flex-1">{HUD_HINT}</span>
-          <button type="button" aria-label="Dismiss hint" className="shrink-0 leading-none" onClick={() => setShowHint(false)}>×</button>
+  )
+  const readoutRow = (
+    <div className="flex items-center justify-between px-1 text-[11px] text-dim">
+      <span>PAN</span>
+      <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.pan : '—'}</span>
+      <span>TILT</span>
+      <span className="font-mono text-sm text-[var(--text)]">{dotDegrees ? dotDegrees.tilt : '—'}</span>
+    </div>
+  )
+  const hintEl = showHint ? (
+    <div className="flex items-start gap-1.5 rounded border border-line bg-panel2 px-2 py-1.5 text-[11px] text-dim" data-testid="movement-chart-hint">
+      <span className="flex-1">{HUD_HINT}</span>
+      <button type="button" aria-label="Dismiss hint" className="shrink-0 leading-none" onClick={() => setShowHint(false)}>×</button>
+    </div>
+  ) : null
+  const actionsEl = (
+    <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
+      <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || points.length <= 2} onClick={deleteSelected}>Delete point</button>
+      <button type="button" className="text-xs text-dim" onClick={() => flip('pan')}>Flip horizontal</button>
+      <button type="button" className="text-xs text-dim" onClick={() => flip('tilt')}>Flip vertical</button>
+      <button type="button" className="text-xs text-dim" onClick={reverse}>Reverse</button>
+      <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || selectedIndex === 0} onClick={setAsStart}>Set as Start</button>
+    </div>
+  )
+
+  if (overlay) {
+    // LightKey's layout (recording, 26 Nov 2026): the big chart
+    // centred over the fixture, with the readout in a dark panel
+    // overlapping the chart's right edge — hint and actions live in
+    // that panel, so the whole HUD is exactly as tall as the chart
+    // and never clips against the Preview (the failure of the first
+    // overlay attempt, which stacked everything vertically).
+    return (
+      <div
+        ref={rootRef}
+        className="pointer-events-auto absolute"
+        style={{ left: overlay.left, top: overlay.top, width: overlay.containerW, height: overlay.containerH }}
+        data-testid="movement-chart"
+      >
+        <div className="absolute left-0 top-0" style={{ width: overlay.chartD, height: overlay.chartD }}>
+          {chartSvg}
         </div>
-      )}
-      <div className="flex flex-wrap items-center gap-2 px-1 text-xs">
-        <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || points.length <= 2} onClick={deleteSelected}>Delete point</button>
-        <button type="button" className="text-xs text-dim" onClick={() => flip('pan')}>Flip horizontal</button>
-        <button type="button" className="text-xs text-dim" onClick={() => flip('tilt')}>Flip vertical</button>
-        <button type="button" className="text-xs text-dim" onClick={reverse}>Reverse</button>
-        <button type="button" className="text-xs text-dim" disabled={selectedIndex === null || selectedIndex === 0} onClick={setAsStart}>Set as Start</button>
+        <div
+          className="absolute flex flex-col gap-2 overflow-y-auto rounded border border-line bg-panel p-2 shadow-lg"
+          style={{
+            left: overlay.chartD - CHART_READOUT_OVERLAP, top: 0, width: CHART_READOUT_PANEL_W,
+            // At least as tall as the chart (LightKey's panel), and
+            // capped so it never leaves the Preview: the Preview pans
+            // to fit the chart container, so the panel's top is inside
+            // the host and its max height leaves room for the chart.
+            height: 'auto', minHeight: overlay.chartD,
+            maxHeight: (hostBox?.h ?? overlay.chartD) - overlay.top
+          }}
+        >
+          <div className="flex items-center gap-1.5 px-1 text-xs font-semibold text-[var(--text)]">
+            <span className="inline-block h-2 w-2 rounded-full bg-[#0A84FF]" />
+            Position
+          </div>
+          <div className="px-1">
+            <div className="text-[11px] text-dim">PAN</div>
+            <div className="font-mono text-xl text-[var(--text)]">{dotDegrees ? dotDegrees.pan : '—'}</div>
+          </div>
+          <div className="px-1">
+            <div className="text-[11px] text-dim">TILT</div>
+            <div className="font-mono text-xl text-[var(--text)]">{dotDegrees ? dotDegrees.tilt : '—'}</div>
+          </div>
+          {hintEl}
+          {actionsEl}
+        </div>
       </div>
+    )
+  }
+
+  // Compact panel (no measured host — tests, and the first frame
+  // before the portal host exists): the chart, readout, hint and
+  // actions stacked, as before.
+  return (
+    <div
+      ref={rootRef}
+      className="pointer-events-auto flex w-[300px] flex-col gap-1 rounded border border-line bg-panel p-2 shadow-lg"
+      data-testid="movement-chart"
+    >
+      {chartSvg}
+      {readoutRow}
+      {hintEl}
+      {actionsEl}
     </div>
   )
 }
@@ -2640,11 +2787,11 @@ function MovementEditor({ effect, update, movementChartHost }: { effect: EffectD
           this editor is open and leaves with it. */}
       {editablePath && (movementChartHost
         ? createPortal(
-          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} />,
+          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} fixtureId={firstFixture?.id} />,
           movementChartHost
         )
         : (
-          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} />
+          <PositionHud path={editablePath} onChange={onPathChange} durationMs={effect.durationMs ?? 2000} range={range} fixtureId={firstFixture?.id} />
         ))}
       <div className="flex flex-wrap items-center gap-1" role="listbox" aria-label="Movement paths">
         {BUILTIN_MOVEMENT_PATHS.map((path) => (

@@ -24,17 +24,21 @@ function interpolate(points: MovementPoint[], t: number): MovementPoint {
   }
 }
 
-/** Generate a normalized pan/tilt point and apply editable geometric transforms. */
+/** Generate a normalized pan/tilt point and apply editable geometric transforms.
+ * Parametric paths (circle, figure-eight, line) run at 0.8 amplitude —
+ * the same convention as the point-based built-in paths (±0.8) and the
+ * Position HUD's sampling of them, so the chart and the driven fixture
+ * agree. The guide (ch.10) names the shapes but pins no amplitude. */
 export function movementPoint(path: MovementPath, t: number, transform: MovementTransform = {}): MovementPoint {
   const p = cycle(t)
   const angle = p * Math.PI * 2
   const point = Array.isArray(path)
     ? interpolate(path, p)
     : path === 'circle'
-      ? { pan: Math.cos(angle), tilt: Math.sin(angle) }
+      ? { pan: Math.cos(angle) * 0.8, tilt: Math.sin(angle) * 0.8 }
       : path === 'figure-eight'
-        ? { pan: Math.sin(angle), tilt: Math.sin(angle * 2) }
-        : { pan: p * 2 - 1, tilt: 0 }
+        ? { pan: Math.sin(angle) * 0.8, tilt: Math.sin(angle * 2) * 0.8 }
+        : { pan: (p * 2 - 1) * 0.8, tilt: 0 }
   const x = point.pan * (transform.scaleX ?? 1)
   const y = point.tilt * (transform.scaleY ?? 1)
   const rotation = (transform.rotation ?? 0) * Math.PI / 180

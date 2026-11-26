@@ -108,3 +108,69 @@ export function nearestSegmentMidpoint(
   }
   return best !== null && bestDistance <= threshold ? best : null
 }
+
+/**
+ * Overlay layout for the Position HUD (Jake's LightKey recording, 26 Nov
+ * 2026 — Flower, frame at 7s, measured at the frame's real 1274×798):
+ * the chart is a LARGE circle laid over the Preview, centred over the
+ * fixture being edited, with the PAN/TILT readout in a dark panel
+ * overlapping the chart's right edge. Measured: chart ≈315px across in
+ * a 790×440 Preview — ~72% of the Preview height and ~40% of its width
+ * — so the chart diameter is 72% of the Preview height, capped by the
+ * width once the readout panel is accounted for. The chart is ALWAYS
+ * full size and centred on the fixture (`anchor`): a fixture near an
+ * edge puts part of the chart outside the host, and the Preview pans
+ * to fit it (see `chartPanDelta`) — the chart never shrinks (Jake,
+ * 26 Nov 2026: full-size chart, move the Preview so the fixture fits
+ * on screen with the chart). Returns screen-pixel geometry for the
+ * container (left/top/width/height) and the chart diameter; left/top
+ * may be negative — that is the pan's job, not a layout failure.
+ */
+export const CHART_READOUT_PANEL_W = 160
+export const CHART_READOUT_OVERLAP = 56
+
+export function chartOverlayLayout(
+  hostW: number,
+  hostH: number,
+  anchorX: number,
+  anchorY: number
+): { chartD: number; containerW: number; containerH: number; left: number; top: number } {
+  const maxByWidth = hostW - (CHART_READOUT_PANEL_W - CHART_READOUT_OVERLAP) - 8
+  const chartD = Math.max(120, Math.min(Math.floor(Math.min(hostH * 0.72, maxByWidth)), hostH))
+  return {
+    chartD, containerW: chartD + CHART_READOUT_PANEL_W - CHART_READOUT_OVERLAP, containerH: chartD,
+    left: Math.round(anchorX - chartD / 2), top: Math.round(anchorY - chartD / 2)
+  }
+}
+
+/** Screen-pixel margin kept between the chart container and the host
+    edge when the Preview pans to fit the chart. */
+export const CHART_PAN_MARGIN = 8
+
+/**
+ * Screen-pixel shift that brings the whole chart container inside the
+ * host (the Preview overlay). The chart is always full-size and centred
+ * on the fixture, so a fixture near an edge puts part of the container
+ * outside the host — the Preview pans by this delta instead of the
+ * chart shrinking. Positive dx moves the view's contents right on
+ * screen, positive dy moves them down. Returns {dx: 0, dy: 0} when the
+ * container already fits. The container always fits the host (its
+ * width is capped by the host width and its height is ≤ 72% of the
+ * host height), so a single shift always suffices — no zoom change.
+ */
+export function chartPanDelta(
+  hostW: number,
+  hostH: number,
+  left: number,
+  top: number,
+  containerW: number,
+  containerH: number
+): { dx: number; dy: number } {
+  let dx = 0
+  if (left < CHART_PAN_MARGIN) dx = CHART_PAN_MARGIN - left
+  else if (left + containerW > hostW - CHART_PAN_MARGIN) dx = hostW - CHART_PAN_MARGIN - (left + containerW)
+  let dy = 0
+  if (top < CHART_PAN_MARGIN) dy = CHART_PAN_MARGIN - top
+  else if (top + containerH > hostH - CHART_PAN_MARGIN) dy = hostH - CHART_PAN_MARGIN - (top + containerH)
+  return { dx: Math.round(dx), dy: Math.round(dy) }
+}

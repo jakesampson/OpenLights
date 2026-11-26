@@ -12,6 +12,9 @@ import { EffectEditor } from '../src/renderer/src/components/EffectEditor'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import {
   chartOffsetToNormalized,
+  chartOverlayLayout,
+  chartPanDelta,
+  CHART_PAN_MARGIN,
   cmdDragTiltSign,
   formatPanTiltDegrees,
   nearestSegmentMidpoint,
@@ -353,5 +356,114 @@ describe('uniform movement-path tiles', () => {
     expect(userTile.querySelector('[aria-label="Delete path"]')).not.toBeNull()
     // The affordances overlay the tile; the tile keeps the standard size.
     expect(userTile.className).toContain('w-[76px]')
+  })
+})
+
+describe('chart overlay layout (LightKey recording, 26 Nov 2026)', () => {
+  it('sizes the chart to ~72% of the Preview height, as in the recording', () => {
+    // LightKey's frame: 790×440 Preview, ≈315px chart.
+    const layout = chartOverlayLayout(790, 440, 395, 220)
+    expect(layout.chartD).toBe(316)
+    expect(layout.containerH).toBe(316)
+    // The chart centre sits on the fixture anchor.
+    expect(layout.left + layout.chartD / 2).toBeCloseTo(395)
+    expect(layout.top + layout.chartD / 2).toBeCloseTo(220)
+  })
+
+  it('stays full-size on an edge fixture — the Preview pans to fit it, the chart never shrinks', () => {
+    // Demo Show's MH1: 128px below the Preview's top edge in a
+    // 1180×556 Preview. Jake, 26 Nov 2026: full-size chart, move the
+    // Preview so the fixture fits on screen with the chart.
+    const layout = chartOverlayLayout(1180, 556, 943, 128)
+    expect(layout.chartD).toBe(400)
+    expect(layout.left + layout.chartD / 2).toBeCloseTo(943)
+    expect(layout.top + layout.chartD / 2).toBeCloseTo(128)
+    // Full size, centred — so it extends past the top edge until the
+    // Preview pans (see chartPanDelta below); that is expected now.
+    expect(layout.top).toBe(-72)
+    expect(layout.left).toBe(743)
+  })
+
+  it('caps the chart by width once the readout panel is accounted for', () => {
+    const layout = chartOverlayLayout(500, 900, 250, 450)
+    // 0.72 × 900 = 648, but the container must fit 500px wide, so the
+    // chart is capped at 500 − 104 (panel overhang) − 8 (margin) = 388.
+    // Full size and centred on the fixture — the container sticks out
+    // 48px past the right edge until the Preview pans (see below).
+    expect(layout.chartD).toBe(388)
+    expect(layout.left + layout.chartD / 2).toBeCloseTo(250)
+    expect(layout.top + layout.chartD / 2).toBeCloseTo(450)
+    expect(layout.left + layout.containerW).toBe(548)
+    expect(chartPanDelta(500, 900, layout.left, layout.top, layout.containerW, layout.containerH)).toEqual({ dx: -56, dy: 0 })
+  })
+
+  it('stays full-size and centred for a fixture in a true corner too', () => {
+    const layout = chartOverlayLayout(790, 440, 760, 30)
+    expect(layout.chartD).toBe(316)
+    expect(layout.left + layout.chartD / 2).toBeCloseTo(760)
+    expect(layout.top + layout.chartD / 2).toBeCloseTo(30)
+    // Centred on the fixture, extending past the top-right corner
+    // until the Preview pans — never clamped off the fixture.
+    expect(layout.left).toBe(602)
+    expect(layout.top).toBe(-128)
+  })
+
+  it('keeps the readout panel overlapping the chart’s right edge', () => {
+    const layout = chartOverlayLayout(1200, 600, 600, 300)
+    expect(layout.containerW).toBe(layout.chartD + 160 - 56)
+  })
+})
+
+describe('chart pan-to-fit (Jake, 26 Nov 2026: full-size chart, move the Preview)', () => {
+  it('returns no shift when the container already fits', () => {
+    const layout = chartOverlayLayout(790, 440, 395, 220)
+    expect(chartPanDelta(790, 440, layout.left, layout.top, layout.containerW, layout.containerH)).toEqual({ dx: 0, dy: 0 })
+  })
+
+  it('pans the Demo Show’s edge fixture into view — down and left', () => {
+    // MH1 128px below the top edge, 1180×556 Preview: the full-size
+    // chart sticks out 72px at the top and 67px past the right edge
+    // (the readout panel overhang). One shift must fix both.
+    const layout = chartOverlayLayout(1180, 556, 943, 128)
+    const { dx, dy } = chartPanDelta(1180, 556, layout.left, layout.top, layout.containerW, layout.containerH)
+    expect(dx).toBe(-75)
+    expect(dy).toBe(80)
+    // After the shift the whole container sits inside the host with
+    // the margin to spare.
+    const left = layout.left + dx, top = layout.top + dy
+    expect(left).toBeGreaterThanOrEqual(CHART_PAN_MARGIN)
+    expect(top).toBeGreaterThanOrEqual(CHART_PAN_MARGIN)
+    expect(left + layout.containerW).toBeLessThanOrEqual(1180 - CHART_PAN_MARGIN)
+    expect(top + layout.containerH).toBeLessThanOrEqual(556 - CHART_PAN_MARGIN)
+  })
+
+  it('pans right when the chart sticks out the left edge', () => {
+    const layout = chartOverlayLayout(790, 440, 60, 220)
+    const { dx, dy } = chartPanDelta(790, 440, layout.left, layout.top, layout.containerW, layout.containerH)
+    expect(dx).toBe(8 - layout.left)
+    expect(dx).toBeGreaterThan(0)
+    expect(dy).toBe(0)
+  })
+
+  it('pans up when the chart sticks out the bottom edge', () => {
+    const layout = chartOverlayLayout(790, 440, 395, 420)
+    const { dx, dy } = chartPanDelta(790, 440, layout.left, layout.top, layout.containerW, layout.containerH)
+    expect(dx).toBe(0)
+    expect(dy).toBeLessThan(0)
+    expect(layout.top + layout.containerH + dy).toBe(440 - CHART_PAN_MARGIN)
+  })
+
+  it('a single shift always fits the container — it is capped to the host size', () => {
+    // Sweep anchors across the host, including all four corners:
+    // after the shift the container must sit inside the host.
+    for (const [ax, ay] of [[0, 0], [790, 0], [0, 440], [790, 440], [395, 0], [395, 440], [0, 220], [790, 220], [395, 220]]) {
+      const layout = chartOverlayLayout(790, 440, ax, ay)
+      const { dx, dy } = chartPanDelta(790, 440, layout.left, layout.top, layout.containerW, layout.containerH)
+      const left = layout.left + dx, top = layout.top + dy
+      expect(left).toBeGreaterThanOrEqual(CHART_PAN_MARGIN)
+      expect(top).toBeGreaterThanOrEqual(CHART_PAN_MARGIN)
+      expect(left + layout.containerW).toBeLessThanOrEqual(790 - CHART_PAN_MARGIN)
+      expect(top + layout.containerH).toBeLessThanOrEqual(440 - CHART_PAN_MARGIN)
+    }
   })
 })

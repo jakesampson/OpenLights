@@ -140,7 +140,11 @@ describe('Live page fade wiring (whole App)', () => {
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })
-    expect(frames.size).toBe(0)
+    // Exactly one frame stays pending: StagePreview's persistent
+    // ~60fps output loop (Jake, 26 Nov 2026). A fader drag must not
+    // start a fade loop on top of it — before that change this count
+    // was 0, and the loop is the only difference.
+    expect(frames.size).toBe(1)
     expect(engine.snapshot()[1]).toBe(255)
   })
 
@@ -152,7 +156,7 @@ describe('Live page fade wiring (whole App)', () => {
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })
-    expect(frames.size).toBe(0)
+    expect(frames.size).toBe(1)
     expect(engine.snapshot()[1]).toBe(255)
     act(() => { s().setLiveValue('cA', 0) })
     expect(engine.snapshot()[1]).toBe(0)

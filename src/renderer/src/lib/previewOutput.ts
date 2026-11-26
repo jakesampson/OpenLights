@@ -179,6 +179,23 @@ export function setCalibrationHomePreview(fixtureIds: string[] | null, compassDe
   calibrationHomePreview = fixtureIds === null ? null : { fixtureIds: new Set(fixtureIds), compassDegrees }
 }
 
+/**
+ * Last good beam direction per fixture, for the projection singularity
+ * below: when the projected tip collapses toward zero the atan2 angle
+ * is noise and the drawn beam flips wildly (measured 26 Nov 2026: a
+ * 151.6° flip in one 100ms step, twice per Figure Eight cycle). While
+ * the tip is near zero the beam is a dot facing the viewer anyway, so
+ * the direction it holds is invisible — it just must not flip. Tests
+ * reset it with resetBeamDirectionHold().
+ */
+const lastBeamDirection = new Map<string, number>()
+/** Projected tip length below this holds the last direction (drawn
+ *  length under ~18 units at full brightness). */
+const SINGULARITY_LEN = 0.12
+export function resetBeamDirectionHold(): void {
+  lastBeamDirection.clear()
+}
+
 export function previewBeamVector(fixture: FixtureDef, values: Record<string, number>, position: { x: number; y: number }): PreviewBeamVector {
   const previewDirection = calibrationHomePreview?.fixtureIds.has(fixture.id)
     ? compassToPreviewDirection(calibrationHomePreview.compassDegrees)
@@ -211,11 +228,19 @@ export function previewBeamVector(fixture: FixtureDef, values: Record<string, nu
   const tx = s * (Math.cos(phiRad) * hx + Math.sin(phiRad) * px) + c * dx
   const ty = s * (Math.cos(phiRad) * hy + Math.sin(phiRad) * py) + c * dy
   const len = Math.hypot(tx, ty)
-  if (len < 1e-6) return { direction: homeDirection, lengthFactor: 0 }
+  if (len < 1e-6) return { direction: lastBeamDirection.get(fixture.id) ?? homeDirection, lengthFactor: 0 }
+  // Near the singularity the tip is a dot facing the viewer — its
+  // atan2 angle is noise, so hold the last good direction instead of
+  // letting the drawn beam flip (Jake, 26 Nov 2026).
+  if (len < SINGULARITY_LEN) {
+    return { direction: lastBeamDirection.get(fixture.id) ?? (Math.atan2(-tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }
+  }
   // Clockwise from down: atan2(-tx, ty) is 0 for down, 90 for left,
   // 180 for up, 270 for right — the convention StagePreview's
   // rotate() draws with.
-  return { direction: (Math.atan2(-tx, ty) * 180 / Math.PI + 360) % 360, lengthFactor: Math.min(1, len) }
+  const direction = (Math.atan2(-tx, ty) * 180 / Math.PI + 360) % 360
+  lastBeamDirection.set(fixture.id, direction)
+  return { direction, lengthFactor: Math.min(1, len) }
 }
 
 /** Preview artwork settings never change transmitted channel values. */

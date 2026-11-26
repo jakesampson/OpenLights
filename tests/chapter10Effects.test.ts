@@ -346,13 +346,17 @@ describe('movement effects (Guide ch.10, pp.165-171)', () => {
     })
     const head = fixtures[1]
     const patch = computeEffectPatch(fixtures, [fx], 0, 120)
-    // Circle at t=0: pan fully right, tilt centred.
-    expect(patch[channelOf(head, 'pan')]).toBe(255)
+    // Circle at t=0: pan at 0.8 amplitude, tilt centred. Parametric
+    // paths run at 0.8 — the point-based built-ins and the Position
+    // HUD sample at ±0.8, so the chart and the driven fixture agree
+    // (Jake, 26 Nov 2026); 0.8 of the 540° pan range is 216°, which
+    // is channel 230.
+    expect(patch[channelOf(head, 'pan')]).toBe(230)
     expect(patch[channelOf(head, 'tilt')]).toBe(128)
-    // A quarter cycle later: pan centred, tilt fully up.
+    // A quarter cycle later: pan centred, tilt at 0.8 amplitude.
     const quarter = computeEffectPatch(fixtures, [fx], 1, 120)
     expect(quarter[channelOf(head, 'pan')]).toBe(128)
-    expect(quarter[channelOf(head, 'tilt')]).toBe(255)
+    expect(quarter[channelOf(head, 'tilt')]).toBe(230)
   })
 
   it('produces nothing for an unknown path', () => {

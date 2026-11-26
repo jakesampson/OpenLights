@@ -58,6 +58,19 @@ let highlight: { active: boolean; fixtureIds: Set<string> } = { active: false, f
 let calibration: Record<number, number> = {}
 let ambience: Record<number, number> = {}
 let lastOutput: Record<number, number> = {}
+/** Frame counter for the Preview (Jake, 26 Nov 2026): `push()` bumps
+ *  this on every frame it sends, so StagePreview can drive its beam
+ *  from the same ~60fps rAF loop as the chart dot instead of polling
+ *  getChannels() every 100ms — the beam jumped ~18° per poll step
+ *  while the DMX output itself was smooth. A channel the last frame
+ *  does not drive reads 0, matching the interface. */
+let outputFrameId = 0
+export function getOutputFrameId(): number { return outputFrameId }
+export function getLastOutputChannels(): number[] {
+  const frame = new Array(512).fill(0)
+  for (const [key, value] of Object.entries(lastOutput)) frame[Number(key) - 1] = value
+  return frame
+}
 let freeze = false
 let freezeFrame: Record<number, number> | null = null
 let thawFrame: number | null = null
@@ -194,6 +207,7 @@ export function getDisplayLevels(): Record<string, number> {
 function push(patch: Record<number, number>) {
   if (new URLSearchParams(window.location?.search ?? '').has('liveWindow')) return
   lastOutput = { ...patch }
+  outputFrameId++
   window.electronAPI?.setChannels?.(patch)
 }
 
