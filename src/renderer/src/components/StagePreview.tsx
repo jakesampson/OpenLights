@@ -85,6 +85,17 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     if (additive) { selectFixtures(selectedFixtureIds.includes(id) ? selectedFixtureIds.filter((item) => item !== id) : [...selectedFixtureIds, id]); return }
     selectFixtures(resolveFixtureClickSelection(show?.fixtureGroups ?? [], id, selectedFixtureIds))
   }
+  // A beam is not a fixture target (Jake, 27 Nov 2026 — reversing
+  // the 19 Nov request): clicking a light beam must not select its
+  // fixture; only the fixture icon and its label select. The beam
+  // shapes swallow pointer input so the event never reaches the
+  // fixture group's selection/drag handlers — and never falls
+  // through to the blank canvas, which would deselect (normal view)
+  // or start a marquee (edit mode). The collapsed-beam glow (the
+  // beam pointing at the viewer) swallows the same way: it is beam,
+  // not fixture — the icon's own hit circle still selects.
+  const swallowBeamPointer = (event: { stopPropagation: () => void; preventDefault: () => void }) => { event.stopPropagation(); event.preventDefault() }
+  const beamPointerHandlers = { onPointerDown: swallowBeamPointer, onClick: swallowBeamPointer, onContextMenu: swallowBeamPointer }
   // Selecting a stage object also clears the truss and fixture
   // selections — one selection at a time on the canvas.
   const selectStageObject = (id: string | null) => { setSelectedStageObjectId(id); setSelectedPreviewTrussId(null); selectFixtures([]) }
@@ -845,7 +856,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   singularity) the cone becomes a soft round glow at
                   the fixture instead of a sliver. */}
               {on && !f.hideBeam && appearance.lengthFactor < 0.15 && (
-                <circle cx={x} cy={y} r="20" fill={appearance.color} fillOpacity={op * 0.55} filter="url(#beamGlow)" />
+                <circle cx={x} cy={y} r="20" fill={appearance.color} fillOpacity={op * 0.55} filter="url(#beamGlow)" {...beamPointerHandlers} />
               )}
               {on && !f.hideBeam && appearance.lengthFactor >= 0.15 && multiBeam && cells.map((cell, index) => {
                 if (cell.opacity <= 0) return null
@@ -869,6 +880,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                       fill={`url(#beam-grad-${f.key}-${cell.id})`}
                       fillOpacity={cell.opacity}
                       filter="url(#beamSoft)"
+                      {...beamPointerHandlers}
                     />
                   </g>
                 )
@@ -888,19 +900,22 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                     fill={`url(#beam-grad-${f.key})`}
                     fillOpacity={op}
                     filter="url(#beamSoft)"
+                    {...beamPointerHandlers}
                   />
                 </g>
               )}
               {/* The label selects the fixture exactly like the icon
                   (Jake, 19 Nov 2026): its own click handler, so a label
                   click is a real selection — not just the focus outline
-                  the group used to draw. The beam polygon above is
-                  hit-testable for the same reason (it used to be
-                  pointer-events none, so a beam click fell through to
-                  the blank canvas and deselected). Both route through
-                  the same clickFixture the icon click uses — group on
-                  first click, single on the second, Shift toggles one;
-                  in edit mode the group's pointerdown still owns
+                  the group used to draw. The beam polygon above used to
+                  be hit-testable for the same reason, but Jake reversed
+                  that for beams on 27 Nov 2026 — a beam click must not
+                  select — so the beam shapes swallow pointer input
+                  (beamPointerHandlers) instead of routing to
+                  clickFixture. The label routes through the same
+                  clickFixture the icon click uses — group on first
+                  click, single on the second, Shift toggles one; in
+                  edit mode the group's pointerdown still owns
                   selection + dragging. */}
               {selectable && f.namePosition !== 'hidden' && (() => { const label = f.shortName ?? f.name; const width = label.length * 4.6 + 10; return (<>
                 {/* LightKey's blue label pill for the selected fixture
