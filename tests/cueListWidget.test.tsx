@@ -98,6 +98,13 @@ function clickWidgetButton(label: string) {
   act(() => { widgetButton(label).dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 }
 
+function enterEditMode() {
+  const edit = Array.from(container!.querySelectorAll('.live-page-edit')).find((el) => el.textContent?.trim() === 'Edit')
+  expect(edit).toBeTruthy()
+  act(() => { edit!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  expect(useShowStore.getState().liveEditing).toBe(true)
+}
+
 function openWidgetMenu(stepName?: string) {
   const target = stepName ? stepRow(stepName) : widgetEl()
   act(() => { target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 })) })
@@ -157,6 +164,45 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     act(() => { panel.querySelector('[aria-label="Close properties popup"]')!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     clickMenuItem(openWidgetMenu(), 'New Cue')
     expect(widgetEl().textContent).toContain('002 New Cue')
+  })
+
+  it('widget menu in Edit mode: right-clicking the widget opens the canvas menu, not the cuelist menu (Jake, 28 Nov 2026)', () => {
+    // CORRECTION (Jake, 28 Nov 2026): new cues are NOT added in Edit
+    // mode — the earlier version of this test had it backwards. The
+    // cuelist menu is a Live-mode menu; in Edit mode the click falls
+    // through to the blank-canvas menu, which is the menu for moving,
+    // duplicating and deleting page objects.
+    seedShow([{ id: 'list1', name: 'Sunday Set', steps: [] }])
+    renderInRoot(<App />)
+    switchToLive()
+    enterEditMode()
+    const target = widgetEl()
+    act(() => { target.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 })) })
+    expect(container!.querySelector('[aria-label="Cuelist actions"]')).toBeNull()
+    const canvasMenu = container!.querySelector('[aria-label="Live edit actions"]')
+    expect(canvasMenu, 'blank-canvas menu').toBeTruthy()
+    expect(canvasMenu!.textContent).toContain('New Button')
+    expect(canvasMenu!.textContent).not.toContain('New Cue')
+  })
+
+  it('Xfade heading sits over the Xfade slider, not the step +/− column (Jake, 28 Nov 2026)', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    const widget = widgetEl()
+    // The header row over the steps has no Xfade cell — that last column
+    // is the step +/− buttons.
+    const header = widget.querySelector('.grid.border-b')
+    expect(header).toBeTruthy()
+    expect(header!.textContent).toContain('Fade Time')
+    expect(header!.textContent).not.toContain('Xfade')
+    // The heading is the first child of the slider's column, directly
+    // above the slider.
+    const slider = widget.querySelector('[aria-label="Xfade Sunday Set"]')
+    expect(slider).toBeTruthy()
+    const column = slider!.closest('.w-8')
+    expect(column).toBeTruthy()
+    expect(column!.firstElementChild?.textContent).toBe('Xfade')
   })
 
   it('widget menu: New Cue inserts below the clicked step', () => {

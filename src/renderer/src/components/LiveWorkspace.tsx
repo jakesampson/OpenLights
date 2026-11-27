@@ -1380,6 +1380,12 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             })
           }
           const openWidgetMenu = (event: React.MouseEvent, stepId: string | null) => {
+            // The cuelist menu is a LIVE-mode menu (Jake, 28 Nov 2026 —
+            // correction: new cues are NOT added in Edit mode; the
+            // earlier change opening it in Edit mode was wrong and has
+            // been reverted). In Edit mode the click falls through to
+            // the blank-canvas menu, which is the menu for moving,
+            // duplicating and deleting page objects.
             if (editing || locked) return
             event.preventDefault(); event.stopPropagation()
             selectRef(ref)
@@ -1405,7 +1411,11 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                     <span>Name</span>
                     <span className="whitespace-nowrap">Hold Time</span>
                     <span className="whitespace-nowrap">Fade Time</span>
-                    <span>Xfade</span>
+                    {/* No heading here: this column is the step +/−
+                        buttons, not Xfade — the Xfade heading sits over
+                        the slider at the widget's right edge (Jake, 28
+                        Nov 2026). */}
+                    <span />
                   </div>
                   <div className="min-h-0 flex-1 overflow-y-auto" aria-label={`${list.name} cues`}>
                     {list.steps.length === 0 ? (
@@ -1472,7 +1482,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                   <button type="button" aria-label={cuePaused ? 'Resume cuelist' : 'Pause cuelist'} title={cuePaused ? 'Resume — the hold time runs again' : 'Pause — the hold time stops running'} onClick={() => setCuePaused(!cuePaused)} disabled={!playing} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">❚❚</button>
                   <button type="button" aria-label="Next cue" title="Next cue (Shift-click: previous cue)" onClick={(event) => { if (event.shiftKey) cuePrev(); else cueNext() }} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">{goingForward ? '»' : '«'}</button>
                 </div>
-                {list.showXfade !== false && <div className="flex w-8 shrink-0 flex-col pt-5">
+                {list.showXfade !== false && <div className="flex w-8 shrink-0 flex-col">
+                  {/* The "Xfade" heading sits over the slider itself
+                      (Jake, 28 Nov 2026) — it used to label the step
+                      +/− column in the header grid, ~190px left of the
+                      slider. The label replaces the pt-5 the column
+                      used to clear the header row, so the slider starts
+                      where the steps start. */}
+                  <span className="shrink-0 whitespace-nowrap border-b border-line pb-0.5 text-center text-dim">Xfade</span>
                   <XfadeSlider vertical listId={list.id} />
                 </div>}
               </div>

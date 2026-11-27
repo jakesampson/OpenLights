@@ -45,8 +45,11 @@ export function XfadeSlider({ listId, vertical = false }: { listId: string; vert
     // edge, with tick marks alongside and the % readout at the bottom
     // (Jake's screenshots 5.22.44 / 5.22.25). The input is a native
     // range in vertical writing mode, so the keyboard arrows still work.
+    // flex-1: the slider fills the column below the "Xfade" heading
+    // (Jake, 28 Nov 2026 — the heading sits over the slider, not over
+    // the step +/− column).
     return (
-      <div className="flex min-h-0 flex-col items-center gap-1 text-xs" title={disabled ? 'Start playback to use Xfade' : `Crossfade to ${next?.name ?? 'next cue'}`}>
+      <div className="flex min-h-0 flex-1 flex-col items-center gap-1 text-xs" title={disabled ? 'Start playback to use Xfade' : `Crossfade to ${next?.name ?? 'next cue'}`}>
         <div className="flex min-h-0 flex-1 items-stretch gap-0.5">
           {input}
           <span aria-hidden="true" className="w-1 shrink-0 rounded-sm" style={{ background: 'repeating-linear-gradient(to bottom, var(--text-dim) 0 1px, transparent 1px 10%)' }} />
