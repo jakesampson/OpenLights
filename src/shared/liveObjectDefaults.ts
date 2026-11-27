@@ -12,6 +12,14 @@ export const LIVE_LIST_SIZE = { width: 240, height: 240 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 
+/** Default size of a Live fader control (Jake's LightKey screenshots,
+ *  27 Nov 2026 — the Spots Left/Right faders are tall narrow tracks,
+ *  roughly 1:3; the horizontal fader is the same track turned
+ *  sideways). A fader's size is its track length, and it is resizable
+ *  with the 8-handle affordance like any other control. */
+export const LIVE_FADER_VERTICAL_SIZE = { width: 56, height: 180 }
+export const LIVE_FADER_HORIZONTAL_SIZE = { width: 180, height: 56 }
+
 export const MIN_LIVE_OBJECT_SIZE = 40
 export const MAX_LIVE_OBJECT_SIZE = 900
 

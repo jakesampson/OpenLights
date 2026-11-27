@@ -1,4 +1,4 @@
-import type { FanDef, FrameConfig, LiveControl, LiveObjectStyle } from '@shared/types'
+import type { FanDef, FaderControlProperty, FrameConfig, LiveControl, LiveObjectStyle, SpeedModifierAspect } from '@shared/types'
 import { cuesToPresets } from '@shared/cueConversion'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
 import { fanColourToBeams } from '@shared/fixtureProfiles'
@@ -69,6 +69,7 @@ import { allZeroPatch, completedSequenceIds, getCurrentPatch, getEffectTime, sen
 import { resolveFadeMs, activeLivePageFadeMs } from '../lib/fadeTimes'
 import { computeEffectPatch } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
+import { LIVE_CUE_SIZE, LIVE_FADER_HORIZONTAL_SIZE, LIVE_FADER_VERTICAL_SIZE } from '@shared/liveObjectDefaults'
 
 interface ShowState {
   locked: boolean
@@ -279,6 +280,12 @@ interface ShowState {
    * application are not built yet. */
   toggleCueModifier: (controlId: string, modifier: string) => void
   configureCueModifiers: (controlId: string, patch: Partial<NonNullable<LiveControl['modifiers']>>) => void
+  /** Set a fader's Controls scope (LightKey guide ch.11, p.204): 'all'
+   *  or the one property the fader value affects. */
+  configureFaderControls: (controlId: string, controls: 'all' | FaderControlProperty) => void
+  /** Set which aspects the Speed modifier affects (guide pp.206–207,
+   *  the Speed modifier's Options menu). */
+  configureSpeedModifierOptions: (controlId: string, options: SpeedModifierAspect[]) => void
   configureCuePriority: (controlId: string, priority: number) => void
   configureCueFrameStep: (controlId: string, action?: 'next' | 'previous') => void
   editCueListCommand: (listId: string, command: CueListCommand) => void
@@ -1789,7 +1796,13 @@ const actions: ShowState = {
     set((state) => {
       const page = activeLivePage(state)
       if (!page) return state
-      return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, type } : control) } : item))
+      // A control's shape follows its type (Jake's LightKey screenshots,
+      // 27 Nov 2026 — faders are tall narrow tracks, or the same track
+      // turned sideways; a Push Button is 120x40). Switching type
+      // resizes to the type's default; the 8-handle resize can change
+      // it after.
+      const size = type === 'faderVertical' ? LIVE_FADER_VERTICAL_SIZE : type === 'faderHorizontal' ? LIVE_FADER_HORIZONTAL_SIZE : LIVE_CUE_SIZE
+      return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, type, width: size.width, height: size.height } : control) } : item))
     })
   },
   configureControlBehavior: (controlId, behavior) => {
@@ -1814,6 +1827,16 @@ const actions: ShowState = {
     if (!page) return state
     const clampModifier = (value: number) => Math.max(0, Math.min(200, Number.isFinite(value) ? value : 100))
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, modifiers: Object.fromEntries(Object.entries({ intensity: 100, speed: 100, size: 100, ...control.modifiers, ...patch }).map(([key, value]) => [key, clampModifier(value)])) as NonNullable<LiveControl['modifiers']> } : control) } : item))
+  }),
+  configureFaderControls: (controlId, controls) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, faderControls: controls } : control) } : item))
+  }),
+  configureSpeedModifierOptions: (controlId, options) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, speedModifierOptions: options } : control) } : item))
   }),
   configureCuePriority: (controlId, priority) => set((state) => {
     const page = activeLivePage(state)
@@ -3722,7 +3745,7 @@ const actions: ShowState = {
  }
   const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
-  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
+  const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureFaderControls', 'configureSpeedModifierOptions', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
     const action = mutable[command] as (...args: unknown[]) => unknown
     mutable[command] = (...args: unknown[]) => { if (!get().locked) return action(...args) }

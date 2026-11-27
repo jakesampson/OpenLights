@@ -180,11 +180,16 @@ describe('cue contents inspector', () => {
     expect(dialog.querySelector('[aria-label="Cue contents"]')).toBeTruthy()
     clickTab(dialog, 'Options')
     expect(dialog.textContent).toContain('Timing')
-    expect(dialog.textContent).toContain('Priority')
+    // The Options tab carries LightKey's Modifiers checklist now (Item 4,
+    // 27 Nov 2026) — the old intensity/speed/size % inputs are gone.
+    expect(dialog.textContent).toContain('Modifiers')
+    expect(dialog.textContent).toContain('Hue')
     expect(dialog.querySelector('[aria-label="Cue contents"]')).toBeNull()
     clickTab(dialog, 'Button')
     expect(dialog.textContent).toContain('Behavior')
     expect(dialog.textContent).toContain('Always active')
     expect(dialog.textContent).toContain('Automatic')
+    // Priority lives in the Button section (guide p.204), not Options.
+    expect(dialog.textContent).toContain('Priority')
   })
 })

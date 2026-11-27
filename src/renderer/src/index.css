@@ -900,6 +900,67 @@ select optgroup { background: #555658; color: #fff; }
   background: #d9d4f5;
 }
 
+/* Live canvas fader track (LightKey guide ch.11, pp.179, 215–216;
+   Jake's screenshots 27 Nov 2026 — the Spots Left/Right faders): a
+   dark track with a light fill from the bottom (vertical) or the left
+   (horizontal), tick marks along one edge (long at 0/25/50/75/100%),
+   a handle line at the value, the control name at the end of the
+   track (vertical, reading bottom-to-top like LightKey) and a %
+   readout. Same fill language as the Master track above. */
+.live-fader-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--bg);
+  cursor: ns-resize;
+  outline-offset: 2px;
+}
+
+.live-fader-track[data-orientation="horizontal"] {
+  cursor: ew-resize;
+}
+
+.live-fader-track:focus-visible {
+  outline: 2px solid var(--accent);
+}
+
+.live-fader-fill {
+  position: absolute;
+  background: #d9d4f5;
+}
+
+.live-fader-tick {
+  position: absolute;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.live-fader-handle {
+  position: absolute;
+  background: #fff;
+}
+
+.live-fader-percent {
+  position: absolute;
+  top: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.live-fader-name-vertical {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  writing-mode: vertical-rl;
+  transform: translateX(-50%) rotate(180deg);
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+}
+
 /* Tap-tempo box: a separate element under the rail, the same 96px
    width, never inside the rail. Its four quadrants sit behind the
    text; the lit one (one per beat, clockwise) is a lighter

@@ -16,7 +16,11 @@ describe('Live / Live Edit parity', () => {
     expect(workspace).toContain('const cueBody = (control: LiveControl, level: number, textColor: string)')
     expect(workspace).toContain('setLiveValue(control.id, level ? 0 : 255)')
     expect(workspace).toContain('setLiveValue(control.id, 255)')
-    expect(workspace).toContain('type="range"')
+    // A fader renders as the LiveFader track (role="slider"), not a
+    // native range input — the old input rendered a vertical fader as
+    // a horizontal slider (Item 4, 27 Nov 2026).
+    expect(workspace).toContain('<LiveFader')
+    expect(readFileSync('src/renderer/src/components/LiveFader.tsx', 'utf8')).toContain('role="slider"')
     // The old edit-mode branch replaced the whole control with a drag-only
     // button, so cues could not fire, flash, fade or show lit in Edit.
     expect(workspace).not.toContain('↕ {control.name}')
@@ -46,8 +50,10 @@ describe('Live / Live Edit parity', () => {
     const press = workspace.slice(workspace.indexOf('const onControlPointerDown'), workspace.indexOf('const onControlPointerMove'))
     expect(press).not.toContain('preventDefault')
     expect(press).not.toContain('setPointerCapture')
-    // A fader's slider keeps its own behaviour — a press on it never arms a drag.
-    expect(workspace).toContain(".closest('input, select, textarea')")
+    // A fader's track keeps its own behaviour — a press on it never arms a drag.
+    // The track is a div, not an input, so it is excluded by its
+    // data-fader-track marker (Item 4, 27 Nov 2026).
+    expect(workspace).toContain(".closest('input, select, textarea, [data-fader-track]')")
     // A flash button pressed to start a drag is released when the move starts.
     expect(workspace).toContain("if (control && isFlashControl(control) && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)")
   })

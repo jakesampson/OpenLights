@@ -1,5 +1,7 @@
 import type { CueDef, FixtureDef, LiveControl, PresetDef } from '@shared/types'
 import { resolveCue, resolveCueValues } from '@shared/cueResolution'
+import { isFaderControl } from './liveControlBehavior'
+import { faderControlsDimmer } from './liveFaderControls'
 
 export type FixtureValuePatch = Record<string, Record<string, number>>
 
@@ -88,13 +90,19 @@ export function liveIntensityLevels(input: {
   for (const control of input.controls) {
     const level = input.levels[control.id] ?? 0
     if (!level) continue
+    // A fader only dims the fixture when it controls Dimmer (guide
+    // p.204 — Controls scope). A fader set to Color (or Pan, Tilt…)
+    // leaves the fixture's dimmer at the cue's full value, so the
+    // uncontrolled part of its output is not dimmed by the fader —
+    // the split in App.tsx relies on this.
+    const intensityLevel = isFaderControl(control) && !faderControlsDimmer(control) ? 255 : level
     const cue = input.cues.find((item) => item.id === control.cueId)
-    if (cue && !cue.blackout) take(resolveCue(cue, input.presets, input.fixtures).fixtureValues, level)
+    if (cue && !cue.blackout) take(resolveCue(cue, input.presets, input.fixtures).fixtureValues, intensityLevel)
     for (const id of control.presetIds) {
       const preset = input.presets.find((item) => item.id === id)
-      if (preset) take(preset.fixtureValues ?? {}, level)
+      if (preset) take(preset.fixtureValues ?? {}, intensityLevel)
     }
-    if (control.adHocValues) take(control.adHocValues, level)
+    if (control.adHocValues) take(control.adHocValues, intensityLevel)
   }
   return liveLevels
 }

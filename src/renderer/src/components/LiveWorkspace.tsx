@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import type { FadeCurve, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
+import type { FadeCurve, FaderControlProperty, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import { clampModifier, clampLiveSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
@@ -9,7 +9,9 @@ import {
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor, DEFAULT_BUTTON_APPEARANCE_COLOR } from '../lib/liveButtonColor'
 import { controlBehavior, isFaderControl, isFlashControl, isLatchingControl } from '../lib/liveControlBehavior'
-import { DEFAULT_CUE_PRIORITY } from '../lib/cuePriority'
+import { DEFAULT_CUE_PRIORITY, cuePriorityLabel } from '../lib/cuePriority'
+import { faderControlsDropdownOptions, faderControlsValue } from '../lib/liveFaderControls'
+import { applicableModifiers, applicableSpeedOptions, LIGHTKEY_MODIFIERS, SPEED_MODIFIER_OPTIONS } from '../lib/liveModifiers'
 import { sequenceStepValues } from '../lib/sequenceClock'
 import { frameForCue } from '../lib/liveFrames'
 import { alignmentGuides, alignEdgeX, alignEdgeY } from '../lib/alignmentGuides'
@@ -24,6 +26,7 @@ import { editAdHocTarget } from '../lib/liveOverrideTargets'
 import { CueListEditor } from './CueListEditor'
 import { CueButtonMenu } from './CueButtonMenu'
 import { XfadeSlider } from './XfadeSlider'
+import { LiveFader } from './LiveFader'
 
 type Selection = PageObjectRef
 const position = (index: number) => ({ x: 20 + (index % 4) * 180, y: 20 + Math.floor(index / 4) * 90 })
@@ -42,9 +45,11 @@ const snapCanvasPoint = (x: number, y: number) => ({
   y: snapCanvasValue(y)
 })
 
-// LightKey button types (Guide ch.11, "Button", p.199): the model has three
-// cue kinds, labelled the LightKey way. Push Button is the momentary
-// (hold-to-flash) kind; Toggle latches; Fader is a level control.
+// LightKey button types (Guide ch.11, "Button", p.199; Jake's
+// screenshots, 27 Nov 2026): Type and Behaviour are separate axes —
+// a Push Button with Toggle behaviour latches (click on, click off),
+// with Flash behaviour it is active only while held. A fader has no
+// behaviour; its type is its track direction.
 const BUTTON_TYPE_LABELS: Record<LiveControl['type'], string> = {
   push: 'Push Button',
   faderHorizontal: 'Fader Horizontal',
@@ -79,7 +84,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, deactivateCue, activeCueId, addCueList, addCueToList, liveEditing, setLiveEditing,
     editCueContents, editCueDefContents, promoteAdHocToPreset, setContentsPreview, setPaletteReveal,
     configureFramePrevNext, startEditingPreset, startEditingLiveEffect, stepLiveFrame,
-    configureCueTiming, configureCueAppearance, configureCueModifiers,
+    configureCueTiming, configureCueAppearance, configureCueModifiers, toggleCueModifier,
+    configureFaderControls, configureSpeedModifierOptions,
     configureCuePriority, configureCueFrameStep, addOverridesToCues, startEditingCueAdHoc,
     configureControlType, configureControlBehavior,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
@@ -481,11 +487,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     })()
     // A Push Button with Toggle behaviour latches (click once on, click
     // again off — guide p.204, Jake 27 Nov 2026); with Flash behaviour
-    // it is active only while held. Faders render as a slider for now —
-    // the vertical / horizontal fader control is Item 4.
+    // it is active only while held. A fader renders as its own track
+    // (LightKey guide ch.11, pp.179, 215–216; Jake's screenshots,
+    // 27 Nov 2026 — the Spots Left/Right faders): vertical track with
+    // tick marks and the name at the end, horizontal track with the name
+    // and % below it. Dragging it writes the assigned property live
+    // through setLiveValue (the same 0–255 level a push button's fader
+    // level uses).
     const latching = isLatchingControl(control)
     const flash = isFlashControl(control)
-    return isFaderControl(control) ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.effectIds?.length ? '∿ ' : ''}{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={latching ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={flash ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={flash ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={flash ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={flash ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={flash ? () => setLiveValue(control.id, 0) : undefined} onBlur={flash ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{sequenceSpeed ? ` ${sequenceSpeed}` : ''}{flash && ' (hold)'}</button>
+    if (isFaderControl(control)) {
+      return <LiveFader control={control} level={level} onChange={(value) => setLiveValue(control.id, value)} textColor={textColor} />
+    }
+    return <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={latching ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={flash ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={flash ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={flash ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={flash ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={flash ? () => setLiveValue(control.id, 0) : undefined} onBlur={flash ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{sequenceSpeed ? ` ${sequenceSpeed}` : ''}{flash && ' (hold)'}</button>
   }
 
   const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
@@ -739,13 +753,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // Pointer capture is taken only once the drag starts: taking it on press
   // would retarget the pointerup/click to this div and break firing, and
   // the press must never preventDefault either (that cancels the click).
-  // Inputs inside a button (the fader slider) keep their own behaviour —
-  // a press on one never arms a drag.
+  // Inputs inside a button (the fader track) keep their own behaviour —
+  // a press on one never arms a drag. The fader track is a div, not an
+  // input, so it is excluded by its data-fader-track marker.
   const onControlPointerDown = (event: React.PointerEvent, ref: Selection, x: number, y: number) => {
     if (event.shiftKey && editing && !locked) { togglePageObjectSelection(ref); return }
     selectRef(ref)
     if (!editing || locked || event.button !== 0) return
-    if ((event.target as HTMLElement).closest('input, select, textarea')) return
+    if ((event.target as HTMLElement).closest('input, select, textarea, [data-fader-track]')) return
     armedDrag.current = { ref, startX: event.clientX, startY: event.clientY, x, y }
   }
   const onControlPointerMove = (event: React.PointerEvent) => {
@@ -1056,6 +1071,15 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             </div>
             {inspectorTab === 'contents' && <div className="space-y-2">
               <h4 className="font-semibold text-text">Contents</h4>
+              {(() => {
+                // The contents line (Jake's screenshot, 27 Nov 2026 —
+                // "Spots / Dimmer FS1"): the frame the button sits in,
+                // then the first preset in the cue. No frame, no prefix.
+                const frameId = page ? frameForCue(page, selectedControl.id) : null
+                const frameName = frameId ? page?.annotations?.find((a) => a.id === frameId)?.text : undefined
+                const firstPreset = contentsRows(selectedControl).find((row) => row.kind === 'preset')
+                return <div className="text-dim">{frameName ? `${frameName} / ` : ''}{firstPreset?.name ?? selectedControl.name}</div>
+              })()}
               <div role="list" aria-label="Cue contents" onDragOver={allowDrop} onDrop={(event) => dropOnContents(event, selectedControl)}>
                 {contentsRows(selectedControl).map((row) => (
                   <div key={row.key} role="listitem" aria-selected={selectedContentKey === row.key} className={`flex items-center gap-1 rounded px-1 py-0.5 ${selectedContentKey === row.key ? 'bg-panel font-semibold' : 'hover:bg-panel'}`} onClick={() => selectContentRow(row)} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectContentRow(row); setContentsMenu({ x: event.clientX, y: event.clientY, row }) }}>
@@ -1091,18 +1115,71 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
               </div>
               <div>
                 <h4 className="font-semibold text-text">Modifiers</h4>
-                <div className="flex flex-wrap items-end gap-2">
-                  {(['intensity', 'speed', 'size'] as const).map((key) => <label key={key} className="capitalize text-dim">{key} %<input aria-label={`Cue ${key}`} type="number" min="0" max="200" value={selectedControl.modifiers?.[key] ?? 100} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCueModifiers(selectedControl.id, { [key]: Number(event.target.value) })} /></label>)}
-                </div>
+                {/* LightKey's checklist (guide ch.11, pp.205–207; Jake's
+                    screenshot, 27 Nov 2026 — "Select the modifiers you
+                    would like to control"): only modifiers which apply
+                    to the cue are enabled, the rest are greyed. The old
+                    intensity/speed/size % inputs are gone — LightKey has
+                    no such model; the stored % values still apply via
+                    effectiveLiveLevel for compat. The value control in
+                    the Live view (dragging a modifier's icon) and
+                    applying values to output are NOT built yet — the
+                    checklist is selection only, the same open question
+                    as the previous commit. */}
+                {(() => {
+                  const applicable = applicableModifiers(selectedControl, cues, presets, show?.fixtures ?? [], show?.sequences ?? [], effects)
+                  const selected = selectedControl.selectedModifiers ?? []
+                  return <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                    {LIGHTKEY_MODIFIERS.map(({ key, label }) => {
+                      const applies = applicable.has(key)
+                      return <label key={key} className={`flex items-center gap-1 ${applies ? '' : 'text-dim opacity-50'}`} title={applies ? undefined : 'Does not apply to this cue'}>
+                        <input type="checkbox" aria-label={`Modifier ${label}`} disabled={!applies} checked={selected.includes(key)} onChange={() => toggleCueModifier(selectedControl.id, key)} /> {label}
+                      </label>
+                    })}
+                  </div>
+                })()}
+                {/* Speed Options (guide pp.206–207): which aspects the
+                    Speed modifier affects. Only shown while Speed is
+                    selected; absent = every applicable aspect. */}
+                {(selectedControl.selectedModifiers ?? []).includes('speed') && (() => {
+                  const applicable = applicableSpeedOptions(selectedControl, cues, presets, show?.fixtures ?? [], show?.sequences ?? [], effects)
+                  const chosen = selectedControl.speedModifierOptions
+                  return <div className="mt-2">
+                    <h5 className="font-semibold text-text">Speed Options</h5>
+                    <div className="max-h-32 space-y-0.5 overflow-y-auto">
+                      {SPEED_MODIFIER_OPTIONS.map(({ key, label }) => {
+                        const applies = applicable.has(key)
+                        const checked = chosen ? chosen.includes(key) : applies
+                        return <label key={key} className={`flex items-center gap-1 ${applies ? '' : 'text-dim opacity-50'}`} title={applies ? undefined : 'Does not apply to this cue'}>
+                          <input type="checkbox" aria-label={`Speed option ${label}`} disabled={!applies} checked={checked} onChange={(event) => {
+                            const next = (chosen ?? SPEED_MODIFIER_OPTIONS.filter((opt) => applicable.has(opt.key)).map((opt) => opt.key)).filter((item) => item !== key)
+                            if (event.target.checked) next.push(key)
+                            configureSpeedModifierOptions(selectedControl.id, next)
+                          }} /> {label}
+                        </label>
+                      })}
+                    </div>
+                  </div>
+                })()}
               </div>
-              <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? DEFAULT_CUE_PRIORITY} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
               <label className="text-dim">Frame action<select aria-label="Frame step action" value={selectedControl.frameStep ?? ''} onChange={(event) => configureCueFrameStep(selectedControl.id, event.target.value ? event.target.value as 'next' | 'previous' : undefined)} className="ml-1 rounded bg-bg p-1"><option value="">Normal cue</option><option value="next">Next button</option><option value="previous">Previous button</option></select></label>
+              <div>
+                <h4 className="font-semibold text-text">Live Triggers</h4>
+                {/* Ableton Live triggering (guide ch. "Live Triggers",
+                    p.294): cues fired from an Ableton Live timeline.
+                    This app has no Ableton integration, so the trigger
+                    wiring itself is not built — the exclusion is stored
+                    so it survives until it is. */}
+                <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.excludeFromLiveTriggers === true} onChange={(event) => patchControl(selectedControl.id, { excludeFromLiveTriggers: event.target.checked })} /> Exclude from Live Triggers</label>
+              </div>
             </div>}
             {inspectorTab === 'button' && <div className="space-y-3">
               <div>
                 <h4 className="font-semibold text-text">Button</h4>
                 <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => configureControlType(selectedControl.id, e.target.value as LiveControl['type'])} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
                 {selectedControl.type === 'push' && <label className="mt-1 block text-dim">Behavior<select aria-label="Push button behavior" value={controlBehavior(selectedControl)} onChange={(e) => configureControlBehavior(selectedControl.id, e.target.value as 'toggle' | 'flash')} className="ml-1 rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Flash</option></select></label>}
+                {isFaderControl(selectedControl) && <label className="mt-1 block text-dim">Controls<select aria-label="Fader controls" value={faderControlsValue(selectedControl)} onChange={(e) => configureFaderControls(selectedControl.id, e.target.value as 'all' | FaderControlProperty)} className="ml-1 rounded bg-bg p-1">{faderControlsDropdownOptions(selectedControl, cues, presets, show?.fixtures ?? []).map((option) => <option key={option.value} value={option.value} disabled={!option.enabled}>{option.label}</option>)}</select></label>}
+                <label className="mt-1 block text-dim">Priority<select aria-label="Cue priority" value={selectedControl.priority ?? DEFAULT_CUE_PRIORITY} onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} className="ml-1 rounded bg-bg p-1">{[9, 8, 7, 6, 5, 4, 3, 2, 1].map((value) => <option key={value} value={value}>{cuePriorityLabel(value)}</option>)}</select></label>
                 <label className="mt-1 block text-dim">Cue<select aria-label="Cue" value={selectedControl.cueId ?? ''} onChange={(e) => setControlCue(selectedControl.id, e.target.value || undefined)} className="ml-1 rounded bg-bg p-1"><option value="">No cue</option>{cues.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
               </div>
               <div className="flex flex-wrap items-end gap-2">
@@ -1110,7 +1187,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 <button type="button" aria-label="Automatic colour" title="Automatic — the colour follows the cue contents" disabled={!selectedControl.appearance?.color || selectedControl.appearance.color.toLowerCase() === DEFAULT_BUTTON_APPEARANCE_COLOR} onClick={() => configureCueAppearance(selectedControl.id, { color: DEFAULT_BUTTON_APPEARANCE_COLOR })} className="rounded bg-panel px-2 py-1 text-xs disabled:opacity-40">Automatic</button>
                 <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.appearance?.releaseOthers === true} onChange={(event) => configureCueAppearance(selectedControl.id, { releaseOthers: event.target.checked })} /> Release other buttons</label>
                 <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.activateAtStartup === true} onChange={(event) => patchControl(selectedControl.id, { activateAtStartup: event.target.checked })} /> Activate at startup</label>
+                {/* Activate before quitting (guide p.204): LightKey
+                    activates these cues for 0.5s on quit. Stored only —
+                    the quit-flow wiring is a separate piece, not built
+                    yet (parked 27 Nov 2026). */}
+                <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.activateBeforeQuitting === true} onChange={(event) => patchControl(selectedControl.id, { activateBeforeQuitting: event.target.checked })} /> Activate before quitting</label>
                 <label className="flex items-center gap-1 text-dim" title="Attached buttons only: one of the attached buttons stays active at any time (Guide ch.11, p.204)"><input type="checkbox" checked={selectedControl.alwaysActive === true} onChange={(event) => patchControl(selectedControl.id, { alwaysActive: event.target.checked })} /> Always active</label>
+                {/* Show Fonts (guide p.204): "Only available in edit
+                    mode" — and even there LightKey opens the macOS font
+                    panel, which this app has no equivalent of. The
+                    button's font is set in the style section below
+                    (Size / Color / Bold / Italic / Align), so the
+                    button stays greyed with that pointer. */}
+                <button type="button" disabled title="The button font is set in the style section below (Size, Color, Bold, Italic, Align)" className="rounded bg-panel px-2 py-1 text-xs disabled:opacity-40">Show Fonts</button>
               </div>
               {styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}
               {attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}

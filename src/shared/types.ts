@@ -420,6 +420,20 @@ export interface FrameConfig {
  *  shared so the migration fill, the output sort and the menu agree. */
 export const DEFAULT_CUE_PRIORITY = 5
 
+/** Which fixture property a fader confines itself to (LightKey guide
+ *  ch.11, p.204: Controls (faders) — "If you select All Properties
+ *  (the default), dragging the fader affects all properties defined
+ *  in the cue. If you select individual properties, like Dimmer,
+ *  Color, or Iris, only those properties are affected by the fader's
+ *  value"). 'all' (absent = all) is the default. */
+export type FaderControlProperty = 'dimmer' | 'color' | 'pan' | 'tilt' | 'focus' | 'zoom' | 'iris' | 'frost' | 'fog'
+
+/** Which aspects the Speed modifier affects (LightKey guide ch.11,
+ *  pp.206–207, the Speed modifier's Options menu). */
+export type SpeedModifierAspect =
+  | 'sequenceSpeed' | 'effectSpeed' | 'rainbowSpeed' | 'vectorSpeed' | 'infinitePanTiltSpeed'
+  | 'goboRotationSpeed' | 'goboShakeSpeed' | 'goboChangeSpeed' | 'strobeSpeed' | 'shutterPulseSpeed' | 'prismRotationSpeed'
+
 export interface LiveControl {
   id: string
   name: string
@@ -434,6 +448,13 @@ export interface LiveControl {
    *  (click once on, click again off — the default); Flash is active
    *  only while held. Faders have no behaviour. Absent = Toggle. */
   behavior?: 'toggle' | 'flash'
+  /** Which fixture properties the fader value affects (guide p.204,
+   *  Controls (faders)). Only read for Fader controls. 'all' (absent
+   *  = all) means dragging affects every property defined in the cue;
+   *  a single property confines the fader to it — only that property
+   *  is scaled by the fader value, the rest apply at full value while
+   *  the fader is above 0. */
+  faderControls?: 'all' | FaderControlProperty
   cueId?: string
   presetIds: string[]
   /** Sequences started while this cue is active (7.10). */
@@ -471,6 +492,18 @@ export interface LiveControl {
    *  Ignored when the startup mode restores the last state, as the guide
    *  requires. Only cues on the visible page are activated. */
   activateAtStartup?: boolean
+  /** Activate this cue before quitting (guide ch.11, p.204). Stored
+   *  preference only — the quit-flow wiring is a separate piece, not
+   *  built yet (parked 27 Nov 2026: the Mac quit hang was only just
+   *  fixed, so the quit path is not touched here). */
+  activateBeforeQuitting?: boolean
+  /** Exclude this button from Live Triggers (guide ch.11 — the
+   *  inspector's Live Triggers section, Jake's screenshot 27 Nov
+   *  2026). Stored; the trigger wiring itself is not built yet. */
+  excludeFromLiveTriggers?: boolean
+  /** Which aspects the Speed modifier affects (guide pp.206–207, the
+   *  Speed modifier's Options menu). Absent = every applicable aspect. */
+  speedModifierOptions?: SpeedModifierAspect[]
   /** Always active (Guide ch.11, p.204): applies when this button is
    *  attached to others — one of the attached buttons stays active at
    *  any time, so turning this one off while it is the only lit button

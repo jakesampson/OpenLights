@@ -25,12 +25,13 @@ import { BottomPlayback } from './components/BottomPlayback'
 import { configureSequences, configureEffects, configurePresetOutput, configureLiveOutput, configureOverrideOutput } from './lib/output'
 import { computeCueChannels } from './lib/automationRuntime'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
-import { effectiveIntensityLevels, liveIntensityLevels, withEffectiveIntensity } from './lib/effectiveIntensity'
+import { effectiveIntensityLevels, liveIntensityLevels, withEffectiveIntensity, type FixtureValuePatch } from './lib/effectiveIntensity'
 import { completePresetBaseColour } from './lib/presetColor'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
 import { isFaderControl, isLatchingControl } from './lib/liveControlBehavior'
+import { faderControlsValue, splitFaderValues } from './lib/liveFaderControls'
 import { activeCueSequenceIds, activeLiveEffectIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { configureAmbienceFixtures } from './lib/ndiAmbience'
@@ -491,18 +492,41 @@ export default function App() {
     const levels = effectiveLevels
     for (const control of controls) {
       const level = outputLevels[control.id] ?? 0
-      if (!level && !(isFaderControl(control) && control.id in outputLevels)) continue
-      const scaledMaster = master * level / 255
+      // Level 0 deactivates the cue (guide p.216 — "Drag the fader to
+      // 0% to deactivate the cue"): a control at 0 writes nothing, not
+      // even pan/tilt. The old fader exception here is gone — it was
+      // dead code anyway (orderedLiveControls above already drops
+      // level-0 controls), and it described the opposite: a fader at 0
+      // used to run its cue with a zero master, which only zeroes
+      // dimmer attributes (scaleAttribute) and left pan/tilt at full.
+      if (!level) continue
+      // A fader's level is applied once, by the split (guide p.204 —
+      // Controls): the controlled properties are pre-scaled by the
+      // level, the rest run at full master. Both sets are computed
+      // with the plain master. Push buttons keep the existing
+      // scaledMaster path. Note the split also ends the old double
+      // scale on a fader's intensity: it used to be scaled once by
+      // liveIntensityLevels (via withEffectiveIntensity) and again by
+      // scaledMaster, so 50% came out at ~25%.
+      const emit = (id: string, name: string, values: FixtureValuePatch) => {
+        if (!isFaderControl(control)) {
+          Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name, fadeMs: 0, fixtureValues: withEffectiveIntensity(values, levels) }, master * level / 255))
+          return
+        }
+        const { scaled, full } = splitFaderValues(values, faderControlsValue(control), level)
+        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name, fadeMs: 0, fixtureValues: scaled }, master))
+        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name, fadeMs: 0, fixtureValues: withEffectiveIntensity(full, levels) }, master))
+      }
       const cue = cues.find((item) => item.id === control.cueId)
       if (cue && !cue.blackout) {
         const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
-        Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { ...resolved, fixtureValues: withEffectiveIntensity(resolved.fixtureValues, levels) }, scaledMaster))
+        emit(resolved.id, resolved.name, resolved.fixtureValues)
       }
       for (const id of control.presetIds) {
         const preset = presets.find((item) => item.id === id)
-        if (preset) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), levels) }, scaledMaster))
+        if (preset) emit(preset.id, preset.name, completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []))
       }
-      if (control.adHocValues) Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: control.id, name: control.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(control.adHocValues, levels) }, scaledMaster))
+      if (control.adHocValues) emit(control.id, control.name, control.adHocValues)
     }
     const changed = previousLivePage.current !== activeLivePageId
     previousLivePage.current = activeLivePageId

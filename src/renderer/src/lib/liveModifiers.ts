@@ -16,7 +16,8 @@
 // so it never applies here. If Jake's LightKey tests show otherwise,
 // the rule — not the list — is what changes.
 import { resolveCueValues } from '@shared/cueResolution'
-import type { CueDef, EffectDef, FixtureDef, LiveControl, PresetDef, SequenceDef } from '@shared/types'
+import { fixtureMode } from '@shared/fixtureProfiles'
+import type { CueDef, EffectDef, FixtureDef, LiveControl, PresetDef, SequenceDef, SpeedModifierAspect } from '@shared/types'
 
 export type LiveModifierKey =
   | 'speed' | 'beatMultiplier' | 'timeOffset' | 'fadeTime' | 'dimmer'
@@ -41,6 +42,80 @@ export const LIGHTKEY_MODIFIERS: { key: LiveModifierKey; label: string }[] = [
   { key: 'frostAmount', label: 'Frost Amount' },
   { key: 'fogAmount', label: 'Fog Amount' },
 ]
+
+/** Which aspects the Speed modifier can affect (guide ch.11,
+ *  pp.206–207, the Speed modifier's Options menu — "You can choose
+ *  exactly which aspects of the cue are affected by the modifier"). */
+export const SPEED_MODIFIER_OPTIONS: { key: SpeedModifierAspect; label: string }[] = [
+  { key: 'sequenceSpeed', label: 'Sequence Speed' },
+  { key: 'effectSpeed', label: 'Effect Speed' },
+  { key: 'rainbowSpeed', label: 'Rainbow Speed' },
+  { key: 'vectorSpeed', label: 'Vector Speed' },
+  { key: 'infinitePanTiltSpeed', label: 'Infinite Pan/Tilt Speed' },
+  { key: 'goboRotationSpeed', label: 'Gobo Rotation Speed' },
+  { key: 'goboShakeSpeed', label: 'Gobo Shake Speed' },
+  { key: 'goboChangeSpeed', label: 'Gobo Change Speed' },
+  { key: 'strobeSpeed', label: 'Strobe Speed' },
+  { key: 'shutterPulseSpeed', label: 'Shutter Pulse Speed' },
+  { key: 'prismRotationSpeed', label: 'Prism Rotation Speed' },
+]
+
+/** Which Speed aspects apply to this button's cue (guide p.207 —
+ *  "only options which apply to the cue are enabled (for example,
+ *  Gobo Rotation Speed is only available if at least one fixture in
+ *  the cue has a rotating gobo)"). Sequence / Effect Speed follow
+ *  the cue's manual-timing sequences and effects; the gobo / strobe
+ *  / shutter / prism aspects follow the cue fixtures' channels.
+ *  Two are inferences from how this app stores effects: Rainbow is
+ *  matched by effect name (the Rainbow templates name the effect so),
+ *  and Vector / Infinite Pan-Tilt are both offered for any movement
+ *  effect — the app does not distinguish vector mode from infinite
+ *  pan/tilt movement, so narrowing those two needs Jake's LightKey
+ *  test. */
+export function applicableSpeedOptions(
+  control: LiveControl,
+  cues: CueDef[],
+  presets: PresetDef[],
+  fixtures: FixtureDef[],
+  sequences: SequenceDef[],
+  effects: EffectDef[]
+): Set<SpeedModifierAspect> {
+  const cue = control.cueId ? cues.find((item) => item.id === control.cueId) : undefined
+  const source: CueDef = cue ?? {
+    id: control.id,
+    name: control.name,
+    presetIds: control.presetIds ?? [],
+    sequenceIds: control.sequenceIds ?? [],
+    fixtureValues: control.adHocValues ?? {},
+    fadeMs: 0
+  }
+  const values = resolveCueValues(source, presets, fixtures)
+  const sequenceIds = [...(cue?.sequenceIds ?? []), ...(control.sequenceIds ?? [])]
+  const cueSequences = sequenceIds.map((id) => sequences.find((s) => s.id === id)).filter((s): s is SequenceDef => !!s)
+  const effectIds = control.effectIds ?? []
+  const cueEffects = effectIds.map((id) => effects.find((e) => e.id === id)).filter((e): e is EffectDef => !!e)
+  const cueFixtureIds = new Set([...Object.keys(values), ...cueEffects.flatMap((e) => e.fixtureIds ?? [])])
+  const cueFixtures = fixtures.filter((f) => cueFixtureIds.has(f.id))
+  const hasChannel = (attr: string) =>
+    cueFixtures.some((f) => (fixtureMode(f)?.channels ?? []).some((c) => c.attribute.toLowerCase() === attr))
+  const out = new Set<SpeedModifierAspect>()
+  if (cueSequences.some((s) => s.timing === 'manual')) out.add('sequenceSpeed')
+  if (cueEffects.some((e) => !e.syncToBpm)) out.add('effectSpeed')
+  if (cueEffects.some((e) => e.name.toLowerCase().includes('rainbow'))) out.add('rainbowSpeed')
+  if (cueEffects.some((e) => e.kind === 'movement')) {
+    out.add('vectorSpeed')
+    out.add('infinitePanTiltSpeed')
+  }
+  if (hasChannel('gobo')) {
+    out.add('goboRotationSpeed')
+    out.add('goboShakeSpeed')
+    out.add('goboChangeSpeed')
+  }
+  if (hasChannel('strobe')) out.add('strobeSpeed')
+  if (hasChannel('shutter')) out.add('shutterPulseSpeed')
+  if (hasChannel('prism')) out.add('prismRotationSpeed')
+  return out
+}
 
 /** Which modifiers apply to this button's cue (guide p.207). The cue
  *  is the button's own cue if it has one, else its presets / sequences

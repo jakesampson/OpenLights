@@ -183,7 +183,15 @@ describe('Fixture faders — LightKey-narrow (screenshot 8.58.26)', () => {
     expect(design).not.toContain('flex w-14 shrink-0 flex-col items-center gap-0.5')
   })
 
-  it('leaves Live cue faders alone — they are horizontal level controls inside buttons, not vertical faders', () => {
-    expect(workspace).toContain('isFaderControl(control) ?')
+  it('renders Live cue faders as their own tracks, not the old horizontal range input', () => {
+    // Item 4 (27 Nov 2026): a Fader Horizontal / Fader Vertical control
+    // renders as a LiveFader track (ticks, fill, handle, name) — the old
+    // horizontal <input type="range"> rendered a vertical fader as a
+    // horizontal slider. The Design .chan faders above are untouched.
+    expect(workspace).toContain('<LiveFader')
+    expect(workspace).not.toContain('isFaderControl(control) ?')
+    const fader = readFileSync(resolve(root, 'src/renderer/src/components/LiveFader.tsx'), 'utf8')
+    expect(fader).toContain('role="slider"')
+    expect(fader).toContain('live-fader-tick')
   })
 })
