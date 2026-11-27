@@ -31,9 +31,15 @@ describe('Live window restoration', () => {
     // so the command never reached the main window and the buttons
     // silently did nothing (plus a "could not be cloned" page error).
     // Every Live-window handler must call the action with no arguments.
+    // The transport lives in the shared CueListsSection now (Jake, 27
+    // Nov 2026 — the main window's Live tab shows the compact transport
+    // too); LiveTab renders it, and the cuelist widget in LiveWorkspace
+    // has its own transport.
+    const section = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/CueListsSection.tsx'), 'utf8')
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
     const workspace = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
-    for (const source of [liveTab, workspace]) {
+    expect(liveTab).toContain('<CueListsSection />')
+    for (const source of [section, workspace]) {
       expect(source).toContain('onClick={() => stopCue()}')
       expect(source).toContain('onClick={() => cuePrev()}')
       expect(source).not.toContain('onClick={stopCue}')
@@ -42,6 +48,6 @@ describe('Live window restoration', () => {
     expect(liveTab).toContain('onClick={() => clearPresets()}')
     expect(liveTab).not.toContain('onClick={clearPresets}')
     // The row toggle already called deactivateCue() with no args — pin it.
-    expect(liveTab).toContain('deactivateCue()')
+    expect(section).toContain('deactivateCue()')
   })
 })

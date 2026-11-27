@@ -3,16 +3,16 @@ import { cuesToPresets } from '@shared/cueConversion'
 import { resolveCue, resolveCueValues, fanPresetFixtureValues } from '@shared/cueResolution'
 import { fanColourToBeams } from '@shared/fixtureProfiles'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
-import { exclusiveSiblings, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
+import { exclusiveSiblings, frameForCue, frameMembers, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
 import { orderedLiveControls } from '../lib/cuePriority'
-import { applyLiveDrop, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
-import { applyCueContents, type CueContentsCommand } from '../lib/cueContents'
+import { applyLiveDrop, normalizeDropPayload, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
+import { applyCueContents, applyCueDefContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
 import { manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress } from '../lib/cueListPlayback'
 import { stepFrame } from '../lib/frameStepping'
 import {
-  copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects,
-  objectsInRect, pasteObjects, renameObject, resizeObject, setAttachment, setObjectStyle,
+  copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects, newCueObject,
+  objectsInRect, pasteObjects, renameObject, resizeObject, resizeObjectTo, setAttachment, setObjectStyle,
   type PageClipboard, type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
 import { addOverridesTargetIds } from '../lib/liveOverrideTargets'
@@ -64,7 +64,7 @@ import { releaseOverrides } from '../lib/propertyOverrides'
 import { computeCueChannels, fixtureAttributes } from '../lib/automationRuntime'
 import { completePresetBaseColour } from '../lib/presetColor'
 import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
-import { allZeroPatch, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels, reassertBase } from '../lib/output'
+import { allZeroPatch, completedSequenceIds, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels, reassertBase } from '../lib/output'
 import { resolveFadeMs, activeLivePageFadeMs } from '../lib/fadeTimes'
 import { computeEffectPatch } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
@@ -96,6 +96,11 @@ interface ShowState {
   /** Live Edit mode for the active Live page (LightKey "Edit Live View"). UI-only state, like the page selection: it is not persisted in the show, not undo history, and it does not gate firing — cues fire the same in Live and in Edit (see LiveWorkspace). */
   liveEditing: boolean
   setLiveEditing: (editing: boolean) => void
+  /** Alignment guides off (Video 2 Shortcuts panel, "A = Disable
+   * alignment"): while off, dragging and resizing snap to the 10px
+   * grid only, with no edge guides and no edge snapping. UI-only. */
+  liveAlignmentOff: boolean
+  setLiveAlignmentOff: (off: boolean) => void
   /** Preview edit mode (LightKey Guide p.53, "Edit the Preview"): the header Edit button toggles it, and the StagePreview becomes editable — fixtures and trusses can be moved, the grid is shown. UI-only state, like liveEditing: not persisted, not undo history. */
   previewEditing: boolean
   setPreviewEditing: (editing: boolean) => void
@@ -220,13 +225,48 @@ interface ShowState {
   clearPageObjectSelection: () => void
   moveSelectedPageObjects: (dx: number, dy: number) => void
   resizePageObject: (ref: PageObjectRef, width: number, height: number) => void
+  /** Resize anchored at any corner/edge (8-handle resize): the new
+   * top-left as well as the size, so the opposite edge stays put. */
+  resizePageObjectTo: (ref: PageObjectRef, x: number, y: number, width: number, height: number) => void
   renamePageObject: (ref: PageObjectRef, name: string) => void
   attachPageObject: (ref: PageObjectRef, targetId: string | null) => void
   setPageObjectStyle: (ref: PageObjectRef, patch: Partial<LiveObjectStyle>) => void
   configureFrame: (frameId: string, patch: Partial<FrameConfig>) => void
   editCueContents: (controlId: string, command: CueContentsCommand) => void
+  /** The same contents commands against a cue definition — its preset /
+   * sequence references and its own ad-hoc fixtureValues (Jake, 27 Nov
+   * 2026: a button's Get Info list edits the CUE's ingredients). */
+  editCueDefContents: (cueId: string, command: CueContentsCommand) => void
+  /**
+   * Promote a cue's / button's ad-hoc values to a reusable preset
+   * (Video 2: right-click Ad hoc properties → Add to Palette): the
+   * preset joins the cue's (or button's) contents and the ad-hoc values
+   * are cleared, so the look is unchanged. Returns the new preset id,
+   * or null when there was nothing to promote.
+   */
+  promoteAdHocToPreset: (source: { cueId: string } | { controlId: string }) => string | null
+  /**
+   * Add Previous/Next step buttons to a frame (Guide ch.11 p.188):
+   * 'previous' / 'next' / 'both' create the small step buttons at the
+   * frame's bottom edge; 'none' removes them.
+   */
+  configureFramePrevNext: (frameId: string, mode: 'none' | 'previous' | 'next' | 'both') => void
+  /** Move a button out of its frame (LightKey's "Remove From Frame"):
+   * it drops just below the frame, so frame stepping and the frame's
+   * Previous/Next buttons no longer include it. No-op when the button
+   * is not in a frame. */
+  removeFromFrame: (controlId: string) => void
+  /** Release the buttons / cues running sequences that have finished
+   * their last pass (Video 2: run-once sequences auto-deactivate when
+   * finished; looping ones never complete). */
+  deactivateCompletedSequences: () => void
   configureCueTiming: (controlId: string, patch: Partial<NonNullable<LiveControl['timing']>>) => void
   configureCueAppearance: (controlId: string, patch: Partial<NonNullable<LiveControl['appearance']>>) => void
+  /** Change a button's type (LightKey's Control Type / Behavior menu,
+   * guide p.204). Mirrors the inspector's Button tab: the button is
+   * released first, then the type is patched. Behavior maps onto type
+   * — Toggle is our toggle, Flash is our flash. */
+  configureControlType: (controlId: string, type: LiveControl['type']) => void
   configureCueModifiers: (controlId: string, patch: Partial<NonNullable<LiveControl['modifiers']>>) => void
   configureCuePriority: (controlId: string, priority: number) => void
   configureCueFrameStep: (controlId: string, action?: 'next' | 'previous') => void
@@ -257,6 +297,21 @@ interface ShowState {
    * the selection moves away or the preset is deleted. */
   previewPresetId: string | null
   setPreviewPresetId: (id: string | null) => void
+  /**
+   * The contents row selected in a cue button's Get Info inspector
+   * (Jake, 27 Nov 2026 — LightKey cue editing, Video 2): the palette
+   * highlights the item and the Preview labels the fixtures its values
+   * touch. Session-only, never persisted.
+   */
+  contentsPreview: { kind: 'preset' | 'sequence' | 'effect' | 'ad-hoc'; id: string; values: Record<string, Record<string, number>> } | null
+  setContentsPreview: (preview: ShowState['contentsPreview']) => void
+  /**
+   * Ask the palette to reveal an item (Show in Palette): the panel
+   * expands the group holding it and scrolls it into view. The nonce
+   * makes a repeat reveal of the same item fire again.
+   */
+  paletteReveal: { kind: 'preset' | 'sequence' | 'effect'; id: string; nonce: number } | null
+  setPaletteReveal: (kind: 'preset' | 'sequence' | 'effect', id: string) => void
   locateFixtures: (ids: string[]) => void
   setBpm: (bpm: number) => void
   setAudioPath: (path: string | null) => void
@@ -1260,6 +1315,7 @@ const actions: ShowState = {
   activeLivePageId: null,
   pageActiveValues: {},
   liveEditing: false,
+  liveAlignmentOff: false,
   previewEditing: false,
   selectedPreviewTrussId: null,
   selectedLayoutTrussIds: [],
@@ -1268,6 +1324,8 @@ const actions: ShowState = {
   editingCueAdHocId: null,
   showOverrideLabels: false,
   previewPresetId: null,
+  contentsPreview: null,
+  paletteReveal: null,
   selectedPageObjects: [],
   pageClipboard: null,
   manualOverrides: {},
@@ -1340,6 +1398,25 @@ const actions: ShowState = {
     setFreezeOutput(false, 0)
     setHighlightOutput(false, [])
     sendImmediate(allZeroPatch())
+    // Startup restore (Guide ch.11, p.176): only the cues on VISIBLE
+    // pages have an effect on fixtures — so a restore only brings back
+    // the restored page's lit buttons, never buttons lit on a hidden
+    // page (those used to come back driving the rig with nothing
+    // visibly lit on the page in front of the operator — Jake, 27 Nov
+    // 2026, "Full On keeps activating with nothing selected"). The
+    // active cue comes back only when a lit button on that visible page
+    // points at it; a cue with no lit control on the visible page (an
+    // orphan, or one left over from a cuelist that is not playing on
+    // load) stays off.
+    const restoring = show?.startup?.mode === 'restore'
+    const restoredPageId = restoring && show?.livePages?.some((p) => p.id === show?.startup?.pageId) ? show?.startup?.pageId ?? null : show?.livePages?.[0]?.id ?? null
+    const restoredPage = show?.livePages?.find((p) => p.id === restoredPageId)
+    const restoredLiveValues: Record<string, number> = restoring
+      ? Object.fromEntries(Object.entries(show?.startup?.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && restoredPage?.controls.some((c) => c.id === id)).map(([id, value]) => [id, clamp(value)]))
+      : {}
+    const restoredCueId = restoring && show?.cues.some((s) => s.id === show?.startup?.cueId) && Object.keys(restoredLiveValues).some((id) => restoredLiveValues[id] > 0 && restoredPage?.controls.find((c) => c.id === id)?.cueId === show?.startup?.cueId)
+      ? show?.startup?.cueId ?? null
+      : null
     set({
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
       show,
@@ -1347,12 +1424,13 @@ const actions: ShowState = {
       cues: show?.cues ?? [],
       presets: show?.presets ?? [],
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
-      activeLiveValues: show?.startup?.mode === 'restore' ? Object.fromEntries(Object.entries(show.startup.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && show.livePages?.some((page) => page.controls.some((c) => c.id === id))).map(([id, value]) => [id, clamp(value)])) : {},
+      activeLiveValues: restoredLiveValues,
       liveActivationOrder: {},
       liveActivationCounter: 0,
-      activeLivePageId: show?.startup?.mode === 'restore' && show.livePages?.some((p) => p.id === show.startup?.pageId) ? show.startup.pageId ?? null : show?.livePages?.[0]?.id ?? null,
+      activeLivePageId: restoredPageId,
       pageActiveValues: {},
       liveEditing: false,
+      liveAlignmentOff: false,
       previewEditing: false,
       selectedPreviewTrussId: null,
       selectedLayoutTrussIds: [],
@@ -1364,6 +1442,8 @@ const actions: ShowState = {
       editingCueAdHocId: null,
       showOverrideLabels: false,
       previewPresetId: null,
+      contentsPreview: null,
+      paletteReveal: null,
       previewEffect: null,
       previewEffectTemplateId: null,
       automations: show?.automations ?? [],
@@ -1381,7 +1461,7 @@ const actions: ShowState = {
       highlightMode: false,
       setupWizardStep: null,
       bpm: show?.bpm ?? 120,
-      activeCueId: show?.startup?.mode === 'restore' && show.cues.some((s) => s.id === show.startup?.cueId) ? show.startup.cueId ?? null : null,
+      activeCueId: restoredCueId,
       selectedFixtureIds: [],
       selectedBeams: [],
       newFixtureIds: [],
@@ -1410,12 +1490,25 @@ const actions: ShowState = {
   showForSave: () => {
     const state = get()
     if (!state.show || state.show.startup?.mode !== 'restore') return state.show
-    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: { ...state.activeLiveValues }, pageId: state.activeLivePageId, cueId: state.activeCueId } }
+    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: Object.fromEntries(Object.entries(state.activeLiveValues).filter(([, value]) => value > 0)), pageId: state.activeLivePageId, cueId: state.activeCueId } }
   },
   setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
   dropOnLivePage: (payload, target, split) => set((state) => {
     const page = activeLivePage(state)
     if (!page || !state.show) return state
+    // Dropping onto a button that carries a cue adds to the CUE (Video 2:
+    // dragging a preset onto an existing button adds it to that button's
+    // queue — the Get Info list shows it and it travels with the cue).
+    // A standalone button takes it into its own lists, as before.
+    if (target.kind === 'cue') {
+      const control = page.controls.find((item) => item.id === target.cueId)
+      if (control?.cueId) {
+        const clean = normalizeDropPayload(payload)
+        if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
+        const cues = state.cues.map((item) => item.id === control.cueId ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(item.sequenceIds ?? []), ...clean.sequenceIds])] } : item)
+        return { ...persistState(state, { cues }, { cues }), selectedPageObjects: [{ type: 'cue' as const, id: control.id }] }
+      }
+    }
     let n = 0
     const { page: next, refs } = applyLiveDrop(page, payload, target, () => `page-object-${Date.now()}-${++n}`, page.defaultStyles, split)
     if (!refs.length) return state
@@ -1429,6 +1522,21 @@ const actions: ShowState = {
   setLiveValue: (id, value) => {
     set((state) => {
       const level = clamp(value)
+      // Always active (Guide ch.11, p.204): a toggle button attached to
+      // others keeps one of the group lit — turning off the only lit
+      // button in its group is refused. Switching still works: the
+      // exclusive / touching release below deletes the old button's
+      // value directly, never through this guard.
+      if (level === 0) {
+        for (const page of state.show?.livePages ?? []) {
+          const control = page.controls.find((cue) => cue.id === id)
+          if (!control || control.type !== 'toggle' || !control.alwaysActive) continue
+          if (!((state.activeLiveValues[id] ?? 0) > 0)) continue
+          const attachedIds = page.controls.filter((other) => other.id !== id && (other.attachedTo === id || control.attachedTo === other.id)).map((other) => other.id)
+          const siblings = [...new Set([...touchingGroupSiblings(page, id), ...attachedIds])]
+          if (siblings.length && !siblings.some((sibling) => (state.activeLiveValues[sibling] ?? 0) > 0)) return state
+        }
+      }
       const activeLiveValues = { ...state.activeLiveValues, [id]: level }
       // Activating a cue in an exclusive frame releases the frame's other cues.
       if (level > 0) for (const page of state.show?.livePages ?? []) {
@@ -1476,6 +1584,7 @@ const actions: ShowState = {
 
   setPageObjectSelection: (refs) => set({ selectedPageObjects: refs }),
   setLiveEditing: (editing) => set({ liveEditing: editing }),
+  setLiveAlignmentOff: (off) => set({ liveAlignmentOff: off }),
   setPreviewEditing: (editing) => set({ previewEditing: editing }),
   setSelectedPreviewTrussId: (value) => set({ selectedPreviewTrussId: value }),
   setSelectedLayoutTrussIds: (value) => set({ selectedLayoutTrussIds: value }),
@@ -1504,6 +1613,11 @@ const actions: ShowState = {
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? resizeObject(page, ref, width, height) : item))
   }),
+  resizePageObjectTo: (ref, x, y, width, height) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? resizeObjectTo(page, ref, x, y, width, height) : item))
+  }),
   renamePageObject: (ref, name) => set((state) => {
     const page = activeLivePage(state)
     if (!page) return state
@@ -1529,6 +1643,76 @@ const actions: ShowState = {
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? applyCueContents(control, command) : control) } : item))
   }),
+  editCueDefContents: (cueId, command) => set((state) => {
+    if (!state.cues.some((item) => item.id === cueId)) return state
+    const cues = state.cues.map((item) => item.id === cueId ? applyCueDefContents(item, command) : item)
+    return persistState(state, { cues }, { cues })
+  }),
+  promoteAdHocToPreset: (source) => {
+    let created: string | null = null
+    set((state) => {
+      const cue = 'cueId' in source ? state.cues.find((item) => item.id === source.cueId) : undefined
+      const page = activeLivePage(state)
+      const control = 'controlId' in source ? page?.controls.find((item) => item.id === source.controlId) : undefined
+      const values = cue?.fixtureValues ?? control?.adHocValues ?? {}
+      if (!Object.keys(values).length) return state
+      // A captured preset carries the whole base colour in the file
+      // itself, exactly like capturePresetFromLook — so the promoted
+      // preset means the same look everywhere it is applied.
+      const preset: PresetDef = { id: crypto.randomUUID(), name: uniquePresetName(`${cue?.name ?? control?.name ?? 'Ad hoc'} ad hoc`, state.presets.map((p) => p.name)), category: derivePresetCategory(values), fixtureValues: completePresetBaseColour(values, state.show?.fixtures ?? []) }
+      created = preset.id
+      const presets = [...state.presets, preset]
+      if (cue) {
+        const cues = state.cues.map((item) => item.id === cue.id ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), preset.id])], fixtureValues: {} } : item)
+        return persistState(state, { presets, cues }, { presets, cues })
+      }
+      if (!page || !control) return state
+      const nextPage = { ...page, controls: page.controls.map((item) => item.id === control.id ? { ...item, presetIds: [...new Set([...item.presetIds, preset.id])], adHocValues: {} } : item) }
+      const livePages = state.show!.livePages!.map((item) => item.id === page.id ? nextPage : item)
+      return persistState(state, { presets, livePages }, { presets })
+    })
+    return created
+  },
+  configureFramePrevNext: (frameId, mode) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    const frame = page.annotations?.find((a) => a.id === frameId && a.type === 'frame')
+    if (!frame) return state
+    const members = frameMembers(page, frameId)
+    const wantPrevious = mode === 'previous' || mode === 'both'
+    const wantNext = mode === 'next' || mode === 'both'
+    // Drop the step buttons that are no longer wanted; keep the ones
+    // that are (so their position survives a re-select).
+    let controls = page.controls.filter((c) => !(members.includes(c.id) && c.frameStep && ((c.frameStep === 'previous' && !wantPrevious) || (c.frameStep === 'next' && !wantNext))))
+    const stepY = frame.y + frame.height - 32
+    if (wantPrevious && !controls.some((c) => members.includes(c.id) && c.frameStep === 'previous')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + 8, stepY, page.defaultStyles, { name: '‹ Previous', type: 'flash', frameStep: 'previous', width: 64, height: 24 })]
+    if (wantNext && !controls.some((c) => members.includes(c.id) && c.frameStep === 'next')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + frame.width - 72, stepY, page.defaultStyles, { name: 'Next ›', type: 'flash', frameStep: 'next', width: 64, height: 24 })]
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...page, controls } : item))
+  }),
+  removeFromFrame: (controlId) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    const control = page.controls.find((c) => c.id === controlId)
+    if (!control) return state
+    const frameId = frameForCue(page, controlId)
+    if (!frameId) return state
+    const frame = (page.annotations ?? []).find((a) => a.id === frameId)
+    if (!frame) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...page, controls: page.controls.map((c) => c.id === controlId ? { ...c, y: frame.y + frame.height + 10 } : c) } : item))
+  }),
+  deactivateCompletedSequences: () => {
+    const ids = completedSequenceIds()
+    if (!ids.length) return
+    const state = get()
+    for (const page of state.show?.livePages ?? []) for (const control of page.controls) {
+      if (!((state.activeLiveValues[control.id] ?? 0) > 0)) continue
+      const cue = control.cueId ? state.cues.find((item) => item.id === control.cueId) : undefined
+      if ([...(cue?.sequenceIds ?? []), ...(control.sequenceIds ?? [])].some((id) => ids.includes(id))) get().setLiveValue(control.id, 0)
+    }
+    const activeCue = state.cues.find((item) => item.id === state.activeCueId)
+    if (activeCue && (activeCue.sequenceIds ?? []).some((id) => ids.includes(id))) get().deactivateCue()
+    if (state.activeSequenceIds.some((id) => ids.includes(id))) set((current) => ({ activeSequenceIds: current.activeSequenceIds.filter((id) => !ids.includes(id)) }))
+  },
   configureCueTiming: (controlId, patch) => set((state) => {
     const page = activeLivePage(state)
     if (!page) return state
@@ -1539,6 +1723,14 @@ const actions: ShowState = {
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, appearance: { color: '#47235a', releaseOthers: false, ...control.appearance, ...patch } } : control) } : item))
   }),
+  configureControlType: (controlId, type) => {
+    get().setLiveValue(controlId, 0)
+    set((state) => {
+      const page = activeLivePage(state)
+      if (!page) return state
+      return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, type } : control) } : item))
+    })
+  },
   configureCueModifiers: (controlId, patch) => set((state) => {
     const page = activeLivePage(state)
     if (!page) return state
@@ -2384,6 +2576,8 @@ const actions: ShowState = {
   setShowOverrideLabels: (visible) => set({ showOverrideLabels: visible }),
   toggleOverrideLabels: () => set((state) => ({ showOverrideLabels: !state.showOverrideLabels })),
   setPreviewPresetId: (id) => set({ previewPresetId: id }),
+  setContentsPreview: (preview) => set({ contentsPreview: preview }),
+  setPaletteReveal: (kind, id) => set((state) => ({ paletteReveal: { kind, id, nonce: (state.paletteReveal?.nonce ?? 0) + 1 } })),
   updateEditingPresetValues: (values, beams) => set((state) => {
     const preset = state.presets.find((p) => p.id === state.editingPresetId)
     if (!preset) return state

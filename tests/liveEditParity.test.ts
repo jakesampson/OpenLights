@@ -98,7 +98,10 @@ describe('Live / Live Edit parity', () => {
     // Manager; object properties live in the slide-in popup.
     for (const text of [
       '{editing && !locked && <>',
-      '{editing && !locked && popupOpen && selection &&',
+      // The properties popup is NOT edit-gated: the guide's first Edit
+      // Ad Hoc Properties route is "Control-click a button in the Live
+      // view", with no edit-mode qualifier (Jake, 27 Nov 2026).
+      '{!locked && popupOpen && selection &&',
       'if (!editing || locked) return'
     ]) expect(workspace).toContain(text)
   })

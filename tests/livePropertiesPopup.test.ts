@@ -49,7 +49,12 @@ describe('Live Edit — double-click properties popup', () => {
   })
 
   it('follows the single selection while open and closes with X, Esc or Done', () => {
-    expect(workspace).toContain('{editing && !locked && popupOpen && selection &&')
+    // The popup renders whenever it was asked for (and the project is not
+    // locked) — NOT only in Live Edit mode: the guide's first Edit Ad Hoc
+    // Properties route is "Control-click a button in the Live view", with
+    // no edit-mode qualifier (Jake, 27 Nov 2026 — the item silently did
+    // nothing in Live mode because the popup was edit-gated).
+    expect(workspace).toContain('{!locked && popupOpen && selection &&')
     expect(workspace).toContain('aria-label="Close properties popup"')
     expect(workspace).toContain('onClick={() => setPopupOpen(false)}')
     // Esc closes the popup as well as clearing the selection.

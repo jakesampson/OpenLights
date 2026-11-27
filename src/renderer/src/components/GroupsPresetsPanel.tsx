@@ -74,6 +74,8 @@ export function GroupsPresetsPanel() {
     capturePresetFromLook,
     previewPresetId,
     setPreviewPresetId,
+    contentsPreview,
+    paletteReveal,
     editingPresetId,
     startEditingPreset,
     cancelEditingPreset,
@@ -261,6 +263,36 @@ export function GroupsPresetsPanel() {
   // --- membership helpers -------------------------------------------------
   const groupOfPreset = (presetId: string) => groups.find((g) => g.presetIds.includes(presetId))
   const groupOfSequence = (sequenceId: string) => groups.find((g) => (g.sequenceIds ?? []).includes(sequenceId))
+
+  // Show in Palette (Jake, 27 Nov 2026 — LightKey cue editing): the Get
+  // Info inspector's contents menu asks the palette to reveal an item —
+  // expand the group holding it and scroll it into view. The nonce in
+  // paletteReveal makes a repeat reveal of the same item fire again.
+  useEffect(() => {
+    if (!paletteReveal) return
+    const group = paletteReveal.kind === 'preset' ? groupOfPreset(paletteReveal.id) : paletteReveal.kind === 'sequence' ? groupOfSequence(paletteReveal.id) : undefined
+    if (group) setCollapsed((prev) => ({ ...prev, [group.id]: false }))
+    // The group expands on the next render; scroll after it paints.
+    const timer = window.setTimeout(() => {
+      document.querySelector(`[data-palette-row="${paletteReveal.kind}:${paletteReveal.id}"]`)?.scrollIntoView({ block: 'nearest' })
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [paletteReveal])
+
+  // The cue inspector's Edit on a sequence row opens the sequence
+  // editor here (the SequenceEditor renders inline in the palette).
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const id = (event as CustomEvent<string>).detail
+      if (!id) return
+      const group = groupOfSequence(id)
+      if (group) setCollapsed((prev) => ({ ...prev, [group.id]: false }))
+      setExpandedSequenceId(id)
+      window.setTimeout(() => document.querySelector(`[data-palette-row="sequence:${id}"]`)?.scrollIntoView({ block: 'nearest' }), 0)
+    }
+    window.addEventListener('openlights-edit-sequence', handler)
+    return () => window.removeEventListener('openlights-edit-sequence', handler)
+  }, [])
   const ungroupedPresets = presets.filter((p) => !groupOfPreset(p.id))
   const ungroupedSequences = sequences.filter((s) => !groupOfSequence(s.id))
   const isCollapsed = (id: string) => collapsed[id] === true
@@ -612,7 +644,7 @@ export function GroupsPresetsPanel() {
     const editing = editingPresetId === preset.id
     return (
       <div key={preset.id} data-palette-row={`preset:${preset.id}`} tabIndex={-1}
-        className={`group flex flex-col rounded ${isSelected(item) || active ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
+        className={`group flex flex-col rounded ${isSelected(item) || active || contentsPreview?.id === preset.id ? 'bg-panel2' : ''} ${dragOverId === preset.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}
         onMouseEnter={() => setHoveredRow(`preset:${preset.id}`)}
         onMouseLeave={() => setHoveredRow((current) => (current === `preset:${preset.id}` ? null : current))}
       >
@@ -706,7 +738,7 @@ export function GroupsPresetsPanel() {
     const expanded = expandedSequenceId === sequence.id
     return (
       <div key={sequence.id} data-palette-row={`sequence:${sequence.id}`} tabIndex={-1}
-        className={`group flex flex-col rounded ${isSelected(item) ? 'bg-panel2' : ''} ${dragOverId === sequence.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}>
+        className={`group flex flex-col rounded ${isSelected(item) || contentsPreview?.id === sequence.id ? 'bg-panel2' : ''} ${dragOverId === sequence.id ? 'outline outline-1 outline-[var(--accent)]' : ''}`}>
         <div
           className="flex items-center gap-1 pr-1"
           draggable
@@ -897,7 +929,7 @@ export function GroupsPresetsPanel() {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
             const payload = dragPayloadFor(item)
             return (
-              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) || effect.enabled ? 'bg-panel2' : ''}`}
+              <div key={effect.id} data-palette-row={`effect:${effect.id}`} tabIndex={-1} className={`flex items-center gap-1 rounded pr-1 ${isSelected(item) || effect.enabled || contentsPreview?.id === effect.id ? 'bg-panel2' : ''}`}
                 onMouseEnter={() => setHoveredRow(`effect:${effect.id}`)}
                 onMouseLeave={() => setHoveredRow((current) => (current === `effect:${effect.id}` ? null : current))}
                 draggable={payload !== null}

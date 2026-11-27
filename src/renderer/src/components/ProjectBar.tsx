@@ -7,8 +7,28 @@ import { hasUnsavedChanges, rebaseSnapshotAfterHeal, transitionDecision } from '
 import { newShowFromTemplate } from '../lib/templates'
 import { SaveTemplateDialog } from './SaveTemplateDialog'
 
+/** Canonical JSON for a startup (restore) snapshot: liveValues keys and
+ *  presetIds sorted, so the same looks pressed in a different order do
+ *  not count as a change. */
+export function startupSnapshotJson(startup: ShowDef['startup'] | undefined): string {
+  if (!startup) return 'null'
+  const liveValues = startup.liveValues
+    ? Object.fromEntries(Object.entries(startup.liveValues).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+    : undefined
+  const presetIds = startup.presetIds ? [...startup.presetIds].sort() : undefined
+  return JSON.stringify({ mode: startup.mode, presetIds, liveValues, pageId: startup.pageId, cueId: startup.cueId })
+}
+
 export function ProjectBar() {
   const { show, setShow } = useShowStore()
+  // The autosave below also watches the live state (Fix 2): when the
+  // startup mode restores the last looks, a pressed/released Live
+  // button or palette preset must reach the file, or the restore
+  // snapshot goes stale and a look the operator turned off comes back
+  // on the next open (Jake, 27 Nov 2026, "Full On keeps activating").
+  const activeLiveValues = useShowStore((s) => s.activeLiveValues)
+  const activePresetIds = useShowStore((s) => s.activePresetIds)
+  const activeCueId = useShowStore((s) => s.activeCueId)
   const [shows, setShows] = useState<ShowMeta[]>([])
   const [renameName, setRenameName] = useState('')
   const allowCloseRef = useRef(false)
@@ -19,6 +39,12 @@ export function ProjectBar() {
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const savedSnapshotRef = useRef<string>(JSON.stringify(useShowStore.getState().show))
+  // The startup (restore) snapshot last written to the file, canonicalised
+  // (liveValues keys and presetIds sorted) so re-pressing the same looks in
+  // a different order does not count as a change. Kept apart from
+  // savedSnapshotRef because the in-memory show never carries the live
+  // state — showForSave() builds it from the session at save time.
+  const savedStartupRef = useRef<string>(startupSnapshotJson(useShowStore.getState().show?.startup))
   const saveRef = useRef<() => void>(() => undefined)
 
   const requestTransition = (action: () => void) => {
@@ -66,6 +92,7 @@ export function ProjectBar() {
     if (result.success) {
       if (result.path) applySavedName(result.path, show.id)
       savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
+      savedStartupRef.current = startupSnapshotJson(useShowStore.getState().showForSave()?.startup)
       setCurrentPath(result.path ?? null)
       setStatus('Saved')
       refreshList()
@@ -96,9 +123,16 @@ export function ProjectBar() {
   }, [oflHealRevision])
 
   // Debounced autosave after any change, so a service can't lose a look.
+  // The live state counts as a change too when the startup mode restores
+  // the last looks (Fix 2): pressing or releasing a Live button, or
+  // toggling a palette preset, never touches `show`, so without the live
+  // state in the dependencies the restore snapshot in the file would go
+  // stale — a look turned off before quitting would come back lit on the
+  // next open (Jake, 27 Nov 2026, "Full On keeps activating").
   useEffect(() => {
     if (!show) return
-    if (JSON.stringify(show) === savedSnapshotRef.current) return
+    const liveDirty = show.startup?.mode === 'restore' && startupSnapshotJson(useShowStore.getState().showForSave()?.startup) !== savedStartupRef.current
+    if (JSON.stringify(show) === savedSnapshotRef.current && !liveDirty) return
     const timer = window.setTimeout(async () => {
       const snapshot = useShowStore.getState().show
       if (!snapshot || !window.electronAPI) return
@@ -109,13 +143,14 @@ export function ProjectBar() {
       if (result.success) {
         if (result.path) applySavedName(result.path, snapshot.id)
         savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
+        savedStartupRef.current = startupSnapshotJson(useShowStore.getState().showForSave()?.startup)
         if (result.path) setCurrentPath(result.path)
         setStatus('Autosaved')
         refreshList()
       }
     }, 1500)
     return () => window.clearTimeout(timer)
-  }, [show, currentPath])
+  }, [show, currentPath, activeLiveValues, activePresetIds, activeCueId])
 
   const handleSaveAs = async () => {
     if (!show || !window.electronAPI) return
@@ -123,6 +158,7 @@ export function ProjectBar() {
     if (result.success && !result.canceled) {
       if (result.path) applySavedName(result.path, show.id)
       savedSnapshotRef.current = JSON.stringify(useShowStore.getState().show)
+      savedStartupRef.current = startupSnapshotJson(useShowStore.getState().showForSave()?.startup)
       setCurrentPath(result.path ?? null)
       setStatus('Saved')
       refreshList()
@@ -137,6 +173,7 @@ export function ProjectBar() {
       const loaded = { ...data, name: projectNameFromPath(result.path ?? path) || data.name }
       setShow(loaded)
       savedSnapshotRef.current = JSON.stringify(loaded)
+      savedStartupRef.current = startupSnapshotJson(loaded.startup)
       setCurrentPath(result.path ?? path)
       setStatus('Loaded')
       setOpen(false)
@@ -154,6 +191,7 @@ export function ProjectBar() {
       const loaded = { ...data, name: result.path ? projectNameFromPath(result.path) : data.name }
       setShow(loaded)
       savedSnapshotRef.current = JSON.stringify(loaded)
+      savedStartupRef.current = startupSnapshotJson(loaded.startup)
       setCurrentPath(result.path ?? null)
       setStatus('Opened')
       refreshList()

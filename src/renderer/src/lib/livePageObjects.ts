@@ -1,6 +1,6 @@
 import type { LiveControl, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import {
-  clampLiveSize,
+  clampLiveSize, snapCanvasValue,
   LIVE_CUE_SIZE, LIVE_FRAME_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor
 } from '@shared/liveObjectDefaults'
 
@@ -78,6 +78,23 @@ export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, 
     controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, width: w, height: h } : c),
     cueListWidgets: page.cueListWidgets?.map((widget) => ref.type === 'list' && widget.id === ref.id ? { ...widget, width: w, height: h } : widget),
     annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, width: w, height: h } : a)
+  }
+}
+
+/**
+ * Resize anchored at any corner/edge (Jake, 27 Nov 2026 — LightKey's
+ * 8-handle resize): the top/left handles move the object as they
+ * shrink it, so the opposite edge stays put. Positions snap to the
+ * 10px grid and never go below 0, like a drag.
+ */
+export function resizeObjectTo(page: LivePage, ref: PageObjectRef, x: number, y: number, width: number, height: number): LivePage {
+  const w = clampLiveSize(width), h = clampLiveSize(height)
+  const left = Math.max(0, snapCanvasValue(x)), top = Math.max(0, snapCanvasValue(y))
+  return {
+    ...page,
+    controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, x: left, y: top, width: w, height: h } : c),
+    cueListWidgets: page.cueListWidgets?.map((widget) => ref.type === 'list' && widget.id === ref.id ? { ...widget, x: left, y: top, width: w, height: h } : widget),
+    annotations: page.annotations?.map((a) => ref.type === 'annotation' && a.id === ref.id ? { ...a, x: left, y: top, width: w, height: h } : a)
   }
 }
 

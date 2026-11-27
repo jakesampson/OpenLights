@@ -63,8 +63,13 @@ export function menuGroupsFor(platform: string, appName: string): AppMenuGroup[]
 
 export const CONTEXT_MENUS = {  fixture: ['group', 'beamDirection', 'beamColor', 'fixtureOptions', 'highlight', 'undo', 'redo', 'design'],
   preset: ['undo', 'redo', 'live'],
-  // Add Overrides / Edit Ad Hoc Properties (Guide ch.11, pp.201–202):
-  // Control-click a button in the Live view or a cue in a cuelist.
+  // The cue entry is the legacy list (Go / Stop / Live view / Add
+  // Overrides / Edit Ad Hoc Properties) — kept for the menu-commands
+  // test. What actually renders for a right-click on a cue button is
+  // LightKey's button menu (Video 1, see CueButtonMenu): Go and Stop
+  // live in the cue-list transport (Part 1) and on Space, not in the
+  // button menu. Add Overrides / Edit Ad Hoc Properties are in that
+  // menu too (Guide ch.11, pp.201–202).
   cue: ['go', 'escape', 'live', 'addOverrides', 'editAdHocProperties'],
   page: ['live', 'undo', 'redo']
 } satisfies Record<'fixture' | 'preset' | 'cue' | 'page', AppMenuCommand[]>

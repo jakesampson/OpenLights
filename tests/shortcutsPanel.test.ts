@@ -30,14 +30,20 @@ describe('Shortcuts panel list (Jake, 20 Nov 2026)', () => {
     }
   })
 
-  it('shows only Nudge + Clear selection in Live Edit, like LightKey', () => {
-    // Jake's LightKey screenshots: Live Edit shows 2 rows — no Undo/Redo,
-    // no palette rows.
+  it('shows Nudge + Disable alignment + Clear selection in Live Edit, like LightKey', () => {
+    // Jake's LightKey screenshots: Live Edit shows the Nudge / Clear
+    // selection rows — no Undo/Redo, no palette rows — and Video 2's
+    // Shortcuts panel adds A = Disable alignment between them.
     const rows = buildShortcutsList({ tab: 'Live', liveEditing: true, editingPreset: false })
     expect(rows).toEqual([
       { key: '↑ ← ↓ →', label: 'Nudge', section: 'live-edit' },
+      { key: 'A', label: 'Disable alignment', section: 'live-edit' },
       { key: 'esc', label: 'Clear selection', section: 'live-edit' }
     ])
+    // With alignment already off the row flips to Enable alignment.
+    expect(buildShortcutsList({ tab: 'Live', liveEditing: true, editingPreset: false, liveAlignmentOff: true })[1]).toEqual(
+      { key: 'A', label: 'Enable alignment', section: 'live-edit' }
+    )
   })
 
   it('shows the full list plus palette rows outside Live Edit', () => {
@@ -53,7 +59,7 @@ describe('Shortcuts panel list (Jake, 20 Nov 2026)', () => {
   })
 
   it('App renders the builder list with section-qualified keys', () => {
-    expect(appSource).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })')
+    expect(appSource).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId), liveAlignmentOff })')
     expect(appSource).toContain('key={`${s.section}:${s.key}:${s.label}`}')
     expect(appSource).not.toContain('paletteShortcuts')
     expect(appSource).not.toContain("key={s.key + s.label}")

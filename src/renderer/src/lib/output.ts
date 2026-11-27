@@ -1,5 +1,5 @@
 import type { SequenceDef, PresetDef } from '@shared/types'
-import { sequenceValues } from './sequenceClock'
+import { sequencePosition, sequenceValues } from './sequenceClock'
 import { applyHighlight } from './highlight'
 /**
  * Renderer-side DMX output. Keeps the base look (cues, cues, automation)
@@ -32,6 +32,23 @@ export function configureSequences(active: SequenceDef[], presets: PresetDef[] =
   if (active.length && !runtime.blackout) startEffectLoop()
   else if (!runtime.effects.some((e) => e.enabled)) stopEffectLoop()
   flush()
+}
+
+/**
+ * Ids of the sequences currently running that have finished their last
+ * pass (Video 2, Jake 27 Nov 2026: a run-once sequence auto-deactivates
+ * when finished; a looping one never completes, so it repeats
+ * infinitely — the same rule the guide's Repeat setting states, ch.9
+ * p.132). The store polls this and releases the buttons/cues running
+ * them; the output layer itself only stops animating.
+ */
+export function completedSequenceIds(): string[] {
+  const now = performance.now()
+  return sequences.filter((sequence) => {
+    const start = sequenceStarts.get(sequence.id)
+    if (start === undefined) return false
+    return sequencePosition(sequence, now - start, 1, runtime.bpm).completed
+  }).map((sequence) => sequence.id)
 }
 let base: Record<number, number> = {}
 let fadeFrame: number | null = null

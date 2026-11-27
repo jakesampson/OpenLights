@@ -82,7 +82,7 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).toContain('aria-label="Live edit actions"')
     // "New Cue List" (Jake, 26 Nov 2026): there was no UI to create a cue
     // list at all, so "Insert Cuelist" stayed disabled in a fresh project.
-    for (const item of ['New Button', 'New Cue List', 'Insert Text', 'Insert Cuelist', 'Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', '✓ Edit Live View']) {
+    for (const item of ['New Button', 'New Cue List', 'Insert Text', 'Insert Cuelist', 'Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', '✓ Return to Live', 'Edit Live View']) {
       expect(workspace).toContain(item)
     }
     expect(workspace).toContain('snapCanvasPoint')
@@ -138,13 +138,14 @@ describe('Live Edit — LightKey layout', () => {
     expect(workspace).not.toContain('renameInput')
   })
 
-  it('shows LightKey edit shortcuts (Nudge / Clear selection) while editing', () => {
+  it('shows LightKey edit shortcuts (Nudge / Disable alignment / Clear selection) while editing', () => {
     // The rows live in lib/shortcuts.ts (buildShortcutsList) now — App
     // renders that builder's list — and only while editing a Live page.
     const shortcuts = readFileSync(resolve(root, 'src/renderer/src/lib/shortcuts.ts'), 'utf8')
     expect(shortcuts).toContain('Nudge')
+    expect(shortcuts).toContain('Disable alignment')
     expect(shortcuts).toContain('Clear selection')
-    expect(app).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })')
+    expect(app).toContain('buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId), liveAlignmentOff })')
     expect(workspace).toContain('moveSelectedPageObjects')
     expect(workspace).toContain('stopImmediatePropagation')
   })

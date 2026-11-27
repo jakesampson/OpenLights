@@ -99,15 +99,23 @@ export const PALETTE_SHORTCUTS: ShortcutRow[] = [
  * identical rows). Every list this builds has unique (section, key,
  * label) triples by construction.
  */
-export function buildShortcutsList(options: { tab: string; liveEditing: boolean; editingPreset: boolean; editingEffect?: boolean }): ShortcutRow[] {
+export function buildShortcutsList(options: { tab: string; liveEditing: boolean; editingPreset: boolean; editingEffect?: boolean; liveAlignmentOff?: boolean }): ShortcutRow[] {
   const rows: ShortcutRow[] = []
   if (options.editingPreset) rows.push({ key: 'esc', label: 'Cancel preset edit', section: 'preset' })
   // While an effect is being edited LightKey shows "esc End editing"
   // (Jake's screenshots, 9.31.29 pm) — Escape ends the edit (App.tsx).
   if (options.editingEffect) rows.push({ key: 'esc', label: 'End editing', section: 'effect' })
   if (options.tab === 'Live' && options.liveEditing) {
+    // Video 2's Shortcuts panel in Edit Mode: arrows = Nudge, A =
+    // Disable alignment. B is NOT listed here — in this app B is
+    // Blackout, so it is not the horizontal-drag key (see the
+    // LiveWorkspace A-key note); the Live rows (arrows = Select
+    // fixtures, A–Z = Select by name, B = Set beat) are likewise not
+    // built: arrows are Next/Previous cue and A–Z type-ahead selection
+    // is a large feature, both parked, not silently renamed.
     rows.push(
       { key: '↑ ← ↓ →', label: 'Nudge', section: 'live-edit' },
+      { key: 'A', label: options.liveAlignmentOff ? 'Enable alignment' : 'Disable alignment', section: 'live-edit' },
       { key: 'esc', label: 'Clear selection', section: 'live-edit' }
     )
     return rows

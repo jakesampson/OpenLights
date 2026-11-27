@@ -446,6 +446,11 @@ export interface LiveControl {
    *  Ignored when the startup mode restores the last state, as the guide
    *  requires. Only cues on the visible page are activated. */
   activateAtStartup?: boolean
+  /** Always active (Guide ch.11, p.204): applies when this button is
+   *  attached to others — one of the attached buttons stays active at
+   *  any time, so turning this one off while it is the only lit button
+   *  in its group is refused. */
+  alwaysActive?: boolean
   /** NDI Ambience button (Jake, 23 Nov 2026): a toggle that turns the
    *  ambience output layer on/off. It carries no cue, presets or
    *  sequences — the Live layer contributes nothing for it, and App's

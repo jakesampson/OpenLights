@@ -74,7 +74,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, presets, previewPresetId, activeCueId, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, presets, previewPresetId, contentsPreview, activeCueId, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Plain-click selection (Jake, 26 Nov 2026): 1 click selects the
   // fixture's group, clicking the same fixture again singles it out,
   // Shift-click toggles one fixture at a time. Non-edit clicks route
@@ -483,6 +483,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   const presetLabelFixtures = previewPreset
     ? fixtureViews.filter((f) => f.instance === 0 && previewPreset.fixtureValues[f.id] && Object.keys(previewPreset.fixtureValues[f.id]).length > 0)
     : []
+  // The contents row selected in a cue button's Get Info inspector
+  // (Jake, 27 Nov 2026 — LightKey cue editing): its fixtures get the
+  // same callouts, one row per property the row touches.
+  const contentsLabelFixtures = contentsPreview
+    ? fixtureViews.filter((f) => f.instance === 0 && contentsPreview.values[f.id] && Object.keys(contentsPreview.values[f.id]).length > 0)
+    : []
   // De-collided label positions (Jake, 20 Nov 2026): labels anchored
   // close together are shifted down only as far as needed to clear each
   // other; the box sizes are the ones the render below draws. Override
@@ -509,10 +515,20 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
           height: groups.length * 12 + 6,
         }
+      }),
+      ...contentsLabelFixtures.map((f) => {
+        const groups = overridePropertyGroups(contentsPreview!.values[f.id])
+        return {
+          id: `contents:${f.id}`,
+          x: f.pos.x + 12,
+          y: f.pos.y + 14,
+          width: Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18,
+          height: groups.length * 12 + 6,
+        }
       })
     ]
     return layoutOverrideLabels(boxes)
-  }, [labelledFixtures, manualOverrides, presetLabelFixtures, previewPreset])
+  }, [labelledFixtures, manualOverrides, presetLabelFixtures, previewPreset, contentsLabelFixtures, contentsPreview])
 
   // Newly patched fixtures appear with a short fade/scale-in when they
   // first land on the canvas (Jake, 19 Nov 2026 — his addition, not a
@@ -1056,6 +1072,29 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           const height = groups.length * 12 + 6
           const { x: lx, y: ly } = overrideLabelPositions.get(`preset:${f.id}`) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
           return <g key={`preset-label-${f.key}`} data-preset-label={f.id}>
+            <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
+            {groups.map((group, i) => {
+              const rowY = ly + 12 + i * 12
+              return <g key={group.name} onClick={(event) => { event.stopPropagation(); selectFixtures([f.id]); window.dispatchEvent(new Event('openlights-show-design')) }} style={{ cursor: 'pointer' }}>
+                <text x={lx + 5} y={rowY} fontSize={9} fill="#111111">{group.name}</text>
+              </g>
+            })}
+          </g>
+        })}
+
+        {/* Contents labels (Jake, 27 Nov 2026): while a row is selected
+            in a cue button's Get Info inspector, the Preview shows the
+            same white callouts on the fixtures that row touches — one
+            row per property. Same box and pointer arrow as the preset
+            labels, but no ✕: there is nothing to clear. Clicking a row
+            selects the fixture and opens it in Design. */}
+        {contentsLabelFixtures.map((f) => {
+          const groups = overridePropertyGroups(contentsPreview!.values[f.id])
+          const width = Math.max(...groups.map((g) => g.name.length), 6) * 5.4 + 18
+          const height = groups.length * 12 + 6
+          const { x: lx, y: ly } = overrideLabelPositions.get(`contents:${f.id}`) ?? { x: f.pos.x + 12, y: f.pos.y + 14 }
+          return <g key={`contents-label-${f.key}`} data-contents-label={f.id}>
             <polygon points={`${lx + 3},${ly + 2} ${lx + 11},${ly + 2} ${lx + 1},${ly - 7}`} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             <rect x={lx} y={ly} width={width} height={height} rx={3} fill="#ffffff" stroke="#999999" strokeWidth="0.5" />
             {groups.map((group, i) => {

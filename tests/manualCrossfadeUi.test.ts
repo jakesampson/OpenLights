@@ -12,6 +12,7 @@ import { resolve } from 'node:path'
 describe('manual crossfade fader UI (8.8a)', () => {
   const root = resolve(__dirname, '..')
   const slider = readFileSync(resolve(root, 'src/renderer/src/components/XfadeSlider.tsx'), 'utf8')
+  const section = readFileSync(resolve(root, 'src/renderer/src/components/CueListsSection.tsx'), 'utf8')
   const liveTab = readFileSync(resolve(root, 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
   const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
 
@@ -30,9 +31,13 @@ describe('manual crossfade fader UI (8.8a)', () => {
   })
 
   it('is rendered inside the cuelist in the Live tab Cue Lists section', () => {
-    expect(liveTab).toContain('<XfadeSlider listId={list.id} />')
+    // The section moved from LiveTab into the shared CueListsSection
+    // (Jake, 27 Nov 2026); LiveTab renders it, and the main window's
+    // Live tab renders the compact variant.
+    expect(section).toContain('<XfadeSlider listId={list.id} />')
+    expect(liveTab).toContain('<CueListsSection />')
     // The existing cuelist transport is untouched.
-    for (const text of ['Stop', 'Back', 'Go', 'Current', 'Next']) expect(liveTab).toContain(text)
+    for (const text of ['Stop', 'Back', 'Go', 'Current', 'Next']) expect(section).toContain(text)
   })
 
   it('is rendered inside the cuelist widget on the Live page', () => {

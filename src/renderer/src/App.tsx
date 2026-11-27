@@ -10,6 +10,7 @@ import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, buildShortcutsList, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
+import { CueListsSection } from './components/CueListsSection'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
@@ -72,6 +73,7 @@ export default function App() {
     freeze,
     locked,
     liveEditing,
+    liveAlignmentOff,
     previewEditing,
     setPreviewEditing,
     editingPresetId,
@@ -424,9 +426,19 @@ export default function App() {
     // sequences (Piece 8) run the same way while it is the active cue —
     // in Design, or as the current step of a cuelist.
     const activeCue = cues.find((cue) => cue.id === activeCueId)
-    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues), ...(activeCue?.sequenceIds ?? [])])
+    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues, cues), ...(activeCue?.sequenceIds ?? [])])
     configureSequences([...ids].flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets)
   }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets, cues, activeCueId])
+
+  // A run-once sequence auto-deactivates when it finishes (Video 2,
+  // Jake 27 Nov 2026): the output layer only stops animating, so poll
+  // the finished ids and release the buttons / cues running them. A
+  // looping sequence never completes, so it repeats infinitely.
+  useEffect(() => {
+    if (!activeSequenceIds.length && !activeCueId && !Object.values(activeLiveValues).some((level) => level > 0)) return
+    const timer = window.setInterval(() => useShowStore.getState().deactivateCompletedSequences(), 250)
+    return () => window.clearInterval(timer)
+  }, [activeSequenceIds, activeCueId, activeLiveValues])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
@@ -692,7 +704,7 @@ export default function App() {
   // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
   // one contextual list per state — see that file for why the Live-edit
   // rows are never concatenated with the palette rows.
-  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId) })
+  const shortcuts = buildShortcutsList({ tab, liveEditing, editingPreset: Boolean(editingPresetId), editingEffect: Boolean(editingEffectId), liveAlignmentOff })
   const closeToolPanel = () => setToolPanel(null)
   // The view-options menu's panel toggles (Jake, 22 Nov 2026): Preview,
   // Preset Palette and Shortcuts. The merge keeps every layout key, so
@@ -774,15 +786,21 @@ export default function App() {
             {effectChooserAttribute && tab === 'Design' && <div ref={setChooserSearchHost} className="bottom-panel-tools" />}
             {tab === 'Live' && <div ref={setLiveToolbarHost} className="bottom-panel-tools" />}
           </div>
-          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell' : 'playback-shell'}`}>
+          <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell flex flex-col' : 'playback-shell'}`}>
             {tab === 'Live' ? <>
+              <div className="min-h-0 flex-1">
               <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />
-              {/* No cue grid below the canvas any more (Jake, 26 Nov 2026
-                  — Option 2): LightKey has no cue list in its Live view;
-                  cues live on the page as buttons or inside a cuelist.
-                  The canvas keeps its own internal scroll for the user's
-                  own buttons; the tab body no longer scrolls for a cue
-                  section. */}
+              </div>
+              {/* Cue-list transport (Jake, 27 Nov 2026 — "nothing is
+                  visible to see that or turn it off"): the main window
+                  used to show no trace of the active cuelist, so a Go
+                  (context menu, Space) could step onto a cue like "Full
+                  On" with nothing visible to explain it or stop it.
+                  The compact transport — list, current / next cue,
+                  Stop / Back / Go — sits below the canvas; its steps
+                  and Xfade are behind a disclosure. The separate Live
+                  window keeps the full section (LiveTab). */}
+              <CueListsSection variant="compact" />
             </> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
         </div>
@@ -998,7 +1016,7 @@ export default function App() {
 
       {designWorkspace}
       </>)}
-      <ContextMenu />
+      <ContextMenu liveTabActive={tab === 'Live'} />
       {toolPanel && !setupWizardStep && (
         <div
           className={`fixed inset-0 z-50 flex items-center justify-center bg-black/70 ${toolPanel === 'Patch' ? 'p-0' : 'p-4'}`}

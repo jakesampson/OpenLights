@@ -1,4 +1,4 @@
-import type { LiveControl, LiveDefaultStyles, LivePage } from '@shared/types'
+import type { CueDef, LiveControl, LiveDefaultStyles, LivePage } from '@shared/types'
 import { LIVE_CUE_SIZE, LIVE_CUE_STEP } from '@shared/liveObjectDefaults'
 import { newCueObject, type PageObjectRef } from './livePageObjects'
 
@@ -129,12 +129,20 @@ function dropPosition(
 /** Sequence ids started by active cues, deduplicated across all pages. */
 export function activeCueSequenceIds(
   pages: LivePage[] | undefined,
-  active: Record<string, number>
+  active: Record<string, number>,
+  cues?: CueDef[]
 ): string[] {
   const ids = new Set<string>()
   for (const page of pages ?? []) for (const cue of page.controls) {
     if ((active[cue.id] ?? 0) <= 0) continue
     for (const id of cue.sequenceIds ?? []) ids.add(id)
+    // A button's sequence usually lives in its cue, not on the button
+    // itself — without this the cue's sequence never registers with the
+    // output engine, so it never animates and never completes (found by
+    // the real-app probe, 27 Nov 2026: a run-once Rainbow cue stayed lit
+    // forever instead of auto-deactivating).
+    const cueDef = cues?.find((c) => c.id === cue.cueId)
+    for (const id of cueDef?.sequenceIds ?? []) ids.add(id)
   }
   return [...ids]
 }

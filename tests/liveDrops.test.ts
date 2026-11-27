@@ -166,6 +166,18 @@ describe('sequences started by active cues (7.10)', () => {
     expect(activeCueSequenceIds([first, second], { c1: 255, c2: 0, c3: 128 })).toEqual(['s1', 's2'])
     expect(activeCueSequenceIds([first, second], { c2: 255 })).toEqual([])
   })
+
+  it('includes the sequences of a lit button’s cue, not only its own lists', () => {
+    // A button whose sequence lives in its cue (the normal case) must
+    // still register the sequence — otherwise it never animates and
+    // never completes, so a run-once cue stays lit forever (real-app
+    // probe, 27 Nov 2026).
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'toggle', cueId: 'cue1', presetIds: [] }] }
+    const cues = [{ id: 'cue1', name: 'Rainbow', sequenceIds: ['s1'], presetIds: [], fixtureValues: {} }]
+    expect(activeCueSequenceIds([page], { c1: 255 }, cues as never)).toEqual(['s1'])
+    expect(activeCueSequenceIds([page], { c1: 0 }, cues as never)).toEqual([])
+    expect(activeCueSequenceIds([page], { c1: 255 })).toEqual([])
+  })
 })
 
 describe('dropping an effect on a page (Jake, 26 Nov 2026)', () => {
