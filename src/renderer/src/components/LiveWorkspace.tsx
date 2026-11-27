@@ -17,6 +17,8 @@ import { faderControlsDropdownOptions, faderControlsValue } from '../lib/liveFad
 import { applicableModifiers, applicableSpeedOptions, LIGHTKEY_MODIFIERS, SPEED_MODIFIER_OPTIONS } from '../lib/liveModifiers'
 import { sequenceStepValues } from '../lib/sequenceClock'
 import { frameForCue } from '../lib/liveFrames'
+import { presetRootFolder } from '../lib/presetGroups'
+import { clampPanelSize } from '../lib/panelSizes'
 import { alignmentGuides, alignEdgeX, alignEdgeY } from '../lib/alignmentGuides'
 import { useClampedMenuPosition } from '../lib/menuPosition'
 import {
@@ -206,7 +208,7 @@ function InspectorSection({ id, title, open, onToggle, children, sectionRef }: {
   </section>
 }
 
-export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null } = {}) {
+export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspectorWidth = 340, onInspectorWidthChange }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null; inspectorWidth?: number; onInspectorWidthChange?: (width: number) => void } = {}) {
   const {
     locked, show, presets, effects, activePresetIds, cueLists, setLivePages, setControlCue, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId, activeCueRef,
@@ -257,13 +259,55 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // pre-named button. Return commits the typed name (or keeps the
   // default when empty); Escape keeps the default.
   const [namingControlId, setNamingControlId] = useState<string | null>(null)
-  // Double-click properties popup (LightKey, Jake 18 Nov 2026): a small panel
-  // that slides in from the right over the canvas. It opens only on
-  // double-click; single-click only selects (move/resize). The popup itself
-  // scrolls (overflow-y-auto) while the canvas behind it does not, so the
+  // Double-click properties popup (LightKey, Jake 18 Nov 2026): a panel
+  // EMBEDDED in the Design/Live section beside the canvas (Jake, 28 Nov
+  // 2026 — it used to be an absolute overlay sliding in over the canvas;
+  // LightKey's sits beside the content, and the canvas keeps scrolling
+  // underneath it). Opening it shrinks the canvas area; closing it gives
+  // the canvas the full width back. It opens only on double-click;
+  // single-click only selects (move/resize). The popup itself scrolls
+  // (overflow-y-auto) while the canvas beside it scrolls too, so the
   // button stays visible while its properties are edited. Once open it
-  // follows the single selection; close with X, Esc or Done.
+  // follows the single selection; close with X, Esc or Done. Its width
+  // drags from the left edge (280–520px, default 340) and persists in
+  // app preferences like the other panel sizes.
   const [popupOpen, setPopupOpen] = useState(false)
+  // Inspector width drag (Jake, 28 Nov 2026): pointer capture on the
+  // divider routes the moves to the handle, and window listeners keep
+  // the drag alive even where capture is unavailable — the move target
+  // is the element under the pointer once it leaves the 6px handle, so
+  // capture alone would strand the drag a few pixels in. Dragging left
+  // widens the panel (new width = start + startX − clientX). The width
+  // commits live through onInspectorWidthChange, which App persists.
+  // The click that follows a drag ends up over the canvas (not the
+  // handle), so it is suppressed for a beat — otherwise the
+  // click-outside handler below would close the inspector the moment
+  // the user finishes resizing it.
+  const inspectorResize = useRef<{ startX: number; startWidth: number } | null>(null)
+  const inspectorResizeEnd = useRef(0)
+  const moveInspectorResizeWindow = (event: PointerEvent) => {
+    const r = inspectorResize.current
+    if (!r || !onInspectorWidthChange) return
+    onInspectorWidthChange(clampPanelSize('inspectorWidth', r.startWidth + (r.startX - event.clientX)))
+  }
+  const endInspectorResizeWindow = () => {
+    window.removeEventListener('pointermove', moveInspectorResizeWindow)
+    inspectorResize.current = null
+    inspectorResizeEnd.current = Date.now()
+  }
+  const beginInspectorResize = (event: React.PointerEvent) => {
+    event.preventDefault(); event.stopPropagation()
+    inspectorResize.current = { startX: event.clientX, startWidth: inspectorWidth }
+    try { event.currentTarget.setPointerCapture(event.pointerId) } catch { /* jsdom has no pointer capture; the window listeners below still fire. */ }
+    window.addEventListener('pointermove', moveInspectorResizeWindow)
+    window.addEventListener('pointerup', endInspectorResizeWindow, { once: true })
+  }
+  const moveInspectorResize = (event: React.PointerEvent) => {
+    const r = inspectorResize.current
+    if (!r || !onInspectorWidthChange) return
+    onInspectorWidthChange(clampPanelSize('inspectorWidth', r.startWidth + (r.startX - event.clientX)))
+  }
+  const endInspectorResize = () => { endInspectorResizeWindow() }
   const pageCanvas = useRef<HTMLDivElement>(null)
   const canvasViewportRef = useRef<HTMLDivElement>(null)
   // Visible canvas size in page pixels (Jake, 25 Nov 2026): the scroll
@@ -519,7 +563,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // source, so removing it edits the right place.
   type ContentRow = {
     key: string
-    kind: 'preset' | 'sequence' | 'effect' | 'ad-hoc'
+    kind: 'preset' | 'sequence' | 'effect' | 'ad-hoc' | 'folder'
     id: string
     name: string
     source: 'cue' | 'control'
@@ -563,11 +607,21 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   const contentsRows = (control: LiveControl): ContentRow[] => {
     const rows: ContentRow[] = []
+    // The contents sub-heading (Jake, 28 Nov 2026 — LightKey's Demo
+    // Project "Deep Blue" screenshot): preset rows sit under their ROOT
+    // palette folder ("Inner Arc", not "Colors", not the fixture group).
+    // One heading per folder, deduped in cue order, only before preset
+    // rows — sequences, effects and ad-hoc rows get none, and a preset
+    // in no group gets none (no invented "Ungrouped" heading).
+    const folderHeading = (presetId: string, source: 'cue' | 'control') => {
+      const folder = presetRootFolder(show?.presetGroups ?? [], presetId)
+      if (folder && !rows.some((row) => row.kind === 'folder' && row.id === folder.id)) rows.push({ key: `folder:${folder.id}`, kind: 'folder', id: folder.id, name: folder.name, source, values: {} })
+    }
     const cue = control.cue
     if (cue) {
       for (const id of cue.presetIds ?? []) {
         const preset = presets.find((p) => p.id === id)
-        if (preset) rows.push({ key: `cue:preset:${id}`, kind: 'preset', id, name: preset.name, source: 'cue', values: preset.fixtureValues ?? {} })
+        if (preset) { folderHeading(id, 'cue'); rows.push({ key: `cue:preset:${id}`, kind: 'preset', id, name: preset.name, source: 'cue', values: preset.fixtureValues ?? {} }) }
       }
       for (const id of cue.sequenceIds ?? []) {
         const sequence = show?.sequences?.find((s) => s.id === id)
@@ -577,7 +631,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     }
     for (const id of control.presetIds ?? []) {
       const preset = presets.find((p) => p.id === id)
-      if (preset) rows.push({ key: `control:preset:${id}`, kind: 'preset', id, name: preset.name, source: 'control', values: preset.fixtureValues ?? {} })
+      if (preset) { folderHeading(id, 'control'); rows.push({ key: `control:preset:${id}`, kind: 'preset', id, name: preset.name, source: 'control', values: preset.fixtureValues ?? {} }) }
     }
     for (const id of control.sequenceIds ?? []) {
       const sequence = show?.sequences?.find((s) => s.id === id)
@@ -606,6 +660,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     }
   }, [selectedObjectId])
   const selectContentRow = (row: ContentRow) => {
+    // Folder headings are plain labels — they never select or preview.
+    if (row.kind === 'folder') return
     setSelectedContentKey(row.key)
     setContentsPreview({ kind: row.kind, id: row.id, values: row.values })
   }
@@ -646,13 +702,17 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }, [contentsMenu])
 
   // A cue step's contents (Jake, 27 Nov 2026 — screenshots 5.20.50 /
-  // 5.21.53): the fixture group the preset touches ("Inner Arc"), then
-  // one row per property the preset writes — a dimmer row ("☀ 100%")
-  // when it writes intensity, a colour row ("● Violet") when it writes
-  // colour — then sequences ("↻ name") and the ad-hoc row. The rows
-  // carry the preset id, so the per-row × removes that whole preset
-  // from the cue (the reference model has no per-property removal —
-  // a preset is one ingredient).
+  // 5.21.53; Jake, 28 Nov 2026 — the "Deep Blue" correction): the
+  // preset's ROOT palette folder ("Inner Arc", not the immediate parent
+  // "Colors" and NOT the fixture group — the 27 Nov build read the
+  // fixture group, which only coincided with the folder in the Demo
+  // Project), then one row per property the preset writes — a dimmer row
+  // ("☀ 100%") when it writes intensity, a colour row ("● Violet") when
+  // it writes colour — then sequences ("↻ name") and the ad-hoc row. A
+  // preset in no group gets no heading row. The rows carry the preset
+  // id, so the per-row × removes that whole preset from the cue (the
+  // reference model has no per-property removal — a preset is one
+  // ingredient).
   type StepContentRow = { key: string; kind: 'group' | 'dimmer' | 'colour' | 'preset' | 'sequence' | 'ad-hoc'; label: string; presetId?: string; sequenceId?: string }
   const stepContentsRows = (cue: CueDef): StepContentRow[] => {
     const rows: StepContentRow[] = []
@@ -660,9 +720,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     for (const presetId of cue.presetIds ?? []) {
       const preset = presets.find((p) => p.id === presetId)
       if (!preset) continue
-      const touched = Object.keys(preset.fixtureValues ?? {}).map((id) => fixtures.find((f) => f.id === id)).filter((f): f is NonNullable<typeof f> => !!f)
-      const group = touched.map((f) => f.group).find((g) => !!g)
-      if (group && !rows.some((row) => row.kind === 'group' && row.label === group)) rows.push({ key: `group:${group}`, kind: 'group', label: group })
+      const folder = presetRootFolder(show?.presetGroups ?? [], presetId)
+      if (folder && !rows.some((row) => row.kind === 'group' && row.label === folder.name)) rows.push({ key: `group:${folder.id}`, kind: 'group', label: folder.name })
       const values = resolveCueValues({ ...cue, presetIds: [presetId], sequenceIds: [], fixtureValues: {} }, presets, fixtures)
       const intensities = Object.values(values).map((patch) => patch.intensity ?? 0)
       const maxIntensity = Math.max(0, ...intensities)
@@ -1222,6 +1281,10 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     const onClick = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
       if (!target || panelRef.current?.contains(target)) return
+      // The click that ends an inspector-width drag lands on the canvas
+      // (Jake, 28 Nov 2026 — found by the real-app probe): it must not
+      // close the panel the user just resized.
+      if (Date.now() - inspectorResizeEnd.current < 200) return
       if (target.closest('[data-project-id], [data-page-object], [role="menu"], button')) return
       if (workspaceSectionRef.current?.contains(target)) setPopupOpen(false)
     }
@@ -1499,17 +1562,23 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
         })}
       </div></div>
       {/* Button properties inspector — LightKey's panel (Jake, 27 Nov
-          2026): docked to the right edge of the Design/Live panel, it
-          slides in over the canvas (overlay — the canvas behind it does
-          not resize), title centred, × top-left, one scrollable list of
-          collapsible sections (Contents, Timing, Button, Modifiers,
-          Live Triggers). Activate is the tail of the Button section and
-          Group a label row, not sections. No tabs, no Name field, no
-          Font section, no attach dropdown — font lives in the right-click
-          menu and buttons attach by touching (Guide ch.11, pp.183–184).
-          It follows the single selection while open; close with X, Esc,
-          Done or a click on blank canvas. */}
-      {!locked && popupOpen && selection && <div ref={panelRef} role="dialog" aria-label={`${panelTitle} inspector`} data-fields={inspectorFieldList.join(',')} className="live-properties-popup absolute bottom-0 right-0 top-0 z-50 w-[340px] overflow-y-auto rounded-l-xl border-y border-l border-line bg-panel2 p-3 text-[13px] shadow-2xl">
+          2026; embedded Jake, 28 Nov 2026): a flex sibling of the canvas
+          viewport in the same row, NOT an overlay — opening it shrinks
+          the canvas area (the canvas keeps scrolling beside it) and
+          closing it gives the canvas the full width back. Title centred,
+          × top-left, one scrollable list of collapsible sections
+          (Contents, Timing, Button, Modifiers, Live Triggers). Activate
+          is the tail of the Button section and Group a label row, not
+          sections. No tabs, no Name field, no Font section, no attach
+          dropdown — font lives in the right-click menu and buttons attach
+          by touching (Guide ch.11, pp.183–184). It follows the single
+          selection while open; close with X, Esc, Done or a click on
+          blank canvas. The thin divider on its left edge drags to resize
+          it (280–520px, persisted in app preferences). No slide-in
+          animation any more — an in-flow panel has nothing to slide over. */}
+      {!locked && popupOpen && selection && <div className="flex min-h-0 shrink-0">
+        <div role="separator" aria-label="Resize properties panel" aria-orientation="vertical" title="Drag to resize the properties panel" className="w-1.5 shrink-0 cursor-ew-resize touch-none rounded hover:bg-accent/40" onPointerDown={beginInspectorResize} onPointerMove={moveInspectorResize} onPointerUp={endInspectorResize} onPointerCancel={endInspectorResize} />
+        <div ref={panelRef} role="dialog" aria-label={`${panelTitle} inspector`} data-fields={inspectorFieldList.join(',')} style={{ width: inspectorWidth }} className="live-properties-popup min-h-0 overflow-y-auto rounded-xl border border-line bg-panel2 p-3 text-[13px] shadow-2xl">
         <div className="relative mb-1">
           <button type="button" aria-label="Close properties popup" title="Close properties popup" onClick={() => setPopupOpen(false)} className="absolute left-0 top-0 rounded px-1.5 text-lg leading-none hover:bg-panel">×</button>
           <h3 className="text-center text-[15px] font-semibold">{panelTitle}</h3>
@@ -1553,14 +1622,20 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 return <div className="text-dim">{frameName ? `${frameName} / ` : ''}{firstPreset?.name ?? selectedControl.name}</div>
               })()}
               <div role="list" aria-label="Cue contents" onDragOver={allowDrop} onDrop={(event) => dropOnContents(event, selectedControl)}>
-                {contentsRows(selectedControl).map((row) => (
+                {contentsRows(selectedControl).map((row) => {
+                  // The folder sub-heading is a plain label row (Jake,
+                  // 28 Nov 2026) — no ×, no selection, the same dim
+                  // style as the step inspector's group rows.
+                  if (row.kind === 'folder') return <p key={row.key} className="px-1 py-0.5 text-dim">{row.name}</p>
+                  return (
                   <div key={row.key} role="listitem" aria-selected={selectedContentKey === row.key} className={`flex items-center gap-1 rounded px-1 py-0.5 ${selectedContentKey === row.key ? 'bg-panel font-semibold' : 'hover:bg-panel'}`} onClick={() => selectContentRow(row)} onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); selectContentRow(row); setContentsMenu({ x: event.clientX, y: event.clientY, row }) }}>
                     <span aria-hidden="true">{row.kind === 'preset' ? '●' : row.kind === 'sequence' ? '↻' : row.kind === 'effect' ? '∿' : '✎'}</span>
                     <span className={`min-w-0 flex-1 truncate ${row.kind === 'ad-hoc' ? 'italic' : ''}`}>{row.name}</span>
                     {row.source === 'cue' && <span className="text-dim" title="Stored in the cue">cue</span>}
                     <button type="button" aria-label={`Remove ${row.name} from cue`} title={`Remove ${row.name} from cue`} onClick={(event) => { event.stopPropagation(); removeContentRow(selectedControl, row) }}>×</button>
                   </div>
-                ))}
+                  )
+                })}
                 {!contentsRows(selectedControl).length && <span className="text-dim">Empty — drag presets or sequences here</span>}
               </div>
               {!contentsRows(selectedControl).some((row) => row.kind === 'ad-hoc') && <span className="text-dim">Ad hoc properties — none</span>}
@@ -1671,7 +1746,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 <label className="flex items-center gap-1 py-0.5 text-dim"><input type="checkbox" checked={selectedControl.excludeFromLiveTriggers === true} onChange={(event) => patchControl(selectedControl.id, { excludeFromLiveTriggers: event.target.checked })} /> Exclude from Live Triggers</label>
             </InspectorSection>
             {contentsMenu && <div ref={contentsMenuRef} role="menu" aria-label="Contents item actions" className="fixed z-[310] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contentsMenu.x, top: contentsMenu.y }}>
-              <button type="button" role="menuitem" disabled={contentsMenu.row.kind === 'ad-hoc'} title={contentsMenu.row.kind === 'ad-hoc' ? 'Ad hoc values are not in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind !== 'ad-hoc') setPaletteReveal(contentsMenu.row.kind, contentsMenu.row.id); setContentsMenu(null) }}>Show in Palette</button>
+              <button type="button" role="menuitem" disabled={contentsMenu.row.kind === 'ad-hoc'} title={contentsMenu.row.kind === 'ad-hoc' ? 'Ad hoc values are not in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind !== 'ad-hoc' && contentsMenu.row.kind !== 'folder') setPaletteReveal(contentsMenu.row.kind, contentsMenu.row.id); setContentsMenu(null) }}>Show in Palette</button>
               <button type="button" role="menuitem" disabled={contentsMenu.row.kind !== 'ad-hoc'} title={contentsMenu.row.kind !== 'ad-hoc' ? 'Already in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind === 'ad-hoc') promoteAdHocToPreset(contentsMenu.row.source === 'cue' && selectedControl.cue ? { cueId: selectedControl.cue.id } : { controlId: selectedControl.id }); setContentsMenu(null) }}>Add to Palette</button>
               <button type="button" role="menuitem" disabled={contentsMenu.row.kind === 'ad-hoc' && contentsMenu.row.source === 'control'} title={contentsMenu.row.kind === 'ad-hoc' && contentsMenu.row.source === 'control' ? 'Select the row to edit its values in place below' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => {
                 const row = contentsMenu.row
@@ -1810,7 +1885,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           </InspectorSection>
           <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
         </div>}
-      </div>}
+      </div></div>}
       </>}
     </div>
     {buttonMenu && <div ref={menuRef} role="menu" aria-label="Cue button actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: menuPos.left, top: menuPos.top }}>

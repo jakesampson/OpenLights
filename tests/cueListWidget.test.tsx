@@ -51,20 +51,29 @@ afterEach(() => {
 })
 
 const FIXTURES = [
-  { id: 'w1', name: 'W1', type: 'rgba-4ch', channelStart: 1, channels: 4, group: 'Inner Arc' },
-  { id: 'w2', name: 'W2', type: 'rgba-4ch', channelStart: 5, channels: 4, group: 'Inner Arc' },
+  { id: 'w1', name: 'W1', type: 'rgba-4ch', channelStart: 1, channels: 4, group: 'Wash' },
+  { id: 'w2', name: 'W2', type: 'rgba-4ch', channelStart: 5, channels: 4, group: 'Wash' },
 ]
 const VIOLET = { id: 'preset-violet', name: 'Violet', category: 'color', fixtureValues: { w1: { red: 128, green: 0, blue: 255, intensity: 255 }, w2: { red: 128, green: 0, blue: 255, intensity: 255 } } }
+// The preset sits in a NESTED palette folder (Inner Arc → Colors) while
+// its fixtures sit in a DIFFERENT group ("Wash") — so a heading reading
+// "Inner Arc" proves the folder rule (Jake, 28 Nov 2026), not the
+// fixture group and not the immediate parent "Colors".
+const PRESET_GROUPS = [
+  { id: 'pg-inner', name: 'Inner Arc', parentId: null, exclusive: false, presetIds: [] },
+  { id: 'pg-colors', name: 'Colors', parentId: 'pg-inner', exclusive: false, presetIds: ['preset-violet'] },
+]
 const CUE_VIOLET = { id: 'cue-violet', name: '001 Violet', presetIds: ['preset-violet'], fadeMs: 500 }
 const CUE_BLUE = { id: 'cue-blue', name: '002 Blue', fixtureValues: { w1: { blue: 255, intensity: 200 } }, fadeMs: 500 }
 
-function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cue: CUE_VIOLET, fadeMs: 500, holdMs: 0 }, { id: 's2', cue: CUE_BLUE, fadeMs: 500, holdMs: 0 }] }]) {
+function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cue: CUE_VIOLET, fadeMs: 500, holdMs: 0 }, { id: 's2', cue: CUE_BLUE, fadeMs: 500, holdMs: 0 }] }], controls: unknown[] = []) {
   const state = useShowStore.getState()
   state.setShow(migrateShow({
     fixtures: FIXTURES,
     presets: [VIOLET],
+    presetGroups: PRESET_GROUPS,
     cueLists,
-    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [], cueListWidgets: cueLists.length ? [{ id: 'w1', cueListId: 'list1', x: 20, y: 20, width: 480, height: 300 }] : [] }],
+    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls, cueListWidgets: cueLists.length ? [{ id: 'w1', cueListId: 'list1', x: 20, y: 20, width: 480, height: 300 }] : [] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })
 }
@@ -216,14 +225,19 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(names[2]).toBe('002 Blue')
   })
 
-  it('step inspector: a cue with a preset shows the group, dimmer and colour rows', () => {
+  it('step inspector: a cue with a preset shows its ROOT palette folder, dimmer and colour rows (Jake, 28 Nov 2026)', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     clickMenuItem(openWidgetMenu('001 Violet'), 'Get Info')
     const panel = inspectorEl()
     expect(panel.textContent).toContain('001 Violet')
+    // The heading is the preset's ROOT palette folder ("Inner Arc") —
+    // not the immediate parent ("Colors") and not the fixture group
+    // ("Wash"), which is deliberately different in this seed.
     expect(panel.textContent).toContain('Inner Arc')
+    expect(panel.textContent).not.toContain('Colors')
+    expect(panel.textContent).not.toContain('Wash')
     expect(panel.textContent).toContain('100%')
     expect(panel.textContent).toContain('Violet')
     expect(panel.textContent).toContain('Hold Time')
@@ -236,6 +250,50 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     act(() => { remove.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     expect(inspectorEl().textContent).toContain('Empty Cue')
     expect(useShowStore.getState().cueLists[0].steps.find((s) => s.cue.id === 'cue-violet')?.cue.presetIds).toEqual([])
+  })
+
+  it('button inspector: the cue’s presets sit under their root palette folder (Jake, 28 Nov 2026)', () => {
+    seedShow(undefined, [{ id: 'btn-violet', name: 'Violet', type: 'push', x: 20, y: 20, cue: CUE_VIOLET }])
+    renderInRoot(<App />)
+    switchToLive()
+    // Double-click opens the inspector in Edit mode only.
+    enterEditMode()
+    const button = container!.querySelector('[data-project-id="btn-violet"]') as HTMLElement
+    expect(button).toBeTruthy()
+    act(() => { button.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
+    const panel = inspectorEl()
+    expect(panel.textContent).toContain('Violet')
+    const contents = panel.querySelector('[aria-label="Cue contents"]') as HTMLElement
+    expect(contents).toBeTruthy()
+    // The folder heading is the first row, above the preset row; the
+    // child folder ("Colors") and the fixture group ("Wash") never appear.
+    const rows = [...contents.children]
+    expect(rows[0].tagName).toBe('P')
+    expect(rows[0].textContent).toBe('Inner Arc')
+    expect(rows[1].textContent).toContain('Violet')
+    expect(contents.textContent).not.toContain('Colors')
+    expect(contents.textContent).not.toContain('Wash')
+  })
+
+  it('clicking a button whose control has no presetIds list does not crash (probe, 28 Nov 2026)', () => {
+    // The seed button carries an inline cue but no presetIds field (a
+    // hand-written or older show file — migrateShow normalises cues,
+    // not controls). Firing it used to throw "control.presetIds is not
+    // iterable" in the output path and blank the whole app — the same
+    // latent class the 27 Nov regression fix guarded in three places,
+    // with more sites found by this probe (App output, presetPalette,
+    // cueContents, effectiveIntensity).
+    seedShow(undefined, [{ id: 'btn-violet', name: 'Violet', type: 'push', x: 20, y: 20, cue: CUE_VIOLET }])
+    renderInRoot(<App />)
+    switchToLive()
+    const button = container!.querySelector('[data-project-id="btn-violet"]') as HTMLElement
+    expect(button).toBeTruthy()
+    // The firing element is the inner <button> (liveButtonDrag.test.tsx).
+    const inner = button.querySelector('button') as HTMLButtonElement
+    expect(inner).toBeTruthy()
+    act(() => { inner.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    expect(useShowStore.getState().activeLiveValues['btn-violet']).toBeGreaterThan(0)
+    expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeTruthy()
   })
 
   it('step rows: Hold shows — when unset, Fade shows 00:00.5, and the cells edit in place', () => {

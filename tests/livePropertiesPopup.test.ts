@@ -9,15 +9,22 @@ import { resolve } from 'node:path'
 // then rebuilt as a floating popover beside the control (27 Nov),
 // and Jake's screenshots (8.53.54 / 8.54.15) showed LightKey's panel
 // is docked to the right edge of the Design/Live panel, sliding in
-// over the canvas. The inspector is now that docked panel: title
-// centred, × top-left, one scrollable list of collapsible sections
-// (Contents, Timing, Button, Modifiers, Live Triggers; Activate is
-// the tail of the Button section and Group a label row), every setting
-// an inline mini-dropdown or an on/off toggle. No Curve control
-// (LightKey's Timing is Fade In/Out only), no Font section (font
-// lives in the right-click menu), no "Attached to" (buttons attach by
-// touching), and the Modifiers checklist lives directly in the
-// panel's own scroll — no nested scroll container. See NOTES.md.
+// over the canvas. The inspector was that docked panel until 28 Nov
+// 2026, when Jake showed it embeds itself into the Live view rather
+// than sitting over it, with an adjustable width, while the canvas
+// keeps scrolling underneath it — so it is now a flex sibling of the
+// canvas viewport in the same row (opening it shrinks the canvas;
+// closing it gives the canvas the full width back), with a draggable
+// left edge (280–520px, default 340, persisted in app preferences)
+// and no slide-in animation. Title centred, × top-left, one
+// scrollable list of collapsible sections (Contents, Timing, Button,
+// Modifiers, Live Triggers; Activate is the tail of the Button section
+// and Group a label row), every setting an inline mini-dropdown or an
+// on/off toggle. No Curve control (LightKey's Timing is Fade In/Out
+// only), no Font section (font lives in the right-click menu), no
+// "Attached to" (buttons attach by touching), and the Modifiers
+// checklist lives directly in the panel's own scroll — no nested
+// scroll container. See NOTES.md.
 describe('Live Edit — double-click properties popup', () => {
   const root = resolve(__dirname, '..')
   const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
@@ -35,21 +42,31 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).not.toContain('onClick={() => openPropertiesPopup')
   })
 
-  it('docks to the right edge of the Design/Live panel and slides in', () => {
+  it('embeds beside the canvas in the same flex row, with a draggable left edge (Jake, 28 Nov 2026)', () => {
     expect(workspace).toContain('live-properties-popup')
     expect(workspace).toContain('role="dialog"')
-    expect(workspace).toContain('absolute bottom-0 right-0 top-0')
-    expect(workspace).toContain('rounded-l-xl')
-    expect(workspace).toContain('w-[340px]')
-    // Overlay, not push-content: the canvas behind it does not resize,
-    // and the panel is not positioned from the selected object's rect.
+    expect(workspace).toContain('rounded-xl')
+    // Embedded, not an overlay: no absolute positioning, no fixed
+    // w-[340px] class — the width is an inline style from the
+    // persisted inspector size, and the wrapper is the row's flex
+    // child, so the canvas (flex-1) shrinks instead of being covered.
+    expect(workspace).not.toContain('absolute bottom-0 right-0 top-0')
+    expect(workspace).not.toContain('w-[340px]')
+    expect(workspace).toContain('style={{ width: inspectorWidth }}')
+    expect(workspace).toContain('flex min-h-0 shrink-0')
+    // The thin divider on its left edge drags to resize it.
+    expect(workspace).toContain('Resize properties panel')
+    expect(workspace).toContain('beginInspectorResize')
+    expect(workspace).toContain('onInspectorWidthChange')
+    // Not positioned from the selected object's rect.
     expect(workspace).not.toContain('panelPos')
     expect(workspace).not.toContain('absolute bottom-2 right-2 top-2')
     expect(workspace).not.toContain('w-[300px]')
-    expect(css).toContain('@keyframes live-properties-slide-in')
-    expect(css).toContain('translateX(100%)')
+    // No slide-in animation any more: an in-flow panel has nothing to
+    // slide over.
+    expect(css).not.toContain('@keyframes live-properties-slide-in')
+    expect(css).not.toContain('translateX(100%)')
     expect(css).not.toContain('@keyframes live-properties-pop-in')
-    expect(css).toContain('.live-properties-popup')
   })
 
   it('has a centred title, × top-left, no Name field and no tabs', () => {
@@ -184,12 +201,13 @@ describe('Live Edit — double-click properties popup', () => {
   })
 
   it('fits entirely inside the visible panel — its height is the panel height', () => {
-    // The popup is docked top-0/bottom-0 against the Live section, so
-    // the section must be exactly the visible panel body's height. It used
-    // to be min-h-full (a floor, not a ceiling): the 520px canvas forced
-    // the section to ~600px tall, the popup ran off the bottom of the page,
-    // and reaching its bottom meant scrolling the panel — which scrolled
-    // the button being edited out of view (Jake, 18 Nov 2026).
+    // The panel is a flex sibling of the canvas viewport in the
+    // section's canvas row, so the section must be exactly the visible
+    // panel body's height. It used to be min-h-full (a floor, not a
+    // ceiling): the 520px canvas forced the section to ~600px tall, the
+    // popup ran off the bottom of the page, and reaching its bottom
+    // meant scrolling the panel — which scrolled the button being
+    // edited out of view (Jake, 18 Nov 2026).
     expect(workspace).toContain('relative flex h-full flex-col gap-2')
     expect(workspace).not.toContain('relative flex min-h-full flex-col gap-2')
     // The canvas scroll container must be allowed to shrink below the
@@ -197,13 +215,14 @@ describe('Live Edit — double-click properties popup', () => {
     // section never grows past the panel body. It scrolls vertically as
     // well as horizontally now that the canvas can grow downwards past
     // the visible panel (Jake, 25 Nov 2026) — still internal scrolling,
-    // so the section height (and the docked panel against it) is unaffected.
+    // so the section height (and the embedded panel beside it) is
+    // unaffected.
     expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto')
-    // The docked panel is full-height against the section with its own
+    // The embedded panel is full-height against the row with its own
     // internal scroll, so a long properties list is reachable without
-    // moving the canvas behind it.
-    expect(workspace).toContain('absolute bottom-0 right-0 top-0')
-    expect(workspace).toContain('overflow-y-auto')
+    // moving the canvas beside it.
+    expect(workspace).toContain('flex min-h-0 shrink-0')
+    expect(workspace).toContain('min-h-0 overflow-y-auto')
   })
 
   it('double-click does not fire the cue', () => {

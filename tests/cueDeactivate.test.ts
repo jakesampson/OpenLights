@@ -329,7 +329,7 @@ describe('cue toggle wiring (cuelist rows)', () => {
   it('the main window renders only the Live canvas, no Cues section below it', () => {
     const app = readFileSync(resolve(__dirname, '..', 'src/renderer/src/App.tsx'), 'utf8')
     const body = app.slice(app.indexOf('live-page-shell'))
-    expect(body).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />')
+    expect(body).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} inspectorWidth={panelSizes.inspectorWidth} onInspectorWidthChange={(width) => setPanelSize(\'inspectorWidth\', width)} />')
     expect(body).not.toContain('LiveCueButtons')
     expect(body).not.toContain('>Cues</h3>')
   })

@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { migrateShow } from '../src/shared/migrations'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { presetRootFolder } from '../src/renderer/src/lib/presetGroups'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 it('migrates without standard folders and supports nested exclusivity, reparenting and undo without losing presets', () => {
   // No standard folders (LightKey palette, 18 Nov 2026): migration no
@@ -17,4 +18,29 @@ it('migrates without standard folders and supports nested exclusivity, reparenti
   s().deletePresetGroup(child); expect(s().show!.presetGroups!.find((g) => g.id === parent)!.presetIds).toContain('b')
   s().undo(); expect(s().show!.presetGroups!.some((g) => g.id === child)).toBe(true)
   expect(migrateShow(s().show).presets).toHaveLength(3)
+})
+
+it('presetRootFolder resolves the root folder for a preset, and undefined when ungrouped (Jake, 28 Nov 2026)', () => {
+  // The Get Info contents sub-heading is the preset's ROOT palette
+  // folder — a preset in Inner Arc → Colors shows "Inner Arc", not
+  // "Colors" (LightKey's Demo Project "Deep Blue" screenshot).
+  const groups = [
+    { id: 'g-inner', name: 'Inner Arc', parentId: null, exclusive: false, presetIds: [] },
+    { id: 'g-colors', name: 'Colors', parentId: 'g-inner', exclusive: false, presetIds: ['violet'] },
+    { id: 'g-other', name: 'Other', parentId: null, exclusive: false, presetIds: ['amber'] },
+  ]
+  expect(presetRootFolder(groups, 'violet')?.name).toBe('Inner Arc')
+  expect(presetRootFolder(groups, 'amber')?.name).toBe('Other')
+  expect(presetRootFolder(groups, 'missing')).toBeUndefined()
+  // A parent cycle stops at the last group found instead of looping.
+  const cyclic = [
+    { id: 'a', name: 'A', parentId: 'b', exclusive: false, presetIds: ['x'] },
+    { id: 'b', name: 'B', parentId: 'a', exclusive: false, presetIds: [] },
+  ]
+  expect(presetRootFolder(cyclic, 'x')?.name).toBe('B')
+  // A dangling parentId stops at the group holding the preset.
+  const dangling = [
+    { id: 'only', name: 'Only', parentId: 'gone', exclusive: false, presetIds: ['y'] },
+  ]
+  expect(presetRootFolder(dangling, 'y')?.name).toBe('Only')
 })

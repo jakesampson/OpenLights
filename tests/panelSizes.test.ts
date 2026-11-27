@@ -19,12 +19,12 @@ const memoryStorage = (initial?: Record<string, string>) => {
 describe('panel sizes', () => {
   it('defaults to the current layout when nothing is stored', () => {
     expect(loadPanelSizes(memoryStorage())).toEqual(PANEL_SIZE_DEFAULTS)
-    expect(PANEL_SIZE_DEFAULTS).toEqual({ paletteWidth: 260, shortcutsWidth: 260, bottomHeight: 294 })
+    expect(PANEL_SIZE_DEFAULTS).toEqual({ paletteWidth: 260, shortcutsWidth: 260, bottomHeight: 294, inspectorWidth: 340 })
   })
 
   it('reads stored sizes and ignores unknown keys', () => {
     const storage = memoryStorage({ [PANEL_SIZES_KEY]: JSON.stringify({ paletteWidth: 320, shortcutsWidth: 200, bottomHeight: 400, bogus: 99 }) })
-    expect(loadPanelSizes(storage)).toEqual({ paletteWidth: 320, shortcutsWidth: 200, bottomHeight: 400 })
+    expect(loadPanelSizes(storage)).toEqual({ paletteWidth: 320, shortcutsWidth: 200, bottomHeight: 400, inspectorWidth: 340 })
   })
 
   it('falls back to defaults on corrupt or non-object JSON', () => {
@@ -40,11 +40,14 @@ describe('panel sizes', () => {
     expect(clampPanelSize('shortcutsWidth', 0)).toBe(PANEL_SIZE_LIMITS.shortcutsWidth.min)
     expect(clampPanelSize('bottomHeight', 0)).toBe(PANEL_SIZE_LIMITS.bottomHeight.min)
     expect(clampPanelSize('bottomHeight', 9999)).toBe(PANEL_SIZE_LIMITS.bottomHeight.max)
+    expect(clampPanelSize('inspectorWidth', 0)).toBe(PANEL_SIZE_LIMITS.inspectorWidth.min)
+    expect(clampPanelSize('inspectorWidth', 9999)).toBe(PANEL_SIZE_LIMITS.inspectorWidth.max)
     expect(clampPanelSize('paletteWidth', Number.NaN)).toBe(PANEL_SIZE_DEFAULTS.paletteWidth)
-    expect(clampPanelSizes({ paletteWidth: 1, shortcutsWidth: 9999, bottomHeight: 1 })).toEqual({
+    expect(clampPanelSizes({ paletteWidth: 1, shortcutsWidth: 9999, bottomHeight: 1, inspectorWidth: 9999 })).toEqual({
       paletteWidth: PANEL_SIZE_LIMITS.paletteWidth.min,
       shortcutsWidth: PANEL_SIZE_LIMITS.shortcutsWidth.max,
-      bottomHeight: PANEL_SIZE_LIMITS.bottomHeight.min
+      bottomHeight: PANEL_SIZE_LIMITS.bottomHeight.min,
+      inspectorWidth: PANEL_SIZE_LIMITS.inspectorWidth.max
     })
   })
 
@@ -59,9 +62,9 @@ describe('panel sizes', () => {
 
   it('round-trips through storage', () => {
     const storage = memoryStorage()
-    savePanelSizes({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350 }, storage)
-    expect(loadPanelSizes(storage)).toEqual({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350 })
-    expect(JSON.parse(storage.raw()!)).toEqual({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350 })
+    savePanelSizes({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350, inspectorWidth: 400 }, storage)
+    expect(loadPanelSizes(storage)).toEqual({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350, inspectorWidth: 400 })
+    expect(JSON.parse(storage.raw()!)).toEqual({ paletteWidth: 300, shortcutsWidth: 220, bottomHeight: 350, inspectorWidth: 400 })
   })
 
   it('a failing store never throws', () => {

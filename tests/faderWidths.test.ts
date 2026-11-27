@@ -129,8 +129,8 @@ describe('Master fader — panel-anchored overlay (LightKey screenshots 10.12.28
     // 106 − 18 + 10 = 98px), so page content starts 10px clear of the
     // column. The inset on the scroll container is inside its scrollport,
     // so scrolled content slides underneath the column, as in LightKey.
-    expect(app).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />')
-    expect(workspace).toContain('export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }')
+    expect(app).toContain('<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} inspectorWidth={panelSizes.inspectorWidth} onInspectorWidthChange={(width) => setPanelSize(\'inspectorWidth\', width)} />')
+    expect(workspace).toContain('export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspectorWidth = 340, onInspectorWidthChange }')
     expect(workspace.match(/master-overlay-inset/g)?.length).toBe(3)
     expect(css).toContain('.master-overlay-inset {')
     expect(css).toContain('padding-left: 98px;')
@@ -162,7 +162,7 @@ describe('Master fader — panel-anchored overlay (LightKey screenshots 10.12.28
     // is a flex-row sibling of the workspace there — still outside the
     // canvas scroll container, so canvas pan/zoom/edit cannot move it.
     expect(liveTab).toContain('<MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />')
-    expect(liveTab.indexOf('<MasterFader')).toBeLessThan(liveTab.indexOf('<LiveWorkspace />'))
+    expect(liveTab.indexOf('<MasterFader')).toBeLessThan(liveTab.indexOf('<LiveWorkspace inspectorWidth={inspectorWidth}'))
     expect(liveTab).not.toContain('masterOverlay')
   })
 })

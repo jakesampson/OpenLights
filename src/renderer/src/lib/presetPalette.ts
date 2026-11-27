@@ -50,7 +50,7 @@ export function findRelatedCues(
   const results: { pageId: string; pageName: string; controlId: string; controlName: string }[] = []
   for (const page of show.livePages ?? []) {
     for (const control of page.controls) {
-      if (control.presetIds.includes(presetId) || (control.cue?.presetIds ?? []).includes(presetId)) {
+      if ((control.presetIds ?? []).includes(presetId) || (control.cue?.presetIds ?? []).includes(presetId)) {
         results.push({ pageId: page.id, pageName: page.name, controlId: control.id, controlName: control.name })
       }
     }
@@ -106,7 +106,7 @@ export function findUnusedItems(
   const usedSequences = new Set<string>()
   for (const page of show.livePages ?? []) {
     for (const control of page.controls) {
-      for (const id of control.presetIds) usedPresets.add(id)
+      for (const id of control.presetIds ?? []) usedPresets.add(id)
       for (const id of control.sequenceIds ?? []) usedSequences.add(id)
       // A button's cue holds its own contents (Jake, 27 Nov 2026 —
       // inline cues): a preset only the cue references is used.

@@ -160,3 +160,25 @@ describe('find presets and sequences not contained in a cue (Guide ch.9, p.144)'
     expect(unused.sequences.map((s) => s.id)).toEqual(['s-used', 's-free'])
   })
 })
+
+describe('controls without a presetIds list (probe, 28 Nov 2026)', () => {
+  it('findRelatedCues and findUnusedItems treat a missing list as empty, not a crash', () => {
+    // A hand-written or older show file can hold a control with no
+    // presetIds field (migrateShow normalises cues, not controls, and
+    // newCueObject always sets it, so a file can arrive without it).
+    // Both lookups used to throw "control.presetIds is not iterable".
+    const show = {
+      id: 'show1', name: 'Test', createdAt: 0, updatedAt: 0,
+      fixtures: [], automations: [],
+      presets: [{ id: 'p1', name: 'Warm', category: 'color', fixtureValues: {} }],
+      livePages: [
+        { id: 'page1', name: 'Main', controls: [
+          { id: 'c1', name: 'Cue 1', type: 'push', x: 0, y: 0, cue: { id: 'cue1', name: 'Cue 1', fadeMs: 0, fixtureValues: {}, presetIds: ['p1'] } },
+        ] },
+      ],
+    } as unknown as ShowDef
+    expect(findRelatedCues(show, 'p1')).toHaveLength(1)
+    expect(findRelatedCues(show, 'p99')).toHaveLength(0)
+    expect(findUnusedItems(show).presets).toEqual([])
+  })
+})

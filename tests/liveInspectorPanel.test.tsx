@@ -114,18 +114,27 @@ afterEach(() => {
 })
 
 describe('Get Info inspector — LightKey docked panel', () => {
-  it('docks to the right edge of the Design/Live panel with the control name as its title, no Name field, no tabs', () => {
+  it('embeds beside the canvas (not an overlay) with the control name as its title, no Name field, no tabs', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     act(() => { useShowStore.getState().setLiveEditing(true) })
+    const viewport = container!.querySelector('[aria-label="Live canvas viewport"]') as HTMLElement
+    expect(viewport).toBeTruthy()
     const dialog = openPopup('btn1')
-    // A right-docked panel, not the old floating popover: left corners
-    // rounded, right edge flush with the panel edge, full height.
-    expect(dialog.className).toContain('rounded-l-xl')
-    expect(dialog.className).toContain('w-[340px]')
-    expect(dialog.className).toContain('absolute bottom-0 right-0 top-0')
-    // Positioned by the dock, not measured from the control — no
+    // Embedded, not an overlay (Jake, 28 Nov 2026): no absolute
+    // positioning, width from the persisted inspector size, a flex
+    // sibling of the canvas viewport in the same row — so the canvas
+    // (flex-1) shrinks instead of being covered.
+    expect(dialog.className).not.toContain('absolute')
+    expect(dialog.className).toContain('rounded-xl')
+    // The dialog sits in a shrink-0 wrapper with the drag handle — the
+    // wrapper is the row's flex child, the dialog fills it.
+    expect(dialog.parentElement?.className).toContain('shrink-0')
+    expect(dialog.style.width).toBe('340px')
+    expect(dialog.parentElement?.parentElement).toBe(viewport.parentElement)
+    expect(viewport.className).toContain('flex-1')
+    // Positioned by the layout, not measured from the control — no
     // inline left/top at all.
     expect(dialog.style.left).toBe('')
     expect(dialog.style.top).toBe('')
@@ -139,6 +148,41 @@ describe('Get Info inspector — LightKey docked panel', () => {
     // No Name field (renaming stays in the Rename menu item) and no tabs.
     expect(dialog.querySelector('input[aria-label="Cue name"]')).toBeNull()
     expect(dialog.querySelector('[role="tablist"]')).toBeNull()
+    // The seed preset is in no palette folder, so no folder heading.
+    const contents = dialog.querySelector('[aria-label="Cue contents"]')
+    expect(contents?.textContent).toContain('Red')
+    expect(contents?.querySelector('p')).toBeNull()
+  })
+
+  it('the left edge drags to resize the panel and the width persists', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    act(() => { useShowStore.getState().setLiveEditing(true) })
+    const dialog = openPopup('btn1')
+    const handle = dialog.parentElement!.querySelector('[aria-label="Resize properties panel"]') as HTMLElement
+    expect(handle).toBeTruthy()
+    expect(dialog.style.width).toBe('340px')
+    const drag = (fromX: number, toX: number) => {
+      act(() => {
+        handle.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, clientX: fromX }))
+        handle.dispatchEvent(new window.MouseEvent('pointermove', { bubbles: true, clientX: toX }))
+        handle.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, clientX: toX }))
+      })
+    }
+    // Drag left 60px → 400px wide, and the width is in localStorage.
+    drag(500, 440)
+    expect(dialog.style.width).toBe('400px')
+    expect(JSON.parse(window.localStorage.getItem('openlights.panelSizes')!).inspectorWidth).toBe(400)
+    // Dragging right past the minimum clamps at 280px.
+    drag(440, 900)
+    expect(dialog.style.width).toBe('280px')
+    expect(JSON.parse(window.localStorage.getItem('openlights.panelSizes')!).inspectorWidth).toBe(280)
+    // The click that ends the drag lands on the canvas — it must not
+    // close the inspector (found by the real-app probe, 28 Nov 2026).
+    const viewport = container!.querySelector('[aria-label="Live canvas viewport"]') as HTMLElement
+    act(() => { viewport.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(container!.querySelector('[role="dialog"]')).toBeTruthy()
   })
 
   it('Type, Behavior, Priority and Color dropdowns change the control and persist', () => {

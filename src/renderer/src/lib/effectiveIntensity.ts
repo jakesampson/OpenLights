@@ -101,7 +101,7 @@ export function liveIntensityLevels(input: {
     const intensityLevel = isFaderControl(control) && !faderControlsDimmer(control) ? 255 : level
     const cue = control.cue
     if (cue && !cue.blackout) take(resolveCue(cue, input.presets, input.fixtures).fixtureValues, intensityLevel)
-    for (const id of control.presetIds) {
+    for (const id of control.presetIds ?? []) {
       const preset = input.presets.find((item) => item.id === id)
       if (preset) take(preset.fixtureValues ?? {}, intensityLevel)
     }

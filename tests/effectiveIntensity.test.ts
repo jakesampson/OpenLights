@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { effectiveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../src/renderer/src/lib/effectiveIntensity'
+import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../src/renderer/src/lib/effectiveIntensity'
 import type { CueDef, PresetDef } from '../src/shared/types'
 
 const cue: CueDef = {
@@ -75,5 +75,25 @@ describe('resolvedActiveCueValues', () => {
     // ad-hoc blue for b stays.
     expect(values.a?.intensity).toBe(150)
     expect(values.b?.blue).toBe(255)
+  })
+})
+
+describe('liveIntensityLevels', () => {
+  it('does not crash on a control without presetIds (probe, 28 Nov 2026)', () => {
+    // A control with no presetIds field (a hand-written or older show
+    // file — migrateShow normalises cues, not controls, and
+    // newCueObject always sets it, so a file can arrive without it)
+    // used to throw "control.presetIds is not iterable" the moment the
+    // button was clicked, blanking the whole app — the same latent
+    // class the 27 Nov regression fix guarded in three other places.
+    // The cue's own intensity still lands; the missing list just reads
+    // as empty.
+    const levels = liveIntensityLevels({
+      controls: [{ id: 'btn', name: 'Violet', type: 'push', x: 0, y: 0, cue: { id: 'c', name: 'Violet', fadeMs: 500, fixtureValues: { a: { intensity: 200 } } } } as never],
+      levels: { btn: 255 },
+      presets,
+      fixtures: []
+    })
+    expect(levels.a).toBe(200)
   })
 })

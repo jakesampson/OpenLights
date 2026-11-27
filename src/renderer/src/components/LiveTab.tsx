@@ -4,7 +4,7 @@ import { calculateTapTempo } from '../lib/tapTempo'
 import { LiveWorkspace } from './LiveWorkspace'
 import { MasterFader } from './MasterFader'
 
-export function LiveTab() {
+export function LiveTab({ inspectorWidth = 340, onInspectorWidthChange }: { inspectorWidth?: number; onInspectorWidthChange?: (width: number) => void } = {}) {
   const {
     presets,
     activePresetIds,
@@ -32,7 +32,7 @@ export function LiveTab() {
           height, so the rail fills the window like LightKey's tall bar. */}
       <MasterFader master={master} setMaster={setMaster} bpm={bpm} onTap={tapTempo} />
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-      <LiveWorkspace />
+      <LiveWorkspace inspectorWidth={inspectorWidth} onInspectorWidthChange={onInspectorWidthChange} />
       {/* No cue grid here any more (Jake, 26 Nov 2026 — Option 2), and no
           fixed cue-list bar (Jake, 27 Nov 2026 — LightKey's way): a
           cuelist is a placed object on the Live page, arranged freely

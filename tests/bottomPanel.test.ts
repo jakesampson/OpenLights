@@ -28,7 +28,7 @@ describe('Lightkey-style bottom panel', () => {
     // is just the canvas, and the tab body no longer scrolls for a cue
     // section — only the canvas scrolls internally, when the user's own
     // buttons need the room.
-    expect(app).toContain("<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />")
+    expect(app).toContain("<LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} inspectorWidth={panelSizes.inspectorWidth} onInspectorWidthChange={(width) => setPanelSize('inspectorWidth', width)} />")
     expect(app).not.toContain('LiveCueButtons')
     expect(live.indexOf('<MasterFader')).toBe(-1)
     expect(app).not.toContain('liveEditorOpen')

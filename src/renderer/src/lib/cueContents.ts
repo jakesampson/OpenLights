@@ -9,7 +9,7 @@ export type CueContentsCommand =
 const changeId = (items: string[], id: string, add: boolean) => add ? [...new Set([...items, id])] : items.filter((item) => item !== id)
 
 export function applyCueContents(control: LiveControl, command: CueContentsCommand): LiveControl {
-  if (command.type === 'add-preset' || command.type === 'remove-preset') return { ...control, presetIds: changeId(control.presetIds, command.id, command.type === 'add-preset') }
+  if (command.type === 'add-preset' || command.type === 'remove-preset') return { ...control, presetIds: changeId(control.presetIds ?? [], command.id, command.type === 'add-preset') }
   if (command.type === 'add-sequence' || command.type === 'remove-sequence') return { ...control, sequenceIds: changeId(control.sequenceIds ?? [], command.id, command.type === 'add-sequence') }
   if (command.type === 'clear-ad-hoc') return { ...control, adHocValues: {} }
   if (command.type !== 'set-ad-hoc' && command.type !== 'remove-ad-hoc') return control

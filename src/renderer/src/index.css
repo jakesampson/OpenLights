@@ -1180,16 +1180,11 @@ select optgroup { background: #555658; color: #fff; }
 }
 
 /* Live Edit button properties inspector: LightKey's panel (Jake, 27
-   Nov 2026) — docked to the right edge of the Design/Live panel, it
-   slides in from the right over the canvas. The panel scrolls on its
-   own; the canvas behind it does not move. */
-@keyframes live-properties-slide-in {
-  from { transform: translateX(100%); }
-  to { transform: translateX(0); }
-}
-.live-properties-popup {
-  animation: live-properties-slide-in 200ms ease-out;
-}
+   Nov 2026) — embedded beside the canvas since 28 Nov 2026, so it has
+   no slide-in animation any more: an in-flow panel has nothing to slide
+   over (the canvas beside it shrinks instead). The panel scrolls on its
+   own; the canvas beside it scrolls too. The .live-properties-popup
+   class stays as a stable hook for the dialog. */
 
 /* Newly patched fixtures fade/scale in when they land on the Preview
    (Jake, 19 Nov 2026). LightKey itself shows them with no animation, so

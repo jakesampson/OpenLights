@@ -22,6 +22,25 @@ export function presetGroupMembers(groups: PresetGroup[], id: string, seen = new
   seen.add(id)
   return [...new Set([...(groups.find((g) => g.id === id)?.presetIds ?? []), ...groups.filter((g) => g.parentId === id).flatMap((g) => presetGroupMembers(groups, g.id, seen))])]
 }
+// The Get Info contents sub-heading (Jake, 28 Nov 2026 — LightKey's
+// Demo Project "Deep Blue" screenshot): a preset's rows sit under its
+// ROOT palette folder, not its immediate parent and not the fixture
+// group — a preset in Inner Arc → Colors shows "Inner Arc". Walks
+// parentId to the top; a preset in no group has no heading (undefined),
+// and a parent cycle or a dangling parentId stops at the last group
+// actually found instead of looping.
+export function presetRootFolder(groups: PresetGroup[], presetId: string): PresetGroup | undefined {
+  let current = groups.find((g) => g.presetIds.includes(presetId))
+  if (!current) return undefined
+  const seen = new Set<string>([current.id])
+  while (current.parentId) {
+    const parent = groups.find((g) => g.id === current!.parentId)
+    if (!parent || seen.has(parent.id)) break
+    seen.add(parent.id)
+    current = parent
+  }
+  return current
+}
 export function activateGroupedPreset(active: string[], id: string, groups: PresetGroup[]): string[] {
   if (active.includes(id)) return active.filter((item) => item !== id)
   const release = new Set(groups.filter((g) => g.exclusive && presetGroupMembers(groups, g.id).includes(id)).flatMap((g) => presetGroupMembers(groups, g.id)))

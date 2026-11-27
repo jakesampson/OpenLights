@@ -160,6 +160,16 @@ export default function App() {
       return sizes
     })
   }
+  // Absolute width setter for the Get Info inspector (Jake, 28 Nov
+  // 2026): the inspector's drag handle reports its new width directly,
+  // not a delta — same clamp + persist as the divider drags above.
+  const setPanelSize = (key: keyof PanelSizes, value: number) => {
+    setPanelSizes((prev) => {
+      const sizes = clampPanelSizes({ ...prev, [key]: value }, { width: window.innerWidth, height: window.innerHeight })
+      savePanelSizes(sizes, localStorage)
+      return sizes
+    })
+  }
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
   // Host for the effect editor's type tab (Jake, 21 Nov 2026): in
   // LightKey the "{Property} Effect ▾" tab sits IN the Design/Live pill
@@ -522,7 +532,7 @@ export default function App() {
         const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
         emit(resolved.id, resolved.name, resolved.fixtureValues)
       }
-      for (const id of control.presetIds) {
+      for (const id of control.presetIds ?? []) {
         const preset = presets.find((item) => item.id === id)
         if (preset) emit(preset.id, preset.name, completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []))
       }
@@ -865,7 +875,7 @@ export default function App() {
                   but the 200px floor stays as a guard in the 294px
                   bottom panel, so the canvas can never collapse again. */}
               <div className="min-h-[200px] flex-1">
-              <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />
+              <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} inspectorWidth={panelSizes.inspectorWidth} onInspectorWidthChange={(width) => setPanelSize('inspectorWidth', width)} />
               </div>
             </> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
@@ -907,7 +917,7 @@ export default function App() {
     else closeToolPanel()
   }
 
-  if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab /></div>
+  if (isLiveWindow()) return <div className="app overflow-auto p-3"><LiveTab inspectorWidth={panelSizes.inspectorWidth} onInspectorWidthChange={(width) => setPanelSize('inspectorWidth', width)} /></div>
   return (
     <div className={`app${welcomeOpen ? ' welcome-open' : ''}`}>
       {setupWizardStep ? (
