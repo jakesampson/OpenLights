@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FanDef, FixtureDef } from '@shared/types'
 import { fixtureBeams, fixtureMode } from '@shared/fixtureProfiles'
 import { resolveCueValues } from '@shared/cueResolution'
@@ -407,6 +407,37 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   // bordered the keys adjust nothing.
   const [selectedControl, setSelectedControl] = useState<SelectedDesignControl | null>(null)
   const inspectorRef = useRef<HTMLDivElement>(null)
+  // The wheel's diameter (Jake, 28 Nov 2026): the wheel is a square
+  // that fills the colour card's body height — it grows with the panel
+  // — but the card's width is sized to its contents, and the svg's
+  // intrinsic 220px made the card only 378px wide while the
+  // height-driven wheel grew to 543px at a tall panel, so the wheel
+  // burst out of the card's right border. A ResizeObserver measures
+  // the body's height and the wheel is given that exact size, so the
+  // card grows to contain it (wheel + sliders + padding) instead of
+  // the wheel overflowing it. The body height is set by the card and
+  // the row, never by the wheel, so there is no feedback loop; the
+  // state only changes when the measured height actually changes.
+  // The observer is a callback ref because the body mounts and
+  // unmounts with the effect/fan branches, which replace it. Until
+  // the first measurement the wheel keeps its old aspect-square
+  // behaviour (the explicit size below is only applied once known),
+  // and where ResizeObserver does not exist (jsdom tests) the size
+  // simply stays unmeasured and the old behaviour stands.
+  const [wheelSize, setWheelSize] = useState<number | null>(null)
+  const wheelBodyObserverRef = useRef<ResizeObserver | null>(null)
+  const wheelBodyRef = useCallback((node: HTMLDivElement | null) => {
+    wheelBodyObserverRef.current?.disconnect()
+    wheelBodyObserverRef.current = null
+    if (node && typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        const height = Math.round(entries[0]?.contentRect.height ?? node.clientHeight)
+        if (height > 0) setWheelSize((prev) => (prev === height ? prev : height))
+      })
+      observer.observe(node)
+      wheelBodyObserverRef.current = observer
+    }
+  }, [])
   const clearSelection = () => {
     setSelectedControl(null)
     // Move focus out of the control too, so its arrow keys stop
@@ -846,11 +877,20 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
               <FannedIcon label="Colour" onEdit={() => dispatchFanHud({ attribute: 'color' })} />
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 items-stretch gap-1">
+            <div ref={wheelBodyRef} className="flex min-h-0 flex-1 items-stretch gap-1">
               {/* Square, height-stretched: the wheel grows with the card
                   body (aspect-square off the stretched height) instead
-                  of the old fixed 150px. */}
-              <div className="flex aspect-square min-h-0 min-w-0 flex-none self-stretch">
+                  of the old fixed 150px — and once the ResizeObserver
+                  above has measured the body, the wrapper takes that
+                  exact size (width and height), so the card grows to
+                  contain the wheel instead of the wheel bursting out
+                  of the card at tall panel sizes (Jake, 28 Nov 2026).
+                  The explicit size wins over aspect-square; while it
+                  is unmeasured the aspect-square fallback stands. */}
+              <div
+                className="flex aspect-square min-h-0 min-w-0 flex-none self-stretch"
+                style={wheelSize !== null ? { width: wheelSize, height: wheelSize } : undefined}
+              >
                 <ColorWheelControl
                   hsv={hsv}
                   centreHex={colorHex(colorValues)}
