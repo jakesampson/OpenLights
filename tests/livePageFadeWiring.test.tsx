@@ -99,7 +99,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'toggle', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', cueId: 'cueA', presetIds: [] }]
     }))
     renderInRoot(<App />)
     expect(engine.snapshot()[1]).toBe(0)
@@ -119,7 +119,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page',
-      controls: [{ id: 'cA', name: 'Red', type: 'toggle', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', cueId: 'cueA', presetIds: [] }]
     }, 10000))
     renderInRoot(<App />)
     const start = performance.now()
@@ -136,7 +136,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'fader', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'faderHorizontal', cueId: 'cueA', presetIds: [] }]
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })
@@ -152,7 +152,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'flash', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', behavior: 'flash', cueId: 'cueA', presetIds: [] }]
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })

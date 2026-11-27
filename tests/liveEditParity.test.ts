@@ -49,7 +49,7 @@ describe('Live / Live Edit parity', () => {
     // A fader's slider keeps its own behaviour — a press on it never arms a drag.
     expect(workspace).toContain(".closest('input, select, textarea')")
     // A flash button pressed to start a drag is released when the move starts.
-    expect(workspace).toContain("if (control?.type === 'flash' && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)")
+    expect(workspace).toContain("if (control && isFlashControl(control) && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)")
   })
 
   it('shows the cuelist transport in both modes', () => {

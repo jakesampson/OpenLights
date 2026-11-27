@@ -61,9 +61,9 @@ function seedShow() {
     fixtureGroups: [],
     presets: [RED, GREEN, FULL],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'pad-red', name: 'Red', type: 'toggle', presetIds: ['red'], x: 20, y: 20 },
-      { id: 'pad-green', name: 'Green', type: 'toggle', presetIds: ['green'], x: 160, y: 20 },
-      { id: 'pad-full', name: 'Full On', type: 'toggle', presetIds: ['full'], x: 300, y: 20 }
+      { id: 'pad-red', name: 'Red', type: 'push', presetIds: ['red'], x: 20, y: 20 },
+      { id: 'pad-green', name: 'Green', type: 'push', presetIds: ['green'], x: 160, y: 20 },
+      { id: 'pad-full', name: 'Full On', type: 'push', presetIds: ['full'], x: 300, y: 20 }
     ] }]
   } as unknown as ShowDef))
   act(() => {

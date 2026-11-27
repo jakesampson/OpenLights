@@ -117,8 +117,8 @@ describe('view switch and Live page manager (2.4a)', () => {
         id: 'a',
         name: 'Alpha',
         controls: [
-          { id: 'c1', name: 'One', type: 'toggle', presetIds: [], x: 0, y: 0 },
-          { id: 'c2', name: 'Two', type: 'toggle', presetIds: [], x: 160, y: 0, attachedTo: 'c1' }
+          { id: 'c1', name: 'One', type: 'push', presetIds: [], x: 0, y: 0 },
+          { id: 'c2', name: 'Two', type: 'push', presetIds: [], x: 160, y: 0, attachedTo: 'c1' }
         ],
         cueListWidgets: [{ id: 'w1', cueListId: 'list', x: 0, y: 100, attachedTo: 'c1' }],
         annotations: [{ id: 'f1', type: 'frame', text: 'Frame', x: 0, y: 0, width: 320, height: 90 }]

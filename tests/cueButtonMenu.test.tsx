@@ -49,8 +49,8 @@ function seedShow() {
     cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }],
     sequences: [],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'btn1', name: 'Song 1', type: 'toggle', cueId: 'cue1', presetIds: [], x: 20, y: 100, width: 120, height: 40 },
-      { id: 'btn2', name: 'Standalone', type: 'flash', presetIds: ['p-red'], x: 160, y: 100, width: 120, height: 40 },
+      { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 100, width: 120, height: 40 },
+      { id: 'btn2', name: 'Standalone', type: 'push', behavior: 'flash', presetIds: ['p-red'], x: 160, y: 100, width: 120, height: 40 },
     ], annotations: [
       { id: 'frame1', type: 'frame', text: 'Set', x: 10, y: 90, width: 300, height: 130 },
     ] }],
@@ -111,6 +111,273 @@ afterEach(() => {
   container?.remove()
   container = undefined
   root = undefined
+})
+
+describe('cue button submenus fly out sideways (Jake, 27 Nov 2026)', () => {
+  function submenu(label: string) {
+    return container!.querySelector(`[aria-label="${label} options"]`) as HTMLElement | null
+  }
+  function hoverRow(label: string) {
+    // React synthesises onPointerEnter from pointerover.
+    const row = menuButton(label)
+    act(() => { row.dispatchEvent(new window.MouseEvent('pointerover', { bubbles: true })) })
+  }
+  function escapeKey() {
+    // Dispatch on the body, as a real keypress does: the menu's
+    // capture-phase window listener must run before the app's
+    // bubble-phase Escape handler (which stops the cue).
+    act(() => { document.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })) })
+  }
+
+  it('a submenu opens as a separate sideways panel, not an inline expansion', () => {
+    rightClickButton('btn1')
+    expect(submenu('Color')).toBeNull()
+    realClick(menuButton('Color'))
+    const panel = submenu('Color')
+    expect(panel).toBeTruthy()
+    // Absolutely positioned beside the parent item — it cannot grow the
+    // parent menu, the way the old inline expansion did.
+    expect(panel!.className).toContain('absolute')
+    expect(panel!.getAttribute('data-flyout-side')).toBe('right')
+    // The old inline expansion indented the submenu inside the menu
+    // column (ml-4); the fly-out is a separate panel, so no indent.
+    expect(panel!.className).not.toContain('ml-4')
+    // The parent menu's own items are unchanged in number.
+    // (19 items + 3 separators in Edit mode.)
+    expect(Array.from(buttonMenu()!.querySelectorAll(':scope > div')).length).toBe(22)
+    expect(panel!.textContent).toContain('Automatic')
+    // The swatches are colour bars (LightKey's look), not text rows.
+    expect(panel!.querySelectorAll('button[aria-label$="button colour"]').length).toBe(12)
+  })
+
+  it('hovering another submenu item switches the open submenu', () => {
+    rightClickButton('btn1')
+    hoverRow('Color')
+    expect(submenu('Color')).toBeTruthy()
+    hoverRow('Behavior')
+    expect(submenu('Color')).toBeNull()
+    expect(submenu('Behavior')).toBeTruthy()
+    expect(submenu('Behavior')!.textContent).toContain('Toggle')
+    expect(submenu('Behavior')!.textContent).toContain('Flash')
+  })
+
+  it('hovering a plain item closes the open submenu', () => {
+    rightClickButton('btn1')
+    hoverRow('Color')
+    expect(submenu('Color')).toBeTruthy()
+    hoverRow('Get Info')
+    expect(submenu('Color')).toBeNull()
+  })
+
+  it('clicking a submenu item acts and closes the whole menu', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Behavior'))
+    const flash = Array.from(submenu('Behavior')!.querySelectorAll('button')).find((b) => b.textContent?.includes('Flash'))!
+    realClick(flash)
+    expect(buttonMenu()).toBeNull()
+    const control = useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!
+    expect(control.type).toBe('push')
+    expect(control.behavior).toBe('flash')
+  })
+
+  it('Escape closes the submenu first, then the menu', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Color'))
+    expect(submenu('Color')).toBeTruthy()
+    escapeKey()
+    expect(submenu('Color')).toBeNull()
+    expect(buttonMenu()).toBeTruthy()
+    escapeKey()
+    expect(buttonMenu()).toBeNull()
+  })
+
+  it('a disabled submenu does not open on hover', () => {
+    // btn2 is a fader in this seed? No — btn2 is a push button with
+    // Flash behaviour. Make btn1 a fader first: faders have no
+    // behavior, so Behavior is disabled.
+    act(() => { useShowStore.getState().configureControlType('btn1', 'faderHorizontal') })
+    rightClickButton('btn1')
+    const behavior = menuButton('Behavior')
+    expect(behavior.hasAttribute('disabled')).toBe(true)
+    hoverRow('Behavior')
+    expect(submenu('Behavior')).toBeNull()
+  })
+})
+describe('cue button menu contents, Edit mode (Jake, 27 Nov 2026)', () => {
+  // These tests run in the same App render as the fly-out tests above
+  // (Edit mode entered in beforeEach). The seed: btn1 is a Push Button
+  // with Toggle behaviour holding cue1 (Red preset: red + intensity on
+  // d1); btn2 is a Push Button with Flash behaviour holding p-red.
+  function parentLabels() {
+    const menu = buttonMenu()!
+    return Array.from(menu.querySelectorAll(':scope > div > button')).map((b) => b.textContent?.trim().replace(/›$/, '').trim())
+  }
+  function submenuLabels(label: string) {
+    const panel = container!.querySelector(`[aria-label="${label} options"]`)!
+    return Array.from(panel.querySelectorAll('button')).map((b) => b.textContent?.trim().replace(/^✓ /, '').trim())
+  }
+  function submenuButton(label: string, sub: string) {
+    const panel = container!.querySelector(`[aria-label="${label} options"]`)!
+    const button = Array.from(panel.querySelectorAll('button')).find((b) => b.textContent?.trim().replace(/^✓ /, '').trim() === sub)
+    expect(button).toBeTruthy()
+    return button!
+  }
+  function innerButton(id: string) {
+    return container!.querySelector(`[data-project-id="${id}"] button`)!
+  }
+  function liveValue(id: string) {
+    return useShowStore.getState().activeLiveValues[id] ?? 0
+  }
+
+  it('shows the full Video 1 menu in Edit mode, with Delete', () => {
+    rightClickButton('btn1')
+    expect(parentLabels()).toEqual([
+      'Get Info', 'Show Properties', 'Edit Ad Hoc Properties', 'Add Overrides',
+      'Cut', 'Copy', 'Paste', 'Rename', 'Duplicate', 'Delete',
+      'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers', 'Font',
+      'Alignment', 'Remove From Frame', 'External Control',
+    ])
+  })
+
+  it('Control Type offers Push Button and the two faders, never Toggle Button', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Control Type'))
+    expect(submenuLabels('Control Type')).toEqual(['Push Button', 'Fader Horizontal', 'Fader Vertical'])
+    realClick(submenuButton('Control Type', 'Fader Vertical'))
+    const control = useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!
+    expect(control.type).toBe('faderVertical')
+    // A fader has no behaviour.
+    rightClickButton('btn1')
+    expect(menuButton('Behavior').hasAttribute('disabled')).toBe(true)
+    expect(menuButton('Behavior').getAttribute('title')).toBe('Faders have no behavior')
+  })
+
+  it('Behavior sets the behaviour, not the type', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Behavior'))
+    expect(submenuLabels('Behavior')).toEqual(['Toggle', 'Flash'])
+    realClick(submenuButton('Behavior', 'Flash'))
+    const control = useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!
+    expect(control.type).toBe('push')
+    expect(control.behavior).toBe('flash')
+  })
+
+  it('Priority offers 1–9 with 5 — Normal checked by default', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Priority'))
+    expect(submenuLabels('Priority')).toEqual(['9 — Highest', '8', '7', '6', '5 — Normal', '4', '3', '2', '1 — Lowest'])
+    const checked = container!.querySelector('[aria-label="Priority options"] button[aria-checked="true"]')
+    expect(checked?.textContent).toContain('5 — Normal')
+    realClick(submenuButton('Priority', '9 — Highest'))
+    expect(useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!.priority).toBe(9)
+  })
+
+  it('Color offers Automatic plus LightKey’s twelve swatches as colour bars', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('Color'))
+    const panel = container!.querySelector('[aria-label="Color options"]')!
+    const swatches = Array.from(panel.querySelectorAll('button[aria-label$="button colour"]'))
+    expect(swatches).toHaveLength(12)
+    expect(swatches.map((b) => b.getAttribute('aria-label'))).toEqual([
+      'White button colour', 'Salmon button colour', 'Peach button colour', 'Yellow button colour',
+      'Light green button colour', 'Green button colour', 'Cyan button colour', 'Light blue button colour',
+      'Periwinkle button colour', 'Lavender button colour', 'Pink button colour', 'Pale pink button colour',
+    ])
+    // The swatch is a colour bar, not a text row.
+    const salmon = swatches[1].querySelector('span') as HTMLElement
+    expect(salmon.style.backgroundColor).toBe('rgb(241, 154, 152)')
+    realClick(swatches[1])
+    expect(useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!.appearance?.color).toBe('#f19a98')
+    // Automatic clears the picked colour again.
+    rightClickButton('btn1')
+    realClick(menuButton('Color'))
+    realClick(submenuButton('Color', 'Automatic'))
+    expect(useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!.appearance?.color).toBe('#47235a')
+  })
+
+  it('Modifiers lists LightKey’s sixteen, greyed where the cue does not apply', () => {
+    // btn1's cue is the Red preset (red + intensity on d1): only
+    // Fade Time, Dimmer and Hue apply.
+    rightClickButton('btn1')
+    realClick(menuButton('Modifiers'))
+    expect(submenuLabels('Modifiers')).toEqual([
+      'Speed', 'Beat Multiplier', 'Time Offset', 'Fade Time', 'Dimmer', 'Hue',
+      'Color Temperature', 'Green Saturation', 'Xfade to Color', 'Pan', 'Tilt',
+      'Focus', 'Zoom Angle', 'Iris Size', 'Frost Amount', 'Fog Amount',
+    ])
+    const panel = container!.querySelector('[aria-label="Modifiers options"]')!
+    const enabled = (label: string) => {
+      const b = Array.from(panel.querySelectorAll('button')).find((x) => x.textContent?.trim() === label)!
+      return !b.hasAttribute('disabled')
+    }
+    for (const label of ['Fade Time', 'Dimmer', 'Hue']) expect(enabled(label)).toBe(true)
+    for (const label of ['Speed', 'Beat Multiplier', 'Time Offset', 'Color Temperature', 'Green Saturation', 'Xfade to Color', 'Pan', 'Tilt', 'Focus', 'Zoom Angle', 'Iris Size', 'Frost Amount', 'Fog Amount']) expect(enabled(label)).toBe(false)
+    // Selecting a modifier stores the selection and ticks it; a second
+    // click clears it again.
+    realClick(submenuButton('Modifiers', 'Fade Time'))
+    expect(useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!.selectedModifiers).toEqual(['fadeTime'])
+    rightClickButton('btn1')
+    realClick(menuButton('Modifiers'))
+    const ticked = container!.querySelector('[aria-label="Modifiers options"] button[aria-checked="true"]')
+    expect(ticked?.textContent).toContain('Fade Time')
+    realClick(submenuButton('Modifiers', 'Fade Time'))
+    expect(useShowStore.getState().show!.livePages![0].controls.find((c) => c.id === 'btn1')!.selectedModifiers).toEqual([])
+  })
+
+  it('External Control greys Replace/Remove with no trigger, and Add Trigger opens MIDI learn', () => {
+    rightClickButton('btn1')
+    realClick(menuButton('External Control'))
+    expect(submenuLabels('External Control')).toEqual(['Add Trigger…', 'Replace Trigger…', 'Remove Trigger', 'Copy OSC Address', 'Add Shortcut…'])
+    const panel = container!.querySelector('[aria-label="External Control options"]')!
+    const row = (label: string) => Array.from(panel.querySelectorAll('button')).find((x) => x.textContent?.trim() === label)!
+    expect(row('Add Trigger…').hasAttribute('disabled')).toBe(false)
+    expect(row('Replace Trigger…').hasAttribute('disabled')).toBe(true)
+    expect(row('Replace Trigger…').getAttribute('title')).toBe('No trigger to replace')
+    expect(row('Remove Trigger').hasAttribute('disabled')).toBe(true)
+    expect(row('Remove Trigger').getAttribute('title')).toBe('No trigger to remove')
+    expect(row('Copy OSC Address').getAttribute('title')).toBe('OSC is not available in this app')
+    expect(row('Add Shortcut…').getAttribute('title')).toBe('Keyboard shortcuts for buttons are not built yet')
+    // Add Trigger… opens Settings on the External tab with MIDI learn
+    // armed for this button.
+    realClick(row('Add Trigger…'))
+    const dialog = container!.querySelector('[role="dialog"]')
+    expect(dialog).toBeTruthy()
+    expect(dialog!.textContent).toContain('MIDI Mapping')
+    expect(dialog!.textContent).toContain('Listening for MIDI input for “Song 1”')
+  })
+
+  it('External Control Replace/Remove act once a trigger exists', () => {
+    act(() => {
+      useShowStore.getState().addMidiMapping({ id: 'm1', targetType: 'live-cue', targetId: 'btn1', midiType: 'noteon', channel: 1, number: 60 })
+    })
+    rightClickButton('btn1')
+    realClick(menuButton('External Control'))
+    const panel = container!.querySelector('[aria-label="External Control options"]')!
+    const row = (label: string) => Array.from(panel.querySelectorAll('button')).find((x) => x.textContent?.trim() === label)!
+    expect(row('Add Trigger…').hasAttribute('disabled')).toBe(true)
+    expect(row('Replace Trigger…').hasAttribute('disabled')).toBe(false)
+    expect(row('Remove Trigger').hasAttribute('disabled')).toBe(false)
+    realClick(row('Remove Trigger'))
+    expect(useShowStore.getState().midiMappings).toEqual([])
+  })
+
+  it('a Push Button with Toggle behaviour latches on first click, off on second', () => {
+    const button = innerButton('btn1')
+    expect(liveValue('btn1')).toBe(0)
+    act(() => { button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    expect(liveValue('btn1')).toBe(255)
+    act(() => { button.dispatchEvent(new window.MouseEvent('click', { bubbles: true, cancelable: true })) })
+    expect(liveValue('btn1')).toBe(0)
+  })
+
+  it('a Push Button with Flash behaviour is active only while held', () => {
+    const button = innerButton('btn2')
+    expect(liveValue('btn2')).toBe(0)
+    act(() => { button.dispatchEvent(new window.MouseEvent('pointerdown', { bubbles: true, cancelable: true })) })
+    expect(liveValue('btn2')).toBe(255)
+    act(() => { button.dispatchEvent(new window.MouseEvent('pointerup', { bubbles: true, cancelable: true })) })
+    expect(liveValue('btn2')).toBe(0)
+  })
 })
 
 describe('cue button menu in Edit Mode (Video 1)', () => {

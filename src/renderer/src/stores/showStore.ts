@@ -5,6 +5,7 @@ import { fanColourToBeams } from '@shared/fixtureProfiles'
 import { prunePageValues, switchLivePage, type PageActiveValues } from '../lib/pageSwitch'
 import { exclusiveSiblings, frameForCue, frameMembers, liveOutputLevels, setFrameConfig, touchingGroupSiblings } from '../lib/liveFrames'
 import { orderedLiveControls } from '../lib/cuePriority'
+import { isLatchingControl } from '../lib/liveControlBehavior'
 import { applyLiveDrop, normalizeDropPayload, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, applyCueDefContents, type CueContentsCommand } from '../lib/cueContents'
 import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
@@ -263,11 +264,20 @@ interface ShowState {
   deactivateCompletedSequences: () => void
   configureCueTiming: (controlId: string, patch: Partial<NonNullable<LiveControl['timing']>>) => void
   configureCueAppearance: (controlId: string, patch: Partial<NonNullable<LiveControl['appearance']>>) => void
-  /** Change a button's type (LightKey's Control Type / Behavior menu,
-   * guide p.204). Mirrors the inspector's Button tab: the button is
-   * released first, then the type is patched. Behavior maps onto type
-   * — Toggle is our toggle, Flash is our flash. */
+  /** Change a button's type (LightKey's Control Type menu, guide
+   * p.204): Push Button, Fader Horizontal or Fader Vertical. The
+   * button is released first, then the type is patched. Behaviour is
+   * a separate field — see configureControlBehavior. */
   configureControlType: (controlId: string, type: LiveControl['type']) => void
+  /** Change a Push Button's behaviour (LightKey's Behavior menu, guide
+   * p.204): Toggle latches, Flash is momentary. The button is released
+   * first, then the behaviour is patched. Faders have no behaviour. */
+  configureControlBehavior: (controlId: string, behavior: NonNullable<LiveControl['behavior']>) => void
+  /** Toggle one of LightKey's modifiers in the button's selected set
+   * (guide ch.11, pp.205–207 — the Modifiers submenu). The selection
+   * is what the menu proves; the Live-view value control and output
+   * application are not built yet. */
+  toggleCueModifier: (controlId: string, modifier: string) => void
   configureCueModifiers: (controlId: string, patch: Partial<NonNullable<LiveControl['modifiers']>>) => void
   configureCuePriority: (controlId: string, priority: number) => void
   configureCueFrameStep: (controlId: string, action?: 'next' | 'previous') => void
@@ -1581,7 +1591,7 @@ const actions: ShowState = {
       if (level === 0) {
         for (const page of state.show?.livePages ?? []) {
           const control = page.controls.find((cue) => cue.id === id)
-          if (!control || control.type !== 'toggle' || !control.alwaysActive) continue
+          if (!control || !isLatchingControl(control) || !control.alwaysActive) continue
           if (!((state.activeLiveValues[id] ?? 0) > 0)) continue
           const attachedIds = page.controls.filter((other) => other.id !== id && (other.attachedTo === id || control.attachedTo === other.id)).map((other) => other.id)
           const siblings = [...new Set([...touchingGroupSiblings(page, id), ...attachedIds])]
@@ -1606,13 +1616,13 @@ const actions: ShowState = {
     // A Live pad changes the dimmer the fixtures are actually at, so
     // the base look must re-resolve against it (Jake, 22 Nov 2026):
     // a pressed Full On pad lifts an active palette preset and raises
-    // the default blue, and releasing it drops both again. A toggle
-    // press is a transition, so its base lift fades over the active
-    // Live page's fade where set, else the global Default fade (Jake,
-    // 24 Nov 2026). A fader drag or flash press stays immediate — it
-    // must not start a fade (livePageFadeWiring.test.tsx).
+    // the default blue, and releasing it drops both again. A latching
+    // push-button press is a transition, so its base lift fades over
+    // the active Live page's fade where set, else the global Default
+    // fade (Jake, 24 Nov 2026). A fader drag or flash press stays
+    // immediate — it must not start a fade (livePageFadeWiring.test.tsx).
     const control = get().show?.livePages?.flatMap((page) => page.controls).find((item) => item.id === id)
-    get().refreshBaseOutput(control?.type === 'toggle' ? liveTransitionFadeMs(get()) : undefined)
+    get().refreshBaseOutput(control && isLatchingControl(control) ? liveTransitionFadeMs(get()) : undefined)
   },
   getLiveOutputLevels: () => {
     const state = get()
@@ -1736,8 +1746,8 @@ const actions: ShowState = {
     // that are (so their position survives a re-select).
     let controls = page.controls.filter((c) => !(members.includes(c.id) && c.frameStep && ((c.frameStep === 'previous' && !wantPrevious) || (c.frameStep === 'next' && !wantNext))))
     const stepY = frame.y + frame.height - 32
-    if (wantPrevious && !controls.some((c) => members.includes(c.id) && c.frameStep === 'previous')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + 8, stepY, page.defaultStyles, { name: '‹ Previous', type: 'flash', frameStep: 'previous', width: 64, height: 24 })]
-    if (wantNext && !controls.some((c) => members.includes(c.id) && c.frameStep === 'next')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + frame.width - 72, stepY, page.defaultStyles, { name: 'Next ›', type: 'flash', frameStep: 'next', width: 64, height: 24 })]
+    if (wantPrevious && !controls.some((c) => members.includes(c.id) && c.frameStep === 'previous')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + 8, stepY, page.defaultStyles, { name: '‹ Previous', type: 'push', behavior: 'flash', frameStep: 'previous', width: 64, height: 24 })]
+    if (wantNext && !controls.some((c) => members.includes(c.id) && c.frameStep === 'next')) controls = [...controls, newCueObject(crypto.randomUUID(), frame.x + frame.width - 72, stepY, page.defaultStyles, { name: 'Next ›', type: 'push', behavior: 'flash', frameStep: 'next', width: 64, height: 24 })]
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...page, controls } : item))
   }),
   removeFromFrame: (controlId) => set((state) => {
@@ -1782,6 +1792,23 @@ const actions: ShowState = {
       return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, type } : control) } : item))
     })
   },
+  configureControlBehavior: (controlId, behavior) => {
+    get().setLiveValue(controlId, 0)
+    set((state) => {
+      const page = activeLivePage(state)
+      if (!page) return state
+      return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, behavior } : control) } : item))
+    })
+  },
+  toggleCueModifier: (controlId, modifier) => set((state) => {
+    const page = activeLivePage(state)
+    if (!page) return state
+    return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => {
+      if (control.id !== controlId) return control
+      const selected = control.selectedModifiers ?? []
+      return { ...control, selectedModifiers: selected.includes(modifier) ? selected.filter((key) => key !== modifier) : [...selected, modifier] }
+    }) } : item))
+  }),
   configureCueModifiers: (controlId, patch) => set((state) => {
     const page = activeLivePage(state)
     if (!page) return state

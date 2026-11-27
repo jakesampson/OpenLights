@@ -8,7 +8,7 @@ describe('project startup state', () => {
     const state = () => useShowStore.getState()
     const show = structuredClone(state().show!)
     show.presets = [{ id: 'preset', name: 'Red', category: 'color', fixtureValues: {} }]
-    show.livePages = [{ id: 'page', name: 'Page', controls: [{ id: 'cue', name: 'Cue', type: 'toggle', cueId: show.cues[0].id, presetIds: ['preset'] }] }]
+    show.livePages = [{ id: 'page', name: 'Page', controls: [{ id: 'cue', name: 'Cue', type: 'push', cueId: show.cues[0].id, presetIds: ['preset'] }] }]
     show.startup = { mode: 'none', presetIds: ['preset'], liveValues: { cue: 255 }, cueId: show.cues[0].id, pageId: 'page' }
     state().setShow(show); expect(state().activePresetIds).toEqual([]); expect(state().activeCueId).toBeNull(); expect(state().activeLiveValues).toEqual({})
     show.startup.mode = 'restore'; state().setShow(show)
@@ -27,8 +27,8 @@ describe('project startup state', () => {
     ]
     show.presets = [{ id: 'preset', name: 'Full On', category: 'intensity', fixtureValues: {} }]
     show.livePages = [
-      { id: 'page-visible', name: 'Visible', controls: [{ id: 'btn-visible', name: 'Visible Cue', type: 'toggle', cueId: 'cue-visible', presetIds: [] }] },
-      { id: 'page-hidden', name: 'Hidden', controls: [{ id: 'btn-fullon', name: 'Full On', type: 'toggle', presetIds: ['preset'] }] },
+      { id: 'page-visible', name: 'Visible', controls: [{ id: 'btn-visible', name: 'Visible Cue', type: 'push', cueId: 'cue-visible', presetIds: [] }] },
+      { id: 'page-hidden', name: 'Hidden', controls: [{ id: 'btn-fullon', name: 'Full On', type: 'push', presetIds: ['preset'] }] },
     ]
     // An orphan cue was active and the hidden page's Full On button was
     // lit at the last save — neither may come back driving the rig.

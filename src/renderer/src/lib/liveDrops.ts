@@ -230,7 +230,7 @@ export function applyLiveDrop(
     const control = newCueObject(makeId(), at.x, at.y, defaults, unit.ndiAmbience
       ? {
           name: 'NDI Ambience',
-          type: 'toggle',
+          type: 'push',
           presetIds: [],
           ndiAmbience: true,
           appearance: { color: NDI_AMBIENCE_BUTTON_COLOR, releaseOthers: false }

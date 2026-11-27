@@ -47,11 +47,14 @@ function SettingsRow({ label, children }: { label: string; children: ReactNode }
   </div>
 }
 
-export function SettingsDialog({ initialTab, onTabChange, adaptiveBackground, onAdaptiveBackgroundChange, onTapTempo, onClose }: {
+export function SettingsDialog({ initialTab, onTabChange, initialLearnTarget, adaptiveBackground, onAdaptiveBackgroundChange, onTapTempo, onClose }: {
   initialTab: SettingsTabId
   // Reports tab switches back so the opener can reopen on the
   // last-used tab (LightKey behaviour); optional.
   onTabChange?: (tab: SettingsTabId) => void
+  // A MIDI learn target armed from a button's External Control menu —
+  // opening on the External tab arms the learn for that button.
+  initialLearnTarget?: { targetType: 'live-cue'; targetId: string; label: string } | null
   adaptiveBackground: boolean
   onAdaptiveBackgroundChange: (value: boolean) => void
   onTapTempo: () => void
@@ -163,7 +166,7 @@ export function SettingsDialog({ initialTab, onTabChange, adaptiveBackground, on
           <SettingsRow label="MIDI ports:">
             <span className="text-dim">Connected MIDI inputs are listed below. OpenLights listens for MIDI notes and CCs only — there is no MIDI output.</span>
           </SettingsRow>
-          <MidiPanel />
+          <MidiPanel initialLearnTarget={initialLearnTarget ?? null} />
         </div>}
         {/* NDI Ambience lives here and in the preset palette's bottom row
             (its plain click opens the panel): the Settings tab is the

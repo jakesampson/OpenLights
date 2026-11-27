@@ -8,6 +8,8 @@ import {
 } from '../lib/liveDrops'
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor, DEFAULT_BUTTON_APPEARANCE_COLOR } from '../lib/liveButtonColor'
+import { controlBehavior, isFaderControl, isFlashControl, isLatchingControl } from '../lib/liveControlBehavior'
+import { DEFAULT_CUE_PRIORITY } from '../lib/cuePriority'
 import { sequenceStepValues } from '../lib/sequenceClock'
 import { frameForCue } from '../lib/liveFrames'
 import { alignmentGuides, alignEdgeX, alignEdgeY } from '../lib/alignmentGuides'
@@ -44,9 +46,9 @@ const snapCanvasPoint = (x: number, y: number) => ({
 // cue kinds, labelled the LightKey way. Push Button is the momentary
 // (hold-to-flash) kind; Toggle latches; Fader is a level control.
 const BUTTON_TYPE_LABELS: Record<LiveControl['type'], string> = {
-  toggle: 'Toggle Button',
-  flash: 'Push Button',
-  fader: 'Fader'
+  push: 'Push Button',
+  faderHorizontal: 'Fader Horizontal',
+  faderVertical: 'Fader Vertical'
 }
 
 // The eight resize handles (Video 2): four corners + four edge
@@ -79,6 +81,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     configureFramePrevNext, startEditingPreset, startEditingLiveEffect, stepLiveFrame,
     configureCueTiming, configureCueAppearance, configureCueModifiers,
     configureCuePriority, configureCueFrameStep, addOverridesToCues, startEditingCueAdHoc,
+    configureControlType, configureControlBehavior,
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, resizePageObjectTo, renamePageObject,
@@ -476,7 +479,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       const scale = show?.sequences?.find((s) => s.id === sequenceIds[0])?.timeScale
       return scale && scale !== 1 ? `${scale}x` : null
     })()
-    return control.type === 'fader' ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.effectIds?.length ? '∿ ' : ''}{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={control.type === 'toggle' ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={control.type === 'flash' ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={control.type === 'flash' ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined} onBlur={control.type === 'flash' ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{sequenceSpeed ? ` ${sequenceSpeed}` : ''}{control.type === 'flash' && ' (hold)'}</button>
+    // A Push Button with Toggle behaviour latches (click once on, click
+    // again off — guide p.204, Jake 27 Nov 2026); with Flash behaviour
+    // it is active only while held. Faders render as a slider for now —
+    // the vertical / horizontal fader control is Item 4.
+    const latching = isLatchingControl(control)
+    const flash = isFlashControl(control)
+    return isFaderControl(control) ? <label className="block flex-1 p-1 text-center" style={{ ...css(control.style), color: textColor }}><span>{control.effectIds?.length ? '∿ ' : ''}{control.name}</span><input aria-label={control.name} type="range" min="0" max="255" value={level} onChange={(e) => setLiveValue(control.id, Number(e.target.value))} className="w-full accent-[var(--accent)]" /><span>{Math.round(level / 255 * 100)}%</span></label> : <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={latching ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={flash ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={flash ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={flash ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={flash ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={flash ? () => setLiveValue(control.id, 0) : undefined} onBlur={flash ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{sequenceSpeed ? ` ${sequenceSpeed}` : ''}{flash && ' (hold)'}</button>
   }
 
   const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
@@ -528,7 +537,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   useEffect(() => () => {
     const state = useShowStore.getState()
     for (const page of state.show?.livePages ?? []) for (const control of page.controls) {
-      if (control.type === 'flash' && state.activeLiveValues[control.id]) state.setLiveValue(control.id, 0)
+      if (isFlashControl(control) && state.activeLiveValues[control.id]) state.setLiveValue(control.id, 0)
     }
   }, [])
   const pages = show?.livePages ?? []
@@ -750,7 +759,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     // A flash button pressed to start this drag was already lit by its own
     // pointerdown — release it now that the press has become a move.
     const control = page?.controls.find((item) => item.id === armed.ref.id)
-    if (control?.type === 'flash' && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)
+    if (control && isFlashControl(control) && (activeLiveValues[control.id] ?? 0) > 0) setLiveValue(control.id, 0)
     moveDrag(event)
   }
   const onControlPointerUp = () => {
@@ -1029,7 +1038,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.activateAtStartup === true} onChange={(event) => patchControl(selectedControl.id, { activateAtStartup: event.target.checked })} /> Activate at startup</label>
                 <label className="text-dim">Frame action<select aria-label="Frame step action" value={selectedControl.frameStep ?? ''} onChange={(event) => configureCueFrameStep(selectedControl.id, event.target.value ? event.target.value as 'next' | 'previous' : undefined)} className="ml-1 rounded bg-bg p-1"><option value="">Normal cue</option><option value="next">Next button</option><option value="previous">Previous button</option></select></label>
                 {(['intensity', 'speed', 'size'] as const).map((key) => <label key={key} className="capitalize text-dim">{key} %<input aria-label={`Cue ${key}`} type="number" min="0" max="200" value={selectedControl.modifiers?.[key] ?? 100} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCueModifiers(selectedControl.id, { [key]: Number(event.target.value) })} /></label>)}
-                <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? 0} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
+                <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? DEFAULT_CUE_PRIORITY} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
               </div>
             </details>
             {styleFields({ type: 'cue', id: selectedControl.id }, 'cue', selectedControl.style)}
@@ -1086,14 +1095,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                   {(['intensity', 'speed', 'size'] as const).map((key) => <label key={key} className="capitalize text-dim">{key} %<input aria-label={`Cue ${key}`} type="number" min="0" max="200" value={selectedControl.modifiers?.[key] ?? 100} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCueModifiers(selectedControl.id, { [key]: Number(event.target.value) })} /></label>)}
                 </div>
               </div>
-              <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? 0} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
+              <label className="text-dim">Priority<input aria-label="Cue priority" type="number" value={selectedControl.priority ?? DEFAULT_CUE_PRIORITY} className="ml-1 w-16 rounded bg-bg p-1" onChange={(event) => configureCuePriority(selectedControl.id, Number(event.target.value))} /></label>
               <label className="text-dim">Frame action<select aria-label="Frame step action" value={selectedControl.frameStep ?? ''} onChange={(event) => configureCueFrameStep(selectedControl.id, event.target.value ? event.target.value as 'next' | 'previous' : undefined)} className="ml-1 rounded bg-bg p-1"><option value="">Normal cue</option><option value="next">Next button</option><option value="previous">Previous button</option></select></label>
             </div>}
             {inspectorTab === 'button' && <div className="space-y-3">
               <div>
                 <h4 className="font-semibold text-text">Button</h4>
-                <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
-                {selectedControl.type === 'flash' && <label className="mt-1 block text-dim">Behavior<select aria-label="Push button behavior" value="flash" onChange={(e) => { if (e.target.value === 'toggle') { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: 'toggle' }) } }} className="ml-1 rounded bg-bg p-1"><option value="flash">Flash</option><option value="toggle">Toggle</option></select></label>}
+                <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => configureControlType(selectedControl.id, e.target.value as LiveControl['type'])} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
+                {selectedControl.type === 'push' && <label className="mt-1 block text-dim">Behavior<select aria-label="Push button behavior" value={controlBehavior(selectedControl)} onChange={(e) => configureControlBehavior(selectedControl.id, e.target.value as 'toggle' | 'flash')} className="ml-1 rounded bg-bg p-1"><option value="toggle">Toggle</option><option value="flash">Flash</option></select></label>}
                 <label className="mt-1 block text-dim">Cue<select aria-label="Cue" value={selectedControl.cueId ?? ''} onChange={(e) => setControlCue(selectedControl.id, e.target.value || undefined)} className="ml-1 rounded bg-bg p-1"><option value="">No cue</option>{cues.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
               </div>
               <div className="flex flex-wrap items-end gap-2">

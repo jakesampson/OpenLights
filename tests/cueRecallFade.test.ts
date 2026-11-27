@@ -253,7 +253,7 @@ describe('Live page fade and the base look', () => {
     const show = makeShow({
       livePages: [{
         id: 'page1', name: 'Page', fadeMs: 3000,
-        controls: [{ id: 'pad-full', name: 'Full On', type: 'toggle', presetIds: ['full'] }],
+        controls: [{ id: 'pad-full', name: 'Full On', type: 'push', presetIds: ['full'] }],
       }],
       cues: [{ id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues }],
       presets: [

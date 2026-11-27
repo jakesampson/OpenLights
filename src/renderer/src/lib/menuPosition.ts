@@ -12,6 +12,23 @@ import { useLayoutEffect, useState, type RefObject } from 'react'
 
 export const MENU_VIEWPORT_MARGIN = 8
 
+/** Which side a fly-out submenu opens on (Jake, 27 Nov 2026 — LightKey's
+ *  cue-button submenus pop out sideways): right of its parent item,
+ *  unless it would run off the viewport, when it opens to the left.
+ *  When neither side fits, it opens on the side with more room. */
+export function flyoutSide(parentLeft: number, parentRight: number, submenuWidth: number, viewportWidth = window.innerWidth, margin = MENU_VIEWPORT_MARGIN): 'right' | 'left' {
+  if (parentRight + submenuWidth + margin <= viewportWidth) return 'right'
+  if (parentLeft - submenuWidth - margin >= 0) return 'left'
+  return viewportWidth - parentRight >= parentLeft ? 'right' : 'left'
+}
+
+/** Vertical shift (px, never positive) to pull a fly-out submenu back
+ *  inside the viewport: up when it runs off the bottom, never above the
+ *  top margin. */
+export function flyoutTopShift(submenuTop: number, submenuBottom: number, viewportHeight = window.innerHeight, margin = MENU_VIEWPORT_MARGIN): number {
+  return Math.max(margin - submenuTop, Math.min(0, viewportHeight - margin - submenuBottom))
+}
+
 /**
  * Clamp a menu's top-left corner so the whole menu stays inside the
  * viewport. The menu opens at the click point when there is room;

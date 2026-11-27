@@ -9,6 +9,25 @@ import { resolveCueValues } from '@shared/cueResolution'
  */
 export const DEFAULT_BUTTON_APPEARANCE_COLOR = '#47235a'
 
+/** LightKey's button-colour swatches (Jake's screenshot, 27 Nov 2026 —
+ *  the Color submenu shows Automatic plus these twelve bars; every hex
+ *  below was measured from that screenshot with PIL at the bar centres,
+ *  so it is LightKey's palette, not an approximation). */
+export const LIGHTKEY_BUTTON_COLORS: { hex: string; name: string }[] = [
+  { hex: '#ffffff', name: 'White' },
+  { hex: '#f19a98', name: 'Salmon' },
+  { hex: '#f8cfa2', name: 'Peach' },
+  { hex: '#fffb9f', name: 'Yellow' },
+  { hex: '#dcfa9e', name: 'Light green' },
+  { hex: '#a8f79d', name: 'Green' },
+  { hex: '#a7fafd', name: 'Cyan' },
+  { hex: '#9bc8fa', name: 'Light blue' },
+  { hex: '#a4a9f9', name: 'Periwinkle' },
+  { hex: '#c7acf9', name: 'Lavender' },
+  { hex: '#f19fea', name: 'Pink' },
+  { hex: '#f9daf1', name: 'Pale pink' },
+]
+
 const clampByte = (value: number) => Math.max(0, Math.min(255, Math.round(value)))
 
 export function hexToRgb(hex: string): { r: number; g: number; b: number } | null {

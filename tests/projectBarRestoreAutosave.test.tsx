@@ -25,7 +25,7 @@ function setupShow(mode: 'none' | 'restore') {
   const show = structuredClone(state.show ?? defaultShow)
   show.name = 'Demo Show'
   show.presets = [{ id: 'preset-fullon', name: 'Full On', category: 'intensity', fixtureValues: {} }]
-  show.livePages = [{ id: 'page', name: 'Page', controls: [{ id: 'btn-fullon', name: 'Full On', type: 'toggle', presetIds: ['preset-fullon'] }] }]
+  show.livePages = [{ id: 'page', name: 'Page', controls: [{ id: 'btn-fullon', name: 'Full On', type: 'push', presetIds: ['preset-fullon'] }] }]
   show.startup = { mode, presetIds: [], liveValues: {}, pageId: 'page', cueId: null }
   state.setShow(show)
 }

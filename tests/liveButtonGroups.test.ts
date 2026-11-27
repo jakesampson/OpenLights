@@ -16,7 +16,7 @@ vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 
 const cue = (id: string, x: number, y: number, width = 160, height = 90) =>
-  ({ id, name: id, type: 'toggle' as const, presetIds: [], x, y, width, height })
+  ({ id, name: id, type: 'push' as const, presetIds: [], x, y, width, height })
 
 function groupPage(): LivePage {
   return {

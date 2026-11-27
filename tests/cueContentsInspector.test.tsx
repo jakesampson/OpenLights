@@ -53,8 +53,8 @@ function seedShow() {
     cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: ['seq1'], fixtureValues: { d1: { intensity: 200 } }, fadeMs: 500 }],
     sequences: [{ id: 'seq1', name: 'Rainbow', order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: 'step1', name: 'Step 1', fixtureValues: { d1: { red: 255 } }, presetIds: [], fadeMs: 0, holdMs: 1000 }] }],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'btn1', name: 'Song 1', type: 'toggle', cueId: 'cue1', presetIds: [], x: 20, y: 20 },
-      { id: 'btn2', name: 'Standalone', type: 'flash', presetIds: ['p-blue'], adHocValues: { d1: { red: 255 } }, x: 160, y: 20 },
+      { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 20 },
+      { id: 'btn2', name: 'Standalone', type: 'push', behavior: 'flash', presetIds: ['p-blue'], adHocValues: { d1: { red: 255 } }, x: 160, y: 20 },
     ] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })

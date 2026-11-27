@@ -12,6 +12,8 @@ import { SHORTCUTS, buildShortcutsList, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
+import { PanelDivider } from './components/PanelDivider'
+import { clampPanelSizes, loadPanelSizes, savePanelSizes, type PanelSizes } from './lib/panelSizes'
 import { StagePreview } from './components/StagePreview'
 import { PreviewEditPanel, FixtureStorageTray } from './components/PreviewEditPanel'
 import { previewSpacePan } from './lib/previewSpacePan'
@@ -28,6 +30,7 @@ import { completePresetBaseColour } from './lib/presetColor'
 import { startCuePlaybackClock } from './lib/cuePlaybackClock'
 import { adaptiveBackgroundHue } from './lib/adaptiveBackground'
 import { liveFadeMs, liveOutputLevels } from './lib/liveFrames'
+import { isFaderControl, isLatchingControl } from './lib/liveControlBehavior'
 import { activeCueSequenceIds, activeLiveEffectIds } from './lib/liveDrops'
 import { orderedLiveControls } from './lib/cuePriority'
 import { configureAmbienceFixtures } from './lib/ndiAmbience'
@@ -143,6 +146,19 @@ export default function App() {
     return values
   }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
+  // Panel sizes (Jake, 27 Nov 2026): the four main panels resize by
+  // dragging the dividers between them. Per-machine, so they live in
+  // localStorage, not the show file. The functional update keeps
+  // incremental drag deltas race-free — the divider reports the pixels
+  // since the last move, and the clamp runs against the live window.
+  const [panelSizes, setPanelSizes] = useState<PanelSizes>(() => loadPanelSizes(localStorage, { width: window.innerWidth, height: window.innerHeight }))
+  const resizePanelBy = (key: keyof PanelSizes, delta: number) => {
+    setPanelSizes((prev) => {
+      const sizes = clampPanelSizes({ ...prev, [key]: prev[key] + delta }, { width: window.innerWidth, height: window.innerHeight })
+      savePanelSizes(sizes, localStorage)
+      return sizes
+    })
+  }
   const [liveToolbarHost, setLiveToolbarHost] = useState<HTMLDivElement | null>(null)
   // Host for the effect editor's type tab (Jake, 21 Nov 2026): in
   // LightKey the "{Property} Effect ▾" tab sits IN the Design/Live pill
@@ -337,6 +353,11 @@ export default function App() {
   // the last-used tab): the dialog reports tab switches back through
   // onTabChange, and Cmd+, reopens on that tab.
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('general')
+  // A MIDI learn armed from a button's External Control menu (Jake,
+  // 27 Nov 2026 — LightKey's "Add Trigger…"): opening Settings arms
+  // the learn for that button. Cleared when the dialog closes, so a
+  // later open does not re-arm it.
+  const [midiLearnTarget, setMidiLearnTarget] = useState<{ targetType: 'live-cue'; targetId: string; label: string } | null>(null)
   // The far-right header button is a view-options menu (Jake, 22 Nov
   // 2026), not a settings menu: it shows/hides Preview, Preset Palette
   // and Shortcuts, and carries the header actions that are not settings.
@@ -470,7 +491,7 @@ export default function App() {
     const levels = effectiveLevels
     for (const control of controls) {
       const level = outputLevels[control.id] ?? 0
-      if (!level && !(control.type === 'fader' && control.id in outputLevels)) continue
+      if (!level && !(isFaderControl(control) && control.id in outputLevels)) continue
       const scaledMaster = master * level / 255
       const cue = cues.find((item) => item.id === control.cueId)
       if (cue && !cue.blackout) {
@@ -502,7 +523,7 @@ export default function App() {
     const liveControls = new Map((show?.livePages ?? []).flatMap((page) => page.controls).map((control) => [control.id, control]))
     const liveChanged = [...Object.keys(outputLevels), ...Object.keys(previousLevels)].some((id) => {
       const control = liveControls.get(id)
-      if (!control || control.type !== 'toggle') return false
+      if (!control || !isLatchingControl(control)) return false
       return (previousLevels[id] ?? 0) !== (outputLevels[id] ?? 0)
     })
     configureLiveOutput(patch, changed || liveChanged ? pageFade : 0)
@@ -699,6 +720,22 @@ export default function App() {
     return () => window.removeEventListener('openlights-show-live', showLive)
   }, [])
 
+  // A button's External Control > Add Trigger… (Jake, 27 Nov 2026):
+  // open Settings on the External Control tab with MIDI learn armed
+  // for that button, so the next MIDI note/CC the operator moves
+  // becomes the button's trigger.
+  useEffect(() => {
+    const learn = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { targetId: string; label: string } | undefined
+      if (!detail?.targetId) return
+      setMidiLearnTarget({ targetType: 'live-cue', targetId: detail.targetId, label: detail.label ?? 'Live button' })
+      setSettingsTab('external')
+      setSettingsOpen(true)
+    }
+    window.addEventListener('openlights-learn-midi', learn)
+    return () => window.removeEventListener('openlights-learn-midi', learn)
+  }, [])
+
   // LightKey Preset Palette shortcuts (Jake's 18 Nov screenshots) live in
   // lib/shortcuts.ts with the panel builder. buildShortcutsList returns
   // one contextual list per state — see that file for why the Live-edit
@@ -721,8 +758,13 @@ export default function App() {
   // in exactly one place at a time.
   const designWorkspace = (<>
       {/* Main row */}
-      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : undefined }}>
+      <div className="main-grid" style={{ display: show?.layout?.preview === false && show?.layout?.palette === false ? 'none' : undefined, gridTemplateColumns: show?.layout?.preview === false || show?.layout?.palette === false ? '1fr' : `minmax(0, 1fr) 6px ${panelSizes.paletteWidth}px` }}>
         {show?.layout?.preview !== false && <div className="preview-stack relative"><StagePreview designMode={tab === 'Design'} />{editingEffectId && tab === 'Design' && <div ref={setMovementChartHost} className="pointer-events-none absolute inset-0 z-30" data-testid="movement-chart-host" />}{blind && <div role="status" className="absolute left-3 top-3 z-40 rounded bg-amber-400 px-2 py-1 text-xs font-bold text-black">BLIND · preview only</div>}{freeze && <div role="status" className="absolute right-3 top-3 z-40 rounded bg-sky-400 px-2 py-1 text-xs font-bold text-black">FROZEN · output held</div>}{previewEditing && <FixtureStorageTray />}</div>}
+
+        {/* Draggable divider (Jake, 27 Nov 2026): Preview | Preset
+            Palette. Dragging left widens the palette, dragging right
+            narrows it; hidden when either panel is hidden. */}
+        {show?.layout?.preview !== false && show?.layout?.palette !== false && <PanelDivider orientation="vertical" label="Resize preset palette" onDrag={(dx) => resizePanelBy('paletteWidth', -dx)} />}
 
         {/* In Preview edit mode the side panel becomes the Preview
             Inspector (LightKey Guide p.53: "On the right of the window is
@@ -756,6 +798,11 @@ export default function App() {
         </div>
       </div>
 
+      {/* Draggable divider (Jake, 27 Nov 2026): main row over the
+          Live/Design bottom panel. Dragging up grows the bottom panel,
+          dragging down shrinks it. */}
+      <PanelDivider orientation="horizontal" label="Resize Live and Design panel" onDrag={(dy) => resizePanelBy('bottomHeight', -dy)} />
+
       {/* Bottom row — the Design / Live switch lives here, built into the
           bottom panel (Jake, 18 Nov 2026, screenshots 9.17.29): a pinned row
           at the top of the bottom panel, centred on the panel's own width
@@ -766,7 +813,7 @@ export default function App() {
           in the wrong place entirely. The row is flex-none, so it never
           scrolls away with the Live canvas below it, and the switch works
           identically in Design, Live and Live Edit. */}
-      <div className="bottom-grid" style={show?.layout?.shortcuts === false ? { gridTemplateColumns: '1fr' } : undefined}>
+      <div className="bottom-grid" style={{ gridTemplateColumns: show?.layout?.shortcuts === false ? '1fr' : `minmax(0, 1fr) 6px ${panelSizes.shortcutsWidth}px`, height: panelSizes.bottomHeight }}>
         <div className="panel bottom-panel-shell">
           {/* Master fader column (LightKey, Jake 18 Nov 2026, screenshots
               10.12.28 / 10.17.25): rendered here, as a child of the bottom
@@ -799,6 +846,11 @@ export default function App() {
             </> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
         </div>
+
+        {/* Draggable divider (Jake, 27 Nov 2026): bottom panel |
+            Shortcuts. Dragging left widens Shortcuts, dragging right
+            narrows it; hidden when Shortcuts is hidden. */}
+        {show?.layout?.shortcuts !== false && <PanelDivider orientation="vertical" label="Resize shortcuts panel" onDrag={(dx) => resizePanelBy('shortcutsWidth', -dx)} />}
 
         <div className="panel overflow-hidden p-2 min-h-0 flex flex-col" style={show?.layout?.shortcuts === false ? { display: 'none' } : undefined}>
           <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-wider text-dim">
@@ -1042,7 +1094,7 @@ export default function App() {
           </section>
         </div>
       )}
-      {settingsOpen && !setupWizardStep && <SettingsDialog initialTab={settingsTab} onTabChange={setSettingsTab} adaptiveBackground={adaptiveBackground} onAdaptiveBackgroundChange={setAdaptiveBackground} onTapTempo={tapTempo} onClose={() => setSettingsOpen(false)} />}
+      {settingsOpen && !setupWizardStep && <SettingsDialog initialTab={settingsTab} onTabChange={setSettingsTab} initialLearnTarget={midiLearnTarget} onClose={() => { setSettingsOpen(false); setMidiLearnTarget(null) }} adaptiveBackground={adaptiveBackground} onAdaptiveBackgroundChange={setAdaptiveBackground} onTapTempo={tapTempo} />}
       {welcomeOpen && <WelcomeScreen />}
       {newProjectDialogOpen && <NewProjectDialog template={newProjectTemplate} onSave={createProject} onClose={() => { const state = useShowStore.getState(); state.setNewProjectDialogOpen(false); state.setNewProjectTemplate(null) }} />}
     </div>

@@ -171,9 +171,9 @@ describe('live pad intensity levels', () => {
     { id: 'full', name: 'Full On', category: 'intensity', fixtureValues: { p1: { intensity: 255 }, q1: { intensity: 255 } } },
     { id: 'half', name: 'Half', category: 'intensity', fixtureValues: { p1: { intensity: 128 }, q1: { intensity: 128 } } }
   ]
-  const redPad = { id: 'lc-red', name: 'Red', type: 'toggle' as const, presetIds: ['red'] }
-  const fullPad = { id: 'lc-full', name: 'Full On', type: 'toggle' as const, presetIds: ['full'] }
-  const halfPad = { id: 'lc-half', name: 'Half', type: 'toggle' as const, presetIds: ['half'] }
+  const redPad = { id: 'lc-red', name: 'Red', type: 'push' as const, presetIds: ['red'] }
+  const fullPad = { id: 'lc-full', name: 'Full On', type: 'push' as const, presetIds: ['full'] }
+  const halfPad = { id: 'lc-half', name: 'Half', type: 'push' as const, presetIds: ['half'] }
   const fixtures = [
     { id: 'p1', name: 'Par 1', type: 'par', channelStart: 1, channels: 4 },
     { id: 'q1', name: 'Q12BT 1', type: 'rgba-4ch', channelStart: 20, channels: 4 }

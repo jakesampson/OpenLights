@@ -39,8 +39,8 @@ function seedShow(overrides: Record<string, unknown> = {}) {
     livePages: [{
       id: 'page1', name: 'Page', fadeMs: 0,
       controls: [
-        { id: 'btn1', name: 'Song 1', type: 'toggle', cueId: 'cue1', presetIds: [], x: 20, y: 20 },
-        { id: 'btn2', name: 'Standalone', type: 'toggle', presetIds: [], x: 20, y: 80 },
+        { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 20 },
+        { id: 'btn2', name: 'Standalone', type: 'push', presetIds: [], x: 20, y: 80 },
       ],
       annotations: [{ id: 'frame1', type: 'frame', text: 'Service', x: 10, y: 10, width: 400, height: 200 }],
     }],
@@ -103,8 +103,8 @@ describe('cue editing store', () => {
       fixtures: FIXTURES, presets: PRESETS,
       cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }],
       livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-        { id: 'btn1', name: 'Song 1', type: 'toggle', cueId: 'cue1', presetIds: [], x: 20, y: 20, alwaysActive: true },
-        { id: 'btn2', name: 'Other', type: 'toggle', presetIds: [], x: 140, y: 20 },
+        { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 20, alwaysActive: true },
+        { id: 'btn2', name: 'Other', type: 'push', presetIds: [], x: 140, y: 20 },
       ] }],
     } as unknown as ShowDef))
     useShowStore.setState({ activeLivePageId: 'page1' })

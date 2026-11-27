@@ -11,9 +11,9 @@ function framePage(): LivePage {
     id: 'page',
     name: 'Page',
     controls: [
-      { id: 'in1', name: 'In one', type: 'toggle', presetIds: [], x: 100, y: 100 },
-      { id: 'in2', name: 'In two', type: 'toggle', presetIds: [], x: 120, y: 200 },
-      { id: 'out', name: 'Outside', type: 'toggle', presetIds: [], x: 400, y: 100 }
+      { id: 'in1', name: 'In one', type: 'push', presetIds: [], x: 100, y: 100 },
+      { id: 'in2', name: 'In two', type: 'push', presetIds: [], x: 120, y: 200 },
+      { id: 'out', name: 'Outside', type: 'push', presetIds: [], x: 400, y: 100 }
     ],
     annotations: [
       { id: 'frame', type: 'frame', text: 'Frame', x: 100, y: 100, width: 200, height: 200 },

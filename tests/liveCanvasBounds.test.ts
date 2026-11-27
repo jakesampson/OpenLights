@@ -14,8 +14,8 @@ function makePage(): LivePage {
     id: 'page',
     name: 'Page',
     controls: [
-      { id: 'c1', name: 'Cue one', type: 'toggle', presetIds: [], x: 20, y: 20 },
-      { id: 'c2', name: 'Cue two', type: 'toggle', presetIds: [], x: 600, y: 120 }
+      { id: 'c1', name: 'Cue one', type: 'push', presetIds: [], x: 20, y: 20 },
+      { id: 'c2', name: 'Cue two', type: 'push', presetIds: [], x: 600, y: 120 }
     ],
     annotations: [
       { id: 'label', type: 'label', text: 'Label', x: 20, y: 440, width: 160, height: 40 }

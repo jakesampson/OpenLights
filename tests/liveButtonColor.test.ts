@@ -14,7 +14,7 @@ import {
 } from '../src/renderer/src/lib/liveButtonColor'
 
 const control = (patch: Partial<LiveControl>): LiveControl => ({
-  id: 'btn', name: 'Button', type: 'toggle', presetIds: [], ...patch
+  id: 'btn', name: 'Button', type: 'push', presetIds: [], ...patch
 })
 const presets: PresetDef[] = [
   { id: 'red', name: 'Red', fixtureValues: { f1: { red: 255, green: 0, blue: 0 } } },

@@ -1,9 +1,10 @@
 /** Missing versions are legacy version 0. */
-export const CURRENT_SCHEMA_VERSION = 4
+export const CURRENT_SCHEMA_VERSION = 5
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
 import type { FixtureProfile, FixtureType, FrameConfig, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, ShowDef } from './types'
+import { DEFAULT_CUE_PRIORITY } from './types'
 
 type Document = Record<string, unknown>
 const record = (value: unknown): Document => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Document : {}
@@ -131,6 +132,29 @@ const steps: Record<number, (source: Document) => Document> = {
       })
     }
     return doc
+  },
+  // 27 Nov 2026 (Jake): LightKey separates a button's Type from its
+  // Behaviour (guide ch.11, p.204) — Type is Push Button / Fader
+  // Horizontal / Fader Vertical, Behaviour is Toggle (latching, the
+  // default) / Flash (momentary). The old model collapsed them into
+  // one `type` field: 'toggle' was a Push Button with Toggle behaviour,
+  // 'flash' a Push Button with Flash behaviour, 'fader' a horizontal
+  // fader. Nothing is lost: every button keeps exactly the behaviour
+  // it had, under the two-field model.
+  4: (source) => {
+    const doc: Document = { ...source, schemaVersion: 5 }
+    for (const rawPage of Array.isArray(doc.livePages) ? doc.livePages : []) {
+      const page = record(rawPage)
+      if (!Array.isArray(page.controls)) continue
+      page.controls = page.controls.map((rawControl) => {
+        const control = record(rawControl)
+        if (control.type === 'toggle') { control.type = 'push'; control.behavior = 'toggle' }
+        else if (control.type === 'flash') { control.type = 'push'; control.behavior = 'flash' }
+        else if (control.type === 'fader') { control.type = 'faderHorizontal'; delete control.behavior }
+        return control
+      })
+    }
+    return doc
   }
 }
 
@@ -162,7 +186,7 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
         height: validLiveSize(object.height) ? object.height : size.height,
         style: styleFor(kind, record(object.style) as LiveObjectStyle | undefined, pageDefaults),
         ...(kind === 'frame' ? { frame: frameConfigFor(record(object.frame) as FrameConfig | undefined) } : {}),
-        ...(kind === 'cue' ? { sequenceIds: Array.isArray(object.sequenceIds) ? object.sequenceIds.filter((id): id is string => typeof id === 'string') : [], effectIds: Array.isArray(object.effectIds) ? object.effectIds.filter((id): id is string => typeof id === 'string') : [], timing: { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear', ...record(object.timing) }, appearance: { color: '#47235a', releaseOthers: false, ...record(object.appearance) }, modifiers: { intensity: 100, speed: 100, size: 100, ...record(object.modifiers) }, priority: typeof object.priority === 'number' ? object.priority : 0 } : {})
+        ...(kind === 'cue' ? { sequenceIds: Array.isArray(object.sequenceIds) ? object.sequenceIds.filter((id): id is string => typeof id === 'string') : [], effectIds: Array.isArray(object.effectIds) ? object.effectIds.filter((id): id is string => typeof id === 'string') : [], timing: { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear', ...record(object.timing) }, appearance: { color: '#47235a', releaseOthers: false, ...record(object.appearance) }, modifiers: { intensity: 100, speed: 100, size: 100, ...record(object.modifiers) }, priority: typeof object.priority === 'number' ? object.priority : DEFAULT_CUE_PRIORITY } : {})
       }
     }
     return {

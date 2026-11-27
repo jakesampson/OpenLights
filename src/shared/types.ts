@@ -412,10 +412,28 @@ export interface FrameConfig {
   speed?: number
 }
 
+/** LightKey's default button priority (guide ch.11, p.204; Jake's
+ *  screenshot, 27 Nov 2026 — the Priority submenu shows 5 — Normal
+ *  checked on a button whose priority was never set). A button with no
+ *  stored priority behaves as 5, so a button explicitly set to 1 —
+ *  Lowest loses to it and one set to 9 — Highest beats it. Lives in
+ *  shared so the migration fill, the output sort and the menu agree. */
+export const DEFAULT_CUE_PRIORITY = 5
+
 export interface LiveControl {
   id: string
   name: string
-  type: 'toggle' | 'flash' | 'fader'
+  /** The control's form (LightKey guide ch.11, p.179 + p.204): a Push
+   *  Button activates or deactivates a cue; a Fader (horizontal or
+   *  vertical) controls how much of the cue affects the output, 0–100%.
+   *  What our build used to call a "Toggle Button" type does not exist
+   *  — it is a Push Button with Toggle behaviour (Jake, 27 Nov 2026).
+   *  Type and Behaviour are separate axes: see `behavior` below. */
+  type: 'push' | 'faderHorizontal' | 'faderVertical'
+  /** How a Push Button activates its cue (guide p.204): Toggle latches
+   *  (click once on, click again off — the default); Flash is active
+   *  only while held. Faders have no behaviour. Absent = Toggle. */
+  behavior?: 'toggle' | 'flash'
   cueId?: string
   presetIds: string[]
   /** Sequences started while this cue is active (7.10). */
@@ -440,6 +458,13 @@ export interface LiveControl {
   timing?: { fadeInMs: number; fadeOutMs: number; delayMs: number; curve: FadeCurve }
   appearance?: { color: string; releaseOthers: boolean }
   modifiers?: { intensity: number; speed: number; size: number }
+  /** LightKey modifiers selected for this button (guide ch.11, pp.205–
+   *  207): the ones the operator chose to control in the Live view,
+   *  from the Modifiers submenu. The values themselves are set in the
+   *  Live view and applied to the final output — that value control and
+   *  output application are not built yet (Jake, 27 Nov 2026 — open
+   *  question); this field is the selection the menu proves. */
+  selectedModifiers?: string[]
   priority?: number
   frameStep?: 'next' | 'previous'
   /** Activate this cue when the project opens (Guide ch.11, p.204).

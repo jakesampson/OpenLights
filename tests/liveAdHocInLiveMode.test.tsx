@@ -54,8 +54,8 @@ function seedShow() {
     cues: [FULL_ON],
     presets: [{ id: 'preset-fullon', name: 'Full On', category: 'intensity', fixtureValues: {} }],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'pad-full', name: 'Full On', type: 'toggle', presetIds: ['preset-fullon'], x: 20, y: 20 },
-      { id: 'pad-cue', name: 'Full On cue', type: 'toggle', cueId: 'cue-fullon', presetIds: [], x: 160, y: 20 },
+      { id: 'pad-full', name: 'Full On', type: 'push', presetIds: ['preset-fullon'], x: 20, y: 20 },
+      { id: 'pad-cue', name: 'Full On cue', type: 'push', cueId: 'cue-fullon', presetIds: [], x: 160, y: 20 },
     ] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })

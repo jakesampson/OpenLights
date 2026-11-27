@@ -476,8 +476,8 @@ describe('Live page active-state behaviour (7.2)', () => {
   const pagesShow = () => ({
     ...makeShow(),
     livePages: [
-      { id: 'a', name: 'A', controls: [{ id: 'c1', name: 'One', type: 'toggle' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 },
-      { id: 'b', name: 'B', controls: [{ id: 'c2', name: 'Two', type: 'toggle' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 }
+      { id: 'a', name: 'A', controls: [{ id: 'c1', name: 'One', type: 'push' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 },
+      { id: 'b', name: 'B', controls: [{ id: 'c2', name: 'Two', type: 'push' as const, presetIds: [], x: 0, y: 0 }], fadeMs: 500 }
     ]
   })
 
@@ -524,8 +524,8 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
       name: 'Page',
       fadeMs: 300,
       controls: [
-        { id: 'c1', name: 'One', type: 'toggle' as const, presetIds: [], x: 20, y: 20 },
-        { id: 'c2', name: 'Two', type: 'flash' as const, presetIds: [], x: 220, y: 20 }
+        { id: 'c1', name: 'One', type: 'push' as const, presetIds: [], x: 20, y: 20 },
+        { id: 'c2', name: 'Two', type: 'push', behavior: 'flash' as const, presetIds: [], x: 220, y: 20 }
       ],
       cueListWidgets: [{ id: 'w1', cueListId: 'c1', x: 20, y: 120 }],
       annotations: [{ id: 'a1', type: 'label' as const, text: 'Label', x: 300, y: 200, width: 160, height: 40 }]
@@ -650,9 +650,9 @@ describe('attaching and styling page objects (7.7, 7.8)', () => {
       id: 'p',
       name: 'Page',
       controls: [
-        { id: 'c1', name: 'On frame', type: 'toggle' as const, presetIds: [], x: 50, y: 250, attachedTo: 'frame' },
-        { id: 'c2', name: 'On c1', type: 'flash' as const, presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
-        { id: 'c3', name: 'Free', type: 'toggle' as const, presetIds: [], x: 600, y: 20 }
+        { id: 'c1', name: 'On frame', type: 'push' as const, presetIds: [], x: 50, y: 250, attachedTo: 'frame' },
+        { id: 'c2', name: 'On c1', type: 'push', behavior: 'flash' as const, presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
+        { id: 'c3', name: 'Free', type: 'push' as const, presetIds: [], x: 600, y: 20 }
       ],
       annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 300, y: 200, width: 200, height: 100 }]
     }]
@@ -707,9 +707,9 @@ describe('frame exclusivity and modifiers (7.9)', () => {
       id: 'p',
       name: 'Page',
       controls: [
-        { id: 'in1', name: 'In one', type: 'toggle' as const, presetIds: [], x: 100, y: 100 },
-        { id: 'in2', name: 'In two', type: 'toggle' as const, presetIds: [], x: 120, y: 200 },
-        { id: 'out', name: 'Outside', type: 'toggle' as const, presetIds: [], x: 400, y: 100 }
+        { id: 'in1', name: 'In one', type: 'push' as const, presetIds: [], x: 100, y: 100 },
+        { id: 'in2', name: 'In two', type: 'push' as const, presetIds: [], x: 120, y: 200 },
+        { id: 'out', name: 'Outside', type: 'push' as const, presetIds: [], x: 400, y: 100 }
       ],
       annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 100, y: 100, width: 200, height: 200 }]
     }]
@@ -773,7 +773,7 @@ describe('dropping presets and sequences on live pages (7.10)', () => {
     livePages: [{
       id: 'p',
       name: 'Page',
-      controls: [{ id: 'c1', name: 'Cue', type: 'toggle' as const, presetIds: ['old'], x: 600, y: 20 }],
+      controls: [{ id: 'c1', name: 'Cue', type: 'push' as const, presetIds: ['old'], x: 600, y: 20 }],
       annotations: [{ id: 'frame', type: 'frame' as const, text: 'Frame', x: 200, y: 200, width: 300, height: 200 }]
     }]
   })
@@ -826,7 +826,7 @@ describe('dropping presets and sequences on live pages (7.10)', () => {
 })
 
 describe('editing cue contents (8.2)', () => {
-  const cueShow = () => ({ ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: ['p1'], sequenceIds: ['s1'], adHocValues: { f1: { intensity: 100 } } }] }] })
+  const cueShow = () => ({ ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'push' as const, presetIds: ['p1'], sequenceIds: ['s1'], adHocValues: { f1: { intensity: 100 } } }] }] })
   const cue = () => useShowStore.getState().show!.livePages![0].controls[0]
 
   it('edits presets, sequences and ad-hoc values through undoable store commands', () => {
@@ -850,7 +850,7 @@ describe('editing cue contents (8.2)', () => {
 
 describe('cue timing (8.3)', () => {
   it('stores cue timing through history and rejects edits while locked', () => {
-    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: [] }] }] }
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'push' as const, presetIds: [] }] }] }
     useShowStore.getState().setShow(show)
     useShowStore.getState().configureCueTiming('c', { delayMs: 100, fadeInMs: 500, fadeOutMs: 250, curve: 'ease-in-out' })
     const cue = () => useShowStore.getState().show!.livePages![0].controls[0]
@@ -866,7 +866,7 @@ describe('cue timing (8.3)', () => {
 
 describe('cue appearance and behaviour (8.4)', () => {
   it('stores appearance and releases other cues when requested', () => {
-    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [] }] }] }
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'push' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'push' as const, presetIds: [] }] }] }
     useShowStore.getState().setShow(show)
     useShowStore.getState().configureCueAppearance('b', { color: '#123456', releaseOthers: true })
     expect(useShowStore.getState().show!.livePages![0].controls[1].appearance).toEqual({ color: '#123456', releaseOthers: true })
@@ -878,7 +878,7 @@ describe('cue appearance and behaviour (8.4)', () => {
 
 describe('cue modifiers (8.5)', () => {
   it('stores clamped live modifiers and scales output intensity', () => {
-    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle' as const, presetIds: [] }] }] }
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'push' as const, presetIds: [] }] }] }
     useShowStore.getState().setShow(show)
     useShowStore.getState().configureCueModifiers('c', { intensity: 50, speed: 300, size: -10 })
     expect(useShowStore.getState().show!.livePages![0].controls[0].modifiers).toEqual({ intensity: 50, speed: 200, size: 0 })
@@ -889,7 +889,7 @@ describe('cue modifiers (8.5)', () => {
 
 describe('cue priority (8.6)', () => {
   it('records activation order and stores explicit priority', () => {
-    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [] }] }] }
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'Page', controls: [{ id: 'a', name: 'A', type: 'push' as const, presetIds: [] }, { id: 'b', name: 'B', type: 'push' as const, presetIds: [] }] }] }
     useShowStore.getState().setShow(show)
     useShowStore.getState().setLiveValue('b', 255)
     useShowStore.getState().setLiveValue('a', 255)
@@ -968,7 +968,7 @@ describe('cuelist manual crossfade (8.8)', () => {
 
 describe('frame stepping and effect continuity (8.10)', () => {
   it('steps frame cues while global effects continue across cuelist cues', () => {
-    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'P', controls: [{ id: 'a', name: 'A', type: 'toggle' as const, presetIds: [], x: 20, y: 20 }, { id: 'b', name: 'B', type: 'toggle' as const, presetIds: [], x: 200, y: 20 }], annotations: [{ id: 'f', type: 'frame' as const, text: 'F', x: 0, y: 0, width: 400, height: 200 }] }] }
+    const show = { ...makeShow(), livePages: [{ id: 'p', name: 'P', controls: [{ id: 'a', name: 'A', type: 'push' as const, presetIds: [], x: 20, y: 20 }, { id: 'b', name: 'B', type: 'push' as const, presetIds: [], x: 200, y: 20 }], annotations: [{ id: 'f', type: 'frame' as const, text: 'F', x: 0, y: 0, width: 400, height: 200 }] }] }
     useShowStore.getState().setShow(show)
     useShowStore.getState().setLiveValue('a', 255)
     useShowStore.getState().stepLiveFrame('f', 1)

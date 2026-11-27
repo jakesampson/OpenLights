@@ -25,10 +25,10 @@ function testShow(): ShowDef {
     ],
     livePages: [{
       id: 'page', name: 'Page', controls: [
-        { id: 'b2', name: 'Cue 1', type: 'toggle', cueId: 'c1', presetIds: [], x: 0, y: 100 },
-        { id: 'b3', name: 'Cue 2', type: 'toggle', cueId: 'c2', presetIds: [], x: 0, y: 200 },
-        { id: 'b4', name: 'Cue 3', type: 'toggle', cueId: 'c3', presetIds: [], x: 0, y: 300 },
-        { id: 'b5', name: 'Cue 1 again', type: 'toggle', cueId: 'c1', presetIds: [], x: 0, y: 400 }
+        { id: 'b2', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [], x: 0, y: 100 },
+        { id: 'b3', name: 'Cue 2', type: 'push', cueId: 'c2', presetIds: [], x: 0, y: 200 },
+        { id: 'b4', name: 'Cue 3', type: 'push', cueId: 'c3', presetIds: [], x: 0, y: 300 },
+        { id: 'b5', name: 'Cue 1 again', type: 'push', cueId: 'c1', presetIds: [], x: 0, y: 400 }
       ]
     }],
     cueLists: [

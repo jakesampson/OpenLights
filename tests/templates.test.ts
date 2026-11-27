@@ -29,8 +29,8 @@ function templateShow(): ShowDef {
         id: 'page-1',
         name: 'Page 1',
         controls: [
-          { id: 'btn-1', name: 'Cue Button', type: 'toggle', x: 10, y: 10, cueId: 'cue-1', presetIds: [] },
-          { id: 'btn-2', name: 'Preset Button', type: 'toggle', x: 150, y: 10, presetIds: ['p1'] },
+          { id: 'btn-1', name: 'Cue Button', type: 'push', x: 10, y: 10, cueId: 'cue-1', presetIds: [] },
+          { id: 'btn-2', name: 'Preset Button', type: 'push', x: 150, y: 10, presetIds: ['p1'] },
         ],
         cueListWidgets: [{ id: 'w1', cueListId: 'list-1', x: 10, y: 120 }],
       },

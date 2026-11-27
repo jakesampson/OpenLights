@@ -9,8 +9,8 @@ import type { LivePage } from '../src/shared/types'
 const PAGE: LivePage = {
   id: 'page1', name: 'Page', fadeMs: 0,
   controls: [
-    { id: 'a', name: 'A', type: 'toggle', presetIds: [], x: 20, y: 20, width: 120, height: 40 },
-    { id: 'b', name: 'B', type: 'toggle', presetIds: [], x: 200, y: 20, width: 120, height: 40 },
+    { id: 'a', name: 'A', type: 'push', presetIds: [], x: 20, y: 20, width: 120, height: 40 },
+    { id: 'b', name: 'B', type: 'push', presetIds: [], x: 200, y: 20, width: 120, height: 40 },
   ],
 } as unknown as LivePage
 

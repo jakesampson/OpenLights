@@ -592,6 +592,32 @@ select optgroup { background: #555658; color: #fff; }
 .bottom-grid > .panel:first-child { border-left: 0; border-bottom: 0; }
 .bottom-grid > .panel:last-child { border-right: 0; border-bottom: 0; }
 
+/* Draggable panel dividers (Jake, 27 Nov 2026): the four main panels
+   resize by dragging — Preview | Preset Palette, bottom panel |
+   Shortcuts, and the main row over the bottom panel. The strip is 6px
+   with a visible grip bar, not a 1px invisible line: the grip is always
+   shown and brightens on hover, focus and drag, so the divider is
+   findable without hunting. The strip is a grid/flex item, never an
+   overlay, so it cannot cover panel content or steal its drags. */
+.panel-divider {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  touch-action: none;
+  z-index: 5;
+}
+.panel-divider-vertical { width: 6px; min-height: 0; cursor: col-resize; }
+.panel-divider-horizontal { height: 6px; width: 100%; cursor: row-resize; }
+.panel-divider-grip { flex: none; border-radius: 2px; background: var(--dim); opacity: 0.45; }
+.panel-divider-vertical .panel-divider-grip { width: 2px; height: 32px; }
+.panel-divider-horizontal .panel-divider-grip { width: 32px; height: 2px; }
+.panel-divider:hover, .panel-divider:focus-visible, .panel-divider:active { background: var(--panel2); outline: none; }
+.panel-divider:hover .panel-divider-grip, .panel-divider:focus-visible .panel-divider-grip, .panel-divider:active .panel-divider-grip { opacity: 1; }
+
 /* Stage preview keeps a 16:9 media frame and scales with the window */
 .stage {
   display: flex;
@@ -1136,4 +1162,7 @@ select optgroup { background: #555658; color: #fff; }
   .main-grid { grid-template-columns: 1fr !important; }
   .side-panel { display: none; }
   .bottom-grid { grid-template-columns: 1fr !important; height: auto; }
+  /* No room to drag on a narrow window: the dividers hide with the
+     panels they separate. */
+  .panel-divider { display: none; }
 }

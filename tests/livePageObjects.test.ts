@@ -30,8 +30,8 @@ function makePage(): LivePage {
     id: 'page',
     name: 'Page',
     controls: [
-      { id: 'c1', name: 'One', type: 'toggle', presetIds: [], x: 20, y: 20 },
-      { id: 'c2', name: 'Two', type: 'flash', presetIds: [], x: 220, y: 20 }
+      { id: 'c1', name: 'One', type: 'push', presetIds: [], x: 20, y: 20 },
+      { id: 'c2', name: 'Two', type: 'push', behavior: 'flash', presetIds: [], x: 220, y: 20 }
     ],
     cueListWidgets: [{ id: 'w1', cueListId: 'list', x: 20, y: 120 }],
     annotations: [{ id: 'a1', type: 'frame', text: 'Frame', x: 300, y: 200, width: 200, height: 100 }]
@@ -164,9 +164,9 @@ describe('attaching page objects (7.7)', () => {
     id: 'page',
     name: 'Page',
     controls: [
-      { id: 'c1', name: 'One', type: 'toggle', presetIds: [], x: 50, y: 250, attachedTo: 'a1' },
-      { id: 'c2', name: 'Two', type: 'flash', presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
-      { id: 'c3', name: 'Three', type: 'toggle', presetIds: [], x: 600, y: 20 }
+      { id: 'c1', name: 'One', type: 'push', presetIds: [], x: 50, y: 250, attachedTo: 'a1' },
+      { id: 'c2', name: 'Two', type: 'push', behavior: 'flash', presetIds: [], x: 70, y: 260, attachedTo: 'c1' },
+      { id: 'c3', name: 'Three', type: 'push', presetIds: [], x: 600, y: 20 }
     ],
     cueListWidgets: [{ id: 'w1', cueListId: 'list', x: 20, y: 120 }],
     annotations: [{ id: 'a1', type: 'frame', text: 'Frame', x: 300, y: 200, width: 200, height: 100 }]
@@ -294,7 +294,7 @@ describe('one cuelist widget per page (Jake, 27 Nov 2026 — cuelist as a canvas
 
   it('pasting buttons still works when the widget is dropped', () => {
     const page = makePage()
-    const clipboard = { controls: [{ id: 'c9', name: 'Nine', type: 'toggle', presetIds: [], x: 0, y: 0 }], widgets: [{ id: 'w2', cueListId: 'list', x: 100, y: 100 }], annotations: [] }
+    const clipboard = { controls: [{ id: 'c9', name: 'Nine', type: 'push', presetIds: [], x: 0, y: 0 }], widgets: [{ id: 'w2', cueListId: 'list', x: 100, y: 100 }], annotations: [] }
     const pasted = pasteObjects(page, clipboard as never, () => 'new-id')
     expect(pasted.page.controls.map((c) => c.id)).toContain('new-id')
     expect(pasted.page.cueListWidgets).toHaveLength(1)

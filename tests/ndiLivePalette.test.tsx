@@ -119,7 +119,7 @@ describe('NDI session (shared by panel, palette and Live button)', () => {
 describe('NDI Ambience live drop', () => {
   const page = () => ({
     id: 'page', name: 'Page',
-    controls: [{ id: 'c1', name: 'Cue one', type: 'toggle' as const, presetIds: ['p-old'], x: 600, y: 20 }],
+    controls: [{ id: 'c1', name: 'Cue one', type: 'push' as const, presetIds: ['p-old'], x: 600, y: 20 }],
     annotations: []
   })
   let counter = 0
@@ -136,7 +136,7 @@ describe('NDI Ambience live drop', () => {
     expect(refs).toHaveLength(1)
     const control = next.controls.find((item) => item.id === refs[0].id)
     expect(control).toMatchObject({
-      name: 'NDI Ambience', type: 'toggle', presetIds: [], ndiAmbience: true,
+      name: 'NDI Ambience', type: 'push', presetIds: [], ndiAmbience: true,
       appearance: { color: NDI_AMBIENCE_BUTTON_COLOR, releaseOthers: false }
     })
     expect(control?.cueId).toBeUndefined()

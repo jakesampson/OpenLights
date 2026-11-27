@@ -184,6 +184,6 @@ describe('Fixture faders — LightKey-narrow (screenshot 8.58.26)', () => {
   })
 
   it('leaves Live cue faders alone — they are horizontal level controls inside buttons, not vertical faders', () => {
-    expect(workspace).toContain("control.type === 'fader' ?")
+    expect(workspace).toContain('isFaderControl(control) ?')
   })
 })

@@ -60,8 +60,8 @@ function seedShow() {
     fixtureGroups: [],
     presets: [RED, FULL],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'pad-red', name: 'Red', type: 'toggle', presetIds: ['red'] },
-      { id: 'pad-full', name: 'Full On', type: 'toggle', presetIds: ['full'] }
+      { id: 'pad-red', name: 'Red', type: 'push', presetIds: ['red'] },
+      { id: 'pad-full', name: 'Full On', type: 'push', presetIds: ['full'] }
     ] }]
   }))
   act(() => {

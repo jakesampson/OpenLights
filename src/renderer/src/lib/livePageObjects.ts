@@ -21,7 +21,7 @@ export function newCueObject(
   defaults?: LiveDefaultStyles,
   extra?: Partial<LiveControl>
 ): LiveControl {
-  return { id, name: 'New cue', type: 'toggle', presetIds: [], x, y, style: styleFor('cue', undefined, defaults), ...extra }
+  return { id, name: 'New cue', type: 'push', presetIds: [], x, y, style: styleFor('cue', undefined, defaults), ...extra }
 }
 
 export function newWidgetObject(

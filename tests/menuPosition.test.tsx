@@ -12,7 +12,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React, { useRef } from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
-import { clampMenuPosition, MENU_VIEWPORT_MARGIN, useClampedMenuPosition } from '../src/renderer/src/lib/menuPosition'
+import { clampMenuPosition, flyoutSide, flyoutTopShift, MENU_VIEWPORT_MARGIN, useClampedMenuPosition } from '../src/renderer/src/lib/menuPosition'
 import { ContextMenu } from '../src/renderer/src/components/ContextMenu'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -102,6 +102,44 @@ describe('useClampedMenuPosition', () => {
     const el = container.querySelector('div')
     expect(el?.getAttribute('data-left')).toBe('100')
     expect(el?.getAttribute('data-top')).toBe('100')
+  })
+})
+
+describe('flyoutSide', () => {
+  // Jake, 27 Nov 2026 — LightKey's cue-button submenus pop out sideways:
+  // right of the parent item, left when there is no room on the right.
+  const viewport = 1392
+  it('opens right when there is room', () => {
+    expect(flyoutSide(100, 300, 176, viewport)).toBe('right')
+  })
+  it('opens left when the submenu would run off the right edge', () => {
+    // Parent item ends at 1300; a 176px submenu needs 1300 + 176 + 8 = 1484 > 1392.
+    expect(flyoutSide(1100, 1300, 176, viewport)).toBe('left')
+  })
+  it('opens right when it just fits', () => {
+    // 1200 + 176 + 8 = 1384 <= 1392.
+    expect(flyoutSide(1000, 1200, 176, viewport)).toBe('right')
+  })
+  it('opens on the side with more room when neither side fits', () => {
+    // A 1200px submenu fits on neither side of an item at 600–800:
+    // 600px of room on the left beats 592px on the right.
+    expect(flyoutSide(600, 800, 1200, viewport)).toBe('left')
+    expect(flyoutSide(100, 300, 1200, viewport)).toBe('right')
+  })
+})
+
+describe('flyoutTopShift', () => {
+  const viewport = 1050
+  it('does not shift when the submenu fits', () => {
+    expect(flyoutTopShift(100, 400, viewport)).toBe(0)
+  })
+  it('shifts up by the overflow when it runs off the bottom', () => {
+    // Bottom at 1100, viewport 1050: shift up 58 so the bottom sits at 1042.
+    expect(flyoutTopShift(700, 1100, viewport)).toBe(-58)
+  })
+  it('never shifts above the top margin', () => {
+    // A 1200px submenu cannot fit: shift up only as far as the margin.
+    expect(flyoutTopShift(100, 1300, viewport)).toBe(-92)
   })
 })
 

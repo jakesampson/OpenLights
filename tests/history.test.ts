@@ -35,7 +35,7 @@ describe('programming history', () => {
     roundTrip(() => store().removeCueStep(list, step))
     roundTrip(() => store().setLivePages([{ id: 'p', name: 'Page', controls: [] }]))
     roundTrip(() => store().setLivePages([...store().show!.livePages!, { id: 'copy', name: 'Copy', controls: [] }]))
-    roundTrip(() => store().setLivePages([{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'toggle', presetIds: [], x: 20, y: 20 }] }]))
+    roundTrip(() => store().setLivePages([{ id: 'p', name: 'Page', controls: [{ id: 'c', name: 'Cue', type: 'push', presetIds: [], x: 20, y: 20 }] }]))
     roundTrip(() => store().setLivePages([{ ...store().show!.livePages![0], controls: [{ ...store().show!.livePages![0].controls[0], x: 90 }] }]))
     roundTrip(() => store().setLivePages([]))
   })

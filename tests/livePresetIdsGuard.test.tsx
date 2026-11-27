@@ -51,7 +51,7 @@ function seedShow() {
     cueLists: [],
     // NOTE: no presetIds key on the control at all — the old shape.
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'btn1', name: 'Old Button', type: 'toggle', cueId: 'cue-fullon', x: 20, y: 20 },
+      { id: 'btn1', name: 'Old Button', type: 'push', cueId: 'cue-fullon', x: 20, y: 20 },
     ] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })

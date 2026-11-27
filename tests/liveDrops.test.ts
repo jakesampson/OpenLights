@@ -11,8 +11,8 @@ function makePage(): LivePage {
     id: 'page',
     name: 'Page',
     controls: [
-      { id: 'c1', name: 'Cue one', type: 'toggle', presetIds: ['p-old'], x: 600, y: 20 },
-      { id: 'c2', name: 'Cue two', type: 'toggle', presetIds: [], x: 600, y: 120 }
+      { id: 'c1', name: 'Cue one', type: 'push', presetIds: ['p-old'], x: 600, y: 20 },
+      { id: 'c2', name: 'Cue two', type: 'push', presetIds: [], x: 600, y: 120 }
     ],
     annotations: [
       { id: 'frame', type: 'frame', text: 'Frame', x: 200, y: 200, width: 300, height: 200 },
@@ -163,7 +163,7 @@ describe('dropping on a cue button (7.10)', () => {
     // entirely (the type requires it, the file need not have it) —
     // dropping a preset onto it must merge onto an empty list, not
     // throw "control.presetIds is not iterable" (Jake, 27 Nov 2026).
-    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Old', type: 'toggle', x: 20, y: 20 } as never] }
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Old', type: 'push', x: 20, y: 20 } as never] }
     const { page: next } = applyLiveDrop(page, payload(), { kind: 'cue', cueId: 'c1' }, makeId)
     expect(next.controls[0]).toMatchObject({ presetIds: ['p1', 'p2'], sequenceIds: ['s1'] })
   })
@@ -172,7 +172,7 @@ describe('dropping on a cue button (7.10)', () => {
 describe('sequences started by active cues (7.10)', () => {
   it('collects sequence ids from lit cues on every page, deduplicated', () => {
     const first = applyLiveDrop(makePage(), payload({ presetIds: [], sequenceIds: ['s1'] }), { kind: 'cue', cueId: 'c1' }, makeId).page
-    const second: LivePage = { id: 'other', name: 'Other', controls: [{ id: 'c3', name: 'Three', type: 'toggle', presetIds: [], sequenceIds: ['s2', 's1'] }] }
+    const second: LivePage = { id: 'other', name: 'Other', controls: [{ id: 'c3', name: 'Three', type: 'push', presetIds: [], sequenceIds: ['s2', 's1'] }] }
     expect(activeCueSequenceIds([first, second], { c1: 255, c2: 0, c3: 128 })).toEqual(['s1', 's2'])
     expect(activeCueSequenceIds([first, second], { c2: 255 })).toEqual([])
   })
@@ -182,7 +182,7 @@ describe('sequences started by active cues (7.10)', () => {
     // still register the sequence — otherwise it never animates and
     // never completes, so a run-once cue stays lit forever (real-app
     // probe, 27 Nov 2026).
-    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'toggle', cueId: 'cue1', presetIds: [] }] }
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'push', cueId: 'cue1', presetIds: [] }] }
     const cues = [{ id: 'cue1', name: 'Rainbow', sequenceIds: ['s1'], presetIds: [], fixtureValues: {} }]
     expect(activeCueSequenceIds([page], { c1: 255 }, cues as never)).toEqual(['s1'])
     expect(activeCueSequenceIds([page], { c1: 0 }, cues as never)).toEqual([])
@@ -211,7 +211,7 @@ describe('dropping an effect on a page (Jake, 26 Nov 2026)', () => {
     const { page, refs } = applyLiveDrop(makePage(), effectPayload(), { kind: 'page', x: 100, y: 100 }, makeId)
     expect(page.controls).toHaveLength(3)
     const control = page.controls[2]
-    expect(control).toMatchObject({ name: 'K.I.T.T.', type: 'toggle', presetIds: [], sequenceIds: [], effectIds: ['kitt'] })
+    expect(control).toMatchObject({ name: 'K.I.T.T.', type: 'push', presetIds: [], sequenceIds: [], effectIds: ['kitt'] })
     expect(control.timing).toEqual({ fadeInMs: 500, fadeOutMs: 500, delayMs: 0, curve: 'linear' })
     expect(refs).toEqual([{ type: 'cue', id: control.id }])
   })
@@ -239,10 +239,10 @@ describe('effects run by active Live buttons (Jake, 26 Nov 2026)', () => {
   it('collects effect ids from lit buttons on every page, deduplicated', () => {
     const pages: LivePage[] = [
       { id: 'a', name: 'A', controls: [
-        { id: 'b1', name: 'One', type: 'toggle', presetIds: [], effectIds: ['kitt'] },
-        { id: 'b2', name: 'Two', type: 'toggle', presetIds: [], effectIds: [] }
+        { id: 'b1', name: 'One', type: 'push', presetIds: [], effectIds: ['kitt'] },
+        { id: 'b2', name: 'Two', type: 'push', presetIds: [], effectIds: [] }
       ] },
-      { id: 'b', name: 'B', controls: [{ id: 'b3', name: 'Three', type: 'flash', presetIds: [], effectIds: ['kitt', 'chase'] }] }
+      { id: 'b', name: 'B', controls: [{ id: 'b3', name: 'Three', type: 'push', behavior: 'flash', presetIds: [], effectIds: ['kitt', 'chase'] }] }
     ]
     expect(activeLiveEffectIds(pages, { b1: 255, b2: 0, b3: 128 })).toEqual(['kitt', 'chase'])
     expect(activeLiveEffectIds(pages, { b1: 0, b3: 0 })).toEqual([])

@@ -1,12 +1,14 @@
-// Cue button menu (Jake, 27 Nov 2026 — LightKey cue editing, Video 1):
-// right-clicking a Live button shows LightKey's button menu in verbatim
-// order — Get Info, Show Properties, Edit Ad Hoc Properties, Add
-// Overrides, Cut, Copy, Paste, Rename, Duplicate, Delete, Control
-// Type, Behavior, Priority, Color, Modifiers, Font, Alignment, Remove
-// From Frame, External Control. Go / Stop / Live view are NOT here —
-// they live in the cue-list transport (Part 1) and on Space. Items that
-// cannot act are disabled with the reason as a tooltip instead of a
-// silent no-op.
+// Cue button menu in Live mode (Jake, 27 Nov 2026 — his LightKey
+// screenshots show the SHORT menu: Get Info, Show Properties, Edit Ad
+// Hoc Properties, Add Overrides, Rename, Control Type, Behavior,
+// Priority, Color, Modifiers, External Control. Cut, Copy, Paste,
+// Duplicate, Delete, Font, Alignment and Remove From Frame are edit
+// operations — the guide's ch.11 edit section (p.180) says "The
+// remainder of this section assumes that the Live view is in edit
+// mode" — so they appear only in Edit mode (see cueButtonMenu.test).
+// Go / Stop / Live view are NOT here — they live in the cue-list
+// transport (Part 1) and on Space. Items that cannot act are disabled
+// with the reason as a tooltip instead of a silent no-op.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
@@ -58,7 +60,7 @@ function seedShow(withCue = false) {
     cues: [FULL_ON],
     cueLists: [],
     presets: [{ id: 'preset-fullon', name: 'Full On', category: 'intensity', fixtureValues: {} }],
-    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [{ id: 'btn-fullon', name: 'Full On', type: 'toggle', cueId: withCue ? 'cue-fullon' : undefined, presetIds: ['preset-fullon'] }] }],
+    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [{ id: 'btn-fullon', name: 'Full On', type: 'push', cueId: withCue ? 'cue-fullon' : undefined, presetIds: ['preset-fullon'] }] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })
   act(() => { useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'btn-fullon' }]) })
@@ -117,32 +119,30 @@ afterEach(() => {
   container = undefined
 })
 
-describe('cue button menu (Video 1)', () => {
-  it('lists LightKey’s items in order, with no Go / Stop / Live view', () => {
+describe('cue button menu in Live mode (Jake\'s screenshots)', () => {
+  it('lists LightKey’s short menu in order, with no Go / Stop / Live view and no edit operations', () => {
     seedShow()
     renderMenu()
     openMenu()
     expect(menuLabels()).toEqual([
       'Get Info', 'Show Properties', 'Edit Ad Hoc Properties', 'Add Overrides',
-      'Cut', 'Copy', 'Paste', 'Rename', 'Duplicate', 'Delete',
-      'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers', 'Font',
-      'Alignment', 'Remove From Frame', 'External Control',
+      'Rename', 'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers',
+      'External Control',
     ])
+    for (const editOnly of ['Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', 'Font', 'Alignment', 'Remove From Frame']) {
+      expect(menuLabels()).not.toContain(editOnly)
+    }
   })
 
-  it('disables Add Overrides with no overrides, Paste with an empty clipboard, and the parked submenus', () => {
+  it('disables Add Overrides with no overrides; the submenus are live, not parked', () => {
     seedShow()
     renderMenu()
     openMenu()
     expect(menuButton('Add Overrides').hasAttribute('disabled')).toBe(true)
     expect(menuButton('Add Overrides').getAttribute('title')).toBe('No overridden properties to add')
-    expect(menuButton('Paste').hasAttribute('disabled')).toBe(true)
-    expect(menuButton('Paste').getAttribute('title')).toBe('Nothing to paste')
-    expect(menuButton('Priority').getAttribute('title')).toBe('Set the priority in the inspector')
-    expect(menuButton('Modifiers').getAttribute('title')).toBe('Add modifiers in the inspector')
-    expect(menuButton('Font').getAttribute('title')).toBe('Change the font in the inspector')
-    expect(menuButton('External Control').getAttribute('title')).toBe('External control is set up in Settings')
-    expect(menuButton('Remove From Frame').getAttribute('title')).toBe('Not in a frame')
+    for (const label of ['Priority', 'Modifiers', 'External Control']) {
+      expect(menuButton(label).hasAttribute('disabled')).toBe(false)
+    }
   })
 
   it('Add Overrides is enabled with overrides present, and a real click adds them to the button', () => {
@@ -187,11 +187,12 @@ describe('cue button menu (Video 1)', () => {
     renderMenu()
     openMenu()
     realClick(menuButton('Control Type'))
-    expect(menuLabels()).toContain('Toggle Button')
     expect(menuLabels()).toContain('Push Button')
-    expect(menuLabels()).toContain('Fader')
-    realClick(menuButton('Fader'))
-    expect(useShowStore.getState().show!.livePages![0].controls[0].type).toBe('fader')
+    expect(menuLabels()).toContain('Fader Horizontal')
+    expect(menuLabels()).toContain('Fader Vertical')
+    expect(menuLabels()).not.toContain('Toggle Button')
+    realClick(menuButton('Fader Horizontal'))
+    expect(useShowStore.getState().show!.livePages![0].controls[0].type).toBe('faderHorizontal')
   })
 
   it('Behavior submenu toggles the push-button behavior', () => {
@@ -200,7 +201,9 @@ describe('cue button menu (Video 1)', () => {
     openMenu()
     realClick(menuButton('Behavior'))
     realClick(menuButton('Flash'))
-    expect(useShowStore.getState().show!.livePages![0].controls[0].type).toBe('flash')
+    const control = useShowStore.getState().show!.livePages![0].controls[0]
+    expect(control.type).toBe('push')
+    expect(control.behavior).toBe('flash')
   })
 
   it('Color Automatic resets a manual colour', () => {

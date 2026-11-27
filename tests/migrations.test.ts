@@ -235,13 +235,50 @@ describe('live cue sequence migration (7.10)', () => {
     expect(controls[0].timing).toEqual({ fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' })
     expect(controls[0].appearance).toEqual({ color: '#47235a', releaseOthers: false })
     expect(controls[0].modifiers).toEqual({ intensity: 100, speed: 100, size: 100 })
-    expect(controls[0].priority).toBe(0)
+    expect(controls[0].priority).toBe(5)
     expect(controls[1].sequenceIds).toEqual(['s1', 's1']) // migration preserves, drops normalise
     expect(show.livePages[0].annotations[0].sequenceIds).toBeUndefined()
   })
 
   it('is idempotent and does not bump schemaVersion', () => {
     const once: any = migrateShow(sequenceShow())
+    expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
+  })
+})
+
+describe('live button type / behaviour migration (schema v5, Jake 27 Nov 2026)', () => {
+  // LightKey separates Type from Behaviour (guide ch.11, p.204): the
+  // old single `type` field splits into `type` (push / faderHorizontal
+  // / faderVertical) + `behavior` (toggle / flash). A v4 show keeps
+  // exactly the behaviour it had.
+  const v4Show = () => ({
+    schemaVersion: 4,
+    id: 'old', name: 'Old show', createdAt: 0, updatedAt: 0,
+    fixtures: [], cues: [],
+    livePages: [{
+      id: 'p', name: 'Page',
+      controls: [
+        { id: 'c1', name: 'Latch', type: 'toggle', presetIds: [], x: 20, y: 20 },
+        { id: 'c2', name: 'Momentary', type: 'flash', presetIds: [], x: 140, y: 20 },
+        { id: 'c3', name: 'Level', type: 'fader', presetIds: [], x: 260, y: 20 },
+      ]
+    }]
+  })
+
+  it('splits the old collapsed type into type + behavior, losing nothing', () => {
+    const show: any = migrateShow(v4Show())
+    expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(show.livePages[0].controls).toEqual([
+      expect.objectContaining({ id: 'c1', type: 'push', behavior: 'toggle' }),
+      expect.objectContaining({ id: 'c2', type: 'push', behavior: 'flash' }),
+      expect.objectContaining({ id: 'c3', type: 'faderHorizontal' }),
+    ])
+    expect(show.livePages[0].controls[2].behavior).toBeUndefined()
+  })
+
+  it('is idempotent and does not bump schemaVersion', () => {
+    const once: any = migrateShow(v4Show())
     expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })

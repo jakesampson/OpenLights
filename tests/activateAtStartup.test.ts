@@ -27,8 +27,8 @@ function makeShow(startupMode: 'none' | 'restore' = 'none'): ShowDef {
         name: 'Page 1',
         fadeMs: 0,
         controls: [
-          { id: 'c-start', name: 'House', type: 'toggle', presetIds: [], activateAtStartup: true, x: 0, y: 0 },
-          { id: 'c-plain', name: 'Plain', type: 'toggle', presetIds: [], x: 100, y: 0 }
+          { id: 'c-start', name: 'House', type: 'push', presetIds: [], activateAtStartup: true, x: 0, y: 0 },
+          { id: 'c-plain', name: 'Plain', type: 'push', presetIds: [], x: 100, y: 0 }
         ],
         annotations: []
       },
@@ -37,7 +37,7 @@ function makeShow(startupMode: 'none' | 'restore' = 'none'): ShowDef {
         name: 'Page 2',
         fadeMs: 0,
         controls: [
-          { id: 'c-other', name: 'Other Page', type: 'toggle', presetIds: [], activateAtStartup: true, x: 0, y: 0 }
+          { id: 'c-other', name: 'Other Page', type: 'push', presetIds: [], activateAtStartup: true, x: 0, y: 0 }
         ],
         annotations: []
       }

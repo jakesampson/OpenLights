@@ -31,9 +31,9 @@ function testShow(): ShowDef {
     ],
     livePages: [{
       id: 'page', name: 'Page', controls: [
-        { id: 'b1', name: 'Full On', type: 'toggle', presetIds: ['p1', 'p2'], sequenceIds: ['s1'], effectIds: ['e1'], x: 0, y: 0 },
-        { id: 'b2', name: 'Cue 1', type: 'toggle', cueId: 'c1', presetIds: [], x: 0, y: 100 },
-        { id: 'b3', name: 'Cue 2', type: 'toggle', cueId: 'c2', presetIds: [], x: 0, y: 200 }
+        { id: 'b1', name: 'Full On', type: 'push', presetIds: ['p1', 'p2'], sequenceIds: ['s1'], effectIds: ['e1'], x: 0, y: 0 },
+        { id: 'b2', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [], x: 0, y: 100 },
+        { id: 'b3', name: 'Cue 2', type: 'push', cueId: 'c2', presetIds: [], x: 0, y: 200 }
       ]
     }],
     effects: [{ id: 'e1', name: 'K.I.T.T.', fixtureIds: ['d1'], attribute: 'intensity', waveform: 'sine', speed: 1, syncToBpm: false, size: 255, offset: 0, enabled: true, phaseSpread: 0 }],

@@ -51,8 +51,8 @@ function seedShow() {
     sequences: [],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
       // btn-a and btn-b touch edge to edge (140) — an attached group.
-      { id: 'btn-a', name: 'Red A', type: 'toggle', presetIds: ['p-red'], x: 20, y: 100, width: 120, height: 40 },
-      { id: 'btn-b', name: 'Red B', type: 'toggle', presetIds: ['p-red'], x: 140, y: 100, width: 120, height: 40 },
+      { id: 'btn-a', name: 'Red A', type: 'push', presetIds: ['p-red'], x: 20, y: 100, width: 120, height: 40 },
+      { id: 'btn-b', name: 'Red B', type: 'push', presetIds: ['p-red'], x: 140, y: 100, width: 120, height: 40 },
     ], annotations: [
       { id: 'frame1', type: 'frame', text: 'Set', x: 10, y: 90, width: 300, height: 130 },
     ] }],

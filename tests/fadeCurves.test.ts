@@ -11,7 +11,7 @@ describe('fade curves and cue timing', () => {
     expect(fadeCurve(curve, 0.5)).toBeLessThanOrEqual(0.75)
   })
   it('applies delay, fade-in and fade-out to cue output levels', () => {
-    const cue: LiveControl = { id: 'c', name: 'Cue', type: 'toggle', presetIds: [], timing: { delayMs: 100, fadeInMs: 400, fadeOutMs: 200, curve: 'linear' } }
+    const cue: LiveControl = { id: 'c', name: 'Cue', type: 'push', presetIds: [], timing: { delayMs: 100, fadeInMs: 400, fadeOutMs: 200, curve: 'linear' } }
     expect(cueTransitionLevel(cue, 0, 255, 50)).toBe(0)
     expect(cueTransitionLevel(cue, 0, 255, 300)).toBe(128)
     expect(cueTransitionLevel(cue, 255, 0, 200)).toBe(128)

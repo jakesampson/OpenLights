@@ -20,8 +20,8 @@ function setUp() {
       fixtureValues: { a: { intensity: 100, red: 10 }, b: { intensity: 100, red: 10 } } }],
     cueLists: [{ id: 'list1', name: 'List 1', steps: [{ id: 'st1', cueId: 'c1', fadeMs: 0, holdMs: 0 }], loop: false }],
     livePages: [{ id: 'pg', name: 'Page 1', cueListWidgets: [{ id: 'w1', cueListId: 'list1', x: 0, y: 0 }], controls: [
-      { id: 'btn', name: 'Btn', type: 'toggle', presetIds: [], adHocValues: { a: { intensity: 50 } } },
-      { id: 'btn-cue', name: 'Cue btn', type: 'toggle', presetIds: [], cueId: 'c1' }
+      { id: 'btn', name: 'Btn', type: 'push', presetIds: [], adHocValues: { a: { intensity: 50 } } },
+      { id: 'btn-cue', name: 'Cue btn', type: 'push', presetIds: [], cueId: 'c1' }
     ] }]
   }))
   s().selectFixtures(['a'])

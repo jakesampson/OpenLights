@@ -64,7 +64,7 @@ function seedShow() {
     presets: [],
     effects: [KITT],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'pad-kitt', name: 'K.I.T.T.', type: 'toggle', presetIds: [], effectIds: ['kitt'], x: 20, y: 20 }
+      { id: 'pad-kitt', name: 'K.I.T.T.', type: 'push', presetIds: [], effectIds: ['kitt'], x: 20, y: 20 }
     ] }]
   } as unknown as ShowDef))
   act(() => {

@@ -54,10 +54,10 @@ function seedShow() {
     ],
     sequences: [{ id: 'seq1', name: 'Rainbow', order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, timeScale: 0.5, steps: [{ id: 'step1', name: 'Step 1', fixtureValues: { d1: { red: 255 } }, presetIds: [], fadeMs: 0, holdMs: 1000 }] }],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'btn-seq', name: 'Rainbow', type: 'toggle', cueId: 'cue-seq', presetIds: [], x: 20, y: 20 },
-      { id: 'btn-a', name: 'Song A', type: 'toggle', cueId: 'cue-a', presetIds: [], x: 20, y: 100 },
-      { id: 'btn-b', name: 'Song B', type: 'toggle', cueId: 'cue-b', presetIds: [], x: 160, y: 100 },
-      { id: 'btn-next', name: 'Next ›', type: 'flash', frameStep: 'next', presetIds: [], x: 20, y: 180 },
+      { id: 'btn-seq', name: 'Rainbow', type: 'push', cueId: 'cue-seq', presetIds: [], x: 20, y: 20 },
+      { id: 'btn-a', name: 'Song A', type: 'push', cueId: 'cue-a', presetIds: [], x: 20, y: 100 },
+      { id: 'btn-b', name: 'Song B', type: 'push', cueId: 'cue-b', presetIds: [], x: 160, y: 100 },
+      { id: 'btn-next', name: 'Next ›', type: 'push', behavior: 'flash', frameStep: 'next', presetIds: [], x: 20, y: 180 },
     ], annotations: [
       { id: 'frame1', type: 'frame', text: 'Set', x: 10, y: 90, width: 300, height: 130 },
     ] }],

@@ -14,10 +14,11 @@ interface LearnTarget {
 
 type MidiState = 'unsupported' | 'requesting' | 'granted' | 'denied' | 'timeout'
 
-export function MidiPanel() {
+export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: LearnTarget | null } = {}) {
   const {
     cues,
     cueLists,
+    show,
     midiMappings,
     activateCue,
     addMidiMapping,
@@ -35,6 +36,11 @@ export function MidiPanel() {
   const clock = useRef(new MidiBeatClock())
   const taps = useRef<number[]>([])
 
+  // A learn armed from a button's External Control menu (Jake,
+  // 27 Nov 2026 — LightKey's "Add Trigger…"): open with the learn
+  // already listening for that button.
+  useEffect(() => { if (initialLearnTarget) setLearnTarget(initialLearnTarget) }, [initialLearnTarget])
+
   // Keep a ref in sync so the MIDI callback always sees the latest arm state
   useEffect(() => {
     learnRef.current = learnTarget
@@ -45,6 +51,12 @@ export function MidiPanel() {
       const target = learnRef.current
       if (target) {
         const mapping = learnMapping({ targetType: target.targetType, targetId: target.targetId, name: target.label }, msg, crypto.randomUUID())
+        // One trigger per target (LightKey's Add / Replace / Remove
+        // model): learning a new trigger for a target replaces the old
+        // one instead of stacking a second mapping on it.
+        for (const existing of useShowStore.getState().midiMappings ?? []) {
+          if (existing.targetType === target.targetType && existing.targetId === target.targetId) removeMidiMapping(existing.id)
+        }
         addMidiMapping(mapping)
         setLearnTarget(null)
         return
@@ -81,7 +93,7 @@ export function MidiPanel() {
         activateCue(match.targetId)
       }
     },
-    [addMidiMapping, cuePrev, activateCue, setBpm, setLiveValue, setMaster, toggleBlackout, toggleBlind, toggleFreeze, togglePreset, toggleSequence]
+    [addMidiMapping, removeMidiMapping, cuePrev, activateCue, setBpm, setLiveValue, setMaster, toggleBlackout, toggleBlind, toggleFreeze, togglePreset, toggleSequence]
   )
 
   useEffect(() => {
@@ -155,6 +167,19 @@ export function MidiPanel() {
     if (m.targetType === 'cue-next') return `Next cue · ${cueListName(m.targetId)}`
     return cueName(m.targetId)
   }
+
+  // Live buttons (Jake, 27 Nov 2026 — LightKey's "Add Trigger…" learns
+  // a MIDI trigger for the button itself; until now the bind list had
+  // no row for a Live button, so there was no way to learn one from
+  // Settings either). With several pages the page name disambiguates.
+  const livePages = show?.livePages ?? []
+  const liveButtons: LearnTarget[] = livePages.flatMap((page) =>
+    page.controls.map((control) => ({
+      targetType: 'live-cue' as const,
+      targetId: control.id,
+      label: livePages.length > 1 ? `${page.name} · ${control.name}` : control.name,
+    }))
+  )
 
   const learnButton = (target: LearnTarget) => {
     const armed = armedFor(target.targetId, target.targetType)
@@ -279,6 +304,18 @@ export function MidiPanel() {
               {cues.map((cue) =>
                 bindRow({ targetType: 'cue', targetId: cue.id, label: cue.name })
               )}
+            </div>
+          </div>
+
+          <div>
+            <h4 className="mb-2 text-[9px] font-semibold uppercase tracking-wider text-zinc-600">
+              Live Buttons
+            </h4>
+            <div className="flex flex-col gap-2">
+              {liveButtons.length === 0 && (
+                <div className="px-3 py-2 text-xs text-zinc-600">No Live buttons yet.</div>
+              )}
+              {liveButtons.map((target) => bindRow(target))}
             </div>
           </div>
         </div>

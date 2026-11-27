@@ -47,11 +47,11 @@ describe('preset palette filter and related cues (6.12)', () => {
       fixtures: [], cues: [], automations: [],
       livePages: [
         { id: 'page1', name: 'Main', controls: [
-          { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: ['p1', 'p2'], x: 0, y: 0 },
-          { id: 'c2', name: 'Cue 2', type: 'toggle', presetIds: ['p3'], x: 50, y: 0 },
+          { id: 'c1', name: 'Cue 1', type: 'push', presetIds: ['p1', 'p2'], x: 0, y: 0 },
+          { id: 'c2', name: 'Cue 2', type: 'push', presetIds: ['p3'], x: 50, y: 0 },
         ] },
         { id: 'page2', name: 'Second', controls: [
-          { id: 'c3', name: 'Cue 3', type: 'flash', presetIds: ['p1'], x: 0, y: 0 },
+          { id: 'c3', name: 'Cue 3', type: 'push', behavior: 'flash', presetIds: ['p1'], x: 0, y: 0 },
         ] },
       ],
     }
@@ -68,11 +68,11 @@ describe('preset palette filter and related cues (6.12)', () => {
       fixtures: [], cues: [], automations: [],
       livePages: [
         { id: 'page1', name: 'Main', controls: [
-          { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: [], sequenceIds: ['s1'], x: 0, y: 0 },
-          { id: 'c2', name: 'Cue 2', type: 'toggle', presetIds: ['p1'], x: 50, y: 0 },
+          { id: 'c1', name: 'Cue 1', type: 'push', presetIds: [], sequenceIds: ['s1'], x: 0, y: 0 },
+          { id: 'c2', name: 'Cue 2', type: 'push', presetIds: ['p1'], x: 50, y: 0 },
         ] },
         { id: 'page2', name: 'Second', controls: [
-          { id: 'c3', name: 'Cue 3', type: 'flash', presetIds: [], sequenceIds: ['s1', 's2'], x: 0, y: 0 },
+          { id: 'c3', name: 'Cue 3', type: 'push', behavior: 'flash', presetIds: [], sequenceIds: ['s1', 's2'], x: 0, y: 0 },
         ] },
       ],
     }
@@ -105,7 +105,7 @@ describe('find presets and sequences not contained in a cue (Guide ch.9, p.144)'
     sequences,
     livePages: [
       { id: 'page1', name: 'Main', controls: [
-        { id: 'c1', name: 'Cue 1', type: 'toggle', presetIds: ['p-used-live'], sequenceIds: ['s-used'], x: 0, y: 0 }
+        { id: 'c1', name: 'Cue 1', type: 'push', presetIds: ['p-used-live'], sequenceIds: ['s-used'], x: 0, y: 0 }
       ] }
     ]
   }

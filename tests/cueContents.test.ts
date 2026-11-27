@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { LiveControl } from '../src/shared/types'
 import { applyCueContents } from '../src/renderer/src/lib/cueContents'
 
-const cue = (): LiveControl => ({ id: 'cue', name: 'Cue', type: 'toggle', presetIds: ['p1'], sequenceIds: ['s1'], adHocValues: { f1: { intensity: 100, red: 20 } } })
+const cue = (): LiveControl => ({ id: 'cue', name: 'Cue', type: 'push', presetIds: ['p1'], sequenceIds: ['s1'], adHocValues: { f1: { intensity: 100, red: 20 } } })
 
 describe('cue contents', () => {
   it('adds and removes preset and sequence references', () => {
