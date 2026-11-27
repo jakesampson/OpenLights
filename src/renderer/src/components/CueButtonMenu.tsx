@@ -13,6 +13,22 @@
 //   survives here — it is the "kaboooom" UI for deleting a cue button
 //   from the canvas (the rule from the cuelist-as-widget commit); it
 //   must never be removed from every mode.
+// Separator grouping (Jake, 27 Nov 2026, screenshots 8.45.41pm +
+// 8.46.06pm): LightKey's Live menu groups [Get Info] | [Show
+// Properties, Edit Ad Hoc Properties, Add Overrides] | [Rename] |
+// [Control Type, Behavior, Priority, Color, Modifiers] | [External
+// Control]. Edit mode is INFERRED from LightKey's own cuelist widget
+// menu in Jake's 5.20.33pm screenshot, which separates the clipboard
+// operations from the object operations — [Cut, Copy, Paste] |
+// [Rename, Duplicate, Delete] — so the button menu does the same, with
+// Font / Alignment / Remove From Frame staying in the settings group.
+// No direct photograph of LightKey's Edit-mode button menu exists in
+// our evidence; if Jake's shows different separators there, they move.
+// "Show Properties" carries LightKey's speech-bubble icon (rounded
+// rectangle with a small tail at the top, measured from 8.45.41pm and
+// confirmed at full resolution in 5.20.33pm — the same glyph appears in
+// both menus). The cuelist widget menu still lacks the icon and the
+// separator after Paste (noted, out of scope for this change).
 // Go / Stop / Live view are NOT here — they live in the cue-list
 // transport (Part 1) and on Space. Used by both the Live-mode global
 // menu (ContextMenu, kind 'cue') and the edit-mode canvas menu
@@ -25,8 +41,8 @@
 // the left when there is no room on the right, and shift up when they
 // would run off the bottom. Items that cannot act are disabled with
 // the reason as their tooltip (Jake, 27 Nov 2026 — no silent no-ops).
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useShowStore } from '../stores/showStore'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useShowStore, collectInlineCues } from '../stores/showStore'
 import { frameForCue } from '../lib/liveFrames'
 import { isClipboardEmpty } from '../lib/livePageObjects'
 import { DEFAULT_BUTTON_APPEARANCE_COLOR, LIGHTKEY_BUTTON_COLORS, contrastingTextColor } from '../lib/liveButtonColor'
@@ -41,11 +57,30 @@ type SubmenuItem = { key: string; label: string; checked?: boolean; disabledReas
 type MenuItem = {
   key: string
   label: string
+  icon?: ReactNode
   disabledReason?: string | null
   submenu?: SubmenuItem[]
   action?: () => void
 }
 type MenuEntry = MenuItem | { key: string; separator: true }
+
+// A separator entry. (A `{ separator: true }` literal inside a spread
+// ternary widens `true` to `boolean` and fails the MenuEntry check;
+// the helper keeps the literal type.)
+const sep = (key: string): MenuEntry => ({ key, separator: true })
+
+// LightKey's "Show Properties" glyph: a speech bubble — a rounded
+// rectangle with a small tail rising from the top edge, left of
+// centre (measured from Jake's 8.45.41pm screenshot, confirmed at
+// full resolution in 5.20.33pm). Drawn with the menu text colour.
+function ShowPropertiesIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round">
+      <path d="M9 6.5 7.2 2.5 12 6.5" />
+      <rect x="2.5" y="6.5" width="19" height="13.5" rx="3.5" />
+    </svg>
+  )
+}
 
 export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClose: () => void }) {
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)
@@ -94,7 +129,12 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
   const pageClipboard = useShowStore((s) => s.pageClipboard)
   // Live mode shows LightKey's short menu, Edit mode the full one.
   const editing = useShowStore((s) => s.liveEditing)
-  const cues = useShowStore((s) => s.cues)
+  // Inline cues (Jake, 27 Nov 2026): there is no project-wide cue
+  // list — `cues` is the collected view over the buttons' and steps'
+  // inline cues, for the call sites that still take a cue list.
+  const show = useShowStore((s) => s.show)
+  const cueLists = useShowStore((s) => s.cueLists)
+  const cues = collectInlineCues(show, cueLists)
   const presets = useShowStore((s) => s.presets)
   const fixtures = useShowStore((s) => s.show?.fixtures ?? [])
   const sequences = useShowStore((s) => s.show?.sequences ?? [])
@@ -111,7 +151,16 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
   const inFrame = frameForCue(page, controlId) !== null
   const priority = control.priority ?? DEFAULT_CUE_PRIORITY
   const selectedModifiers = control.selectedModifiers ?? []
-  const applies = applicableModifiers(control, cues, presets, fixtures, sequences, effects)
+  // applicableModifiers still reads the button's own preset / sequence
+  // / ad-hoc lists (liveModifiers.ts, Agent 4's file — not migrated to
+  // control.cue yet), so a button carrying an inline cue is passed
+  // with the cue's contents mirrored onto those lists: the checklist
+  // then reflects the cue the button actually holds, not the stale
+  // lists the button had before the cue was picked.
+  const modifierControl: LiveControl = control.cue
+    ? { ...control, presetIds: control.cue.presetIds ?? [], sequenceIds: control.cue.sequenceIds ?? [], adHocValues: control.cue.fixtureValues ?? {} }
+    : control
+  const applies = applicableModifiers(modifierControl, cues, presets, fixtures, sequences, effects)
   // The button's MIDI trigger, if it has one (LightKey's External
   // Control > Replace / Remove Trigger are greyed without one).
   const trigger = midiMappings.find((m) => m.targetType === 'live-cue' && m.targetId === controlId)
@@ -120,15 +169,17 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
 
   const items: MenuEntry[] = [
     { key: 'getInfo', label: 'Get Info', action: () => openInfo('contents') },
+    // LightKey groups Get Info alone (8.45.41pm) — the separator sits
+    // after it, not after Show Properties.
+    { key: 'sepAfterGetInfo', separator: true },
     // Show Properties opens the same inspector as Get Info — the guide
     // uses "Get Info" for Live objects and "Show Properties" for Design
     // objects, and no source shows a second panel for a button.
-    { key: 'showProperties', label: 'Show Properties', action: () => openInfo('contents') },
-    { key: 'sep1', separator: true },
+    { key: 'showProperties', label: 'Show Properties', icon: <ShowPropertiesIcon />, action: () => openInfo('contents') },
     {
       key: 'editAdHocProperties', label: 'Edit Ad Hoc Properties',
       action: () => {
-        if (control.cueId) state.startEditingCueAdHoc(control.cueId)
+        if (control.cue) state.startEditingCueAdHoc(control.cue.id)
         else window.dispatchEvent(new Event('openlights-open-live-properties'))
       },
     },
@@ -137,9 +188,11 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
       disabledReason: Object.keys(manualOverrides).length ? null : 'No overridden properties to add',
       action: () => state.addOverridesToCues([controlId], false),
     },
-    { key: 'sep2', separator: true },
+    { key: 'sepAfterAddOverrides', separator: true },
     // Cut / Copy / Paste are edit operations (guide ch.11 edit section,
-    // p.180) — Live mode has no clipboard group.
+    // p.180) — Live mode has no clipboard group. In Edit mode they are
+    // their own group, separated from Rename / Duplicate / Delete
+    // (LightKey's cuelist menu, Jake's 5.20.33pm screenshot).
     ...(editing ? [
       { key: 'cut', label: 'Cut', action: () => { state.copySelectedPageObjects(); state.deleteSelectedPageObjects() } },
       { key: 'copy', label: 'Copy', action: () => state.copySelectedPageObjects() },
@@ -148,14 +201,19 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
         disabledReason: isClipboardEmpty(pageClipboard) ? 'Nothing to paste' : null,
         action: () => state.pastePageObjects(),
       },
+      sep('sepAfterClipboard'),
     ] as MenuEntry[] : []),
     { key: 'rename', label: 'Rename', action: () => window.dispatchEvent(new CustomEvent('openlights-rename-live-control', { detail: { controlId } })) },
     // Duplicate / Delete are edit operations too — Delete is the
-    // "kaboooom" UI, and it lives here, in Edit mode.
+    // "kaboooom" UI, and it lives here, in Edit mode. In Live mode
+    // Rename stands alone in its group, so the separator follows it.
     ...(editing ? [
       { key: 'duplicate', label: 'Duplicate', action: () => state.duplicateSelectedPageObjects() },
       { key: 'delete', label: 'Delete', action: () => state.deleteSelectedPageObjects() },
-    ] as MenuEntry[] : []),
+      sep('sepAfterDelete'),
+    ] as MenuEntry[] : [
+      sep('sepAfterRename'),
+    ]),
     {
       key: 'controlType', label: 'Control Type',
       // Guide p.179 + p.204: Push Button, Fader Horizontal, Fader
@@ -249,7 +307,11 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
         action: () => state.removeFromFrame(controlId),
       },
     ] as MenuEntry[] : []),
-    { key: 'sep3', separator: true },
+    // Font / Alignment / Remove From Frame stay in the settings group
+    // with Control Type … Modifiers (all button settings); the
+    // separator before External Control follows them in Edit mode and
+    // Modifiers in Live mode, as in LightKey's Live menu (8.45.41pm).
+    { key: 'sepBeforeExternal', separator: true },
     {
       key: 'externalControl', label: 'External Control',
       submenu: [
@@ -303,7 +365,7 @@ export function CueButtonMenu({ controlId, onClose }: { controlId: string; onClo
         <button type="button" role="menuitem" disabled={disabled} title={item.disabledReason ?? undefined} aria-haspopup={item.submenu ? 'menu' : undefined} aria-expanded={item.submenu ? expanded : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => {
           if (item.submenu) { openSubmenuFor(expanded ? null : item.key); return }
           if (item.action) run(item.action)
-        }}>{item.label}{item.submenu && <span className="float-right ml-4 text-dim">›</span>}</button>
+        }}>{item.icon && <span className="mr-2 inline-flex align-middle [&_svg]:h-3.5 [&_svg]:w-3.5">{item.icon}</span>}{item.label}{item.submenu && <span className="float-right ml-4 text-dim">›</span>}</button>
         {item.submenu && expanded && <div ref={submenuRef} role="menu" aria-label={`${item.label} options`} data-flyout-side={submenuSide} className="absolute z-[310] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={submenuSide === 'right' ? { left: 'calc(100% - 2px)', top: -5 + submenuTopShift } : { right: 'calc(100% - 2px)', top: -5 + submenuTopShift }}>
           {item.submenu.map((sub) => {
             if ('separator' in sub) return <div key={sub.key} role="separator" className="mx-2 my-1 border-t border-line" />

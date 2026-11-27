@@ -60,8 +60,7 @@ function setShow(options: { effects?: EffectDef[]; activePresetIds?: string[]; s
     fixtures: [
       { id: 'fx1', name: 'W4', type: 'led-wash', channelStart: 1, channels: 7 },
       { id: 'fx2', name: 'PB1', type: 'par', channelStart: 8, channels: 4 }
-    ],
-    cues: []
+    ]
   }
   const presets = [
     { id: 'p-fullon', name: 'Full On', category: 'intensity' as const, fixtureValues: { fx1: { intensity: 255 }, fx2: { intensity: 255 } } },
@@ -70,12 +69,12 @@ function setShow(options: { effects?: EffectDef[]; activePresetIds?: string[]; s
   ]
   act(() => {
     useShowStore.setState({
-      show, cues: show.cues, presets,
+      show, presets,
       effects: options.effects ?? [],
       activePresetIds: options.activePresetIds ?? [],
       selectedFixtureIds: options.selectedFixtureIds ?? ['fx1'],
       selectedBeams: [],
-      activeCueId: null, editingPresetId: options.editingPresetId ?? null,
+      activeCueRef: null, editingPresetId: options.editingPresetId ?? null,
       editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false
     })
   })

@@ -18,12 +18,12 @@ import { useShowStore } from '../stores/showStore'
  * there is no next cue to fade to.
  */
 export function XfadeSlider({ listId, vertical = false }: { listId: string; vertical?: boolean }) {
-  const { cueLists, cues, activeCueListId, activeCueIndex, manualCrossfade, manualCrossfadeAnchor, setManualCrossfade } = useShowStore()
+  const { cueLists, activeCueListId, activeCueIndex, manualCrossfade, manualCrossfadeAnchor, setManualCrossfade } = useShowStore()
   const list = cueLists.find((item) => item.id === listId)
   if (!list) return null
   const active = activeCueListId === list.id && activeCueIndex >= 0
   const nextIndex = active ? manualCrossfadeNextIndex(list, activeCueIndex) : -1
-  const next = nextIndex >= 0 ? cues.find((cue) => cue.id === list.steps[nextIndex]?.cueId) : undefined
+  const next = nextIndex >= 0 ? list.steps[nextIndex]?.cue : undefined
   const disabled = !active || !next
   const progress = manualCrossfadeProgress(manualCrossfadeAnchor, manualCrossfade)
   const input = (

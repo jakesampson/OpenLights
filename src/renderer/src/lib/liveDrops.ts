@@ -126,23 +126,25 @@ function dropPosition(
   return { x: px, y: py }
 }
 
-/** Sequence ids started by active cues, deduplicated across all pages. */
+/** Sequence ids started by active cues, deduplicated across all pages.
+ *  A button's sequence usually lives in its inline cue, not on the
+ *  button itself — without this the cue's sequence never registers with
+ *  the output engine, so it never animates and never completes (found by
+ *  the real-app probe, 27 Nov 2026: a run-once Rainbow cue stayed lit
+ *  forever instead of auto-deactivating). `cues` is accepted for the
+ *  callers that still pass the show's inline cues and ignored — the cue
+ *  now comes from each control itself. */
 export function activeCueSequenceIds(
   pages: LivePage[] | undefined,
   active: Record<string, number>,
   cues?: CueDef[]
 ): string[] {
+  void cues
   const ids = new Set<string>()
   for (const page of pages ?? []) for (const cue of page.controls) {
     if ((active[cue.id] ?? 0) <= 0) continue
     for (const id of cue.sequenceIds ?? []) ids.add(id)
-    // A button's sequence usually lives in its cue, not on the button
-    // itself — without this the cue's sequence never registers with the
-    // output engine, so it never animates and never completes (found by
-    // the real-app probe, 27 Nov 2026: a run-once Rainbow cue stayed lit
-    // forever instead of auto-deactivating).
-    const cueDef = cues?.find((c) => c.id === cue.cueId)
-    for (const id of cueDef?.sequenceIds ?? []) ids.add(id)
+    for (const id of cue.cue?.sequenceIds ?? []) ids.add(id)
   }
   return [...ids]
 }
@@ -190,6 +192,27 @@ export function applyLiveDrop(
     if (clean.effectIds.length) return { page, refs: [] }
     const cue = page.controls.find((item) => item.id === target.cueId)
     if (!cue) return { page, refs: [] }
+    // A button carrying an inline cue takes the drop into the CUE
+    // (Video 2: dragging a preset onto an existing button adds it to
+    // that button's queue — the Get Info list shows it and it travels
+    // with the cue). A standalone button takes it into its own lists,
+    // as before. (The store's dropOnLivePage takes the cue branch
+    // first; this keeps the pure function consistent for direct
+    // callers.)
+    if (cue.cue) {
+      const updated: LiveControl = {
+        ...cue,
+        cue: {
+          ...cue.cue,
+          presetIds: uniqueIds([...(cue.cue.presetIds ?? []), ...clean.presetIds]),
+          sequenceIds: uniqueIds([...(cue.cue.sequenceIds ?? []), ...clean.sequenceIds])
+        }
+      }
+      return {
+        page: { ...page, controls: page.controls.map((item) => item.id === cue.id ? updated : item) },
+        refs: [{ type: 'cue' as const, id: cue.id }]
+      }
+    }
     const updated = {
       ...cue,
       presetIds: uniqueIds([...(cue.presetIds ?? []), ...clean.presetIds]),
@@ -240,6 +263,18 @@ export function applyLiveDrop(
           presetIds: unit.presetIds,
           sequenceIds: unit.sequenceIds,
           effectIds: unit.effectIds,
+          // A preset / sequence drop mints a cue, held inline in the
+          // new button (Jake, 27 Nov 2026 — there is no project-wide
+          // cue store any more): the cue carries exactly the dragged
+          // items, named from them, fading over the global default
+          // (1000ms — this pure function has no access to the show's
+          // preferences, where the addCue factory would read it). The
+          // button keeps its own lists too, as setControlCue leaves
+          // them; the output reads the cue first. Effect-only drops
+          // stay standalone — a cue cannot hold effects.
+          ...(unit.presetIds.length || unit.sequenceIds.length
+            ? { cue: { id: makeId(), name: dropLabel(unit), presetIds: unit.presetIds, sequenceIds: unit.sequenceIds, fixtureValues: {}, fadeMs: 1000 } as CueDef }
+            : {}),
           // A dropped effect button carries LightKey's 0.5s fade in/out
           // (Jake, 26 Nov 2026 — his screenshot's inspector shows Fade In
           // 00:00.5 / Fade Out 00:00.5 on the dragged "Crazy Colors"

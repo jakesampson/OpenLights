@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { availableProperties, effectableProperties } from '../lib/availableProperties'
-import { useShowStore } from '../stores/showStore'
+import { resolveActiveCue, useShowStore } from '../stores/showStore'
 
 const propertyLabel = (attribute: string) => attribute.replace(/([A-Z])/g, ' $1').replace(/^./, (value) => value.toUpperCase())
 
@@ -42,7 +42,7 @@ export function WorkspaceToolbar({ onView }: { view: string; onView: (view: 'Des
   const clearProperty = () => {
     if (!selectedProperty) return
     state.releaseManualOverrides(state.selectedFixtureIds, selectedProperty)
-    const cue = state.cues.find((item) => item.id === state.activeCueId)
+    const cue = resolveActiveCue(state)
     if (!cue) return
     const fixtureValues = structuredClone(cue.fixtureValues)
     for (const fixtureId of state.selectedFixtureIds) if (fixtureValues[fixtureId]) delete fixtureValues[fixtureId][selectedProperty]

@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
-import type { CueDef, FadeCurve, FaderControlProperty, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
+import type { CueDef, FaderControlProperty, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import { clampModifier, clampLiveSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
@@ -20,10 +20,10 @@ import { frameForCue } from '../lib/liveFrames'
 import { alignmentGuides, alignEdgeX, alignEdgeY } from '../lib/alignmentGuides'
 import { useClampedMenuPosition } from '../lib/menuPosition'
 import {
-  isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectLabel, objectSize, positionedObjects,
+  isClipboardEmpty, newAnnotationObject, newCueObject, newWidgetObject, objectSize, positionedObjects,
   type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, activeCueId as getActiveCueId, collectInlineCues, findInlineCue } from '../stores/showStore'
 import { inspectorFields, type InspectorTarget } from '../lib/liveInspector'
 import { editAdHocTarget } from '../lib/liveOverrideTargets'
 import { CueButtonMenu } from './CueButtonMenu'
@@ -69,7 +69,7 @@ type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
  * The text is committed on blur / Enter; an unparsable value restores the
  * stored time instead of inventing one. The steppers nudge ±0.1s.
  */
-function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCommit: (ms: number) => void }) {
+function TimingInput({ label, ms, direction, onCommit }: { label: string; ms: number; direction: 'in' | 'out'; onCommit: (ms: number) => void }) {
   const [text, setText] = useState(formatTimingMs(ms))
   useEffect(() => { setText(formatTimingMs(ms)) }, [ms])
   const commit = () => {
@@ -81,8 +81,11 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
   return <div className="grid grid-cols-[110px_1fr] items-center gap-2 py-0.5">
     <span className="text-right text-dim">{label}:</span>
     <div className="flex min-w-0 items-center gap-1">
-      {/* LightKey's fade-curve glyph: the slope of the fade. */}
-      <span aria-hidden="true" title="Fade curve" className="shrink-0 text-dim"><svg width="18" height="18" viewBox="0 0 18 18"><rect x="1.5" y="1.5" width="15" height="15" rx="3" fill="none" stroke="currentColor" strokeWidth="1.2" /><line x1="4.5" y1="13.5" x2="13.5" y2="4.5" stroke="currentColor" strokeWidth="1.2" /></svg></span>
+      {/* LightKey's fade ramp (Jake's screenshot, 27 Nov 2026): a filled
+          lavender chip with a white diagonal — ascending for Fade In,
+          descending for Fade Out. The old glyph drew the same ascending
+          slope for both, so Fade Out was wrong. */}
+      <span aria-hidden="true" title={direction === 'in' ? 'Fade in' : 'Fade out'} className="shrink-0"><svg width="18" height="18" viewBox="0 0 18 18"><rect x="1" y="1" width="16" height="16" rx="4" fill="#807d9f" />{direction === 'in' ? <line x1="4.5" y1="13.5" x2="13.5" y2="4.5" stroke="#fff" strokeWidth="1.4" /> : <line x1="4.5" y1="4.5" x2="13.5" y2="13.5" stroke="#fff" strokeWidth="1.4" />}</svg></span>
       <input aria-label={label} value={text} onChange={(event) => setText(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === 'Enter') commit(); else if (event.key === 'Escape') setText(formatTimingMs(ms)) }} className="w-20 rounded bg-line p-1 text-center" />
       <span className="flex shrink-0 flex-col gap-px">
         <button type="button" aria-label={`Increase ${label}`} title={`Increase ${label}`} onClick={() => step(100)} className="rounded-sm bg-panel px-1 text-[8px] leading-[9px] hover:bg-panel2">▲</button>
@@ -181,7 +184,10 @@ function ButtonColorField({ color, onChange }: { color: string | undefined; onCh
 }
 
 // One collapsible section of the inspector, in LightKey's order —
-// contents, Timing, Button, Font, Modifiers, Live Triggers.
+// contents, Timing, Button, Modifiers, Live Triggers. (Cuelist and
+// annotation targets add their own Font section — the only font UI
+// for labels; the button inspector has none, font lives in the
+// right-click menu, Jake 27 Nov 2026.)
 // A section collapses/expands in place; nothing leaves the panel.
 function InspectorSection({ id, title, open, onToggle, children, sectionRef }: {
   id: string
@@ -202,9 +208,9 @@ function InspectorSection({ id, title, open, onToggle, children, sectionRef }: {
 
 export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null } = {}) {
   const {
-    locked, show, cues, presets, effects, activePresetIds, cueLists, setLivePages, setControlCue, selectLivePage, activeLivePageId,
-    activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
-    activeCueIndex, cuePlaying, cuePaused, setCuePaused, goToCue, cueNext, cuePrev, stopCue, deactivateCue, activeCueId, manualCrossfade, manualCrossfadeAnchor, addCueList, updateCueList, renameCueList, addCueToList, addCueToListAt, updateCue, updateCueStep, removeCueStep, renumberCueList, addCueListGroup, addCueListGroupFromSelection, renameCueListGroup, removeCueListGroup, liveEditing, setLiveEditing,
+    locked, show, presets, effects, activePresetIds, cueLists, setLivePages, setControlCue, selectLivePage, activeLivePageId,
+    activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId, activeCueRef,
+    activeCueIndex, cuePlaying, cuePaused, setCuePaused, goToCue, cueNext, cuePrev, stopCue, deactivateCue, manualCrossfade, manualCrossfadeAnchor, addCueList, updateCueList, renameCueList, addCueToList, addCueToListAt, updateCue, updateCueStep, removeCueStep, renumberCueList, addCueListGroup, addCueListGroupFromSelection, renameCueListGroup, removeCueListGroup, liveEditing, setLiveEditing,
     editCueContents, editCueDefContents, promoteAdHocToPreset, setContentsPreview, setPaletteReveal,
     configureFramePrevNext, startEditingPreset, startEditingLiveEffect, stepLiveFrame,
     configureCueTiming, configureCueAppearance, configureCueModifiers, toggleCueModifier,
@@ -214,8 +220,15 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     selectedPageObjects, pageClipboard, setPageObjectSelection, togglePageObjectSelection,
     selectPageObjectsInRect, clearPageObjectSelection, moveSelectedPageObjects, deleteSelectedPageObjects,
     duplicateSelectedPageObjects, copySelectedPageObjects, pastePageObjects, resizePageObject, resizePageObjectTo, renamePageObject,
-    attachPageObject, setPageObjectStyle, configureFrame, dropOnLivePage, liveAlignmentOff, setLiveAlignmentOff
+    setPageObjectStyle, configureFrame, dropOnLivePage, liveAlignmentOff, setLiveAlignmentOff
   } = useShowStore()
+  // Inline cues (Jake, 27 Nov 2026): there is no project-wide cue
+  // list any more — `cues` here is the collected view over the Live
+  // buttons' inline cues and the cuelist steps' cues, for the call
+  // sites that still take a cue list (modifiers, fader controls,
+  // button colour); button/step reads below use the holder directly.
+  const cues = collectInlineCues(show, cueLists)
+  const activeCueId = getActiveCueId({ show, cueLists, activeCueRef })
   // Live Edit mode is store UI state (not show data, not undo history), so
   // the Shortcuts panel in App.tsx can show the LightKey edit shortcuts
   // while Edit is open. Firing is unaffected by the flag: cues fire the
@@ -353,7 +366,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       const ref = state.selectedPageObjects[0]
       if (!ref || ref.type !== 'cue') return
       const control = state.show?.livePages?.flatMap((p) => p.controls).find((c) => c.id === ref.id)
-      if (control && !control.cueId) setPopupOpen(true)
+      if (control && !control.cue) setPopupOpen(true)
     }
     window.addEventListener('openlights-open-live-properties', open)
     return () => window.removeEventListener('openlights-open-live-properties', open)
@@ -514,10 +527,10 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   // LightKey's inspector sections (Jake's screenshots, 27 Nov 2026):
   // one scrollable list of collapsible sections — Contents, Timing,
-  // Button, Font, Modifiers, Live Triggers. Activate is the tail of the
+  // Button, Modifiers, Live Triggers. Activate is the tail of the
   // Button section and Group a label row, not sections (his 5.19.17 /
-  // 3.32.58 screenshots). All open by default except Font, which
-  // LightKey opens from Show Fonts.
+  // 3.32.58 screenshots). All open by default. The Font section survives
+  // only for cuelist/annotation targets, where it is the only font UI.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({ contents: true, timing: true, button: true, group: true, modifiers: true, triggers: true, font: false, cuelist: true })
   const toggleSection = (id: string) => setOpenSections((prev) => ({ ...prev, [id]: prev[id] !== false ? false : true }))
   const openSection = (id: string) => setOpenSections((prev) => ({ ...prev, [id]: true }))
@@ -532,14 +545,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // again explicitly.
   useEffect(() => { if (!popupOpen) setInspectorStep(null) }, [popupOpen])
 
-  // The floating panel's position, measured from the selected object's
-  // on-screen rect so it sits beside the control like LightKey's
-  // popover (not docked to the panel edge). Recomputed when the popup
-  // opens, the selection or a drag moves, the canvas scrolls, or the
-  // window resizes.
   const workspaceSectionRef = useRef<HTMLElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
-  const [panelPos, setPanelPos] = useState<{ left: number; top: number; maxHeight: number } | null>(null)
   const [selectedContentKey, setSelectedContentKey] = useState<string | null>(null)
   const [contentsMenu, setContentsMenu] = useState<{ x: number; y: number; row: ContentRow } | null>(null)
   const contentsMenuRef = useRef<HTMLDivElement>(null)
@@ -556,7 +563,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   const contentsRows = (control: LiveControl): ContentRow[] => {
     const rows: ContentRow[] = []
-    const cue = control.cueId ? cues.find((c) => c.id === control.cueId) : undefined
+    const cue = control.cue
     if (cue) {
       for (const id of cue.presetIds ?? []) {
         const preset = presets.find((p) => p.id === id)
@@ -604,12 +611,12 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   const removeContentRow = (control: LiveControl, row: ContentRow) => {
     if (row.kind === 'ad-hoc') {
-      if (row.source === 'cue' && control.cueId) editCueDefContents(control.cueId, { type: 'clear-ad-hoc' })
+      if (row.source === 'cue' && control.cue) editCueDefContents(control.cue.id, { type: 'clear-ad-hoc' })
       else editCueContents(control.id, { type: 'clear-ad-hoc' })
     } else if (row.kind === 'effect') {
       patchControl(control.id, { effectIds: (control.effectIds ?? []).filter((id) => id !== row.id) })
-    } else if (row.source === 'cue' && control.cueId) {
-      editCueDefContents(control.cueId, { type: row.kind === 'preset' ? 'remove-preset' : 'remove-sequence', id: row.id })
+    } else if (row.source === 'cue' && control.cue) {
+      editCueDefContents(control.cue.id, { type: row.kind === 'preset' ? 'remove-preset' : 'remove-sequence', id: row.id })
     } else {
       editCueContents(control.id, { type: row.kind === 'preset' ? 'remove-preset' : 'remove-sequence', id: row.id })
     }
@@ -624,7 +631,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     // store routes a 'cue' drop to the cue), else the button's own lists.
     // Effects cannot join a cue — on a standalone button they join its
     // effect list instead, so they are stripped from the drop payload.
-    if (payload.effectIds.length && !control.cueId) {
+    if (payload.effectIds.length && !control.cue) {
       patchControl(control.id, { effectIds: [...new Set([...(control.effectIds ?? []), ...payload.effectIds])] })
     }
     dropOnLivePage({ ...payload, effectIds: [] }, { kind: 'cue', cueId: control.id })
@@ -800,7 +807,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     // whose only contents are a single sequence with a non-1 time scale
     // prints the speed after its name.
     const sequenceSpeed = (() => {
-      const cue = control.cueId ? cues.find((c) => c.id === control.cueId) : undefined
+      const cue = control.cue
       const presetCount = [...(cue?.presetIds ?? []), ...(control.presetIds ?? [])].length
       const sequenceIds = [...(cue?.sequenceIds ?? []), ...(control.sequenceIds ?? [])]
       if (presetCount > 0 || sequenceIds.length !== 1) return null
@@ -824,13 +831,12 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     return <button type="button" aria-pressed={level > 0} style={{ ...css(control.style), color: textColor, backgroundColor: 'transparent', minHeight: 0, fontWeight: level ? 700 : 500 }} className="pad w-full flex-1 rounded px-2 py-1" onClick={latching ? () => setLiveValue(control.id, level ? 0 : 255) : undefined} onPointerDown={flash ? (e) => { if (!editing) e.currentTarget.setPointerCapture(e.pointerId); setLiveValue(control.id, 255) } : undefined} onPointerUp={flash ? () => setLiveValue(control.id, 0) : undefined} onPointerCancel={flash ? () => setLiveValue(control.id, 0) : undefined} onKeyDown={flash ? (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); setLiveValue(control.id, 255) } } : undefined} onKeyUp={flash ? () => setLiveValue(control.id, 0) : undefined} onBlur={flash ? () => setLiveValue(control.id, 0) : undefined}>{control.effectIds?.length ? '∿ ' : ''}{control.name}{sequenceSpeed ? ` ${sequenceSpeed}` : ''}{flash && ' (hold)'}</button>
   }
 
-  const attachmentSelect = (ref: PageObjectRef, current: string | undefined) =>
-    <label className="text-dim">Attached to
-      <select aria-label={`Attach ${ref.type} ${ref.id}`} value={current ?? ''} onChange={(e) => attachPageObject(ref, e.target.value || null)} className="block rounded bg-bg p-1">
-        <option value="">None</option>
-        {(page ? positionedObjects(page) : []).filter((o) => o.id !== ref.id).map((o) => <option key={`${o.type}:${o.id}`} value={o.id}>{objectLabel(page!, o)}</option>)}
-      </select>
-    </label>
+  // No attach dropdown: buttons attach by touching (Guide
+  // ch.11, pp.183–184) — the exclusive behaviour is derived from
+  // positions by touchingGroupSiblings, not from a stored link (Jake,
+  // 27 Nov 2026). The attachedTo field, the attachPageObject store
+  // action and the Always-active guard's use of it stay for existing
+  // show files; there is just no UI to set it anymore.
 
   const css = (style: LiveObjectStyle | undefined): CSSProperties => ({
     fontSize: style?.fontSize,
@@ -1187,41 +1193,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     ? inspectorFields(inspectorTarget).filter((field) => !['controlType', 'cue', 'presets', 'sequences'].includes(field))
     : inspectorFields(inspectorTarget)
   const overrideCount = Object.values(manualOverrides).reduce((sum, attrs) => sum + Object.keys(attrs).length, 0)
-  const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, curve: 'linear' as FadeCurve, ...selectedControl.timing } : null
-  // The floating inspector's position (Jake, 27 Nov 2026 — LightKey's
-  // panel floats beside the control, it is not docked to the panel
-  // edge): measured from the selected object's on-screen rect, to the
-  // right of it when that fits, otherwise to its left, clamped inside
-  // the visible panel. Recomputed when the popup opens, the selection
-  // or a drag moves, the canvas scrolls, or the window resizes.
-  useLayoutEffect(() => {
-    if (!popupOpen || !selection) return
-    const compute = () => {
-      const section = workspaceSectionRef.current
-      const canvas = pageCanvas.current
-      if (!section || !canvas) return
-      const sRect = section.getBoundingClientRect()
-      const anchor = canvas.querySelector(`[data-project-id="${selection.id}"]`) ?? canvas.querySelector(`[data-page-object="${selection.type}:${selection.id}"]`)
-      const PANEL_W = 340
-      let left: number
-      let top: number
-      if (anchor) {
-        const r = anchor.getBoundingClientRect()
-        const right = r.right - sRect.left + 8
-        left = right + PANEL_W + 8 <= sRect.width ? right : Math.max(8, r.left - sRect.left - PANEL_W - 8)
-        top = Math.min(Math.max(8, r.top - sRect.top), Math.max(8, sRect.height - 8 - 240))
-      } else {
-        left = Math.max(8, sRect.width - PANEL_W - 8)
-        top = 8
-      }
-      setPanelPos({ left, top, maxHeight: Math.max(200, sRect.height - 16) })
-    }
-    compute()
-    const viewport = canvasViewportRef.current
-    viewport?.addEventListener('scroll', compute)
-    window.addEventListener('resize', compute)
-    return () => { viewport?.removeEventListener('scroll', compute); window.removeEventListener('resize', compute) }
-  }, [popupOpen, selection, draft, resizeDraft, viewportSize])
+  const cueTiming = selectedControl ? { fadeInMs: 0, fadeOutMs: 0, delayMs: 0, ...selectedControl.timing } : null
   // Scroll the requested section into view once when the inspector
   // opens from a menu item (Get Info → Contents, and so on).
   useEffect(() => {
@@ -1315,7 +1287,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   const inspectorStepDef = inspectorStep
     ? cueLists.find((l) => l.id === inspectorStep.listId)?.steps.find((s) => s.id === inspectorStep.stepId)
     : undefined
-  const inspectorStepCue = inspectorStepDef ? cues.find((c) => c.id === inspectorStepDef.cueId) : undefined
+  const inspectorStepCue = inspectorStepDef ? inspectorStepDef.cue : undefined
   const panelTitle = inspectorStepCue?.name ?? selectedControl?.name ?? (selectedList ? cueLists.find((l) => l.id === selectedList.cueListId)?.name ?? 'Cue List' : selectedAnnotation?.text ?? 'Properties')
   return <section ref={workspaceSectionRef as never} data-context-menu="page" aria-label="Live page canvas" className={`relative flex h-full flex-col gap-2 rounded ${panelBorder} p-3`} onContextMenu={openContextMenu}>
     {/* LightKey-style edit toolbar: the Design / Live switch sits in the
@@ -1367,7 +1339,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           // cue: a toggle cue is clicked twice (on then off — or off then
           // on), a flash cue is momentary, and a fader ignores double-click,
           // so the cue's level is unchanged by opening the popup.
-          const buttonColor = liveControlButtonColor(control, presets, cues) ?? '#ffffff'
+          const buttonColor = liveControlButtonColor(control, presets) ?? '#ffffff'
           const buttonActive = level > 0
           const textColor = control.style?.color && control.style.color.toLowerCase() !== '#e5e7eb' ? control.style.color : liveButtonTextColor(buttonColor, buttonActive)
           return <div key={control.id} data-project-id={control.id} data-page-object={`cue:${control.id}`} className={`absolute select-none rounded border p-1 text-xs ${editing && !locked ? 'cursor-grab' : ''}`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden', backgroundColor: liveButtonBackground(buttonColor, buttonActive), borderColor: isSelected(ref) ? (editing ? '#facc15' : 'var(--accent)') : buttonColor, borderStyle: namingControlId === control.id ? 'dashed' : undefined, color: textColor }} onPointerDown={(e) => onControlPointerDown(e, ref, x, y)} onPointerMove={onControlPointerMove} onPointerUp={onControlPointerUp} onPointerCancel={onControlPointerCancel} onClickCapture={onControlClickCapture} onDoubleClick={() => openPropertiesPopup(ref)} onDragOver={allowDrop} onDrop={(event) => dropOnCue(event, control.id)}>
@@ -1463,7 +1435,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                       }
                       const step = item.step
                       const index = list.steps.indexOf(step)
-                      const stepCue = cues.find((s) => s.id === step.cueId)
+                      const stepCue = step.cue
                       const group = list.groups?.find((g) => g.id === step.groupId)
                       if (group && collapsedGroups[group.id] === true) return null
                       // Active means this step's cue is the one playing —
@@ -1471,7 +1443,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                       // deactivateCue keeps the index so Go resumes, so
                       // a deactivated step would otherwise still read
                       // as active.
-                      const active = activeCueListId === list.id && current === index && cuePlaying && activeCueId === step.cueId
+                      const active = activeCueListId === list.id && current === index && cuePlaying && activeCueId === step.cue.id
                       const selected = widgetSelectedSteps.includes(step.id)
                       return (
                         <div key={step.id} aria-label={stepCue?.name ?? 'Missing cue'} className={`grid cursor-default grid-cols-[16px_14px_minmax(0,1fr)_64px_72px_36px] items-center gap-1 rounded py-1 ${active ? 'bg-accent/20' : selected ? 'bg-panel' : ''}`} style={{ paddingLeft: item.depth * 12 }} onClick={(event) => selectStep(step.id, event.shiftKey || event.metaKey || event.ctrlKey)} onDoubleClick={() => goToCue(list.id, index)} onContextMenu={(event) => openWidgetMenu(event, step.id)}>
@@ -1481,7 +1453,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                           <StepTimeCell value={step.holdMs} emptyLabel="—" ariaLabel={`Hold time for ${stepCue?.name ?? 'cue'}`} onCommit={(ms) => updateCueStep(list.id, step.id, { holdMs: ms })} />
                           <StepTimeCell value={step.fadeMs} emptyLabel="—" ariaLabel={`Fade time for ${stepCue?.name ?? 'cue'}`} showSlope onCommit={(ms) => updateCueStep(list.id, step.id, { fadeMs: ms })} />
                           {list.showStepButtons !== false ? <span className="flex shrink-0 items-center gap-0.5">
-                            <button type="button" aria-label={`Add cue below ${stepCue?.name ?? 'cue'}`} title="Add cue below (Shift-click: above)" onClick={(event) => { event.stopPropagation(); const cueId = addCueToListAt(list.id, event.shiftKey ? index : index + 1); const created = useShowStore.getState().cueLists.find((l) => l.id === list.id)?.steps.find((s) => s.cueId === cueId); if (created) openStepInspector(list.id, created.id) }} className="rounded px-1 hover:bg-panel">+</button>
+                            <button type="button" aria-label={`Add cue below ${stepCue?.name ?? 'cue'}`} title="Add cue below (Shift-click: above)" onClick={(event) => { event.stopPropagation(); const cueId = addCueToListAt(list.id, event.shiftKey ? index : index + 1); const created = useShowStore.getState().cueLists.find((l) => l.id === list.id)?.steps.find((s) => s.cue.id === cueId); if (created) openStepInspector(list.id, created.id) }} className="rounded px-1 hover:bg-panel">+</button>
                             <button type="button" aria-label={`Remove ${stepCue?.name ?? 'cue'}`} title="Remove cue" onClick={(event) => { event.stopPropagation(); removeCueStep(list.id, step.id) }} className="rounded px-1 hover:bg-panel">−</button>
                           </span> : <span />}
                         </div>
@@ -1509,15 +1481,18 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           </div>
         })}
       </div></div>
-      {/* Button properties inspector — LightKey's floating panel (Jake,
-          27 Nov 2026): a rounded popover that floats beside the control,
-          title centred, × top-left, one scrollable list of collapsible
-          sections (Contents, Timing, Button, Font, Modifiers, Live
-          Triggers). Activate is the tail of the Button section and Group
-          a label row, not sections. No tabs, no Name field, no docked
-          sidebar. It follows the single selection while open; close with
-          X, Esc, Done or a click on blank canvas. */}
-      {!locked && popupOpen && selection && <div ref={panelRef} role="dialog" aria-label={`${panelTitle} inspector`} data-fields={inspectorFieldList.join(',')} className="live-properties-popup absolute z-50 w-[340px] overflow-y-auto rounded-xl border border-line bg-panel2 p-3 text-[13px] shadow-2xl" style={{ left: panelPos?.left ?? 8, top: panelPos?.top ?? 8, maxHeight: panelPos?.maxHeight ?? 480 }}>
+      {/* Button properties inspector — LightKey's panel (Jake, 27 Nov
+          2026): docked to the right edge of the Design/Live panel, it
+          slides in over the canvas (overlay — the canvas behind it does
+          not resize), title centred, × top-left, one scrollable list of
+          collapsible sections (Contents, Timing, Button, Modifiers,
+          Live Triggers). Activate is the tail of the Button section and
+          Group a label row, not sections. No tabs, no Name field, no
+          Font section, no attach dropdown — font lives in the right-click
+          menu and buttons attach by touching (Guide ch.11, pp.183–184).
+          It follows the single selection while open; close with X, Esc,
+          Done or a click on blank canvas. */}
+      {!locked && popupOpen && selection && <div ref={panelRef} role="dialog" aria-label={`${panelTitle} inspector`} data-fields={inspectorFieldList.join(',')} className="live-properties-popup absolute bottom-0 right-0 top-0 z-50 w-[340px] overflow-y-auto rounded-l-xl border-y border-l border-line bg-panel2 p-3 text-[13px] shadow-2xl">
         <div className="relative mb-1">
           <button type="button" aria-label="Close properties popup" title="Close properties popup" onClick={() => setPopupOpen(false)} className="absolute left-0 top-0 rounded px-1.5 text-lg leading-none hover:bg-panel">×</button>
           <h3 className="text-center text-[15px] font-semibold">{panelTitle}</h3>
@@ -1525,9 +1500,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
         {selectedControl && cueTiming && <div className="space-y-1">
           {isAmbienceControl ? <>
             <InspectorSection id="timing" title="Timing" open={openSections.timing !== false} onToggle={() => toggleSection('timing')} sectionRef={sectionRef('timing')}>
-              <TimingInput label="Fade In" ms={cueTiming.fadeInMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeInMs: ms })} />
-              <TimingInput label="Fade Out" ms={cueTiming.fadeOutMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeOutMs: ms })} />
-              <FieldRow label="Curve"><MiniSelect label="Fade curve" value={cueTiming.curve} onChange={(value) => configureCueTiming(selectedControl.id, { curve: value as FadeCurve })} options={['linear', 'ease-in', 'ease-out', 'ease-in-out', 's-curve'].map((curve) => ({ value: curve, label: curve }))} /></FieldRow>
+              <TimingInput label="Fade In" direction="in" ms={cueTiming.fadeInMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeInMs: ms })} />
+              <TimingInput label="Fade Out" direction="out" ms={cueTiming.fadeOutMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeOutMs: ms })} />
             </InspectorSection>
             <InspectorSection id="button" title="Button" open={openSections.button !== false} onToggle={() => toggleSection('button')} sectionRef={sectionRef('button')}>
               <FieldRow label="Color"><ButtonColorField color={selectedControl.appearance?.color} onChange={(color) => configureCueAppearance(selectedControl.id, { color })} /></FieldRow>
@@ -1540,16 +1514,17 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 <label className="flex items-center gap-1 text-dim"><input type="checkbox" checked={selectedControl.activateBeforeQuitting === true} onChange={(event) => patchControl(selectedControl.id, { activateBeforeQuitting: event.target.checked })} /> Before quitting</label>
               </span></FieldRow>
             </InspectorSection>
-            {attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}
           </> : <>
             {/* LightKey's sections (Jake, 27 Nov 2026): one scrollable
-                list — Contents, Timing, Button, Font, Modifiers, Live
+                list — Contents, Timing, Button, Modifiers, Live
                 Triggers; Activate is the tail of the Button section and
                 Group a label row after it. "Get Info" and "Show
                 Properties" both open this same inspector — the guide
                 uses Get Info for Live objects and Show Properties for
                 Design objects, and no source shows a second panel for a
-                button. */}
+                button. No Font section: font lives in the right-click
+                menu (Jake, 27 Nov 2026). No attach dropdown: buttons
+                attach by touching (Guide ch.11, pp.183–184). */}
             <InspectorSection id="contents" title="Contents" open={openSections.contents !== false} onToggle={() => toggleSection('contents')} sectionRef={sectionRef('contents')}>
               {(() => {
                 // The contents line (Jake's screenshot, 27 Nov 2026 —
@@ -1577,28 +1552,24 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 if (!row) return null
                 return <div>
                   <h4 className="font-semibold text-text">Ad hoc properties</h4>
-                  {Object.entries(row.values).flatMap(([fixtureId, values]) => Object.entries(values).map(([property, value]) => <label key={`${fixtureId}:${property}`} className="flex items-center gap-1"><span className="min-w-0 flex-1 truncate">{fixtureId} · {property}</span><input aria-label={`${fixtureId} ${property}`} type="number" min="0" max="255" value={value} className="w-16 rounded bg-bg p-1" onChange={(event) => row.source === 'cue' && selectedControl.cueId ? editCueDefContents(selectedControl.cueId, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) }) : editCueContents(selectedControl.id, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) })} /><button type="button" aria-label={`Remove ${fixtureId} ${property}`} onClick={() => row.source === 'cue' && selectedControl.cueId ? editCueDefContents(selectedControl.cueId, { type: 'remove-ad-hoc', fixtureId, property }) : editCueContents(selectedControl.id, { type: 'remove-ad-hoc', fixtureId, property })}>×</button></label>))}
+                  {Object.entries(row.values).flatMap(([fixtureId, values]) => Object.entries(values).map(([property, value]) => <label key={`${fixtureId}:${property}`} className="flex items-center gap-1"><span className="min-w-0 flex-1 truncate">{fixtureId} · {property}</span><input aria-label={`${fixtureId} ${property}`} type="number" min="0" max="255" value={value} className="w-16 rounded bg-bg p-1" onChange={(event) => row.source === 'cue' && selectedControl.cue ? editCueDefContents(selectedControl.cue.id, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) }) : editCueContents(selectedControl.id, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) })} /><button type="button" aria-label={`Remove ${fixtureId} ${property}`} onClick={() => row.source === 'cue' && selectedControl.cue ? editCueDefContents(selectedControl.cue.id, { type: 'remove-ad-hoc', fixtureId, property }) : editCueContents(selectedControl.id, { type: 'remove-ad-hoc', fixtureId, property })}>×</button></label>))}
                 </div>
               })()}
             </InspectorSection>
             <InspectorSection id="timing" title="Timing" open={openSections.timing !== false} onToggle={() => toggleSection('timing')} sectionRef={sectionRef('timing')}>
-              <TimingInput label="Fade In" ms={cueTiming.fadeInMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeInMs: ms })} />
-              <TimingInput label="Fade Out" ms={cueTiming.fadeOutMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeOutMs: ms })} />
-              <FieldRow label="Curve"><MiniSelect label="Fade curve" value={cueTiming.curve} onChange={(value) => configureCueTiming(selectedControl.id, { curve: value as FadeCurve })} options={['linear', 'ease-in', 'ease-out', 'ease-in-out', 's-curve'].map((curve) => ({ value: curve, label: curve }))} /></FieldRow>
+              <TimingInput label="Fade In" direction="in" ms={cueTiming.fadeInMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeInMs: ms })} />
+              <TimingInput label="Fade Out" direction="out" ms={cueTiming.fadeOutMs} onCommit={(ms) => configureCueTiming(selectedControl.id, { fadeOutMs: ms })} />
             </InspectorSection>
             <InspectorSection id="button" title="Button" open={openSections.button !== false} onToggle={() => toggleSection('button')} sectionRef={sectionRef('button')}>
               <FieldRow label="Type"><MiniSelect label="Cue control type" value={selectedControl.type} onChange={(value) => configureControlType(selectedControl.id, value as LiveControl['type'])} options={(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => ({ value: type, label: BUTTON_TYPE_LABELS[type] }))} /></FieldRow>
               {selectedControl.type === 'push' && <FieldRow label="Behavior"><MiniSelect label="Push button behavior" value={controlBehavior(selectedControl)} onChange={(value) => configureControlBehavior(selectedControl.id, value as 'toggle' | 'flash')} options={[{ value: 'toggle', label: 'Toggle' }, { value: 'flash', label: 'Flash' }]} /></FieldRow>}
-              {isFaderControl(selectedControl) && <FieldRow label="Controls"><MiniSelect label="Fader controls" value={faderControlsValue(selectedControl)} onChange={(value) => configureFaderControls(selectedControl.id, value as 'all' | FaderControlProperty)} options={faderControlsDropdownOptions(selectedControl, cues, presets, show?.fixtures ?? []).map((option) => ({ value: option.value, label: option.label, disabled: !option.enabled }))} /></FieldRow>}
+              {isFaderControl(selectedControl) && <FieldRow label="Controls"><MiniSelect label="Fader controls" value={faderControlsValue(selectedControl)} onChange={(value) => configureFaderControls(selectedControl.id, value as 'all' | FaderControlProperty)} options={faderControlsDropdownOptions(selectedControl, presets, show?.fixtures ?? []).map((option) => ({ value: option.value, label: option.label, disabled: !option.enabled }))} /></FieldRow>}
               <FieldRow label="Priority"><MiniSelect label="Cue priority" value={String(selectedControl.priority ?? DEFAULT_CUE_PRIORITY)} onChange={(value) => configureCuePriority(selectedControl.id, Number(value))} options={[9, 8, 7, 6, 5, 4, 3, 2, 1].map((v) => ({ value: String(v), label: cuePriorityLabel(v) }))} /></FieldRow>
               <FieldRow label="Color"><ButtonColorField color={selectedControl.appearance?.color} onChange={(color) => configureCueAppearance(selectedControl.id, { color })} /></FieldRow>
               <FieldRow label="Alignment"><MiniSelect label="Cue title alignment" value={{ ...DEFAULT_OBJECT_STYLES.cue, ...selectedControl.style }.align ?? 'center'} onChange={(value) => setPageObjectStyle({ type: 'cue', id: selectedControl.id }, { align: value as LiveObjectStyle['align'] })} options={[{ value: 'left', label: 'Align Left' }, { value: 'center', label: 'Align Center' }, { value: 'right', label: 'Align Right' }]} /></FieldRow>
-              {/* Show Fonts (guide p.204): "Only available in edit
-                  mode" — and even there LightKey opens the macOS font
-                  panel. This app opens the Font section below instead,
-                  which holds the same settings (Size, Color, Bold,
-                  Italic). */}
-              <button type="button" disabled={!editing} title={editing ? 'Show the font settings' : 'Only available in edit mode (guide p.204)'} onClick={() => { openSection('font'); setScrollSection('font') }} className="mt-1 w-full rounded bg-panel px-2 py-1 text-[13px] disabled:opacity-40">Show Fonts</button>
+              {/* No show-fonts button here: font lives in the
+                  right-click menu's Font submenu (Jake, 27 Nov 2026) —
+                  LightKey's inspector has no Font section. */}
               {/* Activate (guide p.204) is the tail of LightKey's Button
                   section — a label row, not its own section (Jake's
                   screenshots 5.19.17 / 3.32.50): "Activate:" with the
@@ -1613,29 +1584,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
               </span></FieldRow>
               <label className="flex items-center gap-1 py-0.5 text-dim"><input type="checkbox" checked={selectedControl.appearance?.releaseOthers === true} onChange={(event) => configureCueAppearance(selectedControl.id, { releaseOthers: event.target.checked })} /> Release other buttons</label>
               {/* The Cue select has no LightKey equivalent — LightKey's
-                  button IS its cue — but this app's buttons reference a
-                  cue, and unlinking one is how the reference-counted
-                  cue deletion (Jake, 27 Nov 2026) is driven from the
-                  UI, so it stays as the last Button row. */}
-              <FieldRow label="Cue"><MiniSelect label="Cue" value={selectedControl.cueId ?? ''} onChange={(value) => setControlCue(selectedControl.id, value || undefined)} options={[{ value: '', label: 'No cue' }, ...cues.filter((s) => !s.blackout).map((s) => ({ value: s.id, label: s.name }))]} /></FieldRow>
-            </InspectorSection>
-            <InspectorSection id="font" title="Font" open={openSections.font === true} onToggle={() => toggleSection('font')} sectionRef={sectionRef('font')}>
-              {(() => {
-                const current = { ...DEFAULT_OBJECT_STYLES.cue, ...selectedControl.style }
-                return <>
-                  <FieldRow label="Size"><input aria-label="Cue font size" type="number" min={6} max={96} value={current.fontSize ?? 12} onChange={(e) => setPageObjectStyle({ type: 'cue', id: selectedControl.id }, { fontSize: Math.max(6, Math.min(96, Number(e.target.value))) })} className="w-20 rounded bg-line p-1" /></FieldRow>
-                  <FieldRow label="Color"><input aria-label="Cue font color" type="color" value={current.color ?? '#e5e7eb'} onChange={(e) => setPageObjectStyle({ type: 'cue', id: selectedControl.id }, { color: e.target.value })} className="h-7 w-10 cursor-pointer rounded bg-bg p-0.5" /></FieldRow>
-                  <label className="flex items-center gap-1 py-0.5 text-dim"><input type="checkbox" aria-label="Cue bold" checked={current.bold === true} onChange={(e) => setPageObjectStyle({ type: 'cue', id: selectedControl.id }, { bold: e.target.checked })} />Bold</label>
-                  <label className="flex items-center gap-1 py-0.5 text-dim"><input type="checkbox" aria-label="Cue italic" checked={current.italic === true} onChange={(e) => setPageObjectStyle({ type: 'cue', id: selectedControl.id }, { italic: e.target.checked })} />Italic</label>
-                </>
-              })()}
+                  button IS its cue — but this app's buttons hold their
+                  cue inline, and picking another cue here copies that
+                  cue into the button (the store re-ids the copy when
+                  the cue is already held elsewhere, so two holders
+                  never share one cue id); picking No cue drops the
+                  button's cue outright. */}
+              <FieldRow label="Cue"><MiniSelect label="Cue" value={selectedControl.cue?.id ?? ''} onChange={(value) => setControlCue(selectedControl.id, value ? findInlineCue(show, cueLists, value)?.cue : undefined)} options={[{ value: '', label: 'No cue' }, ...cues.filter((s) => !s.blackout).map((s) => ({ value: s.id, label: s.name }))]} /></FieldRow>
             </InspectorSection>
             {/* Group (Jake's screenshot 3.32.58) is a label row like
                 Activate — "Group:" with Always active — not its own
-                collapsible section. The attach select below it is this
-                app's exclusive-attach control (the "attach" in Video 2). */}
+                collapsible section. Buttons attach by touching (Guide
+                ch.11, pp.183–184); there is no attach dropdown. */}
             <FieldRow label="Group"><label className="flex items-center gap-1 text-dim" title="Attached buttons only: one of the attached buttons stays active at any time (Guide ch.11, p.204)"><input type="checkbox" checked={selectedControl.alwaysActive === true} onChange={(event) => patchControl(selectedControl.id, { alwaysActive: event.target.checked })} /> Always active</label></FieldRow>
-            {attachmentSelect({ type: 'cue', id: selectedControl.id }, selectedControl.attachedTo)}
             <InspectorSection id="modifiers" title="Modifiers" open={openSections.modifiers !== false} onToggle={() => toggleSection('modifiers')} sectionRef={sectionRef('modifiers')}>
                 {/* LightKey's checklist (guide ch.11, pp.205–207; Jake's
                     screenshot, 27 Nov 2026 — "Select the modifiers you
@@ -1651,7 +1612,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 {(() => {
                   const applicable = applicableModifiers(selectedControl, cues, presets, show?.fixtures ?? [], show?.sequences ?? [], effects)
                   const selected = selectedControl.selectedModifiers ?? []
-                  return <div className="max-h-40 space-y-0.5 overflow-y-auto">
+                  return <div className="space-y-0.5">
                     {LIGHTKEY_MODIFIERS.map(({ key, label }) => {
                       const applies = applicable.has(key)
                       return <label key={key} className={`flex items-center gap-1 ${applies ? '' : 'text-dim opacity-50'}`} title={applies ? undefined : 'Does not apply to this cue'}>
@@ -1668,7 +1629,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                   const chosen = selectedControl.speedModifierOptions
                   return <div className="mt-2">
                     <h5 className="font-semibold text-text">Speed Options</h5>
-                    <div className="max-h-32 space-y-0.5 overflow-y-auto">
+                    <div className="space-y-0.5">
                       {SPEED_MODIFIER_OPTIONS.map(({ key, label }) => {
                         const applies = applicable.has(key)
                         const checked = chosen ? chosen.includes(key) : applies
@@ -1694,13 +1655,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             </InspectorSection>
             {contentsMenu && <div ref={contentsMenuRef} role="menu" aria-label="Contents item actions" className="fixed z-[310] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: contentsMenu.x, top: contentsMenu.y }}>
               <button type="button" role="menuitem" disabled={contentsMenu.row.kind === 'ad-hoc'} title={contentsMenu.row.kind === 'ad-hoc' ? 'Ad hoc values are not in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind !== 'ad-hoc') setPaletteReveal(contentsMenu.row.kind, contentsMenu.row.id); setContentsMenu(null) }}>Show in Palette</button>
-              <button type="button" role="menuitem" disabled={contentsMenu.row.kind !== 'ad-hoc'} title={contentsMenu.row.kind !== 'ad-hoc' ? 'Already in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind === 'ad-hoc') promoteAdHocToPreset(contentsMenu.row.source === 'cue' && selectedControl.cueId ? { cueId: selectedControl.cueId } : { controlId: selectedControl.id }); setContentsMenu(null) }}>Add to Palette</button>
+              <button type="button" role="menuitem" disabled={contentsMenu.row.kind !== 'ad-hoc'} title={contentsMenu.row.kind !== 'ad-hoc' ? 'Already in the palette' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { if (contentsMenu.row.kind === 'ad-hoc') promoteAdHocToPreset(contentsMenu.row.source === 'cue' && selectedControl.cue ? { cueId: selectedControl.cue.id } : { controlId: selectedControl.id }); setContentsMenu(null) }}>Add to Palette</button>
               <button type="button" role="menuitem" disabled={contentsMenu.row.kind === 'ad-hoc' && contentsMenu.row.source === 'control'} title={contentsMenu.row.kind === 'ad-hoc' && contentsMenu.row.source === 'control' ? 'Select the row to edit its values in place below' : undefined} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => {
                 const row = contentsMenu.row
                 if (row.kind === 'preset') startEditingPreset(row.id)
                 else if (row.kind === 'sequence') window.dispatchEvent(new CustomEvent('openlights-edit-sequence', { detail: row.id }))
                 else if (row.kind === 'effect') startEditingLiveEffect(row.id)
-                else if (row.source === 'cue' && selectedControl.cueId) startEditingCueAdHoc(selectedControl.cueId)
+                else if (row.source === 'cue' && selectedControl.cue) startEditingCueAdHoc(selectedControl.cue.id)
                 setContentsMenu(null)
               }}>Edit</button>
               <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { removeContentRow(selectedControl, contentsMenu.row); setContentsMenu(null) }}>Remove From Cue</button>
@@ -1747,14 +1708,14 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           </InspectorSection>
           <InspectorSection id="timing" title="Timing" open={openSections.timing !== false} onToggle={() => toggleSection('timing')} sectionRef={sectionRef('timing')}>
             <HoldTimeInput label="Hold Time" ms={inspectorStepDef.holdMs} onCommit={(ms) => updateCueStep(inspectorStep.listId, inspectorStepDef.id, { holdMs: ms })} />
-            <TimingInput label="Fade Time" ms={inspectorStepDef.fadeMs} onCommit={(ms) => updateCueStep(inspectorStep.listId, inspectorStepDef.id, { fadeMs: ms })} />
+            <TimingInput label="Fade Time" direction="in" ms={inspectorStepDef.fadeMs} onCommit={(ms) => updateCueStep(inspectorStep.listId, inspectorStepDef.id, { fadeMs: ms })} />
           </InspectorSection>
           <InspectorSection id="modifiers" title="Modifiers" open={openSections.modifiers !== false} onToggle={() => toggleSection('modifiers')} sectionRef={sectionRef('modifiers')}>
             {(() => {
-              const synthetic = { id: inspectorStepDef.id, name: inspectorStepCue.name, type: 'push', x: 0, y: 0, cueId: inspectorStepCue.id } as LiveControl
+              const synthetic = { id: inspectorStepDef.id, name: inspectorStepCue.name, type: 'push', x: 0, y: 0, cue: inspectorStepCue } as LiveControl
               const applicable = applicableModifiers(synthetic, cues, presets, show?.fixtures ?? [], show?.sequences ?? [], effects)
               const selected = inspectorStepDef.selectedModifiers ?? []
-              return <div className="max-h-40 space-y-0.5 overflow-y-auto">
+              return <div className="space-y-0.5">
                 {LIGHTKEY_MODIFIERS.map(({ key, label }) => {
                   const applies = applicable.has(key)
                   return <label key={key} className={`flex items-center gap-1 ${applies ? '' : 'text-dim opacity-50'}`} title={applies ? undefined : 'Does not apply to this cue'}>
@@ -1767,12 +1728,12 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
               </div>
             })()}
             {(inspectorStepDef.selectedModifiers ?? []).includes('speed') && (() => {
-              const synthetic = { id: inspectorStepDef.id, name: inspectorStepCue.name, type: 'push', x: 0, y: 0, cueId: inspectorStepCue.id } as LiveControl
+              const synthetic = { id: inspectorStepDef.id, name: inspectorStepCue.name, type: 'push', x: 0, y: 0, cue: inspectorStepCue } as LiveControl
               const applicable = applicableSpeedOptions(synthetic, cues, presets, show?.fixtures ?? [], show?.sequences ?? [], effects)
               const chosen = inspectorStepDef.speedModifierOptions
               return <div className="mt-2">
                 <h5 className="font-semibold text-text">Speed Options</h5>
-                <div className="max-h-32 space-y-0.5 overflow-y-auto">
+                <div className="space-y-0.5">
                   {SPEED_MODIFIER_OPTIONS.map(({ key, label }) => {
                     const applies = applicable.has(key)
                     const checked = chosen ? chosen.includes(key) : applies
@@ -1816,7 +1777,6 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           </InspectorSection>
           <InspectorSection id="group" title="Group" open={openSections.group !== false} onToggle={() => toggleSection('group')} sectionRef={sectionRef('group')}>
             <FieldRow label="Cue list"><MiniSelect label="Widget cue list" value={selectedList.cueListId} onChange={(value) => savePage({ ...page, cueListWidgets: (page.cueListWidgets ?? []).map((w) => w.id === selectedList.id ? { ...w, cueListId: value } : w) })} options={cueLists.map((list) => ({ value: list.id, label: list.name }))} /></FieldRow>
-            {attachmentSelect({ type: 'list', id: selectedList.id }, selectedList.attachedTo)}
           </InspectorSection>
           <InspectorSection id="font" title="Font" open={openSections.font === true} onToggle={() => toggleSection('font')} sectionRef={sectionRef('font')}>
             {styleFields({ type: 'list', id: selectedList.id }, 'list', selectedList.style)}
@@ -1830,9 +1790,6 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
           {selectedAnnotation.type === 'frame' && frameConfigFields(selectedAnnotation.id, selectedAnnotation.frame)}
           <InspectorSection id="font" title="Font" open={openSections.font === true} onToggle={() => toggleSection('font')} sectionRef={sectionRef('font')}>
             {styleFields({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.type, selectedAnnotation.style)}
-          </InspectorSection>
-          <InspectorSection id="group" title="Group" open={openSections.group !== false} onToggle={() => toggleSection('group')} sectionRef={sectionRef('group')}>
-            {attachmentSelect({ type: 'annotation', id: selectedAnnotation.id }, selectedAnnotation.attachedTo)}
           </InspectorSection>
           <button type="button" className="text-red-300" onClick={() => { savePage({ ...page, annotations: (page.annotations ?? []).filter((a) => a.id !== selectedAnnotation.id) }); clearPageObjectSelection() }}>Remove</button>
         </div>}

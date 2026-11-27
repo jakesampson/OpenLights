@@ -63,8 +63,8 @@ const ORANGE = { red: 255, green: 90, blue: 0, red2: 255, green2: 90, blue2: 0, 
 describe('channel faders with no active cue', () => {
   it('show the override values the wheel wrote, instead of 0', () => {
     const s = () => useShowStore.getState()
-    s().setShow(migrateShow({ fixtures: [BAR], cues: [] }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: null, editingPresetId: null, editingCueAdHocId: null, manualOverrides: { bar: ORANGE }, showOverrideLabels: false })
+    s().setShow(migrateShow({ fixtures: [BAR] }))
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: null, editingPresetId: null, editingCueAdHocId: null, manualOverrides: { bar: ORANGE }, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderValue('Red 1 for selected fixtures')).toBe(255)
     expect(sliderValue('Green 1 for selected fixtures')).toBe(90)
@@ -77,8 +77,8 @@ describe('channel faders with no active cue', () => {
 
   it('show the fixture defaults when nothing is defined (blue, like the wheel)', () => {
     const s = () => useShowStore.getState()
-    s().setShow(migrateShow({ fixtures: [BAR], cues: [] }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: null, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    s().setShow(migrateShow({ fixtures: [BAR] }))
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: null, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderValue('Red 1 for selected fixtures')).toBe(0)
     expect(sliderValue('Blue 1 for selected fixtures')).toBe(255)

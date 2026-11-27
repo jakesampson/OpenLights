@@ -73,7 +73,7 @@ beforeEach(() => {
   Element.prototype.setPointerCapture = () => {}
   Element.prototype.releasePointerCapture = () => {}
   const state = useShowStore.getState()
-  state.setShow(migrateShow({ fixtures: [], cues: [] } as unknown as ShowDef))
+  state.setShow(migrateShow({ fixtures: [] } as unknown as ShowDef))
   state.exitSetupWizard()
   state.setWelcomeOpen(false)
   state.setNewProjectDialogOpen(false)

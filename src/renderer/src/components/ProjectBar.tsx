@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, activeCueId as activeCueIdOf } from '../stores/showStore'
 import type { ShowDef } from '@shared/types'
 import type { ShowMeta } from '../global'
 import { projectNameFromPath } from '../lib/projectName'
@@ -28,7 +28,11 @@ export function ProjectBar() {
   // on the next open (Jake, 27 Nov 2026, "Full On keeps activating").
   const activeLiveValues = useShowStore((s) => s.activeLiveValues)
   const activePresetIds = useShowStore((s) => s.activePresetIds)
-  const activeCueId = useShowStore((s) => s.activeCueId)
+  // Inline cues (Jake, 27 Nov 2026): there is no activeCueId field
+  // on the store any more — the active cue's id is derived from its
+  // holder reference (startup.cueId is kept as that inline cue's id
+  // and resolved across holders at load; see showStore).
+  const activeCueId = useShowStore((s) => activeCueIdOf(s))
   const [shows, setShows] = useState<ShowMeta[]>([])
   const [renameName, setRenameName] = useState('')
   const allowCloseRef = useRef(false)
@@ -270,7 +274,6 @@ export function ProjectBar() {
         createdAt: Date.now(),
         updatedAt: Date.now(),
         fixtures: [],
-        cues: [],
         automations: [],
         midiMappings: []
       }

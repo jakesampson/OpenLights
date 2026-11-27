@@ -9,7 +9,7 @@ import { findShutterChannel, shutterSpeedForValue, shutterStateForValue, shutter
 import { wheelSlotValue } from '../lib/wheelProperties'
 import { hexToRgb, rgbToHex, colorChannels } from '../lib/colorMix'
 import { displayHsv, hsvToRgb, rgbToHsv } from '../lib/colorWheel'
-import { useShowStore, defaultFixtureValues } from '../stores/showStore'
+import { useShowStore, defaultFixtureValues, resolveActiveCue } from '../stores/showStore'
 import { ColorWheelControl } from './ColorWheelControl'
 import { EffectEditor, EffectIndicator, EffectsChooser } from './EffectEditor'
 import { FillFader } from './FillFader'
@@ -151,9 +151,9 @@ function colorHex(values: Record<string, number>) {
 export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, chooserSearchHost, movementChartHost }: { effectTabHost?: HTMLElement | null; effectToolsHost?: HTMLElement | null; chooserLeftHost?: HTMLElement | null; chooserSearchHost?: HTMLElement | null; movementChartHost?: HTMLElement | null } = {}) {
   const {
     show,
-    cues,
+    cueLists,
     presets,
-    activeCueId,
+    activeCueRef,
     activePresetIds,
     selectedFixtureIds,
     selectedBeams,
@@ -178,7 +178,12 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
     setEffectChooserAttribute,
   } = useShowStore()
   const fixtures = show?.fixtures ?? []
-  const activeCue = cues.find((cue) => cue.id === activeCueId)
+  // Inline cues (Jake, 27 Nov 2026): there is no project-wide cue
+  // list any more — the active cue is the holder the store's
+  // activeCueRef points at (a Live button's inline cue). The panel
+  // reads its resolved look, as before.
+  const activeCue = resolveActiveCue({ show, cueLists, activeCueRef })
+  const activeCueId = activeCue?.id ?? null
   // The cue's resolved look (Piece 8): its presets in order, then its
   // ad-hoc values. The panel reads the resolved look, so a property
   // defined by a preset shows in the controls; defined (overridden)

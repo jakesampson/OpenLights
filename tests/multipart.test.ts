@@ -7,7 +7,7 @@ import { fixtureBeams } from '../src/shared/fixtureProfiles'
 import { computeEffectPatch } from '../src/renderer/src/lib/effects'
 import { evaluateFan, fanTargetColors, orderedFanTargets } from '../src/renderer/src/lib/fanning'
 import { fanBeamTargets, fanRows } from '../src/renderer/src/lib/fanningHud'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 import type { EffectDef, FanDef, FixtureDef } from '../src/shared/types'
@@ -149,12 +149,12 @@ describe('fanning across beams (Piece 7)', () => {
 describe('per-cell values in cues (Piece 7)', () => {
   it('programs only the selected cell of an OFL fixture, through the cue', () => {
     const state = () => useShowStore.getState()
-    state().setShow(migrateShow({ fixtures: [barFixture()], cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }] }))
+    state().setShow(migrateShow({ fixtures: [barFixture()], cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }], livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'S', type: 'push', cueId: 's', presetIds: [] }] }] }))
     state().activateCue('s')
     state().selectFixtureBeam('bar4', 'cell-2')
     state().updateSelectedBeamValues({ red: 200, green: 100, blue: 50 })
-    expect(state().cues[0].fixtureValues.bar4).toEqual({ intensity: 255, 'red 2': 200, 'green 2': 100, 'blue 2': 50 })
-    const output = computeCueChannels(state().show!.fixtures, state().cues[0])
+    expect(findInlineCue(state().show, state().cueLists, 's')!.cue.fixtureValues.bar4).toEqual({ intensity: 255, 'red 2': 200, 'green 2': 100, 'blue 2': 50 })
+    const output = computeCueChannels(state().show!.fixtures, findInlineCue(state().show, state().cueLists, 's')!.cue)
     expect(output[2]).toBe(255) // master dimmer, untouched
     expect(output[4]).toBeUndefined() // cell 1 red, untouched (sparse output)
     expect(output[7]).toBe(200) // cell 2 red

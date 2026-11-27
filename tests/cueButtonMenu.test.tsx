@@ -46,10 +46,9 @@ function seedShow() {
   useShowStore.getState().setShow(migrateShow({
     fixtures: [{ id: 'd1', name: 'D1', type: 'dimmer', channelStart: 1, channels: 1 }],
     presets: [{ id: 'p-red', name: 'Red', category: 'color', fixtureValues: { d1: { red: 255, intensity: 255 } } }],
-    cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }],
     sequences: [],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
-      { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 100, width: 120, height: 40 },
+      { id: 'btn1', name: 'Song 1', type: 'push', cue: { id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }, presetIds: [], x: 20, y: 100, width: 120, height: 40 },
       { id: 'btn2', name: 'Standalone', type: 'push', behavior: 'flash', presetIds: ['p-red'], x: 160, y: 100, width: 120, height: 40 },
     ], annotations: [
       { id: 'frame1', type: 'frame', text: 'Set', x: 10, y: 90, width: 300, height: 130 },
@@ -70,6 +69,13 @@ function enterEditMode() {
   expect(edit).toBeTruthy()
   act(() => { edit!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
   expect(useShowStore.getState().liveEditing).toBe(true)
+}
+
+function exitEditMode() {
+  const done = Array.from(container!.querySelectorAll('.live-page-edit')).find((el) => el.textContent?.trim() === 'Done')
+  expect(done).toBeTruthy()
+  act(() => { done!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+  expect(useShowStore.getState().liveEditing).toBe(false)
 }
 
 function rightClickButton(buttonId: string) {
@@ -143,8 +149,8 @@ describe('cue button submenus fly out sideways (Jake, 27 Nov 2026)', () => {
     // column (ml-4); the fly-out is a separate panel, so no indent.
     expect(panel!.className).not.toContain('ml-4')
     // The parent menu's own items are unchanged in number.
-    // (19 items + 3 separators in Edit mode.)
-    expect(Array.from(buttonMenu()!.querySelectorAll(':scope > div')).length).toBe(22)
+    // (19 items + 5 separators in Edit mode.)
+    expect(Array.from(buttonMenu()!.querySelectorAll(':scope > div')).length).toBe(24)
     expect(panel!.textContent).toContain('Automatic')
     // The swatches are colour bars (LightKey's look), not text rows.
     expect(panel!.querySelectorAll('button[aria-label$="button colour"]').length).toBe(12)
@@ -237,6 +243,38 @@ describe('cue button menu contents, Edit mode (Jake, 27 Nov 2026)', () => {
       'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers', 'Font',
       'Alignment', 'Remove From Frame', 'External Control',
     ])
+  })
+
+  it('groups the items like LightKey in Edit mode (Jake, 27 Nov 2026, 8.45.41pm + 5.20.33pm)', () => {
+    // LightKey's Live menu groups [Get Info] | [Show Properties, Edit
+    // Ad Hoc, Add Overrides] | [Rename] | [settings] | [External
+    // Control]; Edit mode splits the clipboard operations from the
+    // object operations the way LightKey's cuelist menu does in Jake's
+    // 5.20.33pm screenshot — [Cut, Copy, Paste] | [Rename, Duplicate,
+    // Delete] — with Font / Alignment / Remove From Frame staying in
+    // the settings group. The Edit-mode button grouping is inferred
+    // from that widget menu (no direct photograph of LightKey's
+    // Edit-mode button menu exists); see CueButtonMenu.tsx.
+    rightClickButton('btn1')
+    const structure = Array.from(buttonMenu()!.querySelectorAll(':scope > div')).map((div) =>
+      div.getAttribute('role') === 'separator' ? '---' : div.querySelector('button')?.textContent?.trim().replace(/›$/, '').trim())
+    expect(structure).toEqual([
+      'Get Info', '---',
+      'Show Properties', 'Edit Ad Hoc Properties', 'Add Overrides', '---',
+      'Cut', 'Copy', 'Paste', '---',
+      'Rename', 'Duplicate', 'Delete', '---',
+      'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers', 'Font', 'Alignment', 'Remove From Frame', '---',
+      'External Control',
+    ])
+  })
+
+  it('shows the Show Properties speech-bubble icon in Edit mode', () => {
+    rightClickButton('btn1')
+    const row = menuButton('Show Properties')
+    expect(row.querySelector('svg')).toBeTruthy()
+    // No other row carries an icon.
+    const iconRows = Array.from(buttonMenu()!.querySelectorAll(':scope > div > button')).filter((b) => b.querySelector('svg'))
+    expect(iconRows.map((b) => b.textContent?.trim())).toEqual(['Show Properties'])
   })
 
   it('Control Type offers Push Button and the two faders, never Toggle Button', () => {
@@ -436,5 +474,49 @@ describe('cue button menu in Edit Mode (Video 1)', () => {
     const remove = menuButton('Remove From Frame')
     expect(remove.hasAttribute('disabled')).toBe(true)
     expect(remove.getAttribute('title')).toBe('Not in a frame')
+  })
+})
+
+describe('cue button menu grouping, Live mode (Jake, 27 Nov 2026, 8.45.41pm)', () => {
+  // The file-level beforeEach enters Edit mode; these tests exit it
+  // first, so the menu is LightKey's short 11-item Live menu. In Live
+  // mode the menu is rendered by the global ContextMenu ("cue
+  // actions"), not LiveWorkspace's edit-mode menu ("Cue button
+  // actions") — both render the same CueButtonMenu component.
+  function liveButtonMenu() {
+    return container!.querySelector('[aria-label="cue actions"]') as HTMLElement | null
+  }
+  function liveMenuButton(label: string) {
+    const menu = liveButtonMenu()
+    expect(menu).toBeTruthy()
+    const button = Array.from(menu!.querySelectorAll('button')).find((b) => b.textContent?.trim().replace(/^✓ /, '').replace(/›$/, '').trim() === label)
+    expect(button).toBeTruthy()
+    return button!
+  }
+  function menuStructure() {
+    const menu = liveButtonMenu()!
+    return Array.from(menu.querySelectorAll(':scope > div')).map((div) =>
+      div.getAttribute('role') === 'separator' ? '---' : div.querySelector('button')?.textContent?.trim().replace(/›$/, '').trim())
+  }
+
+  it('groups the items like LightKey in Live mode', () => {
+    exitEditMode()
+    rightClickButton('btn1')
+    expect(menuStructure()).toEqual([
+      'Get Info', '---',
+      'Show Properties', 'Edit Ad Hoc Properties', 'Add Overrides', '---',
+      'Rename', '---',
+      'Control Type', 'Behavior', 'Priority', 'Color', 'Modifiers', '---',
+      'External Control',
+    ])
+  })
+
+  it('shows the Show Properties speech-bubble icon in Live mode too', () => {
+    exitEditMode()
+    rightClickButton('btn1')
+    const row = liveMenuButton('Show Properties')
+    expect(row.querySelector('svg')).toBeTruthy()
+    const iconRows = Array.from(liveButtonMenu()!.querySelectorAll(':scope > div > button')).filter((b) => b.querySelector('svg'))
+    expect(iconRows.map((b) => b.textContent?.trim())).toEqual(['Show Properties'])
   })
 })

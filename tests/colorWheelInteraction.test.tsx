@@ -14,7 +14,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { ColorWheelControl } from '../src/renderer/src/components/ColorWheelControl'
 import { arcRelAngle, displayHsv } from '../src/renderer/src/lib/colorWheel'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -245,13 +245,19 @@ describe('DesignTab — black fixture starts vivid; brightness 0 must not lock c
       ...base,
       id: 'test-show',
       fixtures: [{ id: 'fx1', name: 'Test Par', type: 'par', channelStart: 1, channels: 4 }],
-      cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }]
+      // Inline cues (Jake, 27 Nov 2026): the cue lives in the Live
+      // button that holds it, and the active cue is that holder's
+      // reference.
+      livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue: { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }, x: 0, y: 0 }] }]
     }
     act(() => {
-      useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+      useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: ['fx1'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     })
     renderInRoot(<DesignTab />)
-    const cueValues = () => useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues['fx1'] ?? {}
+    const cueValues = () => {
+      const state = useShowStore.getState()
+      return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues['fx1'] ?? {}
+    }
     // Wheel writes define overrides now (LightKey's real Overrides) —
     // the cue stays at its original black; the override carries the
     // wheel's colour.

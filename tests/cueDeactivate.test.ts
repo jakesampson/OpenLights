@@ -15,7 +15,7 @@ const frames: Array<FrameRequestCallback | null> = []
 vi.stubGlobal('window', { electronAPI: { setChannels: (values: Record<number, number>) => engine.setChannels(values) } })
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
 vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames[id - 1] = null })
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { activeCueId, collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import { configureEffects, sendImmediate } from '../src/renderer/src/lib/output'
 
 // Virtual-dimmer Q12BT (rgba-4ch, no intensity channel) at 1-4; a
@@ -38,16 +38,12 @@ function makeShow(overrides: Partial<ShowDef> = {}): ShowDef {
   return {
     id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, masterIntensity: 255,
     fixtures,
-    cues: [
-      { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues },
-      { id: 'lit', name: 'Lit', fadeMs: 1000, fixtureValues: litValues },
-    ],
     cueLists: [
       {
         id: 'c1', name: 'Set',
         steps: [
-          { id: 'step1', cueId: 'dark', fadeMs: 0, holdMs: 0 },
-          { id: 'step2', cueId: 'lit', fadeMs: 0, holdMs: 0 },
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 1000, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fadeMs: 1000, fixtureValues: litValues }, fadeMs: 0, holdMs: 0 },
         ],
         loop: false,
       },
@@ -79,19 +75,23 @@ beforeEach(() => {
 describe('cue deactivation', () => {
   it('turning the active cue off returns the rig to the base look', () => {
     const show = makeShow({
-      cues: [
-        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
-        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
-      ],
+      cueLists: [{
+        id: 'c1', name: 'Set',
+        steps: [
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: litValues }, fadeMs: 0, holdMs: 0 },
+        ],
+        loop: false,
+      }],
     })
     const store = useShowStore.getState()
     store.setShow(show)
     store.activateCue('lit')
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(engine.getChannel(1)).toBe(255)
     expect(engine.getChannel(5)).toBe(255)
     store.deactivateCue()
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     // Dimmers closed — no light — and the cue's red is gone; the
     // defaults (blue underneath, pan/tilt centred) are back.
     expect(engine.getChannel(1)).toBe(0)
@@ -122,17 +122,21 @@ describe('cue deactivation', () => {
     step(t1 + 1500)
     expect(engine.getChannel(1)).toBe(0)
     expect(engine.getChannel(5)).toBe(0)
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
   })
 
   it('a cue with no explicit fade time falls back to the global Default fade', () => {
     const show = makeShow({
       preferences: { ...preferences, defaultFadeMs: 2000 },
-      cues: [
-        { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues },
-        // A cue from older data, with no fadeMs of its own.
-        { id: 'lit', name: 'Lit', fixtureValues: litValues } as unknown as ShowDef['cues'][number],
-      ],
+      cueLists: [{
+        id: 'c1', name: 'Set',
+        steps: [
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 1000, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          // A cue from older data, with no fadeMs of its own.
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fixtureValues: litValues } as unknown as ShowDef['cueLists'][number]['steps'][number]['cue'], fadeMs: 0, holdMs: 0 },
+        ],
+        loop: false,
+      }],
     })
     const store = useShowStore.getState()
     store.setShow(show)
@@ -152,33 +156,37 @@ describe('cue deactivation', () => {
     expect(engine.getChannel(1)).toBeLessThan(255)
     step(t1 + 2500)
     expect(engine.getChannel(1)).toBe(0)
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
   })
 
   it('activating again after deactivating brings the cue back', () => {
     const show = makeShow({
-      cues: [
-        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
-        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
-      ],
+      cueLists: [{
+        id: 'c1', name: 'Set',
+        steps: [
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: litValues }, fadeMs: 0, holdMs: 0 },
+        ],
+        loop: false,
+      }],
     })
     const store = useShowStore.getState()
     store.setShow(show)
     store.activateCue('lit')
     store.deactivateCue()
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(engine.getChannel(1)).toBe(0)
     store.activateCue('lit')
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(engine.getChannel(1)).toBe(255)
   })
 
   it('deactivating with no active cue is a no-op', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow())
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     store.deactivateCue()
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(engine.getChannel(1)).toBe(0)
     expect(engine.getChannel(5)).toBe(0)
   })
@@ -187,13 +195,13 @@ describe('cue deactivation', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow())
     store.goToCue('c1', 0)
-    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(activeCueId(useShowStore.getState())).toBe('dark')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     store.cueNext()
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     store.cuePrev()
-    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(activeCueId(useShowStore.getState())).toBe('dark')
     expect(useShowStore.getState().cuePlaying).toBe(true)
   })
 
@@ -201,29 +209,29 @@ describe('cue deactivation', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow())
     store.goToCue('c1', 0)
-    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(activeCueId(useShowStore.getState())).toBe('dark')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     store.deactivateCue()
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(useShowStore.getState().cuePlaying).toBe(false)
     expect(useShowStore.getState().activeCueListId).toBe('c1')
     expect(useShowStore.getState().activeCueIndex).toBe(0)
     store.cueNext()
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     expect(useShowStore.getState().activeCueIndex).toBe(1)
   })
 
   it('wizard Go! creates a "Full" preset and no cue at all', () => {
     const store = useShowStore.getState()
-    store.setShow(makeShow({ cues: [] }))
+    store.setShow(makeShow({ cueLists: [{ id: 'c1', name: 'Set', steps: [], loop: false }] }))
     store.startSetupWizard()
     store.setSetupWizardStep('done')
     store.finishSetupWizard()
     expect(useShowStore.getState().setupWizardStep).toBeNull()
     // New projects start cue-free (Jake, 26 Nov 2026): no Home cue.
-    expect(useShowStore.getState().cues).toHaveLength(0)
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(collectInlineCues(useShowStore.getState().show, useShowStore.getState().cueLists)).toHaveLength(0)
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     // Instead the first preset carries the old Home cue's values and
     // starts active, so the rig still comes on full at the start.
     expect(useShowStore.getState().presets).toHaveLength(1)
@@ -240,49 +248,57 @@ describe('cue deactivation', () => {
   it('Stop deactivates the playing list’s cue instead of only pausing', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow({
-      cues: [
-        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
-        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
-      ],
+      cueLists: [{
+        id: 'c1', name: 'Set',
+        steps: [
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: litValues }, fadeMs: 0, holdMs: 0 },
+        ],
+        loop: false,
+      }],
     }))
     store.goToCue('c1', 0)
-    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(activeCueId(useShowStore.getState())).toBe('dark')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     store.cueNext()
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(engine.getChannel(1)).toBe(255)
     store.cuePrev()
-    expect(useShowStore.getState().activeCueId).toBe('dark')
+    expect(activeCueId(useShowStore.getState())).toBe('dark')
     expect(useShowStore.getState().activeCueIndex).toBe(0)
     store.stopCue()
     // LightKey p.218: Stop deactivates the cues in the cuelist. The
     // lights go out (not just the playback), but the list keeps its
     // place, so Go resumes from the current step.
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(useShowStore.getState().cuePlaying).toBe(false)
     expect(useShowStore.getState().activeCueListId).toBe('c1')
     expect(useShowStore.getState().activeCueIndex).toBe(0)
     expect(engine.getChannel(1)).toBe(0)
     expect(engine.getChannel(5)).toBe(0)
     store.cueNext()
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(useShowStore.getState().cuePlaying).toBe(true)
   })
 
   it('Stop with nothing playing is a no-op for the active cue', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow({
-      cues: [
-        { id: 'dark', name: 'Dark', fadeMs: 0, fixtureValues: darkValues },
-        { id: 'lit', name: 'Lit', fadeMs: 0, fixtureValues: litValues },
-      ],
+      cueLists: [{
+        id: 'c1', name: 'Set',
+        steps: [
+          { id: 'step1', cue: { id: 'dark', name: 'Dark', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: darkValues }, fadeMs: 0, holdMs: 0 },
+          { id: 'step2', cue: { id: 'lit', name: 'Lit', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: litValues }, fadeMs: 0, holdMs: 0 },
+        ],
+        loop: false,
+      }],
     }))
     store.activateCue('lit')
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     store.stopCue()
     // Not playing, so Stop only ever meant "stop playback" — the
     // plain active cue stays put (its own off switch is the toggle).
-    expect(useShowStore.getState().activeCueId).toBe('lit')
+    expect(activeCueId(useShowStore.getState())).toBe('lit')
     expect(engine.getChannel(1)).toBe(255)
   })
 })
@@ -323,6 +339,6 @@ describe('cue toggle wiring (cuelist rows)', () => {
     const activation = store.slice(store.indexOf('  activateCue: (id) =>'))
     const body = activation.slice(0, activation.indexOf('  deactivateCue: () =>'))
     expect(body).not.toContain('deactivateCue')
-    expect(body).not.toContain('activeCueId: null')
+    expect(body).not.toContain('activeCueRef: null')
   })
 })

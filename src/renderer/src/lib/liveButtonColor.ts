@@ -85,12 +85,11 @@ export function withAlpha(hex: string, alpha: number): string {
  */
 export function liveControlButtonColor(
   control: LiveControl,
-  presets: PresetDef[],
-  cues: CueDef[] = []
+  presets: PresetDef[]
 ): string | null {
   const chosen = control.appearance?.color
   if (chosen && chosen.toLowerCase() !== DEFAULT_BUTTON_APPEARANCE_COLOR) return chosen
-  const cue = control.cueId ? cues.find((item) => item.id === control.cueId) : undefined
+  const cue = control.cue
   const source: CueDef = cue ?? {
     id: control.id,
     name: control.name,

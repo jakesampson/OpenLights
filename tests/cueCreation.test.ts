@@ -6,7 +6,7 @@
 // mints a cue holding the dragged objects.
 import { describe, expect, it, vi } from 'vitest'
 import { resolveCueValues } from '../src/shared/cueResolution'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
@@ -52,7 +52,10 @@ describe('cue creation', () => {
     expect(cue.sequenceIds).toEqual(['s1'])
     // The override rides on the cue as an ad hoc value.
     expect(cue.fixtureValues.q1.intensity).toBe(128)
-    expect(s().cues).toHaveLength(1)
+    // addCue is a factory now (Jake, 27 Nov 2026 — inline cues: there
+    // is no cue list to store it in): the returned cue is stored
+    // nowhere until the caller places it in a button or a list step.
+    expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(0)
   })
 
   it('addCue with explicit ids uses the dragged objects, not the active look', () => {
@@ -71,18 +74,20 @@ describe('cue creation', () => {
     setActiveLook()
     const cueId = s().addCueToList('c1')
     expect(cueId).not.toBe('')
-    expect(s().cues).toHaveLength(1)
-    expect(s().cues[0].id).toBe(cueId)
     const list = s().cueLists.find((item) => item.id === 'c1')!
     expect(list.steps).toHaveLength(1)
-    expect(list.steps[0].cueId).toBe(cueId)
-    expect(list.steps[0].fadeMs).toBe(s().cues[0].fadeMs)
+    // The step IS its cue now: the step's cue carries the id, and the
+    // step fade is the cue's own fade (both are the new cue's fade).
+    expect(list.steps[0].cue.id).toBe(cueId)
+    expect(list.steps[0].fadeMs).toBe(list.steps[0].cue.fadeMs)
+    expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(1)
   })
 
   it('addCueToList with dragged presets mints a cue holding them', () => {
     s().setShow(makeShow())
     const cueId = s().addCueToList('c1', { presetIds: ['p-red', 'p-dim'] }, 'Red + Dimmer')
-    const cue = s().cues.find((item) => item.id === cueId)!
+    const cue = s().cueLists.find((item) => item.id === 'c1')!.steps[0].cue
+    expect(cue.id).toBe(cueId)
     expect(cue.name).toBe('Red + Dimmer')
     expect(cue.presetIds).toEqual(['p-red', 'p-dim'])
     expect(s().cueLists.find((item) => item.id === 'c1')!.steps).toHaveLength(1)
@@ -95,14 +100,14 @@ describe('cue creation', () => {
   it('addCueToList to a missing list creates nothing', () => {
     s().setShow(makeShow())
     expect(s().addCueToList('nope')).toBe('')
-    expect(s().cues).toHaveLength(0)
+    expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(0)
   })
 
   it('a Design fan still mints no cue', () => {
     s().setShow(makeShow())
     const fan = { id: 'f', attribute: 'intensity', fixtureIds: ['q1', 'w1'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 200 }
     s().saveFan(fan)
-    expect(s().cues).toHaveLength(0)
+    expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(0)
     expect(s().manualOverrides.q1.intensity).toBe(0)
     expect(s().manualOverrides.w1.intensity).toBe(200)
   })

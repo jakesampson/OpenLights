@@ -4,7 +4,7 @@
 // set up. Go! (in the wizard bar) applies the default home position with
 // the lights on and opens the Design view.
 
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, collectInlineCues } from '../stores/showStore'
 import { isCalibrationComplete } from '../lib/calibration'
 
 export function WizardDoneStep() {
@@ -21,7 +21,7 @@ export function WizardDoneStep() {
         <div className="flex justify-between py-1"><span className="text-dim">Fixtures patched</span><span className="font-semibold">{fixtures.length}</span></div>
         <div className="flex justify-between border-t border-line/40 py-1"><span className="text-dim">Fixture groups</span><span className="font-semibold">{groups.length}</span></div>
         <div className="flex justify-between border-t border-line/40 py-1"><span className="text-dim">Beam directions set</span><span className="font-semibold">{calibrated} of {fixtures.length}</span></div>
-        <div className="flex justify-between border-t border-line/40 py-1"><span className="text-dim">Cues</span><span className="font-semibold">{show?.cues.length ?? 0}</span></div>
+        <div className="flex justify-between border-t border-line/40 py-1"><span className="text-dim">Cues</span><span className="font-semibold">{collectInlineCues(show ?? null, show?.cueLists ?? []).length}</span></div>
       </div>
       <p className="mt-6 text-xs text-dim">Go! applies the default home position — lights on, pointing home — and opens the Design view. You can change anything later: the patch, the Preview, groups and beam directions are all editable from the Design view.</p>
     </div>

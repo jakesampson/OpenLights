@@ -242,7 +242,11 @@ const withNewIds = (
   const idMap = new Map<string, string>()
   const controls = clipboard.controls.map((c) => {
     const id = makeId(); idMap.set(c.id, id); refs.push({ type: 'cue', id })
-    return { ...c, id }
+    // A copied button carries a COPY of its cue, never the original's
+    // id (Jake, 27 Nov 2026 — inline cues: two holders must never
+    // share one cue id, or an edit to one would be ambiguous). The
+    // copy keeps the cue's contents exactly; only the id is fresh.
+    return c.cue ? { ...c, id, cue: { ...structuredClone(c.cue), id: makeId() } } : { ...c, id }
   })
   const widgets = clipboard.widgets.map((w) => {
     const id = makeId(); idMap.set(w.id, id); refs.push({ type: 'list', id })

@@ -74,13 +74,21 @@ export const SPEED_MODIFIER_OPTIONS: { key: SpeedModifierAspect; label: string }
  *  test. */
 export function applicableSpeedOptions(
   control: LiveControl,
-  cues: CueDef[],
+  // Kept for the existing call sites (menus pass the collected inline
+  // cues); the cue itself now comes from the control — see below.
+  _cues: CueDef[],
   presets: PresetDef[],
   fixtures: FixtureDef[],
   sequences: SequenceDef[],
   effects: EffectDef[]
 ): Set<SpeedModifierAspect> {
-  const cue = control.cueId ? cues.find((item) => item.id === control.cueId) : undefined
+  // Inline cues (Jake, 27 Nov 2026): the button's cue is control.cue.
+  // When the button holds no cue, its own presetIds / sequenceIds /
+  // adHocValues are the cue — that is also what the menus' synthetic
+  // controls carry (they mirror a step/button cue's contents onto
+  // those lists), so they keep working unchanged. Do not remove the
+  // menus' mirroring here; it is a later cleanup, not this change.
+  const cue = control.cue
   const source: CueDef = cue ?? {
     id: control.id,
     name: control.name,
@@ -122,13 +130,21 @@ export function applicableSpeedOptions(
  *  / ad-hoc values, exactly as the button's colour resolves them. */
 export function applicableModifiers(
   control: LiveControl,
-  cues: CueDef[],
+  // Kept for the existing call sites (menus pass the collected inline
+  // cues); the cue itself now comes from the control — see below.
+  _cues: CueDef[],
   presets: PresetDef[],
   fixtures: FixtureDef[],
   sequences: SequenceDef[],
   effects: EffectDef[]
 ): Set<LiveModifierKey> {
-  const cue = control.cueId ? cues.find((item) => item.id === control.cueId) : undefined
+  // Inline cues (Jake, 27 Nov 2026): the button's cue is control.cue.
+  // When the button holds no cue, its own presetIds / sequenceIds /
+  // adHocValues are the cue — that is also what the menus' synthetic
+  // controls carry (they mirror a step/button cue's contents onto
+  // those lists), so they keep working unchanged. Do not remove the
+  // menus' mirroring here; it is a later cleanup, not this change.
+  const cue = control.cue
   const source: CueDef = cue ?? {
     id: control.id,
     name: control.name,

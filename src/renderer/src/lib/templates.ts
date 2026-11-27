@@ -68,11 +68,10 @@ export function newShowFromTemplate(template: ShowTemplate, name: string): ShowD
   show.name = name.trim() || template.name
   show.createdAt = Date.now()
   show.updatedAt = Date.now()
-  show.cues = []
   show.cueLists = []
   if (show.startup) show.startup = { ...show.startup, cueId: undefined }
   for (const page of show.livePages ?? []) {
-    for (const control of page.controls) delete control.cueId
+    for (const control of page.controls) delete control.cue
     page.cueListWidgets = []
   }
   show.midiMappings = (show.midiMappings ?? []).filter((m) => m.targetType !== 'cue')

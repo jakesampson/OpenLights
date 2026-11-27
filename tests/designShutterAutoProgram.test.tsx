@@ -12,7 +12,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import type { FixtureChannel, FixtureDef } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -108,19 +108,23 @@ function setShow(entries: { fixture: FixtureDef; values: Record<string, number> 
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
   const fixtures = entries.map((e) => e.fixture)
+  // Inline cues (Jake, 27 Nov 2026): the cue lives in the Live button
+  // that holds it, and the active cue is that holder's reference.
+  const cue = { id: 'c1', name: 'Cue 1', fixtureValues: Object.fromEntries(entries.map((e) => [e.fixture.id, { intensity: 255, ...e.values }])), fadeMs: 0 }
   const show = {
     ...base,
     id: 'test-show',
     fixtures,
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: Object.fromEntries(entries.map((e) => [e.fixture.id, { intensity: 255, ...e.values }])), fadeMs: 0 }]
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue, x: 0, y: 0 }] }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: fixtures.map((f) => f.id), activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: fixtures.map((f) => f.id), activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
-  return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues[fixtureId] ?? {}
 }
 
 // A Design write defines an override (LightKey's real Overrides) —
@@ -357,8 +361,9 @@ describe('no panels without the channels', () => {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     const fixture: FixtureDef = { id: 'fx1', name: 'Test Par', type: 'par', channelStart: 1, channels: 4 }
-    const show = { ...base, id: 'test-show', fixtures: [fixture], cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }] }
-    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
+    const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0 } }, fadeMs: 0 }
+    const show = { ...base, id: 'test-show', fixtures: [fixture], livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue, x: 0, y: 0 }] }] }
+    act(() => { useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: ['fx1'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
     renderInRoot(<DesignTab />)
     expect(shutterCard()).toBeNull()
     expect(programCard()).toBeNull()
@@ -369,8 +374,9 @@ describe('no panels without the channels', () => {
     const base = useShowStore.getState().show
     if (!base) throw new Error('store has no default show')
     const fixture: FixtureDef = { id: 'fx1', name: 'Test Head', type: 'moving-head', channelStart: 1, channels: 8 }
-    const show = { ...base, id: 'test-show', fixtures: [fixture], cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0, strobe: 0 } }, fadeMs: 0 }] }
-    act(() => { useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
+    const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 0, green: 0, blue: 0, strobe: 0 } }, fadeMs: 0 }
+    const show = { ...base, id: 'test-show', fixtures: [fixture], livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue, x: 0, y: 0 }] }] }
+    act(() => { useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: ['fx1'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false }) })
     renderInRoot(<DesignTab />)
     expect(shutterCard()).toBeNull()
     expect(fader('Strobe for selected fixtures')).not.toBeNull()

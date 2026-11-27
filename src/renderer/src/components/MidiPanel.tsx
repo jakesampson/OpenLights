@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, findInlineCue } from '../stores/showStore'
 import { initMidi, matchMapping, describeMapping, learnMapping, mappingAction, midiAvailable } from '../lib/midi'
 import type { MidiMessage } from '../lib/midi'
 import type { MidiMapping, MidiTargetType } from '@shared/types'
@@ -16,9 +16,9 @@ type MidiState = 'unsupported' | 'requesting' | 'granted' | 'denied' | 'timeout'
 
 export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: LearnTarget | null } = {}) {
   const {
-    cues,
     cueLists,
     show,
+    presets,
     midiMappings,
     activateCue,
     addMidiMapping,
@@ -90,6 +90,8 @@ export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: 
         return
       }
       if (match.targetType === 'cue' && match.targetId) {
+        // activateCue resolves the id across holders; a mapping whose
+        // cue copy is gone is a no-op (the panel shows it unmappable).
         activateCue(match.targetId)
       }
     },
@@ -158,14 +160,44 @@ export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: 
           ? { label: 'Not Supported', cls: 'bg-zinc-700/40 text-zinc-400' }
           : { label: 'Unavailable', cls: 'bg-red-500/20 text-red-400' }
 
-  const cueName = (id: string | null) => cues.find((s) => s.id === id)?.name ?? 'Cue'
+  // A 'cue' mapping's targetId is the id of ONE inline cue copy —
+  // the cue object held by one specific button or cuelist step (Jake,
+  // 27 Nov 2026 — there is no shared cue any more; the migration
+  // remapped an old shared-cue target onto its first copy, button
+  // preferred). It resolves through that holder only: findInlineCue
+  // scans buttons then list steps for the id. A cue copied into
+  // several holders is a separate cue in each, so learning the "same"
+  // cue in another holder binds a different copy (a different
+  // targetId); re-pointing a mapping at another copy means removing
+  // it here and learning the other holder's row.
+  const cueName = (id: string | null) => (id ? findInlineCue(show, cueLists, id)?.cue.name ?? null : null)
   const cueListName = (id: string | null) => cueLists.find((l) => l.id === id)?.name ?? 'Cue list'
 
   const targetLabel = (m: MidiMapping): string => {
     if (m.targetType === 'blackout') return 'Blackout / Panic'
     if (m.targetType === 'master') return 'Master intensity'
     if (m.targetType === 'cue-next') return `Next cue · ${cueListName(m.targetId)}`
-    return cueName(m.targetId)
+    if (m.targetType === 'cue-prev') return 'Previous cue'
+    if (m.targetType === 'tap-tempo') return 'Tap tempo'
+    if (m.targetType === 'blind') return 'Blind'
+    if (m.targetType === 'freeze') return 'Freeze'
+    if (m.targetType === 'cue') return cueName(m.targetId) ?? 'Cue no longer exists'
+    if (m.targetType === 'live-cue') {
+      const control = (show?.livePages ?? []).flatMap((p) => p.controls).find((c) => c.id === m.targetId)
+      return control ? `Live button · ${control.name}` : 'Live button no longer exists'
+    }
+    if (m.targetType === 'preset') return presets.find((p) => p.id === m.targetId)?.name ?? 'Preset'
+    if (m.targetType === 'sequence') return show?.sequences?.find((s) => s.id === m.targetId)?.name ?? 'Sequence'
+    return 'Cue'
+  }
+
+  // A mapping whose target is gone fires nothing and is shown as
+  // unmappable in the list below — never silently dropped.
+  const unmappedNote = (m: MidiMapping): string | null => {
+    if (m.targetType === 'cue' && m.targetId && !findInlineCue(show, cueLists, m.targetId)) return 'Unmapped — this cue no longer exists. Learn a new trigger for a cue above, or remove this mapping.'
+    if (m.targetType === 'live-cue' && m.targetId && !(show?.livePages ?? []).some((p) => p.controls.some((c) => c.id === m.targetId))) return 'Unmapped — this Live button no longer exists. Learn a new trigger for a button above, or remove this mapping.'
+    if (m.targetType === 'cue-next' && m.targetId && !cueLists.some((l) => l.id === m.targetId)) return 'Unmapped — this cue list no longer exists. Learn a new trigger for a list above, or remove this mapping.'
+    return null
   }
 
   // Live buttons (Jake, 27 Nov 2026 — LightKey's "Add Trigger…" learns
@@ -180,6 +212,26 @@ export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: 
       label: livePages.length > 1 ? `${page.name} · ${control.name}` : control.name,
     }))
   )
+
+  // Every inline cue, one learn row per holder (see cueName above):
+  // a button's cue is labelled with its page, a step's cue with its
+  // list, so two copies of the "same" cue stay distinguishable.
+  const inlineCueTargets: LearnTarget[] = [
+    ...livePages.flatMap((page) =>
+      page.controls.filter((control) => control.cue).map((control) => ({
+        targetType: 'cue' as const,
+        targetId: control.cue!.id,
+        label: `${control.cue!.name} · ${page.name}`,
+      }))
+    ),
+    ...cueLists.flatMap((list) =>
+      list.steps.map((step) => ({
+        targetType: 'cue' as const,
+        targetId: step.cue.id,
+        label: `${step.cue.name} · ${list.name}`,
+      }))
+    ),
+  ]
 
   const learnButton = (target: LearnTarget) => {
     const armed = armedFor(target.targetId, target.targetType)
@@ -301,9 +353,10 @@ export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: 
               Cues
             </h4>
             <div className="flex flex-col gap-2">
-              {cues.map((cue) =>
-                bindRow({ targetType: 'cue', targetId: cue.id, label: cue.name })
+              {inlineCueTargets.length === 0 && (
+                <div className="px-3 py-2 text-xs text-zinc-600">No cues yet.</div>
               )}
+              {inlineCueTargets.map((target) => bindRow(target))}
             </div>
           </div>
 
@@ -334,6 +387,7 @@ export function MidiPanel({ initialLearnTarget = null }: { initialLearnTarget?: 
                 <div>
                   <div className="text-xs font-medium text-zinc-200">{targetLabel(m)}</div>
                   <div className="text-[10px] text-zinc-500">{describeMapping(m)}</div>
+                  {unmappedNote(m) && <div className="text-[10px] text-amber-400">{unmappedNote(m)}</div>}
                 </div>
                 <button
                   onClick={() => removeMidiMapping(m.id)}

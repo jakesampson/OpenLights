@@ -9,7 +9,7 @@ const setChannels = vi.fn()
 ;(globalThis as any).cancelAnimationFrame = () => undefined
 
 // Imported after the globals exist.
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { activeCueId, collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import type { LiveDropPayload } from '../src/renderer/src/lib/liveDrops'
 import { frameForCue } from '../src/renderer/src/lib/liveFrames'
 
@@ -131,8 +131,10 @@ describe('saved preferences', () => {
     useShowStore.getState().setPageSwitchMode(true)
     expect(useShowStore.getState().show?.preferences).toEqual({ defaultFadeMs: 2300, pageFadeMs: 700, theme: 'system', dmxProtocol: 'enttec-usb-pro' })
     expect(useShowStore.getState().show?.deactivateOnPageSwitch).toBe(true)
-    useShowStore.getState().addCue()
-    expect(useShowStore.getState().cues.at(-1)?.fadeMs).toBe(2300)
+    const cue = useShowStore.getState().addCue()
+    expect(cue.fadeMs).toBe(2300)
+    // A factory: nothing is stored until the cue is placed in a holder.
+    expect(collectInlineCues(useShowStore.getState().show, useShowStore.getState().cueLists)).toHaveLength(2)
   })
 })
 
@@ -220,7 +222,7 @@ describe('cue output', () => {
     // light — but pan/tilt sit centred (128) and the colour default is
     // blue, gated by the dimmer. A stale cue's red (255) or pan (10)
     // must not survive the load.
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(patch[1]).toBe(0) // f1 dimmer closed — no light
     expect(patch[2]).toBe(0) // f1 red: the stale cue's 255 is gone
     expect(patch[4]).toBe(255) // f1 blue: the default colour, gated by the dimmer
@@ -230,23 +232,25 @@ describe('cue output', () => {
     expect(patch[8]).toBe(0) // f2 red: the stale cue's 0 stays 0
   })
 
-  it('duplicates a cue directly after the original', () => {
-    useShowStore.getState().duplicateCue('s1')
-    const cues = useShowStore.getState().cues
-    expect(cues).toHaveLength(3)
-    expect(cues[1].name).toBe('One Copy')
-    expect(cues[1].id).not.toBe('s1')
-    expect(cues[1].fixtureValues).toEqual(cues[0].fixtureValues)
+  it('duplicates a cue step directly after the original', () => {
+    // duplicateCue is gone (Jake, 27 Nov 2026 — inline cues:
+    // duplication is per-holder now). The list-step equivalent:
+    useShowStore.getState().duplicateCueSteps('c1', ['step1'])
+    const steps = useShowStore.getState().cueLists[0].steps
+    expect(steps).toHaveLength(3)
+    expect(steps[1].cue.name).toBe('001 New Cue')
+    expect(steps[1].cue.id).not.toBe('s1')
+    expect(steps[1].cue.fixtureValues).toEqual(steps[0].cue.fixtureValues)
   })
 
   it('flashes a cue and restores the previous look on release', () => {
     useShowStore.getState().activateCue('s1')
     useShowStore.getState().flashCue('s2')
     expect(lastPatch()[5]).toBe(200)
-    expect(useShowStore.getState().activeCueId).toBe('s2')
+    expect(activeCueId(useShowStore.getState())).toBe('s2')
     useShowStore.getState().endFlash()
     expect(lastPatch()[1]).toBe(255)
-    expect(useShowStore.getState().activeCueId).toBe('s1')
+    expect(activeCueId(useShowStore.getState())).toBe('s1')
   })
 
   it('ignores flash during blackout', () => {
@@ -254,7 +258,7 @@ describe('cue output', () => {
     setChannels.mockClear()
     useShowStore.getState().flashCue('s1')
     expect(setChannels).not.toHaveBeenCalled()
-    expect(useShowStore.getState().activeCueId).not.toBe('s1')
+    expect(activeCueId(useShowStore.getState())).not.toBe('s1')
   })
 })
 
@@ -285,7 +289,7 @@ describe('fixture selection and design controls', () => {
     useShowStore.getState().activateCue('s1')
     useShowStore.getState().selectFixture('d')
     useShowStore.getState().updateSelectedFixtures({ red: 200, green: 50, blue: 10 })
-    expect(useShowStore.getState().cues[0].fixtureValues.d).toEqual({ intensity: 255, red: 200, green: 50, blue: 10 })
+    expect(useShowStore.getState().cueLists[0].steps[0].cue.fixtureValues.d).toEqual({ intensity: 255, red: 200, green: 50, blue: 10 })
     expect(lastPatch()[20]).toBe(255)
     expect(lastPatch()[21]).toBeUndefined()
   })
@@ -316,23 +320,26 @@ describe('fixture selection and design controls', () => {
     store.selectFixture('f2')
     store.updateSelectedFixtures({ intensity: 300, pan: 255 })
 
-    const activeCue = useShowStore.getState().cues.find((cue) => cue.id === 's1')
+    const activeCue = useShowStore.getState().cueLists[0].steps[0].cue
     expect(activeCue?.fixtureValues.f1?.intensity).toBe(255)
     expect(activeCue?.fixtureValues.f2?.intensity).toBe(255)
     expect(activeCue?.fixtureValues.f2?.pan).toBe(255)
     expect(lastPatch()[5]).toBe(255)
   })
 
-  it('creates and activates a cue when editing without an active cue', () => {
+  it('drops a Design write with no active cue instead of minting one', () => {
+    // Jake, 27 Nov 2026 — inline cues: there is no free-floating cue
+    // to mint any more, so a non-manual write with no active cue has
+    // nowhere to land. (The old test pinned the mint; the mint is gone.)
     const store = useShowStore.getState()
     store.selectFixture('f1')
     store.updateSelectedFixtures({ intensity: 100 })
 
     const state = useShowStore.getState()
-    const created = state.cues.find((cue) => cue.id === state.activeCueId)
-    expect(created?.fixtureValues.f1?.intensity).toBe(100)
-    expect(state.cues).toHaveLength(3)
-    expect(lastPatch()[1]).toBe(100)
+    expect(activeCueId(state)).toBeNull()
+    expect(collectInlineCues(state.show, state.cueLists)).toHaveLength(2)
+    expect(state.cueLists[0].steps[0].cue.fixtureValues.f1?.intensity).toBe(255)
+    expect(state.cueLists[0].steps[1].cue.fixtureValues.f1?.intensity).toBe(0)
   })
 })
 
@@ -360,10 +367,12 @@ describe('cue lists', () => {  it('runs from go to next and stops at the end', (
     expect(lastPatch()[1]).toBe(255)
   })
 
-  it('drops cues when their cue is deleted', () => {
-    useShowStore.getState().deleteCue('s1')
+  it('drops a step’s cue when the step is removed', () => {
+    // deleteCue is gone (Jake, 27 Nov 2026 — inline cues: a cue is
+    // deleted by deleting its holder).
+    useShowStore.getState().removeCueStep('c1', 'step1')
     const list = useShowStore.getState().cueLists.find((l) => l.id === 'c1')
-    expect(list?.steps.map((s) => s.cueId)).toEqual(['s2'])
+    expect(list?.steps.map((s) => s.cue.id)).toEqual(['s2'])
   })
 })
 
@@ -377,7 +386,7 @@ describe('patch and persistence sync', () => {
     const state = useShowStore.getState()
     const added = state.show?.fixtures.find((f) => f.name === 'Floor')
     expect(added?.channelStart).toBe(13)
-    expect(state.cues.every((s) => s.fixtureValues[added!.id])).toBe(true)
+    expect(collectInlineCues(state.show, state.cueLists).every((s) => s.fixtureValues[added!.id])).toBe(true)
   })
 
   it('removes automation lanes that reference a removed fixture', () => {
@@ -417,7 +426,9 @@ describe('patch and persistence sync', () => {
 
   it('keeps cues, automations, cue lists and MIDI mappings on the saved show', () => {
     const store = useShowStore.getState()
-    store.addCue()
+    // addCue is a factory now — the cue only lands in the show when
+    // placed in a holder (here, a new step in the first list).
+    store.addCueToList('c1')
     store.addAutomation({
       id: 'a1',
       name: 'Lane',
@@ -436,7 +447,7 @@ describe('patch and persistence sync', () => {
     })
 
     const show = useShowStore.getState().show!
-    expect(show.cues).toHaveLength(3)
+    expect(collectInlineCues(show, useShowStore.getState().cueLists)).toHaveLength(3)
     expect(show.automations).toHaveLength(1)
     expect(show.cueLists).toHaveLength(2)
     expect(show.midiMappings).toHaveLength(1)
@@ -460,13 +471,13 @@ describe('patch and persistence sync', () => {
 describe('convert cues to presets (6.14)', () => {
   it('appends equivalent presets, keeps the originals and is idempotent', () => {
     useShowStore.getState().setShow(makeShow())
-    const before = useShowStore.getState().cues
+    const before = collectInlineCues(useShowStore.getState().show, useShowStore.getState().cueLists)
     const added = useShowStore.getState().convertCuesToPresets()
     expect(added).toBe(2)
     const state = useShowStore.getState()
     expect(state.presets).toHaveLength(2)
     expect(state.presets[0].fixtureValues).toEqual(before[0].fixtureValues)
-    expect(state.cues).toEqual(before)
+    expect(collectInlineCues(state.show, state.cueLists)).toEqual(before)
     expect(useShowStore.getState().convertCuesToPresets()).toBe(0)
     expect(useShowStore.getState().presets).toHaveLength(2)
   })
@@ -904,7 +915,7 @@ describe('cuelist editing (8.7)', () => {
     useShowStore.getState().setShow(makeShow())
     const list = useShowStore.getState().cueLists[0]
     const before = list.steps.length
-    useShowStore.getState().editCueListCommand(list.id, { type: 'add', step: { id: 'new', cueId: useShowStore.getState().cues[0].id, fadeMs: 100, holdMs: 200 } })
+    useShowStore.getState().editCueListCommand(list.id, { type: 'add', step: { id: 'new', cue: { ...useShowStore.getState().cueLists[0].steps[0].cue, id: 'new-cue' }, fadeMs: 100, holdMs: 200 } })
     expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before + 1)
     useShowStore.getState().undo()
     expect(useShowStore.getState().cueLists[0].steps).toHaveLength(before)
@@ -939,7 +950,7 @@ describe('cuelist manual crossfade (8.8)', () => {
     useShowStore.getState().setManualCrossfade(0)
     const afterFirst = useShowStore.getState()
     expect(afterFirst.activeCueIndex).toBe(1)
-    expect(afterFirst.activeCueId).toBe('s2')
+    expect(activeCueId(afterFirst)).toBe('s2')
     expect(lastPatch()[5]).toBe(200)
     // The slider now rests at 0: dragging back toward 1 blends Two into One.
     useShowStore.getState().setManualCrossfade(0.5)
@@ -948,7 +959,7 @@ describe('cuelist manual crossfade (8.8)', () => {
     useShowStore.getState().setManualCrossfade(1)
     const afterSecond = useShowStore.getState()
     expect(afterSecond.activeCueIndex).toBe(0)
-    expect(afterSecond.activeCueId).toBe('s1')
+    expect(activeCueId(afterSecond)).toBe('s1')
     expect(lastPatch()[1]).toBe(255)
   })
 

@@ -9,7 +9,7 @@
 // button's properties, or by deleting the button and dragging the preset
 // onto the Live page again.
 import { describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import type { ShowDef } from '../src/shared/types'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 
@@ -57,8 +57,11 @@ describe('deleting a referenced preset, sequence or cue', () => {
     // longer points at the deleted preset.
     expect(control('b1').presetIds).toEqual(['p2'])
     expect(control('b1').name).toBe('Full On')
-    expect(s().cues.find((c) => c.id === 'c1')!.presetIds).toEqual([])
-    expect(s().cues.find((c) => c.id === 'c2')!.presetIds).toEqual(['p2'])
+    // The button copies AND the list-step copies are stripped.
+    expect(control('b2').cue!.presetIds).toEqual([])
+    expect(control('b3').cue!.presetIds).toEqual(['p2'])
+    expect(s().cueLists[0].steps[0].cue.presetIds).toEqual([])
+    expect(s().cueLists[0].steps[1].cue.presetIds).toEqual(['p2'])
     expect(s().show!.sequences!.find((q) => q.id === 's1')!.steps[0].presetIds).toEqual([])
   })
 
@@ -67,16 +70,31 @@ describe('deleting a referenced preset, sequence or cue', () => {
     s().deleteSequence('s1')
     expect(s().show!.sequences!.map((q) => q.id)).toEqual(['s2'])
     expect(control('b1').sequenceIds).toEqual([])
-    expect(s().cues.find((c) => c.id === 'c1')!.sequenceIds).toEqual([])
+    expect(control('b2').cue!.sequenceIds).toEqual([])
+    expect(s().cueLists[0].steps[0].cue.sequenceIds).toEqual([])
   })
 
-  it('deleteCue unbinds Live buttons and drops cue-list steps', () => {
+  it('deleting a cue button deletes its cue and leaves the other holders’ copies alone', () => {
     s().setShow(testShow())
-    s().deleteCue('c1')
-    expect(s().cues.map((c) => c.id)).toEqual(['c2'])
-    expect(control('b2').cueId).toBeUndefined()
-    expect(control('b3').cueId).toBe('c2')
-    expect(s().cueLists[0].steps.map((step) => step.cueId)).toEqual(['c2'])
+    useShowStore.setState({ selectedPageObjects: [{ type: 'cue', id: 'b2' }] })
+    s().deleteSelectedPageObjects()
+    // b2's copy of Cue 1 is gone; the step's copy survives untouched.
+    expect(control('b2')).toBeUndefined()
+    // The step's copy survives untouched (a fresh id from migration —
+    // the same cue, separately held).
+    expect(s().cueLists[0].steps).toHaveLength(2)
+    expect(s().cueLists[0].steps[0].cue.name).toBe('Cue 1')
+    expect(s().cueLists[0].steps[0].cue.id).not.toBe('c1')
+    expect(control('b3').cue?.id).toBe('c2')
+  })
+
+  it('removing a cuelist step deletes its cue and leaves the button copy alone', () => {
+    s().setShow(testShow())
+    s().removeCueStep('list1', 'ls1')
+    expect(s().cueLists[0].steps).toHaveLength(1)
+    expect(s().cueLists[0].steps[0].cue.name).toBe('Cue 2')
+    expect(control('b2').cue?.id).toBe('c1')
+    expect(control('b2').cue?.name).toBe('Cue 1')
   })
 
   it('removeEffect strips the id from Live buttons', () => {

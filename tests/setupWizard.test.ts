@@ -17,7 +17,7 @@ import {
   saveUserTemplate,
   type ShowTemplate
 } from '../src/renderer/src/lib/templates'
-import { useShowStore, defaultShow } from '../src/renderer/src/stores/showStore'
+import { useShowStore, defaultShow, collectInlineCues, activeCueId } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { FixtureDef, ShowDef } from '../src/shared/types'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -110,8 +110,8 @@ describe('wizard store actions (Piece 5)', () => {
     // New projects start with zero cues (Jake, 26 Nov 2026). Instead of
     // the old Home cue, the wizard creates a first preset holding the
     // Home cue's values, and starts it active in the palette.
-    expect(state().cues).toHaveLength(0)
-    expect(state().activeCueId).toBeNull()
+    expect(collectInlineCues(state().show, state().cueLists)).toHaveLength(0)
+    expect(activeCueId(state())).toBeNull()
     expect(state().presets).toHaveLength(1)
     const full = state().presets[0]
     expect(full.name).toBe('Full')
@@ -124,7 +124,7 @@ describe('wizard store actions (Piece 5)', () => {
     state().setSetupWizardStep('done')
     state().finishSetupWizard()
     expect(state().presets).toHaveLength(1)
-    expect(state().cues).toHaveLength(0)
+    expect(collectInlineCues(state().show, state().cueLists)).toHaveLength(0)
   })
 
   it('exiting the wizard leaves the show untouched', () => {
@@ -134,7 +134,7 @@ describe('wizard store actions (Piece 5)', () => {
     state().exitSetupWizard()
     expect(state().setupWizardStep).toBeNull()
     expect(state().show!.fixtures).toHaveLength(1)
-    expect(state().cues).toHaveLength(0)
+    expect(collectInlineCues(state().show, state().cueLists)).toHaveLength(0)
   })
 })
 
@@ -191,7 +191,8 @@ describe('templates (Piece 5 groundwork)', () => {
         { ...par('p1', 9), previewPosition: { x: 300, y: 200 }, group: 'Wash' }
       ],
       previewTrusses: [{ id: 't1', name: 'Truss', shape: 'straight' as const, x: 100, y: 60, width: 400, height: 100, rotation: 0 }],
-      cues: [{ id: 'c1', name: 'Home', presetIds: [], sequenceIds: [], fixtureValues: { mh1: { intensity: 255 } }, fadeMs: 1000 }]
+      cues: [{ id: 'c1', name: 'Home', presetIds: [], sequenceIds: [], fixtureValues: { mh1: { intensity: 255 } }, fadeMs: 1000 }],
+      livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Home', type: 'push', cueId: 'c1', presetIds: [] }] }]
     } as unknown as ShowDef)
     const template: ShowTemplate = { id: 'rig', name: 'My Rig', createdAt: 100, show: rig }
     saveUserTemplate(template)
@@ -210,8 +211,8 @@ describe('templates (Piece 5 groundwork)', () => {
     expect(started.fixtures).toEqual(rig.fixtures)
     expect(started.previewTrusses).toEqual(rig.previewTrusses)
     expect(started.fixtureGroups?.map((g) => g.name).sort()).toEqual(['Movers', 'Wash'])
-    expect(started.cues).toHaveLength(0)
-    expect(listed.show.cues).toHaveLength(1)
+    expect(collectInlineCues(started, started.cueLists ?? [])).toHaveLength(0)
+    expect(collectInlineCues(listed.show, listed.show.cueLists ?? [])).toHaveLength(1)
     // The template itself is untouched by the copy.
     expect(template.show.fixtures[0].name).toBe('MH1')
   })

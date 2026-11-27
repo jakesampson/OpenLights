@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { migrateShow } from '../src/shared/migrations'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue, collectInlineCues } from '../src/renderer/src/stores/showStore'
 import { resolvePaletteDrop, type PaletteDragItem } from '../src/renderer/src/lib/paletteDrop'
 import type { PresetGroup } from '../src/shared/types'
 
@@ -24,14 +24,17 @@ describe('OpenLights fix batch — cues, palette drag, in-place preset edit', ()
     // create a group called "Colors", and a "Cues · 4" section appeared.
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
-      cues: ['Warm Welcome', 'Sermon Focus', 'Communion Glow', 'Cue 4'].map((name, i) => ({ id: `sc${i}`, name, fadeMs: 0, fixtureValues: {} }))
+      // The four cues live inline on seed buttons (Jake, 27 Nov 2026
+      // — inline cues): holderless cues are dropped on migration.
+      cues: ['Warm Welcome', 'Sermon Focus', 'Communion Glow', 'Cue 4'].map((name, i) => ({ id: `sc${i}`, name, fadeMs: 0, fixtureValues: {} })),
+      livePages: [{ id: 'page1', name: 'Page', controls: ['Warm Welcome', 'Sermon Focus', 'Communion Glow', 'Cue 4'].map((name, i) => ({ id: `btn${i}`, name, type: 'push', cueId: `sc${i}`, presetIds: [] })) }]
     }))
     expect(s().show!.presetGroups ?? []).toEqual([])
     expect(s().presets).toEqual([])
     s().createPresetGroup('Colors')
     expect(s().show!.presetGroups).toHaveLength(1)
     // The group creation touched nothing cue-related.
-    expect(s().cues).toHaveLength(4)
+    expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(4)
     // And the palette has no cue UI at all for it to render into.
     for (const text of ['activateCue', '__scenes__', 'editingCue', 'Cues · {cues.length}']) expect(panel).not.toContain(text)
     // Cue selection still exists, outside the palette: Project Search
@@ -104,6 +107,7 @@ describe('OpenLights fix batch — cues, palette drag, in-place preset edit', ()
     s().setShow(migrateShow({
       fixtures: ['a', 'b'].map((id, i) => ({ id, name: id, type: 'par', channelStart: 1 + i * 4, channels: 4 })),
       cues: [{ id: 'sc', name: 'S', fadeMs: 0, fixtureValues: { a: { intensity: 255, red: 100 }, b: { red: 120 } } }],
+      livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'S', type: 'push', cueId: 'sc', presetIds: [] }] }],
       presets: [{ id: 'p', name: 'Turquoise', category: 'color', fixtureValues: { a: { red: 1 }, b: { red: 2 } } }]
     }))
     s().activateCue('sc')
@@ -115,7 +119,7 @@ describe('OpenLights fix batch — cues, palette drag, in-place preset edit', ()
     // Design writes go to the preset, never to the cue.
     s().updateEditingPresetValues({ red: 200 })
     expect(s().presets[0].fixtureValues).toEqual({ a: { red: 200 }, b: { red: 200 } })
-    expect(s().cues[0].fixtureValues.a.red).toBe(100)
+    expect(findInlineCue(s().show, s().cueLists, 'sc')!.cue.fixtureValues.a.red).toBe(100)
     // Undo still works on an edit.
     s().undo()
     expect(s().presets[0].fixtureValues.a.red).toBe(1)

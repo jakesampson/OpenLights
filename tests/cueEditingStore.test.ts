@@ -6,7 +6,7 @@
 // always-active attached button keeps one of its group lit.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import { configureSequences } from '../src/renderer/src/lib/output'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
@@ -56,7 +56,7 @@ describe('cue editing store', () => {
     const state = useShowStore.getState()
     state.dropOnLivePage({ presetIds: ['p-blue'], sequenceIds: [], effectIds: [] }, { kind: 'cue', cueId: 'btn1' })
     const next = useShowStore.getState()
-    expect(next.cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red', 'p-blue'])
+    expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.presetIds).toEqual(['p-red', 'p-blue'])
     expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.presetIds).toEqual([])
   })
 
@@ -64,7 +64,7 @@ describe('cue editing store', () => {
     useShowStore.getState().dropOnLivePage({ presetIds: ['p-blue'], sequenceIds: [], effectIds: [] }, { kind: 'cue', cueId: 'btn2' })
     const next = useShowStore.getState()
     expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn2')?.presetIds).toEqual(['p-blue'])
-    expect(next.cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red'])
+    expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.presetIds).toEqual(['p-red'])
   })
 
   it('dropping a preset onto a cuelist step (cue id, no button) adds it to the cue', () => {
@@ -76,19 +76,19 @@ describe('cue editing store', () => {
     // empty).
     useShowStore.getState().dropOnLivePage({ presetIds: ['p-blue'], sequenceIds: [], effectIds: [] }, { kind: 'cue', cueId: 'cue1' })
     const next = useShowStore.getState()
-    expect(next.cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red', 'p-blue'])
+    expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.presetIds).toEqual(['p-red', 'p-blue'])
     useShowStore.getState().undo()
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red'])
+    expect(useShowStore.getState().show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.presetIds).toEqual(['p-red'])
   })
 
   it('editCueDefContents adds and removes cue ingredients', () => {
     const state = useShowStore.getState()
     state.editCueDefContents('cue1', { type: 'add-sequence', id: 'seq1' })
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.sequenceIds).toEqual(['seq1'])
+    expect(useShowStore.getState().show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.sequenceIds).toEqual(['seq1'])
     state.editCueDefContents('cue1', { type: 'remove-preset', id: 'p-red' })
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.presetIds).toEqual([])
+    expect(useShowStore.getState().show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.presetIds).toEqual([])
     state.editCueDefContents('cue1', { type: 'remove-ad-hoc', fixtureId: 'd1' })
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.fixtureValues).toEqual({})
+    expect(useShowStore.getState().show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue?.fixtureValues).toEqual({})
   })
 
   it('promoting a cue ad-hoc item creates a preset and keeps the look', () => {
@@ -98,7 +98,7 @@ describe('cue editing store', () => {
     const preset = next.presets.find((p) => p.id === created)
     expect(preset?.name).toBe('Song 1 ad hoc')
     expect(preset?.fixtureValues.d1.intensity).toBe(200)
-    const cue = next.cues.find((c) => c.id === 'cue1')!
+    const cue = next.show?.livePages?.[0].controls.find((c) => c.id === 'btn1')?.cue!
     expect(cue.presetIds).toContain(created)
     expect(cue.fixtureValues).toEqual({})
   })
@@ -128,13 +128,86 @@ describe('cue editing store', () => {
     // The only lit button in the group: switching it off is refused.
     next.setLiveValue('btn1', 0)
     expect(useShowStore.getState().activeLiveValues.btn1).toBe(255)
-    // Lighting the neighbour first releases it through the switch — and
-    // the neighbour can then go off, because btn1 is lit again.
+    // Lighting the neighbour releases btn1 through the switch — but the
+    // neighbour inherits the lock: Always active belongs to the group
+    // (Guide ch.11, pp.204/215; Jake, 27 Nov 2026), so btn2 cannot go
+    // off either while btn1 still carries the flag.
     next.setLiveValue('btn2', 255)
     expect(useShowStore.getState().activeLiveValues.btn1 ?? 0).toBe(0)
     expect(useShowStore.getState().activeLiveValues.btn2).toBe(255)
     next.setLiveValue('btn2', 0)
-    expect(useShowStore.getState().activeLiveValues.btn2 ?? 0).toBe(0)
+    expect(useShowStore.getState().activeLiveValues.btn2).toBe(255)
+  })
+
+  it('always-active releases when the flag is turned off, and detaching frees the neighbour', () => {
+    const state = useShowStore.getState()
+    state.setShow(migrateShow({
+      fixtures: FIXTURES, presets: PRESETS,
+      cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }],
+      livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
+        { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 20, alwaysActive: true },
+        { id: 'btn2', name: 'Other', type: 'push', presetIds: [], x: 140, y: 20 },
+      ] }],
+    } as unknown as ShowDef))
+    useShowStore.setState({ activeLivePageId: 'page1' })
+    const patch = (id: string, patch: Record<string, unknown>) => {
+      const page = useShowStore.getState().show!.livePages![0]
+      useShowStore.getState().setLivePages([{ ...page, controls: page.controls.map((c) => c.id === id ? { ...c, ...patch } : c) }])
+    }
+    const values = () => useShowStore.getState().activeLiveValues
+    const next = useShowStore.getState()
+    next.setLiveValue('btn1', 255)
+    next.setLiveValue('btn2', 255)
+    expect(values().btn2).toBe(255)
+    next.setLiveValue('btn2', 0)
+    expect(values().btn2).toBe(255)
+    // Turning the flag off on btn1 releases the whole group: btn2 can
+    // go off again.
+    patch('btn1', { alwaysActive: false })
+    next.setLiveValue('btn2', 0)
+    expect(values().btn2 ?? 0).toBe(0)
+    // Flag back on, group lit again — then detach btn2 by moving it
+    // away: it is no longer in the group, so the lock no longer covers
+    // it even though btn1 still carries the flag.
+    patch('btn1', { alwaysActive: true })
+    next.setLiveValue('btn1', 255)
+    next.setLiveValue('btn2', 255)
+    next.setLiveValue('btn2', 0)
+    expect(values().btn2).toBe(255)
+    patch('btn2', { x: 400, y: 20 })
+    next.setLiveValue('btn2', 0)
+    expect(values().btn2 ?? 0).toBe(0)
+    // btn1 is now lone (no other button touches it): Always active
+    // does not apply, so it toggles off as before.
+    next.setLiveValue('btn1', 255)
+    next.setLiveValue('btn1', 0)
+    expect(values().btn1 ?? 0).toBe(0)
+  })
+
+  it('a fader touching an always-active group is never locked by it', () => {
+    const state = useShowStore.getState()
+    state.setShow(migrateShow({
+      fixtures: FIXTURES, presets: PRESETS,
+      cues: [{ id: 'cue1', name: 'Song 1', presetIds: ['p-red'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 }],
+      livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
+        { id: 'btn1', name: 'Song 1', type: 'push', cueId: 'cue1', presetIds: [], x: 20, y: 20, alwaysActive: true },
+        { id: 'fad1', name: 'Dimmer', type: 'faderVertical', presetIds: [], x: 20, y: 60 },
+      ] }],
+    } as unknown as ShowDef))
+    useShowStore.setState({ activeLivePageId: 'page1' })
+    const next = useShowStore.getState()
+    next.setLiveValue('btn1', 255)
+    expect(useShowStore.getState().activeLiveValues.btn1).toBe(255)
+    // Its only neighbour is a fader, not another button — the option
+    // applies only when a button is attached to other BUTTONS (Guide
+    // ch.11, p.204), so btn1 toggles off as a lone button would.
+    next.setLiveValue('btn1', 0)
+    expect(useShowStore.getState().activeLiveValues.btn1 ?? 0).toBe(0)
+    // And the fader itself is never locked: it drags to 0 freely.
+    next.setLiveValue('fad1', 128)
+    expect(useShowStore.getState().activeLiveValues.fad1).toBe(128)
+    next.setLiveValue('fad1', 0)
+    expect(useShowStore.getState().activeLiveValues.fad1 ?? 0).toBe(0)
   })
 
   it('frame Previous/Next creates small step buttons and removes them', () => {

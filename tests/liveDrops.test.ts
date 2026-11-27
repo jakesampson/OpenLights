@@ -82,6 +82,11 @@ describe('dropping on a page (7.10)', () => {
     const cue = next.controls.at(-1)!
     expect(cue).toMatchObject({ id: 'new-1', name: '1 preset + 1 sequence', x: 100, y: 210, presetIds: ['p1'], sequenceIds: ['s1'] })
     expect(cue.style).toBeDefined()
+    // The drop mints a cue, held inline in the new button (Jake, 27 Nov
+    // 2026 — no project-wide cue store): the cue carries exactly the
+    // dragged items, under its own id.
+    expect(cue.cue).toMatchObject({ name: '1 preset + 1 sequence', presetIds: ['p1'], sequenceIds: ['s1'], fixtureValues: {}, fadeMs: 1000 })
+    expect(cue.cue!.id).not.toBe(cue.id)
     expect(refs).toEqual([{ type: 'cue', id: 'new-1' }])
     expect(page.controls).toHaveLength(2) // input left untouched
   })
@@ -167,6 +172,16 @@ describe('dropping on a cue button (7.10)', () => {
     const { page: next } = applyLiveDrop(page, payload(), { kind: 'cue', cueId: 'c1' }, makeId)
     expect(next.controls[0]).toMatchObject({ presetIds: ['p1', 'p2'], sequenceIds: ['s1'] })
   })
+
+  it('merges into the button’s inline cue when it carries one', () => {
+    // A drop onto a cue button adds to the CUE (Video 2) — the
+    // button's own lists are left alone.
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Song', type: 'push', presetIds: ['p-old'], cue: { id: 'cue1', name: 'Song', presetIds: ['p-old'], sequenceIds: [], fixtureValues: {}, fadeMs: 500 } }] }
+    const { page: next, refs } = applyLiveDrop(page, payload(), { kind: 'cue', cueId: 'c1' }, makeId)
+    expect(next.controls[0].cue).toMatchObject({ presetIds: ['p-old', 'p1', 'p2'], sequenceIds: ['s1'] })
+    expect(next.controls[0].presetIds).toEqual(['p-old'])
+    expect(refs).toEqual([{ type: 'cue', id: 'c1' }])
+  })
 })
 
 describe('sequences started by active cues (7.10)', () => {
@@ -181,12 +196,17 @@ describe('sequences started by active cues (7.10)', () => {
     // A button whose sequence lives in its cue (the normal case) must
     // still register the sequence — otherwise it never animates and
     // never completes, so a run-once cue stays lit forever (real-app
-    // probe, 27 Nov 2026).
-    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'push', cueId: 'cue1', presetIds: [] }] }
-    const cues = [{ id: 'cue1', name: 'Rainbow', sequenceIds: ['s1'], presetIds: [], fixtureValues: {} }]
-    expect(activeCueSequenceIds([page], { c1: 255 }, cues as never)).toEqual(['s1'])
-    expect(activeCueSequenceIds([page], { c1: 0 }, cues as never)).toEqual([])
-    expect(activeCueSequenceIds([page], { c1: 255 })).toEqual([])
+    // probe, 27 Nov 2026). The cue is inline on the button now (Jake,
+    // 27 Nov 2026) — no separate cue list is consulted.
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'push', presetIds: [], cue: { id: 'cue1', name: 'Rainbow', sequenceIds: ['s1'], presetIds: [], fixtureValues: {}, fadeMs: 0 } }] }
+    // The legacy third argument is accepted and ignored — a stale list
+    // must not override the button's own cue.
+    const stale = [{ id: 'cue1', name: 'Rainbow', sequenceIds: ['sX'], presetIds: [], fixtureValues: {} }]
+    expect(activeCueSequenceIds([page], { c1: 255 }, stale as never)).toEqual(['s1'])
+    expect(activeCueSequenceIds([page], { c1: 0 }, stale as never)).toEqual([])
+    expect(activeCueSequenceIds([page], { c1: 255 })).toEqual(['s1'])
+    const plain: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Rainbow', type: 'push', presetIds: [] }] }
+    expect(activeCueSequenceIds([plain], { c1: 255 })).toEqual([])
   })
 })
 
@@ -213,6 +233,9 @@ describe('dropping an effect on a page (Jake, 26 Nov 2026)', () => {
     const control = page.controls[2]
     expect(control).toMatchObject({ name: 'K.I.T.T.', type: 'push', presetIds: [], sequenceIds: [], effectIds: ['kitt'] })
     expect(control.timing).toEqual({ fadeInMs: 500, fadeOutMs: 500, delayMs: 0, curve: 'linear' })
+    // An effect button is standalone — a cue cannot hold effects, so
+    // no cue is minted for it.
+    expect(control.cue).toBeUndefined()
     expect(refs).toEqual([{ type: 'cue', id: control.id }])
   })
 

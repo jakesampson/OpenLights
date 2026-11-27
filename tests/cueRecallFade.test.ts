@@ -32,17 +32,30 @@ const litValues = {
 }
 const preferences = { defaultFadeMs: 1000, pageFadeMs: 500, theme: 'dark', dmxProtocol: 'open-dmx-usb' } as ShowDef['preferences']
 
-function makeShow(overrides: Partial<ShowDef> = {}): ShowDef {
+const DARK_CUE = { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues }
+const LIT_CUE = { id: 'lit', name: 'Lit', fadeMs: 1000, fixtureValues: litValues }
+
+// Inline cues (Jake, 27 Nov 2026): the show carries no `cues` list —
+// each cue lives in a holder. The dark/lit cues live on Live buttons
+// here, so activateCue('lit') / activateCue('dark') resolve through
+// the button holder; cuelist steps below embed their own copies. A
+// test that overrides `cues` is really overriding which cue defs the
+// buttons hold; a test that overrides `livePages` keeps the buttons
+// (appended to its first page) so the cue recalls still resolve.
+function makeShow(overrides: Partial<ShowDef> & { cues?: unknown[] } = {}): ShowDef {
+  const { cues: cueDefs, livePages, ...rest } = overrides as Partial<ShowDef> & { cues?: Array<Record<string, unknown>>; livePages?: ShowDef['livePages'] }
+  const defs = (cueDefs ?? [DARK_CUE, LIT_CUE]) as Array<{ id: string; name: string; fadeMs?: number; fixtureValues: Record<string, Record<string, number>> }>
+  const buttons = defs.map((cue) => ({ id: `btn-${cue.id}`, name: cue.name, type: 'push' as const, cue, presetIds: [] }))
+  const pages = livePages ?? [{ id: 'page1', name: 'Page', controls: [] }]
+  const first = pages[0]
+  const mergedPages = [{ ...first, controls: [...(first?.controls ?? []), ...buttons] }, ...pages.slice(1)]
   return {
     id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, masterIntensity: 255,
     fixtures,
-    cues: [
-      { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues },
-      { id: 'lit', name: 'Lit', fadeMs: 1000, fixtureValues: litValues },
-    ],
     automations: [],
     preferences,
-    ...overrides,
+    ...rest,
+    livePages: mergedPages,
   }
 }
 
@@ -98,7 +111,7 @@ describe('cue recall fades', () => {
       cues: [
         { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues },
         // A cue from older data, with no fadeMs of its own.
-        { id: 'lit', name: 'Lit', fixtureValues: litValues } as unknown as ShowDef['cues'][number],
+        { id: 'lit', name: 'Lit', fixtureValues: litValues } as unknown as Record<string, unknown>,
       ],
     })
     const store = useShowStore.getState()
@@ -170,8 +183,8 @@ describe('cue-list Go fades over the step time', () => {
       cueLists: [
         {
           id: 'list', name: 'List', steps: [
-            { id: 's1', cueId: 'dark', fadeMs: 0, holdMs: 0 },
-            { id: 's2', cueId: 'lit', fadeMs: 2000, holdMs: 0 },
+            { id: 's1', cue: DARK_CUE, fadeMs: 0, holdMs: 0 },
+            { id: 's2', cue: LIT_CUE, fadeMs: 2000, holdMs: 0 },
           ],
         },
       ],
@@ -199,8 +212,8 @@ describe('cue-list Go fades over the step time', () => {
       cueLists: [
         {
           id: 'list', name: 'List', steps: [
-            { id: 's1', cueId: 'dark', fadeMs: 0, holdMs: 0 },
-            { id: 's2', cueId: 'lit', holdMs: 0 } as unknown as ShowDef['cueLists'][number]['steps'][number],
+            { id: 's1', cue: DARK_CUE, fadeMs: 0, holdMs: 0 },
+            { id: 's2', cue: LIT_CUE, holdMs: 0 } as unknown as ShowDef['cueLists'][number]['steps'][number],
           ],
         },
       ],
@@ -305,8 +318,8 @@ describe('the page fade never reaches a cue recall', () => {
       cueLists: [
         {
           id: 'list', name: 'List', steps: [
-            { id: 's1', cueId: 'dark', fadeMs: 0, holdMs: 0 },
-            { id: 's2', cueId: 'lit', fadeMs: 2000, holdMs: 0 },
+            { id: 's1', cue: DARK_CUE, fadeMs: 0, holdMs: 0 },
+            { id: 's2', cue: LIT_CUE, fadeMs: 2000, holdMs: 0 },
           ],
         },
       ],
@@ -329,7 +342,7 @@ describe('the page fade never reaches a cue recall', () => {
       preferences: { ...preferences, defaultFadeMs: 1000 },
       cues: [
         { id: 'dark', name: 'Dark', fadeMs: 1000, fixtureValues: darkValues },
-        { id: 'lit', name: 'Lit', fixtureValues: litValues } as unknown as ShowDef['cues'][number],
+        { id: 'lit', name: 'Lit', fixtureValues: litValues } as unknown as Record<string, unknown>,
       ],
     })
     const store = useShowStore.getState()

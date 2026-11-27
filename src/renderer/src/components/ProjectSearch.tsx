@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, resolveActiveCue } from '../stores/showStore'
 import { searchProject, type ProjectSearchResult } from '../lib/searchProject'
 export function ProjectSearch({ onReveal }: { onReveal: (result: ProjectSearchResult) => void }) {
   const show = useShowStore((s) => s.show)
@@ -7,10 +7,10 @@ export function ProjectSearch({ onReveal }: { onReveal: (result: ProjectSearchRe
   // of the toolbar (Guide ch.11, p.218) — here as the search field's
   // placeholder while the search is empty. When nothing is playing it
   // stays "Search Project" (this app has no "No overrides" field).
-  const activeCueName = useShowStore((s) => {
-    const step = s.cuePlaying ? s.cueLists.find((l) => l.id === s.activeCueListId)?.steps[s.activeCueIndex] : undefined
-    return step ? s.cues.find((c) => c.id === step.cueId)?.name ?? null : null
-  })
+  // Inline cues (Jake, 27 Nov 2026): the active cue is resolved
+  // through its holder (button or cuelist step), not a cue id looked
+  // up in a project-wide store.
+  const activeCueName = useShowStore((s) => (s.cuePlaying ? resolveActiveCue(s)?.name ?? null : null))
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)

@@ -6,12 +6,9 @@ vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('requestAnimationFrame', () => 1)
 vi.stubGlobal('cancelAnimationFrame', () => {})
 let stop: () => void
-const show: ShowDef = { id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, fixtures: [], automations: [], cues: [
-  { id: 'a', name: 'A', fadeMs: 0, fixtureValues: {} },
-  { id: 'b', name: 'B', fadeMs: 0, fixtureValues: {} }
-], cueLists: [{ id: 'list', name: 'List', steps: [
-  { id: 'one', cueId: 'a', fadeMs: 0, holdMs: 1000 },
-  { id: 'two', cueId: 'b', fadeMs: 0, holdMs: 0 }
+const show: ShowDef = { id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, fixtures: [], automations: [], cueLists: [{ id: 'list', name: 'List', steps: [
+  { id: 'one', cue: { id: 'a', name: 'A', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: {} }, fadeMs: 0, holdMs: 1000 },
+  { id: 'two', cue: { id: 'b', name: 'B', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: {} }, fadeMs: 0, holdMs: 0 }
 ] }] }
 beforeEach(() => { vi.useFakeTimers(); useShowStore.getState().setShow(show); stop = startCuePlaybackClock() })
 afterEach(() => { stop(); vi.useRealTimers() })

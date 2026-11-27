@@ -56,7 +56,6 @@ function seedShow() {
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({
     fixtures: FIXTURES,
-    cues: [],
     fixtureGroups: [],
     presets: [RED, FULL],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
@@ -73,7 +72,7 @@ function seedShow() {
       liveActivationOrder: {},
       liveActivationCounter: 0,
       manualOverrides: {},
-      activeCueId: null
+      activeCueRef: null
     })
   })
   // The base is sent on show open; make the starting frame explicit.
@@ -166,9 +165,9 @@ describe('cue layer base-colour completion', () => {
     act(() => {
       const base = useShowStore.getState().show!
       const cue = { id: 'cue-red', name: 'Red Cue', presetIds: ['red'], fixtureValues: {}, fadeMs: 0 }
+      const page = base.livePages![0]
       useShowStore.setState({
-        show: { ...base, cues: [cue] },
-        cues: [cue],
+        show: { ...base, livePages: [{ ...page, controls: [...page.controls, { id: 'btn-red', name: 'Red Cue', type: 'push', cue, presetIds: [] }] }] },
         activePresetIds: ['full']
       })
     })

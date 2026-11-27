@@ -28,7 +28,6 @@ function seedShow() {
       { id: 'p1', name: 'Par 1', type: 'par', channelStart: 1, channels: 4 },
       { id: 'q1', name: 'Q12BT 1', type: 'rgba-4ch', channelStart: 20, channels: 4 }
     ],
-    cues: [],
     fixtureGroups: []
   }))
   act(() => {
@@ -37,7 +36,7 @@ function seedShow() {
       selectedFixtureIds: ['p1', 'q1'],
       activePresetIds: [],
       manualOverrides: {},
-      activeCueId: null
+      activeCueRef: null
     })
   })
 }
@@ -145,10 +144,12 @@ describe('virtual-dimmer preset capture', () => {
       useShowStore.setState({
         show: {
           ...base,
-          cues: [{ id: 'c1', name: 'Cue', presetIds: [], fixtureValues: { p1: { intensity: 255 }, q1: { intensity: 255 } } }]
+          // The cue lives inline on the seed button (Jake, 27 Nov
+          // 2026 — inline cues): there is no project-wide cue list.
+          livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue', type: 'push', cue: { id: 'c1', name: 'Cue', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: { p1: { intensity: 255 }, q1: { intensity: 255 } } }, presetIds: [] }] }],
+          cueLists: []
         },
-        cues: [{ id: 'c1', name: 'Cue', presetIds: [], fixtureValues: { p1: { intensity: 255 }, q1: { intensity: 255 } } }],
-        activeCueId: 'c1'
+        activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }
       })
     })
     useShowStore.getState().capturePreset('Dim', 'intensity')

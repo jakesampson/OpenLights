@@ -1,5 +1,5 @@
 /** Missing versions are legacy version 0. */
-export const CURRENT_SCHEMA_VERSION = 5
+export const CURRENT_SCHEMA_VERSION = 6
 import { BUILTIN_PROFILES } from './fixtureProfiles'
 import { proposeShortName } from './shortNames'
 import { frameConfigFor, LIVE_CUE_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor, validLiveSize } from './liveObjectDefaults'
@@ -155,6 +155,108 @@ const steps: Record<number, (source: Document) => Document> = {
       })
     }
     return doc
+  },
+  // 27 Nov 2026 (Jake): cues live only inside the button or cuelist
+  // step that holds them — the project-wide `cues` array is gone. Each
+  // Live button / cuelist step that referenced a cue id inlines a COPY
+  // of that cue into itself; a cue referenced by several holders is
+  // copied into each (separate copies — editing one never changes
+  // another, per the model); unreferenced cues are dropped, and after
+  // this step saving writes no `cues` key at the show root. The step's
+  // own fade and the cue's fade are both kept (the step's fadeMs is
+  // the list-transition fade, the cue's fadeMs the standalone fade —
+  // the Demo Show carries both, e.g. Warm Welcome 1500ms vs 1200ms).
+  // The FIRST holder keeps the cue's original id, so startup restore,
+  // MIDI cue targets and effect owners still resolve; later copies get
+  // fresh ids. A button whose cue id no longer exists becomes a
+  // standalone button; a step whose cue id no longer exists is dropped
+  // (it drove nothing — the widget used to show it as "Missing cue").
+  5: (source) => {
+    const doc: Document = { ...source, schemaVersion: 6 }
+    const cues = new Map<string, Document>()
+    for (const raw of Array.isArray(doc.cues) ? doc.cues : []) {
+      const cue = record(raw)
+      if (typeof cue.id === 'string' && !cues.has(cue.id)) cues.set(cue.id, cue)
+    }
+    // Every copy made, keyed by the old cue id: the first entry is the
+    // copy that kept the original id.
+    const copies = new Map<string, { id: string; kind: 'button' | 'step'; pageId?: string; controlId?: string; listId?: string; stepId?: string }[]>()
+    const copyFor = (cueId: string, holder: { kind: 'button' | 'step'; pageId?: string; controlId?: string; listId?: string; stepId?: string }): Document | null => {
+      const cue = cues.get(cueId)
+      if (!cue) return null
+      const made = copies.get(cueId) ?? []
+      const copy = structuredClone(cue)
+      if (made.length) copy.id = crypto.randomUUID()
+      copies.set(cueId, [...made, { id: copy.id as string, ...holder }])
+      return copy
+    }
+    for (const rawPage of Array.isArray(doc.livePages) ? doc.livePages : []) {
+      const page = record(rawPage)
+      if (!Array.isArray(page.controls)) continue
+      page.controls = page.controls.map((rawControl) => {
+        const control = record(rawControl)
+        if (typeof control.cueId === 'string') {
+          const cue = copyFor(control.cueId, { kind: 'button', pageId: typeof page.id === 'string' ? page.id : undefined, controlId: typeof control.id === 'string' ? control.id : undefined })
+          if (cue) control.cue = cue
+          delete control.cueId
+        }
+        return control
+      })
+    }
+    for (const rawList of Array.isArray(doc.cueLists) ? doc.cueLists : []) {
+      const list = record(rawList)
+      if (!Array.isArray(list.steps)) continue
+      list.steps = list.steps.flatMap((rawStep) => {
+        const step = record(rawStep)
+        if (typeof step.cueId !== 'string') return [step]
+        const cue = copyFor(step.cueId, { kind: 'step', listId: typeof list.id === 'string' ? list.id : undefined, stepId: typeof step.id === 'string' ? step.id : undefined })
+        if (!cue) return []
+        step.cue = cue
+        delete step.cueId
+        return [step]
+      })
+    }
+    // Startup restore: the cue id now names the copy that lives on the
+    // startup page's lit button when there is one (that is the copy the
+    // restore can actually fire); otherwise the first copy, which kept
+    // the original id; a cue with no copy anywhere can never restore.
+    const startup = record(doc.startup)
+    if (typeof startup.cueId === 'string') {
+      const made = copies.get(startup.cueId) ?? []
+      if (!made.length) startup.cueId = null
+      else {
+        const startupPage = (Array.isArray(doc.livePages) ? doc.livePages : []).map((p) => record(p)).find((p) => p.id === startup.pageId)
+        const litIds = new Set(Object.entries(record(startup.liveValues)).filter(([, value]) => typeof value === 'number' && value > 0).map(([id]) => id))
+        const litButtonCopy = made.find((copy) => copy.kind === 'button' && copy.pageId === startupPage?.id && copy.controlId !== undefined && litIds.has(copy.controlId))
+        startup.cueId = (litButtonCopy ?? made[0]).id
+      }
+      doc.startup = startup
+    }
+    // MIDI cue targets and effect owners address one holder's copy now:
+    // point them at the first copy (a button's copy when there is one).
+    // A target with no copy anywhere is left exactly as stored — it
+    // fired nothing before, and the MIDI panel re-points it.
+    const firstCopyId = (cueId: string): string | undefined => {
+      const made = copies.get(cueId) ?? []
+      return (made.find((copy) => copy.kind === 'button') ?? made[0])?.id
+    }
+    for (const rawMapping of Array.isArray(doc.midiMappings) ? doc.midiMappings : []) {
+      const mapping = record(rawMapping)
+      if (mapping.targetType === 'cue' && typeof mapping.targetId === 'string') {
+        const next = firstCopyId(mapping.targetId)
+        if (next) mapping.targetId = next
+      }
+    }
+    for (const rawEffect of [...(Array.isArray(doc.effects) ? doc.effects : []), ...(Array.isArray(doc.effectTemplates) ? doc.effectTemplates : [])]) {
+      const effect = record(rawEffect)
+      const owner = record(effect.owner)
+      if (owner.type === 'cue' && typeof owner.id === 'string') {
+        const next = firstCopyId(owner.id)
+        if (next) owner.id = next
+      }
+    }
+    delete doc.cues
+    return doc
   }
 }
 
@@ -164,9 +266,14 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
   let version = typeof doc.schemaVersion === 'number' && Number.isInteger(doc.schemaVersion) && doc.schemaVersion >= 0 ? doc.schemaVersion : 0
   if (version > CURRENT_SCHEMA_VERSION) console.warn(`This show uses schema ${version}; OpenLights supports ${CURRENT_SCHEMA_VERSION}. Unknown fields will be preserved.`)
   while (version < CURRENT_SCHEMA_VERSION) { doc = steps[version](doc); version++ }
+  // A v6-or-earlier file that still carries a stray `cues` key (hand-
+  // edited, or saved by a build from before the inline model) loses
+  // it here — the key no longer exists in the model. A future file
+  // (version above ours) is left exactly as stored.
+  if (version <= CURRENT_SCHEMA_VERSION) delete doc.cues
   const defaults: Document = { id: 'recovered-show', name: 'Recovered show', createdAt: 0, updatedAt: 0, masterIntensity: 255, bpm: 120 }
   for (const [key, fallback] of Object.entries(defaults)) if (typeof doc[key] !== typeof fallback || (typeof doc[key] === 'number' && !Number.isFinite(doc[key]))) doc[key] = fallback
-  for (const key of ['fixtures', 'cues', 'automations', 'presets', 'cueLists', 'midiMappings', 'effects', 'livePages', 'favoriteProfileIds', 'fixtureProfiles', 'colorFavorites']) {
+  for (const key of ['fixtures', 'automations', 'presets', 'cueLists', 'midiMappings', 'effects', 'livePages', 'favoriteProfileIds', 'fixtureProfiles', 'colorFavorites']) {
     if (!Array.isArray(doc[key])) {
       if (doc[key] !== undefined) doc.migrationInvalidFields = { ...record(doc.migrationInvalidFields), [key]: doc[key] }
       doc[key] = []
@@ -299,7 +406,26 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
       })
     }
   }
-  for (const key of ['cues', 'presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
+  // Fans on inline cues (schema v6: a cue lives inside its button or
+  // step) and on presets — a missing list is an empty list, never a
+  // crash on an old file.
+  for (const key of ['presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
+  for (const rawPage of doc.livePages as unknown[]) {
+    const controls = record(rawPage).controls
+    for (const rawControl of Array.isArray(controls) ? controls : []) {
+      const control = record(rawControl)
+      const cue = record(control.cue)
+      if (control.cue) control.cue = { ...cue, fans: Array.isArray(cue.fans) ? cue.fans : [] }
+    }
+  }
+  for (const rawList of doc.cueLists as unknown[]) {
+    const steps = record(rawList).steps
+    for (const rawStep of Array.isArray(steps) ? steps : []) {
+      const step = record(rawStep)
+      const cue = record(step.cue)
+      if (step.cue) step.cue = { ...cue, fans: Array.isArray(cue.fans) ? cue.fans : [] }
+    }
+  }
   doc.midiMappings = (doc.midiMappings as unknown[]).map((raw) => {
     const mapping = record(raw)
     return { ...mapping, trigger: mapping.trigger ?? (mapping.targetType === 'master' && mapping.midiType === 'cc' ? 'value' : 'press') }

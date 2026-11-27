@@ -13,7 +13,7 @@ import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, activeCueId } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
 
@@ -118,7 +118,7 @@ describe('Edit Ad Hoc Properties in Live mode', () => {
       window.dispatchEvent(new CustomEvent('openlights-menu-command', { detail: { command: 'editAdHocProperties' } }))
     })
     expect(useShowStore.getState().editingCueAdHocId).toBe('cue-fullon')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
     expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeNull()
     expect(container!.textContent).toContain('Ad hoc · Full On')
   })

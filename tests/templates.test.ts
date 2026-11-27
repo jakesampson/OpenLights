@@ -6,30 +6,33 @@
 // via SaveTemplateDialog, which stores the whole show).
 import { describe, expect, it } from 'vitest'
 import { newShowFromTemplate, type ShowTemplate } from '../src/renderer/src/lib/templates'
+import { collectInlineCues } from '../src/renderer/src/stores/showStore'
 import type { ShowDef } from '../src/shared/types'
 
 function templateShow(): ShowDef {
+  // Inline cues (Jake, 27 Nov 2026): the template's cues live in
+  // their holders — cue-1 in the Live button and (as a second copy)
+  // in the cuelist step. There is no project-wide `cues` slice any
+  // more, and a cue with no holder cannot exist, so the old orphan
+  // cue-2 has no place here.
+  const cue1 = { id: 'cue-1', name: 'Cue 1', presetIds: [], sequenceIds: [], fixtureValues: {}, fadeMs: 1000 }
   return {
     id: 'old-id',
     name: 'PRBC Default',
     createdAt: 1000,
     updatedAt: 2000,
     fixtures: [{ id: 'f1', name: 'F1', type: 'par', channelStart: 1, channels: 4 }],
-    cues: [
-      { id: 'cue-1', name: 'Cue 1', presetIds: [], sequenceIds: [], fixtureValues: {}, fadeMs: 1000 },
-      { id: 'cue-2', name: 'Cue 2', presetIds: [], sequenceIds: [], fixtureValues: {}, fadeMs: 1000 },
-    ],
     presets: [{ id: 'p1', name: 'Full On', category: 'intensity', fixtureValues: { f1: { intensity: 255 } } }],
     automations: [],
     cueLists: [
-      { id: 'list-1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-1', fadeMs: 1000, holdMs: 0 }], loop: false },
+      { id: 'list-1', name: 'Sunday Set', steps: [{ id: 's1', cue: structuredClone(cue1), fadeMs: 1000, holdMs: 0 }], loop: false },
     ],
     livePages: [
       {
         id: 'page-1',
         name: 'Page 1',
         controls: [
-          { id: 'btn-1', name: 'Cue Button', type: 'push', x: 10, y: 10, cueId: 'cue-1', presetIds: [] },
+          { id: 'btn-1', name: 'Cue Button', type: 'push', x: 10, y: 10, cue: cue1, presetIds: [] },
           { id: 'btn-2', name: 'Preset Button', type: 'push', x: 150, y: 10, presetIds: ['p1'] },
         ],
         cueListWidgets: [{ id: 'w1', cueListId: 'list-1', x: 10, y: 120 }],
@@ -47,7 +50,7 @@ describe('newShowFromTemplate', () => {
   it('starts the new project with zero cues', () => {
     const template: ShowTemplate = { id: 't1', name: 'PRBC Default', createdAt: 3000, show: templateShow() }
     const show = newShowFromTemplate(template, 'Show 2')
-    expect(show.cues).toEqual([])
+    expect(collectInlineCues(show, show.cueLists ?? [])).toEqual([])
     expect(show.name).toBe('Show 2')
     expect(show.id).not.toBe('old-id')
   })
@@ -58,7 +61,7 @@ describe('newShowFromTemplate', () => {
     expect(show.cueLists).toEqual([])
     expect(show.livePages![0].cueListWidgets).toEqual([])
     // The cue-bound button loses its cue; the preset button is untouched.
-    expect(show.livePages![0].controls[0].cueId).toBeUndefined()
+    expect(show.livePages![0].controls[0].cue).toBeUndefined()
     expect(show.livePages![0].controls[1].presetIds).toEqual(['p1'])
     // The startup cue is cleared; the restored preset list survives.
     expect(show.startup!.cueId).toBeUndefined()
@@ -74,8 +77,8 @@ describe('newShowFromTemplate', () => {
     expect(show.presets).toHaveLength(1)
     expect(show.presets![0].name).toBe('Full On')
     // The template's own cues are still there for the next project.
-    expect(source.cues).toHaveLength(2)
+    expect(source.livePages![0].controls[0].cue?.id).toBe('cue-1')
+    expect(source.cueLists![0].steps[0].cue.id).toBe('cue-1')
     expect(source.cueLists).toHaveLength(1)
-    expect(source.livePages![0].controls[0].cueId).toBe('cue-1')
   })
 })

@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { cueGroupRange, manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress, nextEnabledIndex } from '../src/renderer/src/lib/cueListPlayback'
 
-const list = { id: 'l', name: 'L', steps: [{ id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 }, { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0 }, { id: 'c', cueId: 'c', fadeMs: 0, holdMs: 0 }], loop: false }
+const step = (id: string) => ({ id, cue: { id, name: id.toUpperCase(), presetIds: [], sequenceIds: [], fixtureValues: {}, fadeMs: 0 }, fadeMs: 0, holdMs: 0 })
+const list = { id: 'l', name: 'L', steps: [step('a'), step('b'), step('c')], loop: false }
 const looping = { ...list, loop: true }
 const single = { ...list, steps: [list.steps[0]], loop: true }
 
 describe('cuelist playback helpers', () => {
   it('manual-crossfades channel patches at 50 percent', () => expect(manualCrossfade({ 1: 0, 2: 100 }, { 1: 200, 2: 0 }, 0.5)).toEqual({ 1: 100, 2: 50 }))
-  it('finds the bounds of a cue group', () => expect(cueGroupRange({ id: 'l', name: 'L', steps: [{ id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0, groupId: 'g' }, { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0, groupId: 'g' }] }, 1)).toEqual({ first: 0, last: 1 }))
+  it('finds the bounds of a cue group', () => expect(cueGroupRange({ id: 'l', name: 'L', steps: [{ ...step('a'), groupId: 'g' }, { ...step('b'), groupId: 'g' }] }, 1)).toEqual({ first: 0, last: 1 }))
 })
 
 describe('manual crossfade fader (8.8a)', () => {
@@ -41,9 +42,9 @@ describe('skipping unchecked cues (guide p.218)', () => {
   const withDisabled = {
     id: 'l', name: 'L',
     steps: [
-      { id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 },
-      { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0, disabled: true },
-      { id: 'c', cueId: 'c', fadeMs: 0, holdMs: 0 },
+      step('a'),
+      { ...step('b'), disabled: true },
+      step('c'),
     ],
     loop: false
   }
@@ -58,7 +59,7 @@ describe('skipping unchecked cues (guide p.218)', () => {
     expect(manualCrossfadeNextIndex(withDisabled, -1)).toBe(-1)
   })
   it('a looping list never wraps onto the only enabled step', () => {
-    const looping = { ...withDisabled, loop: true, steps: [{ id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 }, { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0, disabled: true }] }
+    const looping = { ...withDisabled, loop: true, steps: [step('a'), { ...step('b'), disabled: true }] }
     expect(nextEnabledIndex(looping, 0, 1)).toBe(-1)
     expect(nextEnabledIndex(looping, 0, -1)).toBe(-1)
     const twoEnabled = { ...withDisabled, loop: true }

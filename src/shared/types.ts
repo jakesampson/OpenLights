@@ -162,6 +162,14 @@ export type MidiTargetType = 'cue' | 'preset' | 'sequence' | 'live-cue' | 'black
 export interface MidiMapping {
   id: string
   targetType: MidiTargetType
+  /** Cue id / cue list id, null for blackout & master. A 'cue' target
+   *  is the id of the INLINE cue in the button or cuelist step that
+   *  holds it (Jake, 27 Nov 2026 — there is no shared cue any more, so
+   *  a mapping addresses one holder's copy; a cue copied into several
+   *  holders is a separate cue in each, and the mapping fires the one
+   *  copy it names. The migration remaps an old cue target onto the
+   *  first copy; re-pointing it at a different copy is a MIDI-panel
+   *  action). */
   targetId: string | null // cue id / cue list id, null for blackout & master
   midiType: 'noteon' | 'noteoff' | 'cc'
   trigger?: 'press' | 'release' | 'value'
@@ -180,7 +188,23 @@ export interface AutomationDef {
 
 export interface CueStepDef {
   id: string
-  cueId: string
+  /** The cue this step holds (Jake, 27 Nov 2026 — cues live only inside
+   *  the button or cuelist step that holds them; there is no shared cue
+   *  object any more). The step's cue is a full, separate copy: editing
+   *  it changes nothing anywhere else, and deleting the step deletes
+   *  the cue with it.
+   *
+   *  The cue is nested, not merged into the step, because the step's
+   *  fade and the cue's fade genuinely differ: `fadeMs` below is the
+   *  fade the LIST uses when it transitions into this step (goToCue /
+   *  cueNext / cuePrev, and the cuelist Fade column), while `cue.fadeMs`
+   *  is the fade the cue itself uses when it is activated on its own
+   *  (activateCue / deactivateCue). The Demo Show proves it — "Warm
+   *  Welcome" carries cue fade 1200ms and step fade 1500ms. Merging
+   *  would have silently dropped one of the two. */
+  cue: CueDef
+  /** The fade the cuelist uses when transitioning INTO this step
+   *  (Guide ch.11, p.219). Distinct from cue.fadeMs — see `cue`. */
   fadeMs: number
   holdMs: number // time to wait before auto-advancing
   groupId?: string
@@ -501,7 +525,13 @@ export interface LiveControl {
    *  is scaled by the fader value, the rest apply at full value while
    *  the fader is above 0. */
   faderControls?: 'all' | FaderControlProperty
-  cueId?: string
+  /** The cue this button holds (Jake, 27 Nov 2026 — cues live only
+   *  inside the button or cuelist step that holds them; there is no
+   *  shared cue object any more). Absent = a standalone button, which
+   *  carries only its own presetIds / sequenceIds / adHocValues. The
+   *  cue is a full, separate copy: editing it changes nothing anywhere
+   *  else, and deleting the button deletes the cue with it. */
+  cue?: CueDef
   presetIds: string[]
   /** Sequences started while this cue is active (7.10). */
   sequenceIds?: string[]
@@ -588,6 +618,15 @@ export interface ShowDef {
   layout?: { preview: boolean; palette: boolean; inspector: boolean; shortcuts: boolean }
   /** When true, switching Live pages releases cues instead of restoring that page's active levels. */
   deactivateOnPageSwitch?: boolean
+  /** The cue to restore on load, by the id of the INLINE cue that holds
+   *  it (Jake, 27 Nov 2026 — the project-wide cue store is gone, but
+   *  the startup restore still addresses one cue by id). At load the
+   *  id is resolved across holders — the button or cuelist step whose
+   *  inline cue carries it — and the restore only fires when a lit
+   *  button on the visible page holds that cue, as before. The
+   *  migration (schema v6) remaps an old cue id onto the copy that
+   *  lives on the startup page's lit button, so an old file restores
+   *  exactly as it did. */
   startup?: { mode: 'none' | 'restore'; presetIds?: string[]; liveValues?: Record<string, number>; pageId?: string | null; cueId?: string | null }
   schemaVersion?: number // Missing in legacy version-0 project inputs.
   id: string
@@ -598,7 +637,6 @@ export interface ShowDef {
   fixtures: FixtureDef[]
   previewTrusses?: PreviewTruss[]
   livePages?: LivePage[]
-  cues: CueDef[]
   presets?: PresetDef[]
   automations: AutomationDef[]
   cueLists?: CueListDef[]

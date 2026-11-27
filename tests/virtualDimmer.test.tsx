@@ -9,7 +9,7 @@ import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -35,19 +35,23 @@ function keydown(el: HTMLElement, key: string) {
 function setShow(fixture: { id: string; name: string; type: string; channelStart: number; channels: number }, values: Record<string, number>) {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
+  // Inline cues (Jake, 27 Nov 2026): the cue lives in the Live button
+  // that holds it, and the active cue is that holder's reference.
+  const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { ...values } }, fadeMs: 0 }
   const show = {
     ...base,
     id: 'test-show',
     fixtures: [fixture],
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { ...values } }, fadeMs: 0 }]
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue, x: 0, y: 0 }] }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: [fixture.id], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
-  return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues[fixtureId] ?? {}
 }
 
 function dimmerFader() {

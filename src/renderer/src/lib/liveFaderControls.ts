@@ -81,11 +81,10 @@ export function faderControlsDimmer(control: LiveControl): boolean {
  *  usefully scale. */
 export function faderControlOptions(
   control: LiveControl,
-  cues: CueDef[],
   presets: PresetDef[],
   fixtures: FixtureDef[]
 ): FaderControlPropertyDef[] {
-  const cue = control.cueId ? cues.find((item) => item.id === control.cueId) : undefined
+  const cue = control.cue
   const source: CueDef = cue ?? {
     id: control.id,
     name: control.name,
@@ -110,11 +109,10 @@ export function faderControlOptions(
  *  properties the selected fixtures actually have are enabled). */
 export function faderControlsDropdownOptions(
   control: LiveControl,
-  cues: CueDef[],
   presets: PresetDef[],
   fixtures: FixtureDef[]
 ): { value: 'all' | FaderControlProperty; label: string; enabled: boolean }[] {
-  const defined = new Set(faderControlOptions(control, cues, presets, fixtures).map((prop) => prop.key))
+  const defined = new Set(faderControlOptions(control, presets, fixtures).map((prop) => prop.key))
   return [
     { value: 'all' as const, label: FADER_CONTROLS_LABELS.all, enabled: true },
     ...FADER_CONTROL_PROPERTIES.map((prop) => ({ value: prop.key, label: FADER_CONTROLS_LABELS[prop.key], enabled: defined.has(prop.key) }))

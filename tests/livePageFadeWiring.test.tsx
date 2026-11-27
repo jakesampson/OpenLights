@@ -67,7 +67,6 @@ const RED_CUE = { id: 'cueA', name: 'Red', fadeMs: 0, fixtureValues: { par: { in
 function showWithPage(page: Record<string, unknown>, pageFadeMs?: number): ShowDef {
   return migrateShow({
     fixtures: [PAR],
-    cues: [RED_CUE],
     preferences: { pageFadeMs },
     livePages: [page]
   } as unknown as ShowDef)
@@ -78,7 +77,7 @@ beforeEach(() => {
   Element.prototype.releasePointerCapture = () => {}
   frames.clear()
   const state = useShowStore.getState()
-  state.setShow(migrateShow({ fixtures: [], cues: [] } as unknown as ShowDef))
+  state.setShow(migrateShow({ fixtures: [] } as unknown as ShowDef))
   state.exitSetupWizard()
   state.setWelcomeOpen(false)
   state.setNewProjectDialogOpen(false)
@@ -99,7 +98,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'push', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', cue: RED_CUE, presetIds: [] }]
     }))
     renderInRoot(<App />)
     expect(engine.snapshot()[1]).toBe(0)
@@ -119,7 +118,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page',
-      controls: [{ id: 'cA', name: 'Red', type: 'push', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', cue: RED_CUE, presetIds: [] }]
     }, 10000))
     renderInRoot(<App />)
     const start = performance.now()
@@ -136,7 +135,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'faderHorizontal', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'faderHorizontal', cue: RED_CUE, presetIds: [] }]
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })
@@ -152,7 +151,7 @@ describe('Live page fade wiring (whole App)', () => {
     const s = () => useShowStore.getState()
     s().setShow(showWithPage({
       id: 'p1', name: 'Page', fadeMs: 10000,
-      controls: [{ id: 'cA', name: 'Red', type: 'push', behavior: 'flash', cueId: 'cueA', presetIds: [] }]
+      controls: [{ id: 'cA', name: 'Red', type: 'push', behavior: 'flash', cue: RED_CUE, presetIds: [] }]
     }))
     renderInRoot(<App />)
     act(() => { s().setLiveValue('cA', 255) })

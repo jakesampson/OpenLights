@@ -41,7 +41,8 @@ export function filterSequences(
   return result
 }
 
-/** Find Live cues (controls) that reference a given preset. */
+/** Find Live cues (controls) that reference a given preset — in the
+ *  button's own lists or in its inline cue. */
 export function findRelatedCues(
   show: ShowDef,
   presetId: string
@@ -49,7 +50,7 @@ export function findRelatedCues(
   const results: { pageId: string; pageName: string; controlId: string; controlName: string }[] = []
   for (const page of show.livePages ?? []) {
     for (const control of page.controls) {
-      if (control.presetIds.includes(presetId)) {
+      if (control.presetIds.includes(presetId) || (control.cue?.presetIds ?? []).includes(presetId)) {
         results.push({ pageId: page.id, pageName: page.name, controlId: control.id, controlName: control.name })
       }
     }
@@ -57,7 +58,8 @@ export function findRelatedCues(
   return results
 }
 
-/** Find Live cues (controls) that reference a given sequence. */
+/** Find Live cues (controls) that reference a given sequence — in the
+ *  button's own lists or in its inline cue. */
 export function findRelatedCuesForSequence(
   show: ShowDef,
   sequenceId: string
@@ -65,7 +67,7 @@ export function findRelatedCuesForSequence(
   const results: { pageId: string; pageName: string; controlId: string; controlName: string }[] = []
   for (const page of show.livePages ?? []) {
     for (const control of page.controls) {
-      if ((control.sequenceIds ?? []).includes(sequenceId)) {
+      if ((control.sequenceIds ?? []).includes(sequenceId) || (control.cue?.sequenceIds ?? []).includes(sequenceId)) {
         results.push({ pageId: page.id, pageName: page.name, controlId: control.id, controlName: control.name })
       }
     }
@@ -87,8 +89,8 @@ export function findRelatedCueLists(
 /**
  * Presets and sequences not contained in any cue (Guide ch.9, p.144,
  * "Find presets and sequences not contained in a cue"). A preset is
- * used when a Live cue button or a stored cue references it directly;
- * a sequence is used when a cue references it. Presets that live inside
+ * used when a Live cue button, its inline cue, or a cuelist step's cue
+ * references it directly; a sequence is used when a cue references it. Presets that live inside
  * a sequence step are never selected — the guide says "Presets within a
  * sequence are not included" — even when that sequence is itself unused,
  * so the selection can never strand a sequence's contents.
@@ -97,7 +99,8 @@ export function findRelatedCueLists(
  */
 export function findUnusedItems(
   show: ShowDef,
-  scope?: { presetIds: string[]; sequenceIds: string[] } | null
+  scope?: { presetIds: string[]; sequenceIds: string[] } | null,
+  cueLists?: CueListDef[]
 ): { presets: PresetDef[]; sequences: SequenceDef[] } {
   const usedPresets = new Set<string>()
   const usedSequences = new Set<string>()
@@ -105,11 +108,20 @@ export function findUnusedItems(
     for (const control of page.controls) {
       for (const id of control.presetIds) usedPresets.add(id)
       for (const id of control.sequenceIds ?? []) usedSequences.add(id)
+      // A button's cue holds its own contents (Jake, 27 Nov 2026 —
+      // inline cues): a preset only the cue references is used.
+      for (const id of control.cue?.presetIds ?? []) usedPresets.add(id)
+      for (const id of control.cue?.sequenceIds ?? []) usedSequences.add(id)
     }
   }
-  for (const cue of show.cues ?? []) {
-    for (const id of cue.presetIds ?? []) usedPresets.add(id)
-    for (const id of cue.sequenceIds ?? []) usedSequences.add(id)
+  // Cuelist steps' cues hold contents too. The lists live in the store
+  // beside the show; callers pass them, otherwise the show's own copy
+  // (kept in sync by the store) is used.
+  for (const list of cueLists ?? show.cueLists ?? []) {
+    for (const step of list.steps) {
+      for (const id of step.cue.presetIds ?? []) usedPresets.add(id)
+      for (const id of step.cue.sequenceIds ?? []) usedSequences.add(id)
+    }
   }
   const inSequence = new Set<string>()
   for (const sequence of show.sequences ?? []) {

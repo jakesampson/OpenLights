@@ -53,7 +53,7 @@ describe('applicableModifiers', () => {
 
   it('reads the button’s own cue when it has one', () => {
     const cue: CueDef = { id: 'cue1', name: 'Song', presetIds: [], sequenceIds: [], fixtureValues: { d1: { focus: 200, zoom: 100 } }, fadeMs: 500 }
-    const out = applicableModifiers(control({ cueId: 'cue1' }), [cue], [], fixtures, [], [])
+    const out = applicableModifiers(control({ cue }), [cue], [], fixtures, [], [])
     expect(out.has('focus')).toBe(true)
     expect(out.has('zoomAngle')).toBe(true)
     expect(out.has('pan')).toBe(false)

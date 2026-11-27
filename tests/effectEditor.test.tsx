@@ -10,7 +10,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
 import { EffectsChooser } from '../src/renderer/src/components/EffectEditor'
 import { GroupsPresetsPanel } from '../src/renderer/src/components/GroupsPresetsPanel'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import type { EffectDef } from '../src/shared/types'
 
 ;(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -33,21 +33,21 @@ function renderInRoot(node: React.ReactElement) {
 function setShow() {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
+  const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 255, green: 0, blue: 0 } }, fadeMs: 0 }
   const show = {
     ...base,
     id: 'test-show',
     effectTemplates: [],
     fixtures: [{ id: 'fx1', name: 'Test Wash', type: 'led-wash', channelStart: 1, channels: 7 }],
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity: 255, red: 255, green: 0, blue: 0 } }, fadeMs: 0 }]
+    livePages: [{ id: 'page', name: 'Page', controls: [{ id: 'btn-c1', name: 'Cue 1', type: 'push', cue: structuredClone(cue), presetIds: [] }] }]
   }
   act(() => {
     useShowStore.setState({
       show,
-      cues: show.cues,
       presets: [],
       effects: [],
       selectedFixtureIds: ['fx1'],
-      activeCueId: 'c1',
+      activeCueRef: { kind: 'button', pageId: 'page', controlId: 'btn-c1' },
       editingPresetId: null,
       editingCueAdHocId: null,
       manualOverrides: {},
@@ -72,21 +72,21 @@ function setShowWithChannels(attrs: string[]) {
   ]
   const cueValues: Record<string, number> = { intensity: 255 }
   for (const attribute of attrs) cueValues[attribute] = 128
+  const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: cueValues }, fadeMs: 0 }
   const show = {
     ...base,
     id: 'test-show',
     effectTemplates: [],
     fixtures: [{ id: 'fx1', name: 'Test Custom', type: 'moving-head', channelStart: 1, channels: channels.length, profile: { id: 'test-custom', name: 'Test Custom', manufacturer: 'Test', legacyType: 'moving-head', modes: [{ id: 'default', name: 'Default', channels }] } }],
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: cueValues }, fadeMs: 0 }]
+    livePages: [{ id: 'page', name: 'Page', controls: [{ id: 'btn-c1', name: 'Cue 1', type: 'push', cue: structuredClone(cue), presetIds: [] }] }]
   }
   act(() => {
     useShowStore.setState({
       show,
-      cues: show.cues,
       presets: [],
       effects: [],
       selectedFixtureIds: ['fx1'],
-      activeCueId: 'c1',
+      activeCueRef: { kind: 'button', pageId: 'page', controlId: 'btn-c1' },
       editingPresetId: null,
       editingCueAdHocId: null,
       manualOverrides: {},
@@ -875,7 +875,7 @@ describe('effect store actions', () => {
     act(() => { useShowStore.getState().deleteEffectAndKeepValues('e-flat') })
     const state = useShowStore.getState()
     expect(state.effects).toHaveLength(0)
-    expect(state.cues[0].fixtureValues.fx1.intensity).toBe(128)
+    expect(collectInlineCues(state.show, state.cueLists)[0].fixtureValues.fx1.intensity).toBe(128)
   })
 
   it('save-as-template keeps fixture order only when asked', () => {
@@ -1361,7 +1361,7 @@ describe('one editor at a time (Jake, 22 Nov 2026)', () => {
     const state = useShowStore.getState()
     expect(state.editingCueAdHocId).toBeNull()
     expect(state.editingEffectId).toBe('e-chase')
-    expect(state.cues.find((c) => c.id === 'c1')?.fixtureValues.fx1.intensity).toBe(100)
+    expect(collectInlineCues(state.show, state.cueLists).find((c) => c.id === 'c1')?.fixtureValues.fx1.intensity).toBe(100)
   })
 
   it('closing the editor does not touch an open preset edit', () => {

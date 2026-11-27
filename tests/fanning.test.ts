@@ -1,6 +1,6 @@
 import { expect, it, vi } from 'vitest'
 import { fanValues, evaluateFan, evaluateColorFan, fanColorValues } from '../src/renderer/src/lib/fanning'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue, collectInlineCues } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 it('fans one, two, odd and even counts in every mode', () => {
@@ -18,17 +18,29 @@ it('orders fixtures spatially, uses spacing and ignores unsupported properties',
   expect(evaluateFan(show.fixtures, fan)).toEqual({ a: { intensity: 0 }, b: { intensity: 50 }, c: { intensity: 200 } })
   expect(evaluateFan(show.fixtures, { ...fan, attribute: 'pan' })).toEqual({})
 })
+// The seeded cue, read through its holder (Jake, 27 Nov 2026 —
+// inline cues: there is no project-wide `cues` slice any more).
+const cueS = () => {
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 's')!.cue
+}
+
+// A cue survives migration only in a holder: the seed button carries
+// it. A fresh object per seed — migrateShow shallow-copies its input
+// and writes the inlined cue onto the button.
+const cuePage = () => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'S', type: 'push', cueId: 's', presetIds: [] }] })
+
 it('saves a Design fan into the manual overrides, minting no cue', () => {
   // Jake, 26 Nov 2026: fanned values were invisible to the Overrides
   // brush because saveFan wrote them into a cue. A plain Design fan
   // is a Design write (Guide ch.8, p.80) — it lands in the manual
   // overrides with its definition in the session-only manualFans, and
   // no cue is minted, with or without an active cue.
-  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] })); s().activateCue('s')
+  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] })); s().activateCue('s')
   const fan = { id: 'f', attribute: 'intensity', fixtureIds: ['a', 'b', 'c'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 200 }
   s().saveFan(fan)
-  expect(s().cues).toHaveLength(1)
-  expect(s().cues[0].fixtureValues.b).toBeUndefined()
+  expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(1)
+  expect(cueS().fixtureValues.b).toBeUndefined()
   expect(s().manualOverrides.b.intensity).toBe(100)
   expect(s().manualFans).toEqual([fan])
   s().saveFan({ ...fan, end: 100 })
@@ -70,7 +82,7 @@ it('clearing overrides removes the fan, per fixture or all at once', () => {
 })
 
 it('moving a fan between the session and a cue moves its values with it', () => {
-  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] }))
   const fan = { id: 'f', attribute: 'intensity', fixtureIds: ['a', 'b', 'c'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 200 }
   // Plain Design first: values in the overrides, fan in the session.
   s().saveFan(fan)
@@ -83,27 +95,28 @@ it('moving a fan between the session and a cue moves its values with it', () => 
   s().saveFan(fan)
   expect(s().manualFans).toEqual([])
   expect(s().manualOverrides).toEqual({})
-  expect(s().cues[0].fixtureValues.b.intensity).toBe(100)
-  expect(s().cues[0].fans).toEqual([fan])
+  expect(cueS().fixtureValues.b.intensity).toBe(100)
+  expect(cueS().fans).toEqual([fan])
   // And back the other way: leaving ad-hoc editing and committing the
   // fan again moves it — and its values — back into the overrides.
   s().saveEditingCueAdHoc()
   s().saveFan(fan)
-  expect(s().cues[0].fans).toEqual([])
-  expect(s().cues[0].fixtureValues.b.intensity).toBeUndefined()
+  expect(cueS().fans).toEqual([])
+  expect(cueS().fixtureValues.b.intensity).toBeUndefined()
   expect(s().manualOverrides.b.intensity).toBe(100)
   expect(s().manualFans).toEqual([fan])
 })
 
 it('saves, edits and deletes a fan on the cue being edited ad-hoc, undoable and migratable', () => {
-  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] })); s().startEditingCueAdHoc('s')
+  const s = () => useShowStore.getState(); s().setShow(migrateShow({ fixtures: ['a', 'b', 'c'].map((id, i) => ({ id, name: id, type: 'dimmer', channelStart: i + 1, channels: 1 })), cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] })); s().startEditingCueAdHoc('s')
   const fan = { id: 'f', attribute: 'intensity', fixtureIds: ['a', 'b', 'c'], mode: 'linear' as const, order: 'selection' as const, start: 0, end: 200 }
-  s().saveFan(fan); expect(s().cues[0].fixtureValues.b.intensity).toBe(100)
-  s().saveFan({ ...fan, end: 100 }); expect(s().cues[0].fixtureValues.b.intensity).toBe(50)
-  expect(migrateShow(JSON.parse(JSON.stringify(s().show))).cues[0].fans).toEqual([{ ...fan, end: 100 }])
-  s().deleteFan('f', true); expect(s().cues[0].fixtureValues.b.intensity).toBe(50)
-  s().undo(); s().deleteFan('f', false); expect(s().cues[0].fixtureValues.b.intensity).toBeUndefined()
-  s().undo(); expect(s().cues[0].fans).toHaveLength(1)
+  s().saveFan(fan); expect(cueS().fixtureValues.b.intensity).toBe(100)
+  s().saveFan({ ...fan, end: 100 }); expect(cueS().fixtureValues.b.intensity).toBe(50)
+  const roundtripped = migrateShow(JSON.parse(JSON.stringify(s().show)))
+  expect(collectInlineCues(roundtripped, roundtripped.cueLists ?? [])[0].fans).toEqual([{ ...fan, end: 100 }])
+  s().deleteFan('f', true); expect(cueS().fixtureValues.b.intensity).toBe(50)
+  s().undo(); s().deleteFan('f', false); expect(cueS().fixtureValues.b.intensity).toBeUndefined()
+  s().undo(); expect(cueS().fans).toHaveLength(1)
 })
 
 const washFixtures = ['a', 'b', 'c'].map((id, i) => ({ id, name: id.toUpperCase(), type: 'led-wash', channelStart: i * 7 + 1, channels: 7 }))
@@ -139,12 +152,12 @@ it('fans colours into CMY channels for CMY fixtures', () => {
 
 it('saves, edits and deletes a colour fan in the manual overrides', () => {
   const s = () => useShowStore.getState()
-  s().setShow(migrateShow({ fixtures: washFixtures, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  s().setShow(migrateShow({ fixtures: washFixtures, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] }))
   s().activateCue('s')
   s().saveFan(colorFan)
   expect(s().manualOverrides.b).toEqual({ red: 128, green: 0, blue: 128 })
   expect(s().manualFans).toEqual([colorFan])
-  expect(s().cues[0].fixtureValues.b).toBeUndefined()
+  expect(cueS().fixtureValues.b).toBeUndefined()
   s().saveFan({ ...colorFan, endColor: '#00ff00' })
   expect(s().manualOverrides.b).toEqual({ red: 128, green: 128, blue: 0 })
   s().deleteFan('f', true)
@@ -158,19 +171,19 @@ it('saves, edits and deletes a colour fan in the manual overrides', () => {
 
 it('saves, edits and deletes a colour fan on the cue being edited ad-hoc', () => {
   const s = () => useShowStore.getState()
-  s().setShow(migrateShow({ fixtures: washFixtures, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  s().setShow(migrateShow({ fixtures: washFixtures, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] }))
   s().startEditingCueAdHoc('s')
   s().saveFan(colorFan)
-  expect(s().cues[0].fixtureValues.b).toEqual({ red: 128, green: 0, blue: 128 })
+  expect(cueS().fixtureValues.b).toEqual({ red: 128, green: 0, blue: 128 })
   s().saveFan({ ...colorFan, endColor: '#00ff00' })
-  expect(s().cues[0].fixtureValues.b).toEqual({ red: 128, green: 128, blue: 0 })
+  expect(cueS().fixtureValues.b).toEqual({ red: 128, green: 128, blue: 0 })
   s().deleteFan('f', true)
-  expect(s().cues[0].fixtureValues.b).toEqual({ red: 128, green: 128, blue: 0 })
+  expect(cueS().fixtureValues.b).toEqual({ red: 128, green: 128, blue: 0 })
   s().undo()
   s().deleteFan('f', false)
-  expect(s().cues[0].fixtureValues.b.red).toBeUndefined()
-  expect(s().cues[0].fixtureValues.b.green).toBeUndefined()
-  expect(s().cues[0].fixtureValues.b.blue).toBeUndefined()
+  expect(cueS().fixtureValues.b.red).toBeUndefined()
+  expect(cueS().fixtureValues.b.green).toBeUndefined()
+  expect(cueS().fixtureValues.b.blue).toBeUndefined()
   s().undo()
-  expect(s().cues[0].fans).toHaveLength(1)
+  expect(cueS().fans).toHaveLength(1)
 })

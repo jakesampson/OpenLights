@@ -14,7 +14,7 @@ describe('cue output to the DMX universe', () => {
     const show: ShowDef = {
       id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, masterIntensity: 255,
       fixtures: [{ id: 'led', name: 'LED', type: 'generic-led', channelStart: 1, channels: 4 }],
-      cues: [{ id: 'cue', name: 'Red', fadeMs: 1000, fixtureValues: { led: { intensity: 255, red: 200, green: 0, blue: 0 } } }],
+      livePages: [{ id: 'page', name: 'Page', controls: [{ id: 'btn', name: 'Red', type: 'push', cue: { id: 'cue', name: 'Red', fadeMs: 1000, fixtureValues: { led: { intensity: 255, red: 200, green: 0, blue: 0 } } }, presetIds: [] }] }],
       automations: []
     }
     useShowStore.getState().setShow(show)

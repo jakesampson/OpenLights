@@ -9,7 +9,7 @@ import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { activeCueId, collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
 
@@ -58,12 +58,11 @@ const VIOLET = { id: 'preset-violet', name: 'Violet', category: 'color', fixture
 const CUE_VIOLET = { id: 'cue-violet', name: '001 Violet', presetIds: ['preset-violet'], fadeMs: 500 }
 const CUE_BLUE = { id: 'cue-blue', name: '002 Blue', fixtureValues: { w1: { blue: 255, intensity: 200 } }, fadeMs: 500 }
 
-function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-violet', fadeMs: 500, holdMs: 0 }, { id: 's2', cueId: 'cue-blue', fadeMs: 500, holdMs: 0 }] }], cues: unknown[] = [CUE_VIOLET, CUE_BLUE]) {
+function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cue: CUE_VIOLET, fadeMs: 500, holdMs: 0 }, { id: 's2', cue: CUE_BLUE, fadeMs: 500, holdMs: 0 }] }]) {
   const state = useShowStore.getState()
   state.setShow(migrateShow({
     fixtures: FIXTURES,
     presets: [VIOLET],
-    cues,
     cueLists,
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [], cueListWidgets: cueLists.length ? [{ id: 'w1', cueListId: 'list1', x: 20, y: 20, width: 480, height: 300 }] : [] }],
   } as unknown as ShowDef))
@@ -121,7 +120,7 @@ function inspectorEl() {
 
 describe('cuelist widget (LightKey walkthrough)', () => {
   it('empty widget: placeholder, columns, transport and Xfade all show', () => {
-    seedShow([{ id: 'list1', name: 'Sunday Set', steps: [] }], [])
+    seedShow([{ id: 'list1', name: 'Sunday Set', steps: [] }])
     renderInRoot(<App />)
     switchToLive()
     const widget = widgetEl()
@@ -139,12 +138,12 @@ describe('cuelist widget (LightKey walkthrough)', () => {
   })
 
   it('widget menu: New Cue creates auto-numbered cues and opens the step inspector', () => {
-    seedShow([{ id: 'list1', name: 'Sunday Set', steps: [] }], [])
+    seedShow([{ id: 'list1', name: 'Sunday Set', steps: [] }])
     renderInRoot(<App />)
     switchToLive()
     clickMenuItem(openWidgetMenu(), 'New Cue')
     expect(widgetEl().textContent).toContain('001 New Cue')
-    expect(useShowStore.getState().cues[0].fadeMs).toBe(500)
+    expect(useShowStore.getState().cueLists[0].steps[0].cue.fadeMs).toBe(500)
     expect(useShowStore.getState().cueLists[0].steps[0].fadeMs).toBe(500)
     // The new cue's inspector appears beside the cuelist (guide p.191).
     const panel = inspectorEl()
@@ -190,7 +189,7 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(remove).toBeTruthy()
     act(() => { remove.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     expect(inspectorEl().textContent).toContain('Empty Cue')
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue-violet')?.presetIds).toEqual([])
+    expect(useShowStore.getState().cueLists[0].steps.find((s) => s.cue.id === 'cue-violet')?.cue.presetIds).toEqual([])
   })
 
   it('step rows: Hold shows — when unset, Fade shows 00:00.5, and the cells edit in place', () => {
@@ -224,7 +223,7 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(widgetEl().textContent).toContain('003 New Cue')
     act(() => { (widgetEl().querySelector('[aria-label="Remove 002 Blue"]') as HTMLButtonElement).dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     expect(widgetEl().textContent).not.toContain('002 Blue')
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue-blue')).toBeUndefined()
+    expect(useShowStore.getState().cueLists[0].steps.find((s) => s.cue.id === 'cue-blue')).toBeUndefined()
   })
 
   it('transport icons follow state, and Pause holds the cue', () => {
@@ -255,7 +254,7 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(widgetButton('Next cue').textContent).toBe('»')
     // Clicking it while it shows » advances to the next cue.
     clickWidgetButton('Next cue')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
   })
 
   it('an unchecked cue is skipped by Go', () => {
@@ -266,12 +265,12 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     act(() => { checkbox.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     expect(useShowStore.getState().cueLists[0].steps[1].disabled).toBe(true)
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-violet')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-violet')
     // Next skips the unchecked cue: no next enabled cue, so playback
     // stops on Violet instead of landing on Blue.
     clickWidgetButton('Next cue')
     expect(useShowStore.getState().cuePlaying).toBe(false)
-    expect(useShowStore.getState().activeCueId).toBe('cue-violet')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-violet')
   })
 
   it('widget menu: Renumber re-numbers from the first cue’s number', () => {
@@ -301,8 +300,8 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(duplicate2.disabled).toBe(false)
     clickMenuItem(menu2, 'Duplicate')
     const state = useShowStore.getState()
-    expect(state.cueLists[0].steps.map((s) => state.cues.find((c) => c.id === s.cueId)?.name)).toEqual(['001 Violet', '003 New Cue', '002 Blue'])
-    const copy = state.cues.find((c) => c.name === '003 New Cue')!
+    expect(state.cueLists[0].steps.map((s) => s.cue.name)).toEqual(['001 Violet', '003 New Cue', '002 Blue'])
+    const copy = collectInlineCues(state.show, state.cueLists).find((c) => c.name === '003 New Cue')!
     expect(copy.id).not.toBe('cue-violet')
     expect(copy.presetIds).toEqual(['preset-violet'])
   })
@@ -334,7 +333,7 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     switchToLive()
     clickMenuItem(openWidgetMenu(), 'Delete')
     expect(useShowStore.getState().cueLists).toHaveLength(0)
-    expect(useShowStore.getState().cues).toHaveLength(0)
+    expect(collectInlineCues(useShowStore.getState().show, useShowStore.getState().cueLists)).toHaveLength(0)
     expect(container!.querySelector('[data-cuelist-widget]')).toBeNull()
   })
 

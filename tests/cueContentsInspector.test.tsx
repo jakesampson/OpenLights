@@ -3,8 +3,8 @@
 // list — presets, sequences, ad-hoc — with a per-row ×, a right-click
 // menu, and row selection that highlights the palette item and labels
 // its fixtures in the Preview. Sections, not tabs: Contents, Timing,
-// Button, Font, Modifiers, Live Triggers (Jake, 27 Nov 2026 —
-// LightKey's floating panel; Activate is the tail of the Button
+// Button, Modifiers, Live Triggers (Jake, 27 Nov 2026 —
+// LightKey's docked panel; Activate is the tail of the Button
 // section and Group a label row).
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
@@ -12,7 +12,7 @@ import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
 
@@ -135,7 +135,8 @@ describe('cue contents inspector', () => {
     const remove = dialog.querySelector('[aria-label="Remove Red from cue"]') as HTMLElement
     expect(remove).toBeTruthy()
     act(() => { remove.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.presetIds).toEqual([])
+    const removed = useShowStore.getState()
+    expect(findInlineCue(removed.show, removed.cueLists, 'cue1')?.cue.presetIds).toEqual([])
   })
 
   it('removes a sequence via the contents-item menu, and promotes ad-hoc to a preset', () => {
@@ -153,7 +154,8 @@ describe('cue contents inspector', () => {
     expect(menu.textContent).toContain('Add to Palette')
     const remove = Array.from(menu.querySelectorAll('[role="menuitem"]')).find((el) => el.textContent === 'Remove From Cue')!
     act(() => { remove.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.sequenceIds).toEqual([])
+    const afterRemove = useShowStore.getState()
+    expect(findInlineCue(afterRemove.show, afterRemove.cueLists, 'cue1')?.cue.sequenceIds).toEqual([])
 
     // The standalone button's ad-hoc row promotes to a reusable preset.
     act(() => { useShowStore.getState().setPageObjectSelection([{ type: 'cue', id: 'btn2' }]) })
@@ -183,7 +185,7 @@ describe('cue contents inspector', () => {
     expect(dialog.querySelector('[role="tablist"]')).toBeNull()
     expect(dialog.querySelector('[role="tab"]')).toBeNull()
     const sections = Array.from(dialog.querySelectorAll('[data-section]')).map((el) => el.getAttribute('data-section'))
-    expect(sections).toEqual(['contents', 'timing', 'button', 'font', 'modifiers', 'triggers'])
+    expect(sections).toEqual(['contents', 'timing', 'button', 'modifiers', 'triggers'])
     // Contents, Timing and Button are open by default.
     expect(dialog.querySelector('[aria-label="Cue contents"]')).toBeTruthy()
     expect(dialog.textContent).toContain('Fade In')
@@ -202,12 +204,9 @@ describe('cue contents inspector', () => {
     expect(dialog.querySelector('[aria-label="Fade In"]')).toBeNull()
     toggleSection(dialog, 'Timing')
     expect(dialog.querySelector('[aria-label="Fade In"]')).toBeTruthy()
-    // Font starts collapsed; Show Fonts (Edit mode only, guide p.204)
-    // opens it.
+    // No Font section on a cue button and no Show Fonts button: font
+    // lives in the right-click menu's Font submenu (Jake, 27 Nov 2026).
     expect(dialog.querySelector('[aria-label="Cue font size"]')).toBeNull()
-    const showFonts = Array.from(dialog.querySelectorAll('button')).find((el) => el.textContent === 'Show Fonts') as HTMLButtonElement
-    expect(showFonts.disabled).toBe(false)
-    act(() => { showFonts.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
-    expect(dialog.querySelector('[aria-label="Cue font size"]')).toBeTruthy()
+    expect(Array.from(dialog.querySelectorAll('button')).find((el) => el.textContent === 'Show Fonts')).toBeUndefined()
   })
 })

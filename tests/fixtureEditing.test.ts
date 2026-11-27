@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { BUILTIN_PROFILES } from '../src/shared/fixtureProfiles'
 import { migrateShow } from '../src/shared/migrations'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
@@ -8,9 +8,9 @@ vi.stubGlobal('cancelAnimationFrame', vi.fn())
 describe('fixture lifecycle', () => {
   it('duplicates values, disables output, removes preset/cue references and restores on undo', () => {
     const state = () => useShowStore.getState()
-    state().setShow(migrateShow({ fixtures: [{ id: 'f', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1 }], cues: [{ id: 's', name: 'Cue', fadeMs: 0, fixtureValues: { f: { intensity: 200 } } }], presets: [{ id: 'p', name: 'Preset', category: 'intensity', fixtureValues: { f: { intensity: 100 } } }], livePages: [{ id: 'page', name: 'Page', controls: [{ id: 'cue', name: 'Cue', type: 'push', presetIds: [], adHocValues: { f: { intensity: 180 } } }] }] }))
+    state().setShow(migrateShow({ fixtures: [{ id: 'f', name: 'Dimmer', type: 'dimmer', channels: 1, channelStart: 1 }], cues: [{ id: 's', name: 'Cue', fadeMs: 0, fixtureValues: { f: { intensity: 200 } } }], presets: [{ id: 'p', name: 'Preset', category: 'intensity', fixtureValues: { f: { intensity: 100 } } }], livePages: [{ id: 'page', name: 'Page', controls: [{ id: 'cue', name: 'Cue', type: 'push', cueId: 's', presetIds: [], adHocValues: { f: { intensity: 180 } } }] }] }))
     state().duplicateFixture('f'); expect(state().show!.fixtures).toHaveLength(2); expect(state().show!.fixtures[1].channelStart).toBe(2)
-    state().updateFixture('f', { disabled: true }); expect(computeCueChannels(state().show!.fixtures, state().cues[0])[1]).toBe(0)
+    state().updateFixture('f', { disabled: true }); expect(computeCueChannels(state().show!.fixtures, findInlineCue(state().show, state().cueLists, 's')!.cue)[1]).toBe(0)
     state().removeFixture('f'); expect(state().presets[0].fixtureValues.f).toBeUndefined(); expect(state().show!.livePages![0].controls[0].adHocValues!.f).toBeUndefined()
     state().undo(); expect(state().presets[0].fixtureValues.f).toEqual({ intensity: 100 }); expect(state().show!.fixtures.some((f) => f.id === 'f')).toBe(true)
   })

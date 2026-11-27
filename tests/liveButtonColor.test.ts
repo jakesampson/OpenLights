@@ -45,8 +45,8 @@ describe('liveControlButtonColor', () => {
   })
 
   it('a cue button resolves its cue look', () => {
-    const cues: CueDef[] = [{ id: 'cue1', name: 'Cue', presetIds: ['green'], sequenceIds: [], fixtureValues: {}, fadeMs: 0 }]
-    expect(liveControlButtonColor(control({ cueId: 'cue1', presetIds: [] }), presets, cues)).toBe('#00dc00')
+    const cue: CueDef = { id: 'cue1', name: 'Cue', presetIds: ['green'], sequenceIds: [], fixtureValues: {}, fadeMs: 0 }
+    expect(liveControlButtonColor(control({ cue, presetIds: [] }), presets)).toBe('#00dc00')
   })
 
   it('ad-hoc colour on a button colours it', () => {

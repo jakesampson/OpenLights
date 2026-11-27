@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { evaluateFan, fanValues, orderedFanFixtures } from '../src/renderer/src/lib/fanning'
 import { clearFanRowValue, defaultFan, defaultColorFan, definedFanIndexes, fanRows, fannableProperties, setFanRowColor, setFanRowValue } from '../src/renderer/src/lib/fanningHud'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue, collectInlineCues, activeCueId } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 
@@ -49,18 +49,30 @@ it('orders right-to-left and bottom-to-top, with spacing', () => {
   expect(evaluateFan(show.fixtures, { ...baseFan, order: 'bottom-top', considerSpacing: true })).toEqual({ b: { intensity: 0 }, c: { intensity: 150 }, a: { intensity: 200 } })
 })
 
+// The seeded cue, read through its holder (Jake, 27 Nov 2026 —
+// inline cues: there is no project-wide `cues` slice any more).
+const cueS = () => {
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 's')!.cue
+}
+
+// A cue survives migration only in a holder: the seed button carries
+// it. A fresh object per seed — migrateShow shallow-copies its input
+// and writes the inlined cue onto the button.
+const cuePage = () => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'S', type: 'push', cueId: 's', presetIds: [] }] })
+
 it('creates, edits and deletes a fan through the HUD commit path with values landing in the overrides', () => {
   // Jake, 26 Nov 2026: a plain Design fan is a clearable override, not
   // a cue — the HUD commit writes it into the manual overrides.
   const s = () => useShowStore.getState()
-  s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] }))
   s().activateCue('s')
   // Create: the HUD opens a default fan over the selection and commits it.
   const created = { ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-1' }
   s().saveFan(created)
   expect(s().manualFans).toEqual([created])
   expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
-  expect(s().cues[0].fans).toEqual([])
+  expect(cueS().fans).toEqual([])
   // Edit the last row (endpoint) — the values move with it.
   s().saveFan(setFanRowValue(created, 2, 100))
   expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 50 }, c: { intensity: 100 } })
@@ -81,29 +93,29 @@ it('creates, edits and deletes a fan through the HUD commit path with values lan
 
 it('creates, edits and deletes a fan through the HUD commit path on the cue being edited ad-hoc', () => {
   const s = () => useShowStore.getState()
-  s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }] }))
+  s().setShow(migrateShow({ fixtures: dimmers, cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: {} }], livePages: [cuePage()] }))
   s().startEditingCueAdHoc('s')
   // Create: the HUD opens a default fan over the selection and commits it.
   const created = { ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-1' }
   s().saveFan(created)
-  expect(s().cues[0].fans).toEqual([created])
-  expect(s().cues[0].fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
+  expect(cueS().fans).toEqual([created])
+  expect(cueS().fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
   // Edit the last row (endpoint) — the values move with it.
   s().saveFan(setFanRowValue(created, 2, 100))
-  expect(s().cues[0].fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 50 }, c: { intensity: 100 } })
+  expect(cueS().fixtureValues).toMatchObject({ a: { intensity: 0 }, b: { intensity: 50 }, c: { intensity: 100 } })
   // Edit a middle row — an anchor bends the fan through that fixture.
   const anchored = setFanRowValue({ ...created, end: 100 }, 1, 90)
   s().saveFan(anchored)
-  expect(s().cues[0].fixtureValues.b.intensity).toBe(90)
-  expect(s().cues[0].fans).toEqual([anchored])
+  expect(cueS().fixtureValues.b.intensity).toBe(90)
+  expect(cueS().fans).toEqual([anchored])
   // Delete and keep values, then delete and clear (Guide p.122–123).
   s().deleteFan('hud-1', true)
-  expect(s().cues[0].fans).toEqual([])
-  expect(s().cues[0].fixtureValues.b.intensity).toBe(90)
+  expect(cueS().fans).toEqual([])
+  expect(cueS().fixtureValues.b.intensity).toBe(90)
   s().undo()
   s().deleteFan('hud-1', false)
-  expect(s().cues[0].fixtureValues.b.intensity).toBeUndefined()
-  expect(s().cues[0].fixtureValues.a.intensity).toBeUndefined()
+  expect(cueS().fixtureValues.b.intensity).toBeUndefined()
+  expect(cueS().fixtureValues.a.intensity).toBeUndefined()
 })
 
 it('mints no cue when the HUD commits with no active cue — the fan lands in the overrides', () => {
@@ -113,10 +125,10 @@ it('mints no cue when the HUD commits with no active cue — the fan lands in th
   // the Design panel.
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({ fixtures: dimmers, cues: [] }))
-  expect(s().activeCueId).toBeNull()
+  expect(activeCueId(s())).toBeNull()
   s().saveFan({ ...defaultFan('intensity', ['a', 'b', 'c']), id: 'hud-2' })
-  expect(s().cues).toHaveLength(0)
-  expect(s().activeCueId).toBeNull()
+  expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(0)
+  expect(activeCueId(s())).toBeNull()
   expect(s().manualFans).toHaveLength(1)
   expect(s().manualOverrides).toMatchObject({ a: { intensity: 0 }, b: { intensity: 128 }, c: { intensity: 255 } })
 })

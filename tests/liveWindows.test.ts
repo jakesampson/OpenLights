@@ -52,6 +52,6 @@ describe('Live window restoration', () => {
     // deactivateCue() is gone: single-click selects, double-click
     // activates, Guide ch.11 p.219).
     const store = readFileSync(resolve(__dirname, '..', 'src/renderer/src/stores/showStore.ts'), 'utf8')
-    expect(store).toContain('if (state.cuePlaying && state.activeCueId) get().deactivateCue()')
+    expect(store).toContain('if (state.cuePlaying && state.activeCueRef) get().deactivateCue()')
   })
 })

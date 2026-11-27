@@ -23,7 +23,7 @@ import { resolveCue, resolveCueValues } from '../src/shared/cueResolution'
 import { importOflFixture } from '../src/shared/oflFixtureFormat'
 import { fixtureBeams } from '../src/shared/fixtureProfiles'
 import { computeCueChannels, isDimmerAttribute } from '../src/renderer/src/lib/automationRuntime'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { CueDef, FixtureDef, FixtureProfile, PresetDef } from '../src/shared/types'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -87,6 +87,18 @@ function oflCmyFixture(id = 'oflcmy', channelStart = 1): FixtureDef {
   }
   return { id, name: 'OFL CMY', type: 'led-wash', channelStart, channels: 8, profile, modeId: 'default' }
 }
+
+// The seeded cue, read through its holder (Jake, 27 Nov 2026 —
+// inline cues: there is no project-wide `cues` slice any more).
+const cue1 = () => {
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')!.cue
+}
+
+// A cue survives migration only in a holder: the seed button carries
+// it. A fresh object per seed — migrateShow shallow-copies its input
+// and writes the inlined cue onto the button.
+const cuePage = () => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [] }] })
 
 const RED_PRESET: PresetDef = { id: 'p', name: 'Red', category: 'color', fixtureValues: { bar4: { red: 255, green: 0, blue: 0 } } }
 
@@ -154,6 +166,7 @@ describe('preset colour fans out to every beam', () => {
     s().setShow(migrateShow({
       fixtures: [fixture],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar4: { intensity: 255, red: 0, green: 255, blue: 0 } } }],
+      livePages: [cuePage()],
       presets: [{ id: 'p', name: 'Red', category: 'color', fixtureValues: { bar4: { intensity: 255 } } }]
     }))
     s().activateCue('c1')
@@ -179,7 +192,8 @@ describe('preset colour fans out to every beam', () => {
     }
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar4: allRed } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar4: allRed } }],
+      livePages: [cuePage()],
     }))
     s().activateCue('c1')
     s().selectFixtures(['bar4'])
@@ -202,6 +216,7 @@ describe('preset colour fans out to every beam', () => {
     s().setShow(migrateShow({
       fixtures: [fixture],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar4: allRed } }],
+      livePages: [cuePage()],
       presets: [{ id: 'p', name: 'Red', category: 'color', fixtureValues: { bar4: { red: 1 } } }]
     }))
     s().activateCue('c1')
@@ -219,12 +234,13 @@ describe('White/Amber/UV sliders write every beam', () => {
     const fixture = oflBarFixture()
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { oflbar: { intensity: 255 } } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { oflbar: { intensity: 255 } } }],
+      livePages: [cuePage()],
     }))
     s().activateCue('c1')
     s().selectFixtures(['oflbar'])
     s().updateSelectedFixtures({ white: 128 })
-    expect(s().cues[0].fixtureValues.oflbar).toMatchObject({ white: 128, 'white 2': 128 })
+    expect(cue1().fixtureValues.oflbar).toMatchObject({ white: 128, 'white 2': 128 })
   })
 
   it('a UV write to the Q5 lands on all five pods', () => {
@@ -232,12 +248,13 @@ describe('White/Amber/UV sliders write every beam', () => {
     const fixture = q5Fixture()
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255 } } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255 } } }],
+      livePages: [cuePage()],
     }))
     s().activateCue('c1')
     s().selectFixtures(['q5'])
     s().updateSelectedFixtures({ uv: 200 })
-    expect(s().cues[0].fixtureValues.q5).toMatchObject({ uv: 200, 'uv 2': 200, 'uv 3': 200, 'uv 4': 200, 'uv 5': 200 })
+    expect(cue1().fixtureValues.q5).toMatchObject({ uv: 200, 'uv 2': 200, 'uv 3': 200, 'uv 4': 200, 'uv 5': 200 })
   })
 
   it('a White write while editing a preset lands on every beam of the preset', () => {
@@ -246,6 +263,7 @@ describe('White/Amber/UV sliders write every beam', () => {
     s().setShow(migrateShow({
       fixtures: [fixture],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { oflbar: { intensity: 255 } } }],
+      livePages: [cuePage()],
       presets: [{ id: 'p', name: 'White', category: 'color', fixtureValues: { oflbar: { intensity: 255 } } }]
     }))
     s().activateCue('c1')
@@ -259,18 +277,19 @@ describe('White/Amber/UV sliders write every beam', () => {
     const fixture = oflBarFixture()
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { oflbar: { intensity: 255, 'white 2': 10 } } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { oflbar: { intensity: 255, 'white 2': 10 } } }],
+      livePages: [cuePage()],
     }))
     s().activateCue('c1')
     s().selectFixtures(['oflbar'])
     // Pod 2 was separated at 10; moving the fixture-level White
     // slider re-links it, like the wheel re-links a separated beam.
     s().updateSelectedFixtures({ white: 128 })
-    expect(s().cues[0].fixtureValues.oflbar).toMatchObject({ white: 128, 'white 2': 128 })
+    expect(cue1().fixtureValues.oflbar).toMatchObject({ white: 128, 'white 2': 128 })
     // But a write that already names the beam keeps it: the fan-out
     // only fills keys the patch does not carry.
     s().updateSelectedFixtures({ white: 200, 'white 2': 10 })
-    expect(s().cues[0].fixtureValues.oflbar).toMatchObject({ white: 200, 'white 2': 10 })
+    expect(cue1().fixtureValues.oflbar).toMatchObject({ white: 200, 'white 2': 10 })
   })
 })
 

@@ -76,7 +76,7 @@ describe('Highlight Mode in the store', () => {
     const show: ShowDef = {
       id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, masterIntensity: 255,
       fixtures: [led('a', 1), led('b', 5)],
-      cues: [{ id: 'cue', name: 'Look', fadeMs: 0, fixtureValues: { a: { intensity: 200, red: 200, green: 100, blue: 50 }, b: { intensity: 200, red: 10, green: 20, blue: 30 } } }],
+      livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Look', type: 'push', cue: { id: 'cue', name: 'Look', fadeMs: 0, presetIds: [], sequenceIds: [], fixtureValues: { a: { intensity: 200, red: 200, green: 100, blue: 50 }, b: { intensity: 200, red: 10, green: 20, blue: 30 } } }, presetIds: [] }] }], cueLists: [],
       automations: []
     }
     const store = useShowStore.getState()

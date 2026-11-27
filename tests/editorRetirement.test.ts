@@ -3,18 +3,22 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import type { ShowDef } from '../src/shared/types'
 import { migrateShow } from '../src/shared/migrations'
+import { collectInlineCues } from '../src/renderer/src/stores/showStore'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 import { cuesToPresets } from '../src/shared/cueConversion'
 
 function assertCuePresets(show: ShowDef) {
-  show = { ...show, presets: [...(show.presets ?? []), ...cuesToPresets(show.cues, show.fixtures).filter((preset) => !show.presets?.some((item) => item.id === preset.id))] }
-  for (const cue of show.cues) {
+  // The migrated show holds its cues inline on buttons and cuelist
+  // steps (Jake, 27 Nov 2026 — inline cues): there is no `cues` key.
+  const cues = collectInlineCues(show, show.cueLists ?? [])
+  show = { ...show, presets: [...(show.presets ?? []), ...cuesToPresets(cues, show.fixtures).filter((preset) => !show.presets?.some((item) => item.id === preset.id))] }
+  for (const cue of cues) {
     const preset = show.presets?.find((item) => item.id === `preset-from-cue:${cue.id}`)
     expect(preset).toBeDefined()
     const presetCue = { id: preset!.id, name: preset!.name, fadeMs: 0, fixtureValues: preset!.fixtureValues }
     expect(computeCueChannels(show.fixtures, presetCue, 255)).toEqual(computeCueChannels(show.fixtures, cue, 255))
   }
-  for (const list of show.cueLists ?? []) for (const step of list.steps) expect(show.cues.some((cue) => cue.id === step.cueId)).toBe(true)
+  for (const list of show.cueLists ?? []) for (const step of list.steps) expect(cues.some((cue) => cue.id === step.cue.id)).toBe(true)
 }
 
 describe('retiring the separate Cues & cues editor', () => {

@@ -5,23 +5,28 @@
 // layer (or a Live button's captured overrides); Edit Ad Hoc Properties
 // edits a cue's ad-hoc layer directly, like preset editing.
 import { expect, it, vi, beforeEach } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { activeCueId, collectInlineCues, findInlineCue, useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 import { overridePropertyGroups } from '../src/renderer/src/lib/overrideLabels'
 import { addOverridesTargetIds, editAdHocTarget } from '../src/renderer/src/lib/liveOverrideTargets'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
 
+const CUE_VALUES = { a: { intensity: 100, red: 10 }, b: { intensity: 100, red: 10 } }
+const CUE_1 = { id: 'c1', name: 'Cue 1', presetIds: [], sequenceIds: [], fadeMs: 0, fixtureValues: CUE_VALUES }
+/** The button's copy of Cue 1 (findInlineCue returns the button's
+ *  holder first; Add Overrides merges into every holder sharing the
+ *  id, so both copies read the same after a merge). */
+const cueValues = () => findInlineCue(useShowStore.getState().show, useShowStore.getState().cueLists, 'c1')?.cue.fixtureValues
+
 function setUp() {
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({
     fixtures: ['a', 'b'].map((id, i) => ({ id, type: 'par', channelStart: 1 + i * 4, channels: 4 })),
-    cues: [{ id: 'c1', name: 'Cue 1', presetIds: [], sequenceIds: [], fadeMs: 0,
-      fixtureValues: { a: { intensity: 100, red: 10 }, b: { intensity: 100, red: 10 } } }],
-    cueLists: [{ id: 'list1', name: 'List 1', steps: [{ id: 'st1', cueId: 'c1', fadeMs: 0, holdMs: 0 }], loop: false }],
+    cueLists: [{ id: 'list1', name: 'List 1', steps: [{ id: 'st1', cue: structuredClone(CUE_1), fadeMs: 0, holdMs: 0 }], loop: false }],
     livePages: [{ id: 'pg', name: 'Page 1', cueListWidgets: [{ id: 'w1', cueListId: 'list1', x: 0, y: 0 }], controls: [
       { id: 'btn', name: 'Btn', type: 'push', presetIds: [], adHocValues: { a: { intensity: 50 } } },
-      { id: 'btn-cue', name: 'Cue btn', type: 'push', presetIds: [], cueId: 'c1' }
+      { id: 'btn-cue', name: 'Cue btn', type: 'push', presetIds: [], cue: structuredClone(CUE_1) }
     ] }]
   }))
   s().selectFixtures(['a'])
@@ -35,8 +40,8 @@ it('Design writes define overrides and never mint a cue', () => {
   const s = setUp()
   s().updateSelectedFixtures({ intensity: 200 }, true)
   expect(s().manualOverrides).toEqual({ a: { intensity: 200 } })
-  expect(s().cues).toHaveLength(1)
-  expect(s().cues[0].fixtureValues.a).toEqual({ intensity: 100, red: 10 })
+  expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(2)
+  expect(cueValues()!.a).toEqual({ intensity: 100, red: 10 })
   // The override wins over the cue at output (manual layer on top):
   // fixture 'a' is a par at channel 1, intensity on offset 0.
   const overrides = computeCueChannels(s().show!.fixtures, { id: '', name: '', fadeMs: 0, fixtureValues: s().manualOverrides })
@@ -44,7 +49,7 @@ it('Design writes define overrides and never mint a cue', () => {
   // A colour write does the same, and a second property accumulates.
   s().setSelectedColor({ red: 255, green: 0, blue: 0 }, true)
   expect(s().manualOverrides.a).toMatchObject({ intensity: 200, red: 255, green: 0, blue: 0 })
-  expect(s().cues).toHaveLength(1)
+  expect(collectInlineCues(s().show, s().cueLists)).toHaveLength(2)
 })
 
 it('a new cue captures the current overrides (Guide p.191)', () => {
@@ -67,11 +72,11 @@ it('Add Overrides merges into the cue ad-hoc layer and is undoable', () => {
   s().updateSelectedFixtures({ intensity: 200, red: 255 }, true)
   s().selectFixtures(['a', 'b']); s().updateSelectedFixtures({ green: 77 }, true)
   s().addOverridesToCues(['c1'])
-  expect(s().cues[0].fixtureValues.a).toMatchObject({ intensity: 200, red: 255, green: 77 })
-  expect(s().cues[0].fixtureValues.b).toMatchObject({ intensity: 100, red: 10, green: 77 })
+  expect(cueValues()!.a).toMatchObject({ intensity: 200, red: 255, green: 77 })
+  expect(cueValues()!.b).toMatchObject({ intensity: 100, red: 10, green: 77 })
   s().undo()
-  expect(s().cues[0].fixtureValues.a).toEqual({ intensity: 100, red: 10 })
-  expect(s().cues[0].fixtureValues.b).toEqual({ intensity: 100, red: 10 })
+  expect(cueValues()!.a).toEqual({ intensity: 100, red: 10 })
+  expect(cueValues()!.b).toEqual({ intensity: 100, red: 10 })
 })
 
 it('Add Overrides for Selected Fixtures merges only the selection', () => {
@@ -79,8 +84,8 @@ it('Add Overrides for Selected Fixtures merges only the selection', () => {
   s().selectFixtures(['a', 'b']); s().updateSelectedFixtures({ intensity: 200 }, true)
   s().selectFixtures(['a'])
   s().addOverridesToCues(['c1'], true)
-  expect(s().cues[0].fixtureValues.a).toMatchObject({ intensity: 200 })
-  expect(s().cues[0].fixtureValues.b).toEqual({ intensity: 100, red: 10 })
+  expect(cueValues()!.a).toMatchObject({ intensity: 200 })
+  expect(cueValues()!.b).toEqual({ intensity: 100, red: 10 })
 })
 
 it('Add Overrides merges into a standalone Live button captured values', () => {
@@ -89,7 +94,7 @@ it('Add Overrides merges into a standalone Live button captured values', () => {
   s().addOverridesToCues(['btn'])
   const control = s().show!.livePages![0].controls.find((c) => c.id === 'btn')!
   expect(control.adHocValues.a).toMatchObject({ intensity: 200 })
-  expect(s().cues[0].fixtureValues.a).toEqual({ intensity: 100, red: 10 })
+  expect(cueValues()!.a).toEqual({ intensity: 100, red: 10 })
 })
 
 it('Add Overrides targets resolve from Live selection, else the active cue', () => {
@@ -107,7 +112,7 @@ it('Add Overrides targets resolve from Live selection, else the active cue', () 
   s().setPageObjectSelection([])
   expect(addOverridesTargetIds(s())).toEqual(['c1'])
   // No active cue and nothing selected: no target.
-  useShowStore.setState({ activeCueId: null })
+  useShowStore.setState({ activeCueRef: null })
   expect(addOverridesTargetIds(s())).toEqual([])
 })
 
@@ -115,10 +120,10 @@ it('Edit Ad Hoc Properties writes to the cue and cancel restores it', () => {
   const s = setUp()
   s().startEditingCueAdHoc('c1')
   expect(s().editingCueAdHocId).toBe('c1')
-  expect(s().activeCueId).toBe('c1')
+  expect(activeCueId(s())).toBe('c1')
   // While editing, a Design write (manual=false) lands in the cue, not overrides.
   s().updateSelectedFixtures({ intensity: 150 })
-  expect(s().cues[0].fixtureValues.a).toMatchObject({ intensity: 150 })
+  expect(cueValues()!.a).toMatchObject({ intensity: 150 })
   expect(s().manualOverrides).toEqual({})
   s().saveEditingCueAdHoc()
   expect(s().editingCueAdHocId).toBeNull()
@@ -126,7 +131,7 @@ it('Edit Ad Hoc Properties writes to the cue and cancel restores it', () => {
   s().startEditingCueAdHoc('c1')
   s().updateSelectedFixtures({ intensity: 20, red: 99 })
   s().cancelEditingCueAdHoc()
-  expect(s().cues[0].fixtureValues.a).toEqual({ intensity: 150, red: 10 })
+  expect(cueValues()!.a).toEqual({ intensity: 150, red: 10 })
   expect(s().editingCueAdHocId).toBeNull()
 })
 

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { hexToRgb } from '../src/renderer/src/lib/colorMix'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } }); vi.stubGlobal('cancelAnimationFrame', vi.fn()); vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -11,7 +11,8 @@ function setup() {
       { id: 'a', name: 'RGB', type: 'par', channelStart: 1, channels: 4 },
       { id: 'b', name: 'RGB 2', type: 'par', channelStart: 5, channels: 4 }
     ],
-    cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { a: { intensity: 255, red: 0, green: 0, blue: 255 } } }]
+    cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { a: { intensity: 255, red: 0, green: 0, blue: 255 } } }],
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'S', type: 'push', cueId: 's', presetIds: [] }] }]
   }))
   state().activateCue('s')
   state().selectFixtures(['a'])
@@ -47,7 +48,7 @@ describe('colour favourites', () => {
     state().addColorFavorite('#ff8000')
     // Move the selection to a different colour first.
     state().setSelectedColor({ red: 0, green: 0, blue: 255 })
-    expect(state().cues[0].fixtureValues.a).toEqual({ intensity: 255, red: 0, green: 0, blue: 255 })
+    expect(findInlineCue(state().show, state().cueLists, 's')!.cue.fixtureValues.a).toEqual({ intensity: 255, red: 0, green: 0, blue: 255 })
     // Recall the favourite the way the Design swatch did (swatch UI
     // removed 19 Nov 2026, Jake — the store path is unchanged): parse
     // it and apply it.
@@ -55,9 +56,9 @@ describe('colour favourites', () => {
     const rgb = hexToRgb(favourite)
     expect(rgb).not.toBeNull()
     state().setSelectedColor(rgb!)
-    expect(state().cues[0].fixtureValues.a).toEqual({ intensity: 255, red: 255, green: 128, blue: 0 })
+    expect(findInlineCue(state().show, state().cueLists, 's')!.cue.fixtureValues.a).toEqual({ intensity: 255, red: 255, green: 128, blue: 0 })
     // The unselected fixture is untouched.
-    expect(state().cues[0].fixtureValues.b).toBeUndefined()
+    expect(findInlineCue(state().show, state().cueLists, 's')!.cue.fixtureValues.b).toBeUndefined()
   })
 
   it('removes a favourite', () => {

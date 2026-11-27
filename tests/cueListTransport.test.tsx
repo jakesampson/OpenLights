@@ -16,7 +16,7 @@ import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
 import { LiveTab } from '../src/renderer/src/components/LiveTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { activeCueId, useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
 
@@ -51,11 +51,10 @@ const FIXTURES = [{ id: 'd1', name: 'D1', type: 'dimmer', channelStart: 1, chann
 const FULL_ON = { id: 'cue-fullon', name: 'Full On', fixtureValues: { d1: { intensity: 255 } }, fadeMs: 500 }
 const WASH_BLUE = { id: 'cue-blue', name: 'Wash Blue', fixtureValues: { d1: { intensity: 128 } }, fadeMs: 500 }
 
-function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-fullon', fadeMs: 500, holdMs: 0 }, { id: 's2', cueId: 'cue-blue', fadeMs: 500, holdMs: 0 }] }]) {
+function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cue: FULL_ON, fadeMs: 500, holdMs: 0 }, { id: 's2', cue: WASH_BLUE, fadeMs: 500, holdMs: 0 }] }]) {
   const state = useShowStore.getState()
   state.setShow(migrateShow({
     fixtures: FIXTURES,
-    cues: [FULL_ON, WASH_BLUE],
     cueLists,
     presets: [],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [], cueListWidgets: cueLists.length ? [{ id: 'w1', cueListId: 'list1', x: 20, y: 20, width: 240, height: 240 }] : [] }],
@@ -102,7 +101,7 @@ beforeEach(() => {
   Element.prototype.setPointerCapture = () => {}
   Element.prototype.releasePointerCapture = () => {}
   const state = useShowStore.getState()
-  state.setShow(migrateShow({ fixtures: [], cues: [] } as unknown as ShowDef))
+  state.setShow(migrateShow({ fixtures: [] } as unknown as ShowDef))
   state.exitSetupWizard()
   state.setWelcomeOpen(false)
   state.setNewProjectDialogOpen(false)
@@ -135,7 +134,7 @@ describe('cue-list transport on the canvas widget', () => {
     expect(widget.textContent).not.toContain('Current:')
     expect(widget.textContent).not.toContain('Next:')
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     expect(stepRow('Full On').textContent).toContain('▶')
     expect(stepRow('Wash Blue').textContent).not.toContain('▶')
@@ -146,12 +145,12 @@ describe('cue-list transport on the canvas widget', () => {
     renderInRoot(<App />)
     switchToLive()
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
     clickWidgetButton('Stop')
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(useShowStore.getState().cuePlaying).toBe(false)
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
   })
 
   it('widget: a step single-click selects it and a double-click jumps to its cue (guide p.219)', () => {
@@ -159,16 +158,16 @@ describe('cue-list transport on the canvas widget', () => {
     renderInRoot(<App />)
     switchToLive()
     clickStep('Wash Blue')
-    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(stepRow('Wash Blue').className).toContain('bg-panel')
     expect(stepRow('Full On').className).not.toContain('bg-panel')
     doubleClickStep('Wash Blue')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
     expect(useShowStore.getState().cuePlaying).toBe(true)
     // Clicking the active step again does NOT turn it off any more —
     // Stop deactivates (the old step toggle is gone).
     clickStep('Wash Blue')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
   })
 
   it('widget: with no cue lists there is no fixed transport bar anywhere', () => {
@@ -182,8 +181,8 @@ describe('cue-list transport on the canvas widget', () => {
 
   it('main window: with two lists the widget shows its own list and no fixed bar exists', () => {
     seedShow([
-      { id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-fullon', fadeMs: 500, holdMs: 0 }, { id: 's2', cueId: 'cue-blue', fadeMs: 500, holdMs: 0 }] },
-      { id: 'list2', name: 'Evening Set', steps: [{ id: 's3', cueId: 'cue-blue', fadeMs: 1000, holdMs: 0 }] },
+      { id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cue: FULL_ON, fadeMs: 500, holdMs: 0 }, { id: 's2', cue: WASH_BLUE, fadeMs: 500, holdMs: 0 }] },
+      { id: 'list2', name: 'Evening Set', steps: [{ id: 's3', cue: WASH_BLUE, fadeMs: 1000, holdMs: 0 }] },
     ])
     renderInRoot(<App />)
     switchToLive()
@@ -195,7 +194,7 @@ describe('cue-list transport on the canvas widget', () => {
     const canvas = container!.querySelector('[aria-label="Live page canvas"]')
     expect(canvas!.contains(widget)).toBe(true)
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
     expect(useShowStore.getState().activeCueListId).toBe('list1')
   })
 
@@ -205,7 +204,7 @@ describe('cue-list transport on the canvas widget', () => {
     expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeTruthy()
     expect(container!.querySelector('.cue-transport-compact')).toBeNull()
     clickWidgetButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
     expect(stepRow('Full On').textContent).toContain('▶')
   })
 })

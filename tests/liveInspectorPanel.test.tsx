@@ -1,8 +1,9 @@
-// Get Info inspector — LightKey's floating panel (Jake, 27 Nov 2026):
-// a rounded popover beside the control, title centred, × top-left,
+// Get Info inspector — LightKey's docked panel (Jake, 27 Nov 2026):
+// slides in from the right edge of the Design/Live panel, title
+// centred, × top-left,
 // one scrollable list of collapsible sections, every setting an inline
 // mini-dropdown or an on/off toggle. Rendered behaviour: the panel
-// floats (not docked), dropdowns and toggles change the control and
+// docks (not floating), dropdowns and toggles change the control and
 // persist, Timing edits persist, and it closes with ×, Escape (both
 // modes) and a click on blank canvas.
 // @vitest-environment jsdom
@@ -112,23 +113,22 @@ afterEach(() => {
   container = undefined
 })
 
-describe('Get Info inspector — LightKey floating panel', () => {
-  it('floats beside the control with the control name as its title, no Name field, no tabs', () => {
+describe('Get Info inspector — LightKey docked panel', () => {
+  it('docks to the right edge of the Design/Live panel with the control name as its title, no Name field, no tabs', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     act(() => { useShowStore.getState().setLiveEditing(true) })
     const dialog = openPopup('btn1')
-    // A rounded popover, not the old docked side panel.
-    expect(dialog.className).toContain('rounded-xl')
+    // A right-docked panel, not the old floating popover: left corners
+    // rounded, right edge flush with the panel edge, full height.
+    expect(dialog.className).toContain('rounded-l-xl')
     expect(dialog.className).toContain('w-[340px]')
-    expect(dialog.className).not.toContain('bottom-2')
-    expect(dialog.className).not.toContain('right-2')
-    // Positioned beside the control (jsdom rects are all zero, so it
-    // lands at the 8px clamp — the point is the position is measured,
-    // not docked to the panel edge).
-    expect(dialog.style.left).toBe('8px')
-    expect(dialog.style.top).toBe('8px')
+    expect(dialog.className).toContain('absolute bottom-0 right-0 top-0')
+    // Positioned by the dock, not measured from the control — no
+    // inline left/top at all.
+    expect(dialog.style.left).toBe('')
+    expect(dialog.style.top).toBe('')
     // Title is the control name, centred; × is top-left.
     const title = dialog.querySelector('h3')
     expect(title?.textContent).toBe('Song 1')

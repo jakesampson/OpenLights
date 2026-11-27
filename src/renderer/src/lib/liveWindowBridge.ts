@@ -12,7 +12,7 @@ export function startLiveWindowBridge(): () => void {
   }
   const send = () => {
     const state = useShowStore.getState()
-    const keys = ['activeSequenceIds', 'locked', 'show', 'cues', 'presets', 'effects', 'cueLists', 'activeLiveValues', 'activeLivePageId', 'activePresetIds', 'manualOverrides', 'master', 'bpm', 'blackout', 'activeCueId', 'activeCueListId', 'activeCueIndex', 'cuePlaying'] as const
+    const keys = ['activeSequenceIds', 'locked', 'show', 'presets', 'effects', 'cueLists', 'activeLiveValues', 'activeLivePageId', 'activePresetIds', 'manualOverrides', 'master', 'bpm', 'blackout', 'activeCueRef', 'activeCueListId', 'activeCueIndex', 'cuePlaying'] as const
     window.electronAPI.publishLiveWindowState(Object.fromEntries(keys.map((key) => [key, state[key]])))
   }
   const unsubscribe = useShowStore.subscribe(send)

@@ -67,19 +67,19 @@ describe('splitFaderValues', () => {
 describe('fader Controls options', () => {
   it('offers only the properties the cue defines, with a non-zero value', () => {
     const presets: PresetDef[] = [{ id: 'p1', name: 'Red', category: 'color', fixtureValues: { d1: { intensity: 255, red: 255 } } }]
-    const keys = faderControlOptions(control({ presetIds: ['p1'] }), [], presets, fixtures).map((prop) => prop.key)
+    const keys = faderControlOptions(control({ presetIds: ['p1'] }), presets, fixtures).map((prop) => prop.key)
     expect(keys).toEqual(['dimmer', 'color'])
   })
 
   it('does not count a Dimmer at 0 as a property the fader can scale', () => {
     const presets: PresetDef[] = [{ id: 'p1', name: 'Red', category: 'color', fixtureValues: { d1: { intensity: 0, red: 255 } } }]
-    const keys = faderControlOptions(control({ presetIds: ['p1'] }), [], presets, fixtures).map((prop) => prop.key)
+    const keys = faderControlOptions(control({ presetIds: ['p1'] }), presets, fixtures).map((prop) => prop.key)
     expect(keys).toEqual(['color'])
   })
 
   it('lists All Properties first, then every property with only the defined ones enabled', () => {
     const presets: PresetDef[] = [{ id: 'p1', name: 'Red', category: 'color', fixtureValues: { d1: { intensity: 255, red: 255 } } }]
-    const options = faderControlsDropdownOptions(control({ presetIds: ['p1'] }), [], presets, fixtures)
+    const options = faderControlsDropdownOptions(control({ presetIds: ['p1'] }), presets, fixtures)
     expect(options[0]).toEqual({ value: 'all', label: 'All Properties', enabled: true })
     const byValue = Object.fromEntries(options.map((opt) => [opt.value, opt]))
     expect(byValue.dimmer.enabled).toBe(true)
@@ -133,7 +133,7 @@ describe('applicableSpeedOptions', () => {
 
   it('offers the gobo and strobe aspects when a cue fixture has those channels', () => {
     const cue: CueDef = { id: 'cue1', name: 'Heads', presetIds: [], sequenceIds: [], fixtureValues: { mh1: { intensity: 255, gobo: 100 } }, fadeMs: 500 }
-    const out = applicableSpeedOptions(control({ cueId: 'cue1' }), [cue], [], fixtures, [], [])
+    const out = applicableSpeedOptions(control({ cue }), [cue], [], fixtures, [], [])
     expect(out.has('goboRotationSpeed')).toBe(true)
     expect(out.has('goboShakeSpeed')).toBe(true)
     expect(out.has('goboChangeSpeed')).toBe(true)

@@ -14,7 +14,7 @@ import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { computeCueChannels } from '../src/renderer/src/lib/automationRuntime'
 import { resolveCue } from '../src/shared/cueResolution'
@@ -64,8 +64,17 @@ const BAR = { id: 'bar', name: 'PAN 4x1x30', type: 'pixel-bar-17ch', channelStar
 const PAR = { id: 'par', name: 'PAR', type: 'par', channelStart: 1, channels: 4 }
 
 function cueValues(fixtureId: string) {
-  return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues[fixtureId] ?? {}
 }
+
+// A cue survives migration only in a holder (Jake, 27 Nov 2026 —
+// inline cues): the seed button below carries it, so the migrated
+// show keeps the cue and the tests can activate it. A fresh object
+// per seed — migrateShow shallow-copies its input and writes the
+// inlined cue onto the button, so a shared const would leak the first
+// test's cue values into every later test.
+const cuePage = () => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [] }] })
 
 describe('beam 1 sliders on a multipart fixture', () => {
   it('shows Red 1 / Green 1 / Blue 1 sliders for the 4-LED bar', () => {
@@ -73,8 +82,10 @@ describe('beam 1 sliders on a multipart fixture', () => {
     s().setShow(migrateShow({
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderEl('Red 1 for selected fixtures')).toBeTruthy()
     expect(sliderEl('Green 1 for selected fixtures')).toBeTruthy()
@@ -86,8 +97,10 @@ describe('beam 1 sliders on a multipart fixture', () => {
     s().setShow(migrateShow({
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0, red2: 0, green2: 0, blue2: 0, red3: 0, green3: 0, blue3: 0, red4: 0, green4: 0, blue4: 0 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     // Pointer at the top of the 150-tall mocked track: full (255).
     act(() => { sliderEl('Red 1 for selected fixtures').dispatchEvent(pointer('pointerdown', 75, 0)) })
@@ -107,8 +120,10 @@ describe('beam 1 sliders on a multipart fixture', () => {
     s().setShow(migrateShow({
       fixtures: [PAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { par: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(container?.querySelector('[aria-label="Red 1 for selected fixtures"]')).toBeNull()
     expect(container?.querySelector('[aria-label="Green 1 for selected fixtures"]')).toBeNull()
@@ -121,8 +136,10 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
     s().setShow(migrateShow({
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 0, red: 255, green: 0, blue: 0 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().selectFixtureBeam('bar', 'cell-2')
     s().updateSelectedBeamValues({ intensity: 200 })
     expect(cueValues('bar').intensity).toBe(200)
@@ -137,8 +154,10 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
     s().setShow(migrateShow({
       fixtures: [BAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar: { intensity: 255, red: 0, green: 0, blue: 0, red2: 0, green2: 0, blue2: 0, red3: 0, green3: 0, blue3: 0, red4: 0, green4: 0, blue4: 0 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['bar'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().updateBeamValues('bar', 'cell-1', { red: 120 })
     expect(cueValues('bar')).toMatchObject({ red: 120 })
     expect(cueValues('bar').red2).toBe(0)
@@ -154,12 +173,14 @@ describe('beam-selected writes keep fixture-level attributes (Bug 2)', () => {
     s().setShow(migrateShow({
       fixtures: [PAR],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { par: { intensity: 0, red: 0, green: 0, blue: 255 } } }]
+   ,
+      livePages: [cuePage()]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['par'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     s().setSelectedBaseColor({ red: 255, green: 0, blue: 0 })
     s().updateSelectedFixtures({ intensity: 255 })
     const state = s()
-    const cue = state.cues.find((c) => c.id === 'c1')!
+    const cue = findInlineCue(state.show, state.cueLists, 'c1')!.cue
     const fixtures = state.show?.fixtures ?? []
     const frame = computeCueChannels(fixtures, resolveCue(cue, [], fixtures), 255, true)
     expect(frame).toEqual({ 1: 255, 2: 255, 3: 0, 4: 0 })

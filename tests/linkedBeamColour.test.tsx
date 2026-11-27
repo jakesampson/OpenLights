@@ -14,7 +14,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { readFileSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { importOflFixture } from '../src/shared/oflFixtureFormat'
 import type { FixtureDef } from '../src/shared/types'
@@ -80,6 +80,15 @@ const ALL_GREEN: Record<string, number> = {
   red4: 0, green4: 255, blue4: 0
 }
 
+const cuePage = (cueId: string) => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue', type: 'push', cueId, presetIds: [] }] })
+
+// A seeded cue, read through its holder (Jake, 27 Nov 2026 —
+// inline cues: there is no project-wide `cues` slice any more).
+const cueS = () => {
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 's')!.cue
+}
+
 function setShow(fixture: { id: string; name: string; type: string; channelStart: number; channels: number }, values: Record<string, number>, extra: Record<string, unknown> = {}) {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
@@ -87,16 +96,18 @@ function setShow(fixture: { id: string; name: string; type: string; channelStart
     ...base,
     id: 'test-show',
     fixtures: [fixture],
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { intensity: 255, ...values } }, fadeMs: 0 }],
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', cue: { id: 'c1', name: 'Cue 1', fixtureValues: { [fixture.id]: { intensity: 255, ...values } }, fadeMs: 0, presetIds: [], sequenceIds: [] }, presetIds: [] }] }],
+    cueLists: [],
     ...extra
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: (extra.presets as never[]) ?? [], selectedFixtureIds: [fixture.id], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ show, presets: (extra.presets as never[]) ?? [], selectedFixtureIds: [fixture.id], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 
 function cueValues(fixtureId: string) {
-  return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues[fixtureId] ?? {}
 }
 
 // A Design write defines an override (LightKey's real Overrides).
@@ -151,12 +162,13 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }]
+      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }],
+      livePages: [cuePage('s')],
     }))
     s().activateCue('s')
     useShowStore.setState({ selectedFixtureIds: ['bar4'] })
     act(() => { s().setSelectedBaseColor({ red: 255, green: 128, blue: 0 }) })
-    expect(s().cues[0].fixtureValues.bar4).toMatchObject({
+    expect(cueS().fixtureValues.bar4).toMatchObject({
       red: 255, green: 128, blue: 0,
       'red 2': 255, 'green 2': 128, 'blue 2': 0,
       'red 3': 255, 'green 3': 128, 'blue 3': 0,
@@ -165,7 +177,7 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     // The centre picker / colour favourite path (setSelectedColor)
     // links the same way.
     act(() => { s().setSelectedColor({ red: 0, green: 0, blue: 255 }) })
-    expect(s().cues[0].fixtureValues.bar4).toMatchObject({
+    expect(cueS().fixtureValues.bar4).toMatchObject({
       red: 0, green: 0, blue: 255,
       'red 2': 0, 'green 2': 0, 'blue 2': 255,
       'red 3': 0, 'green 3': 0, 'blue 3': 255,
@@ -177,14 +189,15 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [{ id: 'fx1', name: 'Test Wash', type: 'led-wash', channelStart: 1, channels: 7 }],
-      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { fx1: { intensity: 255 } } }]
+      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { fx1: { intensity: 255 } } }],
+      livePages: [cuePage('s')],
     }))
     s().activateCue('s')
     useShowStore.setState({ selectedFixtureIds: ['fx1'] })
     act(() => { s().setSelectedBaseColor({ red: 10, green: 20, blue: 30 }) })
-    expect(s().cues[0].fixtureValues.fx1).toMatchObject({ red: 10, green: 20, blue: 30 })
-    expect(s().cues[0].fixtureValues.fx1).not.toHaveProperty('red 2')
-    expect(s().cues[0].fixtureValues.fx1).not.toHaveProperty('red2')
+    expect(cueS().fixtureValues.fx1).toMatchObject({ red: 10, green: 20, blue: 30 })
+    expect(cueS().fixtureValues.fx1).not.toHaveProperty('red 2')
+    expect(cueS().fixtureValues.fx1).not.toHaveProperty('red2')
   })
 
   it('a per-beam slider still separates one beam, and the wheel re-links it', () => {
@@ -193,17 +206,18 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [fixture],
-      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }]
+      cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar4: { intensity: 255 } } }],
+      livePages: [cuePage('s')],
     }))
     s().activateCue('s')
     useShowStore.setState({ selectedFixtureIds: ['bar4'] })
     act(() => { s().setSelectedBaseColor({ red: 255, green: 0, blue: 0 }) })
     // Beam 2's own red slider: only that beam moves.
     act(() => { s().updateSelectedFixtures({ 'red 2': 50 }) })
-    expect(s().cues[0].fixtureValues.bar4).toMatchObject({ red: 255, 'red 2': 50, 'red 3': 255, 'red 4': 255 })
+    expect(cueS().fixtureValues.bar4).toMatchObject({ red: 255, 'red 2': 50, 'red 3': 255, 'red 4': 255 })
     // The wheel again: every beam re-links to the one colour.
     act(() => { s().setSelectedBaseColor({ red: 0, green: 0, blue: 255 }) })
-    expect(s().cues[0].fixtureValues.bar4).toMatchObject({
+    expect(cueS().fixtureValues.bar4).toMatchObject({
       red: 0, green: 0, blue: 255,
       'red 2': 0, 'green 2': 0, 'blue 2': 255,
       'red 3': 0, 'green 3': 0, 'blue 3': 255,
@@ -216,6 +230,7 @@ describe('Linked beam colour — one wheel drives every LED', () => {
     s().setShow(migrateShow({
       fixtures: [{ id: 'bar', name: 'PAN 4x1x30', type: 'pixel-bar-17ch', channelStart: 1, channels: 17 }],
       cues: [{ id: 's', name: 'S', fadeMs: 0, fixtureValues: { bar: { intensity: 255 } } }],
+      livePages: [cuePage('s')],
       presets: [{ id: 'p', name: 'Red', category: 'color', fixtureValues: {} }]
     }))
     s().activateCue('s')
@@ -232,7 +247,7 @@ describe('Linked beam colour — one wheel drives every LED', () => {
       red4: 255, green4: 0, blue4: 0
     })
     // And the cue itself was not touched by the preset edit.
-    expect(s().cues[0].fixtureValues.bar).toEqual({ intensity: 255 })
+    expect(cueS().fixtureValues.bar).toEqual({ intensity: 255 })
   })
 
   it('Set as Default / Load Default cover every beam', () => {

@@ -58,14 +58,19 @@ function pointer(type: string, x: number, y: number, buttons = 1) {
 function setShow(intensity = 255, type: 'led-wash' | 'moving-head' = 'led-wash') {
   const base = useShowStore.getState().show
   if (!base) throw new Error('store has no default show')
+  // Inline cues (Jake, 27 Nov 2026): the cue lives in the Live button
+  // that holds it, and the active cue is that holder's reference —
+  // there is no project-wide `cues` slice or `activeCueId` state any
+  // more.
+  const cue = { id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity, red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0, pan: 128, tilt: 128, gobo: 0, strobe: 0 } }, fadeMs: 0 }
   const show = {
     ...base,
     id: 'test-show',
     fixtures: [{ id: 'fx1', name: type === 'moving-head' ? 'Test Head' : 'Test Wash', type, channelStart: 1, channels: type === 'moving-head' ? 8 : 7 }],
-    cues: [{ id: 'c1', name: 'Cue 1', fixtureValues: { fx1: { intensity, red: 255, green: 0, blue: 0, white: 0, amber: 0, uv: 0, pan: 128, tilt: 128, gobo: 0, strobe: 0 } }, fadeMs: 0 }]
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', presetIds: [], cue, x: 0, y: 0 }] }]
   }
   act(() => {
-    useShowStore.setState({ show, cues: show.cues, presets: [], selectedFixtureIds: ['fx1'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ show, presets: [], cueLists: [], selectedFixtureIds: ['fx1'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
   })
 }
 

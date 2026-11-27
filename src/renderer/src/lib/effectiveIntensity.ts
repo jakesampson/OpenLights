@@ -77,7 +77,10 @@ export function liveIntensityLevels(input: {
   controls: LiveControl[]
   levels: Record<string, number>
   presets: PresetDef[]
-  cues: CueDef[]
+  /** Accepted for callers that still pass the show's inline cues (the
+   *  store); the cue now comes from each control itself, so this is
+   *  unused. */
+  cues?: CueDef[]
   fixtures: FixtureDef[]
 }): Record<string, number> {
   const liveLevels: Record<string, number> = {}
@@ -96,7 +99,7 @@ export function liveIntensityLevels(input: {
     // uncontrolled part of its output is not dimmed by the fader —
     // the split in App.tsx relies on this.
     const intensityLevel = isFaderControl(control) && !faderControlsDimmer(control) ? 255 : level
-    const cue = input.cues.find((item) => item.id === control.cueId)
+    const cue = control.cue
     if (cue && !cue.blackout) take(resolveCue(cue, input.presets, input.fixtures).fixtureValues, intensityLevel)
     for (const id of control.presetIds) {
       const preset = input.presets.find((item) => item.id === id)

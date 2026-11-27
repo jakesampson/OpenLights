@@ -20,6 +20,9 @@ function setUp() {
     fixtures: ['a', 'b'].map((id, i) => ({ id, name: id.toUpperCase(), type: 'par', channelStart: 1 + i * 4, channels: 4 })),
     cues: [{ id: 'c1', name: 'Cue 1', presetIds: [], sequenceIds: [], fadeMs: 0,
       fixtureValues: { a: { intensity: 100, red: 10 }, b: { intensity: 100, red: 10 } } }],
+    // The cue survives migration only in a holder (Jake, 27 Nov 2026
+    // — inline cues): the seed button carries it.
+    livePages: [{ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [] }] }],
     cueLists: []
   }))
   s().selectFixtures(['a'])
@@ -89,7 +92,7 @@ describe('capturePresetFromLook (plain New Preset)', () => {
   it('does not need an active cue — the touched values are enough', () => {
     const s = setUp()
     // stopCue only stops playback; a truly cue-less look has no active cue.
-    useShowStore.setState({ activeCueId: null })
+    useShowStore.setState({ activeCueRef: null })
     s().updateSelectedFixtures({ intensity: 71 }, true)
     expect(s().capturePresetFromLook(false)?.name).toBe('28%')
   })
@@ -141,7 +144,7 @@ describe('capturePresetFromLook (New Preset With Snapshot)', () => {
   })
   it('snapshots without an active cue from presets + overrides alone', () => {
     const s = setUp()
-    useShowStore.setState({ activeCueId: null })
+    useShowStore.setState({ activeCueRef: null })
     s().setSelectedColor({ red: 0, green: 0, blue: 255 }, true)
     const blue = s().capturePresetFromLook(false)!
     s().togglePreset(blue.id)

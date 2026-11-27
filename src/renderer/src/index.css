@@ -1179,17 +1179,16 @@ select optgroup { background: #555658; color: #fff; }
   transform: translate(-50%, calc(-100% - 10px));
 }
 
-/* Live Edit button properties inspector: LightKey's floating panel
-   (Jake, 27 Nov 2026) — a rounded popover that appears beside the
-   control. The popup scrolls on its own; the canvas behind it does
-   not move. */
-@keyframes live-properties-pop-in {
-  from { transform: scale(0.96); opacity: 0; }
-  to { transform: scale(1); opacity: 1; }
+/* Live Edit button properties inspector: LightKey's panel (Jake, 27
+   Nov 2026) — docked to the right edge of the Design/Live panel, it
+   slides in from the right over the canvas. The panel scrolls on its
+   own; the canvas behind it does not move. */
+@keyframes live-properties-slide-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
 }
 .live-properties-popup {
-  animation: live-properties-pop-in 120ms ease-out;
-  transform-origin: top left;
+  animation: live-properties-slide-in 200ms ease-out;
 }
 
 /* Newly patched fixtures fade/scale in when they land on the Preview

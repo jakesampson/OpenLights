@@ -2,16 +2,22 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-// LightKey's floating Get Info panel (Jake, 27 Nov 2026): the old
-// docked "Cue Properties" side panel — a Name field, Contents /
-// Options / Button tabs, and Presets/Sequences/Effects checklists
-// hidden behind <details> — did not resemble LightKey's panel. The
-// inspector is now a rounded popover that floats beside the control,
-// title centred, × top-left, one scrollable list of collapsible
-// sections (Contents, Timing, Button, Font, Modifiers, Live Triggers;
-// Activate is the tail of the Button section and Group a label row),
-// every setting an inline mini-dropdown or an on/off toggle.
-// See NOTES.md.
+// LightKey's Get Info panel (Jake, 27 Nov 2026): the old docked "Cue
+// Properties" side panel — a Name field, Contents / Options / Button
+// tabs, and Presets/Sequences/Effects checklists hidden behind
+// <details> — did not resemble LightKey's panel. The inspector was
+// then rebuilt as a floating popover beside the control (27 Nov),
+// and Jake's screenshots (8.53.54 / 8.54.15) showed LightKey's panel
+// is docked to the right edge of the Design/Live panel, sliding in
+// over the canvas. The inspector is now that docked panel: title
+// centred, × top-left, one scrollable list of collapsible sections
+// (Contents, Timing, Button, Modifiers, Live Triggers; Activate is
+// the tail of the Button section and Group a label row), every setting
+// an inline mini-dropdown or an on/off toggle. No Curve control
+// (LightKey's Timing is Fade In/Out only), no Font section (font
+// lives in the right-click menu), no "Attached to" (buttons attach by
+// touching), and the Modifiers checklist lives directly in the
+// panel's own scroll — no nested scroll container. See NOTES.md.
 describe('Live Edit — double-click properties popup', () => {
   const root = resolve(__dirname, '..')
   const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
@@ -29,20 +35,20 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).not.toContain('onClick={() => openPropertiesPopup')
   })
 
-  it('floats beside the control — a rounded popover, not a docked panel', () => {
+  it('docks to the right edge of the Design/Live panel and slides in', () => {
     expect(workspace).toContain('live-properties-popup')
     expect(workspace).toContain('role="dialog"')
-    expect(workspace).toContain('rounded-xl')
+    expect(workspace).toContain('absolute bottom-0 right-0 top-0')
+    expect(workspace).toContain('rounded-l-xl')
     expect(workspace).toContain('w-[340px]')
-    // Positioned from the selected object's on-screen rect, right of
-    // it when that fits, otherwise left, clamped inside the panel.
-    expect(workspace).toContain('panelPos')
-    expect(workspace).toContain('data-page-object')
-    // No docked sidebar geometry left.
+    // Overlay, not push-content: the canvas behind it does not resize,
+    // and the panel is not positioned from the selected object's rect.
+    expect(workspace).not.toContain('panelPos')
     expect(workspace).not.toContain('absolute bottom-2 right-2 top-2')
     expect(workspace).not.toContain('w-[300px]')
-    expect(css).toContain('@keyframes live-properties-pop-in')
-    expect(css).not.toContain('@keyframes live-properties-slide-in')
+    expect(css).toContain('@keyframes live-properties-slide-in')
+    expect(css).toContain('translateX(100%)')
+    expect(css).not.toContain('@keyframes live-properties-pop-in')
     expect(css).toContain('.live-properties-popup')
   })
 
@@ -59,25 +65,24 @@ describe('Live Edit — double-click properties popup', () => {
   })
 
   it('is one scrollable list of collapsible sections in LightKey\'s order', () => {
-    // Sections: Contents, Timing, Button, Font, Modifiers, Live
-    // Triggers. A section collapses/expands in place; nothing opens a
+    // Sections for a cue button: Contents, Timing, Button, Modifiers,
+    // Live Triggers. A section collapses/expands in place; nothing opens a
     // submenu, a fly-out or a separate dialog. (Activate is the tail of
     // the Button section and Group a label row after it — LightKey's
     // screenshots 5.19.17 / 3.32.58 — not sections of their own.)
-    for (const id of ['contents', 'timing', 'button', 'font', 'modifiers', 'triggers']) {
-      expect(workspace).toContain(`id="${id}"`)
-    }
-    expect(workspace).toContain('InspectorSection')
-    expect(workspace).toContain('openSections')
-    // The section order in the cue branch: Contents, Timing, Button,
-    // Font, Modifiers, Live Triggers.
     const cueBranch = workspace.slice(workspace.indexOf('id="contents" title="Contents"'), workspace.indexOf('{contentsMenu &&'))
     let at = -1
-    for (const id of ['contents', 'timing', 'button', 'font', 'modifiers', 'triggers']) {
+    for (const id of ['contents', 'timing', 'button', 'modifiers', 'triggers']) {
       const next = cueBranch.indexOf(`id="${id}"`, at + 1)
       expect(next).toBeGreaterThan(at)
       at = next
     }
+    // No Font section on a cue button: font lives in the right-click
+    // menu (Jake, 27 Nov 2026). The Font section survives only for
+    // cuelist/annotation targets, where it is the only font UI.
+    expect(cueBranch).not.toContain('id="font"')
+    expect(workspace).toContain('InspectorSection')
+    expect(workspace).toContain('openSections')
     // The Presets/Sequences/Effects checklists hidden behind <details>
     // are gone — drag-in from the palette is the LightKey way.
     expect(workspace).not.toContain('Presets (')
@@ -97,9 +102,9 @@ describe('Live Edit — double-click properties popup', () => {
     // Fade times keep the slope icon and ±0.1s steppers.
     expect(workspace).toContain('Increase ${label}')
     expect(workspace).toContain('Decrease ${label}')
-    // Show Fonts opens the Font section in Edit mode only (guide p.204).
-    expect(workspace).toContain('Show Fonts')
-    expect(workspace).toContain('disabled={!editing}')
+    // No Show Fonts button: font lives in the right-click menu's Font
+    // submenu (Jake, 27 Nov 2026).
+    expect(workspace).not.toContain('Show Fonts')
   })
 
   it('contains the full button inspector: ad-hoc, timing mm:ss.t, button type', () => {
@@ -115,6 +120,32 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).toContain('TimingInput')
     expect(workspace).toContain('Cue contents')
     expect(workspace).toContain('dropOnContents')
+  })
+
+  it('has no Curve control, no Attached to, and no nested scroll in Modifiers', () => {
+    // Timing is Fade In/Out only (Jake, 27 Nov 2026 — LightKey has no
+    // Curve selection). The curve data model stays (fadeCurves.ts
+    // shapes fades with it) but no control sets it anymore.
+    expect(workspace).not.toContain('label="Fade curve"')
+    expect(workspace).not.toContain('label="Curve"')
+    // Buttons attach by touching (Guide ch.11, pp.183–184); the
+    // "Attached to" dropdown was this app's invention.
+    expect(workspace).not.toContain('Attached to')
+    expect(workspace).not.toContain('attachmentSelect')
+    // The Modifiers checklist lives directly in the panel's own
+    // scroll — no inner scroll container (Jake, 27 Nov 2026).
+    expect(workspace).not.toContain('max-h-40')
+    expect(workspace).not.toContain('max-h-32')
+  })
+
+  it('uses LightKey\'s directional fade ramps — ascending in, descending out', () => {
+    // Jake, 27 Nov 2026: the old glyph drew the same ascending slope
+    // for both, so Fade Out was wrong. LightKey's Fade In ramp rises
+    // left-to-right, its Fade Out ramp falls left-to-right.
+    expect(workspace).toContain('direction="in"')
+    expect(workspace).toContain('direction="out"')
+    expect(workspace).toContain('x1="4.5" y1="13.5" x2="13.5" y2="4.5"')
+    expect(workspace).toContain('x1="4.5" y1="4.5" x2="13.5" y2="13.5"')
   })
 
   it('follows the single selection while open and closes with X, Esc, Done or a click on blank canvas', () => {
@@ -152,8 +183,8 @@ describe('Live Edit — double-click properties popup', () => {
     expect(workspace).toContain('setRenamingList')
   })
 
-  it('fits entirely inside the visible panel — its height is bounded by the panel, not the canvas', () => {
-    // The popup's top-2/bottom-2 insets are against the Live section, so
+  it('fits entirely inside the visible panel — its height is the panel height', () => {
+    // The popup is docked top-0/bottom-0 against the Live section, so
     // the section must be exactly the visible panel body's height. It used
     // to be min-h-full (a floor, not a ceiling): the 520px canvas forced
     // the section to ~600px tall, the popup ran off the bottom of the page,
@@ -166,13 +197,12 @@ describe('Live Edit — double-click properties popup', () => {
     // section never grows past the panel body. It scrolls vertically as
     // well as horizontally now that the canvas can grow downwards past
     // the visible panel (Jake, 25 Nov 2026) — still internal scrolling,
-    // so the section height (and the popup against it) is unaffected.
+    // so the section height (and the docked panel against it) is unaffected.
     expect(workspace).toContain('min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto')
-    // The floating panel is positioned beside the control and its height
-    // is clamped to the visible panel (maxHeight from the section rect),
-    // with its own internal scroll, so a long properties list is
-    // reachable without moving the canvas behind it.
-    expect(workspace).toContain('maxHeight: Math.max(200, sRect.height - 16)')
+    // The docked panel is full-height against the section with its own
+    // internal scroll, so a long properties list is reachable without
+    // moving the canvas behind it.
+    expect(workspace).toContain('absolute bottom-0 right-0 top-0')
     expect(workspace).toContain('overflow-y-auto')
   })
 

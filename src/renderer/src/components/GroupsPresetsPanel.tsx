@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { SequenceEditor } from './SequenceEditor'
 import { PresetContents } from './PresetContents'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, collectInlineCues } from '../stores/showStore'
 import { encodeLiveDrop, LIVE_DROP_MIME, LEGACY_PRESET_MIME, NDI_AMBIENCE_BUTTON_COLOR, type LiveDropPayload } from '../lib/liveDrops'
 import { ndiAmbienceAvailability, useNdiSession } from '../lib/ndiSession'
 import { findNdiScreen } from '@shared/ndiAmbience'
@@ -58,7 +58,7 @@ interface PaletteDrag { kind: 'preset' | 'sequence' | 'group'; id: string }
 export function GroupsPresetsPanel() {
   const {
     show,
-    cues,
+    cueLists,
     presets,
     activePresetIds,
     activeSequenceIds,
@@ -101,6 +101,10 @@ export function GroupsPresetsPanel() {
   } = useShowStore()
   const groups = show?.presetGroups ?? []
   const sequences = show?.sequences ?? []
+  // Inline cues (Jake, 27 Nov 2026): there is no project-wide cue
+  // list — the count below is the collected view over the buttons'
+  // and steps' inline cues.
+  const cues = collectInlineCues(show, cueLists)
   const [search, setSearch] = useState('')
   const [paletteNote, setPaletteNote] = useState('')
   const paletteFile = useRef<HTMLInputElement>(null)
@@ -1030,7 +1034,7 @@ export function GroupsPresetsPanel() {
                 else if (item.kind === 'group') addGroup(item.id)
               }
             }
-            const unused = findUnusedItems(show, { presetIds: [...presetIds], sequenceIds: [...sequenceIds] })
+            const unused = findUnusedItems(show, { presetIds: [...presetIds], sequenceIds: [...sequenceIds] }, cueLists)
             setSelected([
               ...unused.presets.map((p): PaletteItem => ({ kind: 'preset', id: p.id })),
               ...unused.sequences.map((s): PaletteItem => ({ kind: 'sequence', id: s.id }))

@@ -16,7 +16,6 @@ import {
   objectsInRect, pasteObjects, renameObject, resizeObject, resizeObjectTo, setAttachment, setObjectStyle,
   type PageClipboard, type PageObjectRef, type Rect
 } from '../lib/livePageObjects'
-import { addOverridesTargetIds } from '../lib/liveOverrideTargets'
 import { evaluateFan } from '../lib/fanning'
 import { matchesPresetCategory } from '../lib/presetProperties'
 import { autoPresetName, derivePresetCategory, uniquePresetName } from '../lib/presetAutoName'
@@ -84,7 +83,6 @@ interface ShowState {
   undo: () => void
   redo: () => void
   show: ShowDef | null
-  cues: CueDef[]
   presets: PresetDef[]
   activeSequenceIds: string[]
   toggleSequence: (id: string) => void
@@ -185,7 +183,12 @@ interface ShowState {
   setNewProjectTemplate: (template: ShowTemplate | null) => void
   bpm: number
   isPlaying: boolean
-  activeCueId: string | null
+  /** The active cue, identified by its HOLDER (Jake, 27 Nov 2026 — the
+   *  project-wide cue store is gone). Resolve it with resolveActiveCue()
+   *  (exported below); its id is activeCueId(state). A button's cue is
+   *  { kind: 'button', pageId, controlId }; a cuelist step's cue is
+   *  { kind: 'step', listId, stepId }. */
+  activeCueRef: ActiveCueRef | null
   selectedFixtureIds: string[]
   selectedBeams: { fixtureId: string; beamId: string }[]
   selectFixtureBeam: (fixtureId: string, beamId: string, additive?: boolean) => void
@@ -219,7 +222,13 @@ interface ShowState {
   setStartupMode: (mode: 'none' | 'restore') => void
   showForSave: () => ShowDef | null
   setLivePages: (pages: LivePage[]) => void
-  setControlCue: (controlId: string, cueId: string | undefined) => void
+  /** Link a cue into a button, or clear it (cue undefined). The cue is
+   *  COPIED into the button — pass a CueDef, never an id — and the copy
+   *  gets a fresh id when its id is already held elsewhere, so two
+   *  holders never share one cue id. Clearing the button drops its cue
+   *  outright (there is nothing left to sweep). Editing a button's cue
+   *  goes through updateCue, not this. */
+  setControlCue: (controlId: string, cue?: CueDef) => void
   dropOnLivePage: (payload: LiveDropPayload, target: LiveDropTarget, split?: boolean) => void
   setLiveValue: (id: string, value: number) => void
   getLiveOutputLevels: () => Record<string, number>
@@ -468,6 +477,11 @@ interface ShowState {
   duplicateSequenceStep: (id: string, stepId: string) => void
   moveSequenceStep: (id: string, stepId: string, toIndex: number) => void
   reorderSequenceSteps: (id: string, order: 'backward' | 'random', seed?: number) => void
+  /** Build a new cue from the active look (LightKey, Guide ch.11
+   *  p.191) — a FACTORY, not a store write (Jake, 27 Nov 2026: there
+   *  is no cue list to add it to any more). Place the returned cue
+   *  with setControlCue (button) or addCueToList / addCueToListAt
+   *  (cuelist step); until then it lives only in the caller's hands. */
   addCue: (ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => CueDef
   /** Create a cue AND append it to a cuelist in one update (LightKey,
       Guide ch.11 pp.191–192): the cuelist "+ Cue" button and a palette
@@ -486,14 +500,10 @@ interface ShowState {
    * cue's id so the caller can open its inspector.
    */
   addCueToListAt: (listId: string, index?: number, ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => string
-  /** Create a cue AND make it active when no cue is active (the write
-      paths' model — mirroring updateSelectedFixtures). addCue on its own
-      deliberately does not activate (the Add-cue button's behaviour), so
-      write paths that assumed it did must call this instead. */
-  ensureActiveCue: () => void
-  duplicateCue: (id: string) => void
+  /** Patch the inline cue with this id, wherever it lives (its button
+   *  or its cuelist step) — the edit lands in that one holder's copy
+   *  only. Re-sends the output when the patched cue is the active one. */
   updateCue: (id: string, patch: Partial<CueDef>) => void
-  deleteCue: (id: string) => void
 
   addFixture: (preset: FixturePreset, name?: string, group?: string) => void
   addProfileFixtures: (profile: FixtureProfile, options: PatchOptions) => void
@@ -624,8 +634,9 @@ interface ShowState {
   removeCueList: (id: string) => void
   /** Renumber (Guide ch.11, p.195): re-number the given steps (or all
    *  steps when none are given) in list order, starting from the first
-   *  step's leading number, or 1. Renames the CUEs — a cue shared with
-   *  a button or another list is renamed everywhere it is used. */
+   *  step's leading number, or 1. Renames each step's OWN cue — a cue
+   *  copied into a button or another list keeps its name (Jake,
+   *  27 Nov 2026 — inline copies are separate). */
   renumberCueList: (listId: string, stepIds?: string[]) => void
   /** New Group (Guide ch.11, p.192): an empty named group below the
    *  given step (or at the end). Returns the group's id. */
@@ -718,7 +729,7 @@ function nextCueNumber(cues: CueDef[]): number {
 }
 
 /** Momentary flash: remembers the look to return to on release. */
-let flashState: { patch: Record<number, number>; activeCueId: string | null } | null = null
+let flashState: { patch: Record<number, number>; activeCueRef: ActiveCueRef | null } | null = null
 
 /** In-place preset editing (LightKey, Guide ch.9): the preset as it was when
  * editing started, plus the active-preset and fixture selection to restore
@@ -817,12 +828,6 @@ function capturableAttributes(fixture: FixtureDef): Set<string> {
   return attrs
 }
 
-function newCueFixtureValues(fixtures: FixtureDef[], manualOverrides: Record<string, Record<string, number>>): CueDef['fixtureValues'] {
-  const fixtureValues: CueDef['fixtureValues'] = {}
-  for (const fixture of fixtures) fixtureValues[fixture.id] = { ...defaultFixtureValues(fixture), ...manualOverrides[fixture.id] }
-  return fixtureValues
-}
-
 /** The cue's ad-hoc layer (LightKey's "Ad hoc properties", Guide ch.11
  * p.191): ONLY the overridden properties. The full default set must NOT
  * be written here — resolveCueValues applies the cue's own values after
@@ -849,7 +854,7 @@ function buildNewCue(state: ShowState, explicit?: { presetIds?: string[]; sequen
   const fixtures = state.show?.fixtures ?? []
   return {
     id: crypto.randomUUID(),
-    name: name?.trim() || `Cue ${nextCueNumber(state.cues)}`,
+    name: name?.trim() || `Cue ${nextCueNumber(collectInlineCues(state.show, state.cueLists))}`,
     presetIds: explicit
       ? [...new Set(explicit.presetIds ?? [])].filter((id) => state.presets.some((p) => p.id === id))
       : [...state.activePresetIds].filter((id) => state.presets.some((p) => p.id === id)),
@@ -861,36 +866,110 @@ function buildNewCue(state: ShowState, explicit?: { presetIds?: string[]; sequen
   }
 }
 
-/**
- * Reference-counted cue deletion (Jake, 27 Nov 2026 — "if a cue is
- * deleted off the canvas... kaboooom its deleted from memory"): a cue
- * exists only on the canvas — a Live button or a cuelist step. Given the
- * collections AFTER a removal, drop every candidate cue that no Live
- * button on any page, no cuelist step, and no clipboard control
- * references any more. The clipboard counts so Cut keeps the cue alive
- * for a paste-back; a cue still referenced anywhere is never deleted.
- * Existing orphans are NOT swept here — this runs only on the removal
- * paths below, going forward (PRBC Default's ~200 orphan cues stay
- * untouched until Jake decides). Returns the swept cue ids alongside
- * the next cue list so callers can clear an active cue that just died.
- */
-function sweepUnreferencedCues(
-  cues: CueDef[],
-  livePages: LivePage[],
-  cueLists: CueListDef[],
-  candidates: Iterable<string>,
-  clipboard?: PageClipboard | null
-): { cues: CueDef[]; swept: string[] } {
-  const wanted = new Set(candidates)
-  if (!wanted.size) return { cues, swept: [] }
-  const referenced = new Set<string>()
-  for (const page of livePages) for (const control of page.controls) if (control.cueId) referenced.add(control.cueId)
-  for (const list of cueLists) for (const step of list.steps) referenced.add(step.cueId)
-  for (const control of clipboard?.controls ?? []) if (control.cueId) referenced.add(control.cueId)
-  const swept = [...wanted].filter((id) => !referenced.has(id))
-  if (!swept.length) return { cues, swept: [] }
-  const doomed = new Set(swept)
-  return { cues: cues.filter((cue) => !doomed.has(cue.id)), swept }
+/** The holder of a cue (Jake, 27 Nov 2026 — the project-wide cue
+ *  store is gone, so a cue is identified by WHERE it lives). The active
+ *  cue is one of these (see activeCueRef); a cue on a button and the
+ *  "same" cue in a list are two separate copies in two holders. */
+export type ActiveCueRef =
+  | { kind: 'button'; pageId: string; controlId: string }
+  | { kind: 'step'; listId: string; stepId: string }
+
+/** Every cue in the show, collected from its holders — Live buttons'
+ *  inline cues and cuelist steps' cues. The replacement for the old
+ *  top-level `cues` slice: there is no cue list any more, only these. */
+export function collectInlineCues(show: ShowDef | null, cueLists: CueListDef[]): CueDef[] {
+  const cues: CueDef[] = []
+  for (const page of show?.livePages ?? []) for (const control of page.controls) if (control.cue) cues.push(control.cue)
+  for (const list of cueLists) for (const step of list.steps) cues.push(step.cue)
+  return cues
+}
+
+/** Find the inline cue with this id, with its holder. Cue ids are
+ *  unique per holder (migration, copy and duplicate all mint fresh
+ *  ids), so a scan finds at most one. */
+export function findInlineCue(show: ShowDef | null, cueLists: CueListDef[], cueId: string): { cue: CueDef; ref: ActiveCueRef } | undefined {
+  for (const page of show?.livePages ?? []) for (const control of page.controls) if (control.cue?.id === cueId) return { cue: control.cue, ref: { kind: 'button', pageId: page.id, controlId: control.id } }
+  for (const list of cueLists) for (const step of list.steps) if (step.cue.id === cueId) return { cue: step.cue, ref: { kind: 'step', listId: list.id, stepId: step.id } }
+  return undefined
+}
+
+/** Resolve a holder reference back to its inline cue (undefined when
+ *  the holder is gone — e.g. after an undo restored a show without it). */
+export function resolveCueRef(show: ShowDef | null, cueLists: CueListDef[], ref: ActiveCueRef | null): CueDef | undefined {
+  if (!ref) return undefined
+  if (ref.kind === 'button') return show?.livePages?.find((p) => p.id === ref.pageId)?.controls.find((c) => c.id === ref.controlId)?.cue
+  return cueLists.find((l) => l.id === ref.listId)?.steps.find((s) => s.id === ref.stepId)?.cue
+}
+
+/** The active cue, resolved through its holder reference. */
+export function resolveActiveCue(state: Pick<ShowState, 'show' | 'cueLists' | 'activeCueRef'>): CueDef | undefined {
+  return resolveCueRef(state.show, state.cueLists, state.activeCueRef)
+}
+
+/** The active cue's id, or null. Convenience for the paths that only
+ *  need the id (startup save, undo guards, ad-hoc editing). */
+export function activeCueId(state: Pick<ShowState, 'show' | 'cueLists' | 'activeCueRef'>): string | null {
+  return resolveActiveCue(state)?.id ?? null
+}
+
+/** Does this holder reference still resolve in this show? */
+function refResolves(show: ShowDef | null, cueLists: CueListDef[], ref: ActiveCueRef | null): boolean {
+  return ref ? resolveCueRef(show, cueLists, ref) !== undefined : false
+}
+
+/** Rewrite the inline cue with this id (button cue or step cue) and
+ *  return the show pieces carrying the change, plus the updated cue.
+ *  Returns null when no holder carries the id. Callers persist the
+ *  pieces with persistWithCuePatch (one undo entry, however many
+ *  fields the call changes). */
+function patchInlineCue(
+  state: ShowState,
+  cueId: string,
+  update: (cue: CueDef) => CueDef
+): { livePages?: LivePage[]; cueLists?: CueListDef[]; cue: CueDef } | null {
+  for (const page of state.show?.livePages ?? []) {
+    const control = page.controls.find((c) => c.cue?.id === cueId)
+    if (!control?.cue) continue
+    const cue = update(control.cue)
+    const livePages = state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((c) => c.id === control.id ? { ...c, cue } : c) } : item)
+    return { livePages, cue }
+  }
+  for (const list of state.cueLists) {
+    const step = list.steps.find((s) => s.cue.id === cueId)
+    if (!step) continue
+    const cue = update(step.cue)
+    const cueLists = state.cueLists.map((item) => item.id === list.id ? { ...item, steps: item.steps.map((s) => s.id === step.id ? { ...s, cue } : s) } : item)
+    return { cueLists, cue }
+  }
+  return null
+}
+
+/** persistState for a change that touches inline cues (plus any extra
+ *  show / state fields the call changes) — one undo entry. */
+function persistWithCuePatch(
+  state: ShowState,
+  cuePatch: { livePages?: LivePage[]; cueLists?: CueListDef[] },
+  extraShow: Partial<ShowDef> = {},
+  extraState: Partial<ShowState> = {}
+): Partial<ShowState> {
+  return persistState(
+    state,
+    { ...extraShow, ...(cuePatch.livePages ? { livePages: cuePatch.livePages } : {}), ...(cuePatch.cueLists ? { cueLists: cuePatch.cueLists } : {}) },
+    { ...extraState, ...(cuePatch.cueLists ? { cueLists: cuePatch.cueLists } : {}) }
+  )
+}
+
+/** Rewrite EVERY inline cue and return the show pieces. Used by the
+ *  fixture patch paths (a new / removed / duplicated fixture seeds or
+ *  strips its values in every cue) — the cue contents change, the
+ *  holders do not move. */
+function mapAllInlineCues(
+  state: ShowState,
+  update: (cue: CueDef) => CueDef
+): { livePages: LivePage[]; cueLists: CueListDef[] } {
+  const livePages = (state.show?.livePages ?? []).map((page) => ({ ...page, controls: page.controls.map((control) => control.cue ? { ...control, cue: update(control.cue) } : control) }))
+  const cueLists = state.cueLists.map((list) => ({ ...list, steps: list.steps.map((step) => ({ ...step, cue: update(step.cue) })) }))
+  return { livePages, cueLists }
 }
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
@@ -930,16 +1009,16 @@ export function defaultFixtureValues(fixture: FixtureDef): Record<string, number
  * liveIntensityLevels) so the base and the layers never disagree.
  */
 function liveLevelsForState(
-  state: Pick<ShowState, 'show' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>
+  state: Pick<ShowState, 'show' | 'cueLists' | 'activeLiveValues' | 'liveActivationOrder'>
 ): Record<string, number> {
   const fixtures = state.show?.fixtures ?? []
   const outputLevels = liveOutputLevels(state.show?.livePages, state.activeLiveValues ?? {})
   const controls = orderedLiveControls(state.show?.livePages, outputLevels, state.liveActivationOrder ?? {})
-  return liveIntensityLevels({ controls, levels: outputLevels, presets: state.show?.presets ?? [], cues: state.cues ?? [], fixtures })
+  return liveIntensityLevels({ controls, levels: outputLevels, presets: state.show?.presets ?? [], cues: collectInlineCues(state.show, state.cueLists), fixtures })
 }
 
 function cuePatch(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cueLists' | 'activeLiveValues' | 'liveActivationOrder'>,
   cue: CueDef
 ): Record<number, number> {
   // The cue resolves through its preset references first (Piece 8): a
@@ -984,11 +1063,11 @@ function cuePatch(
  * send zeros.
  */
 function defaultsPatch(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'activeCueId' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'activeCueRef' | 'cueLists' | 'activeLiveValues' | 'liveActivationOrder'>
 ): Record<number, number> {
   const fixtures = state.show?.fixtures ?? []
   const levels = effectiveIntensityLevels({
-    cueValues: resolvedActiveCueValues(state.cues ?? [], state.show?.presets ?? [], state.activeCueId ?? null, fixtures),
+    cueValues: resolvedActiveCueValues(collectInlineCues(state.show, state.cueLists), state.show?.presets ?? [], activeCueId(state) ?? null, fixtures),
     activePresetIds: state.activePresetIds ?? [],
     presets: state.show?.presets ?? [],
     manualOverrides: state.manualOverrides ?? {},
@@ -1005,7 +1084,7 @@ function defaultsPatch(
  * leave the last values latched on the DMX interface.
  */
 function cueOutput(
-  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cues' | 'activeLiveValues' | 'liveActivationOrder'>,
+  state: Pick<ShowState, 'show' | 'master' | 'manualOverrides' | 'activePresetIds' | 'cueLists' | 'activeLiveValues' | 'liveActivationOrder'>,
   cue: CueDef
 ): Record<number, number> {
   suppressPresetsForCue(Boolean(cue.blackout))
@@ -1023,7 +1102,7 @@ function resendActiveCueForPreset(
   presetId: string,
   presets: PresetDef[]
 ) {
-  const cue = state.cues.find((s) => s.id === state.activeCueId)
+  const cue = resolveActiveCue(state)
   if (!cue || !(cue.presetIds ?? []).includes(presetId) || state.blackout) return
   // A live edit, not a transition: re-assert without a fade time, so
   // it reaches the output at once when idle and retargets a fade in
@@ -1088,50 +1167,6 @@ const productionDefaultShow: ShowDef = {
     { id: 'f2', name: 'Blue Fill Back', type: 'led-wash', channelStart: 5, channels: 7, group: 'Back' },
     { id: 'f3', name: 'Center Moving Head', type: 'moving-head', channelStart: 12, channels: 8, group: 'Center' }
   ],
-  cues: [
-    {
-      id: 's1',
-      name: 'Warm Welcome',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: {
-        f1: { intensity: 220, red: 255, green: 160, blue: 80 },
-        f2: { intensity: 80, red: 30, green: 80, blue: 255, white: 0, amber: 0, uv: 0 },
-        f3: { intensity: 0, pan: 128, tilt: 128, red: 0, green: 0, blue: 0, gobo: 0, strobe: 0 }
-      },
-      fadeMs: 1200
-    },
-    {
-      id: 's2',
-      name: 'Sermon Focus',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: {
-        f1: { intensity: 180, red: 255, green: 220, blue: 180 },
-        f2: { intensity: 120, red: 80, green: 160, blue: 255, white: 0, amber: 0, uv: 0 },
-        f3: {
-          intensity: 200,
-          pan: 128,
-          tilt: 96,
-          red: 255,
-          green: 255,
-          blue: 255,
-          gobo: 0,
-          strobe: 0
-        }
-      },
-      fadeMs: 800
-    },
-    {
-      id: 's3',
-      name: 'Communion Glow',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: {
-        f1: { intensity: 140, red: 200, green: 80, blue: 40 },
-        f2: { intensity: 160, red: 120, green: 40, blue: 90, white: 0, amber: 0, uv: 0 },
-        f3: { intensity: 120, pan: 128, tilt: 160, red: 255, green: 120, blue: 60, gobo: 0, strobe: 0 }
-      },
-      fadeMs: 2000
-    }
-  ],
   automations: [],
   effects: [],
   cueLists: [
@@ -1139,9 +1174,48 @@ const productionDefaultShow: ShowDef = {
       id: 'c1',
       name: 'Sunday Set',
       steps: [
-        { id: 'cs1', cueId: 's1', fadeMs: 1500, holdMs: 0 },
-        { id: 'cs2', cueId: 's2', fadeMs: 1000, holdMs: 0 },
-        { id: 'cs3', cueId: 's3', fadeMs: 2000, holdMs: 0 }
+        { id: 'cs1', cue: {
+          id: 's1',
+          name: 'Warm Welcome',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: {
+            f1: { intensity: 220, red: 255, green: 160, blue: 80 },
+            f2: { intensity: 80, red: 30, green: 80, blue: 255, white: 0, amber: 0, uv: 0 },
+            f3: { intensity: 0, pan: 128, tilt: 128, red: 0, green: 0, blue: 0, gobo: 0, strobe: 0 }
+          },
+          fadeMs: 1200
+        }, fadeMs: 1500, holdMs: 0 },
+        { id: 'cs2', cue: {
+          id: 's2',
+          name: 'Sermon Focus',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: {
+            f1: { intensity: 180, red: 255, green: 220, blue: 180 },
+            f2: { intensity: 120, red: 80, green: 160, blue: 255, white: 0, amber: 0, uv: 0 },
+            f3: {
+              intensity: 200,
+              pan: 128,
+              tilt: 96,
+              red: 255,
+              green: 255,
+              blue: 255,
+              gobo: 0,
+              strobe: 0
+            }
+          },
+          fadeMs: 800
+        }, fadeMs: 1000, holdMs: 0 },
+        { id: 'cs3', cue: {
+          id: 's3',
+          name: 'Communion Glow',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: {
+            f1: { intensity: 140, red: 200, green: 80, blue: 40 },
+            f2: { intensity: 160, red: 120, green: 40, blue: 90, white: 0, amber: 0, uv: 0 },
+            f3: { intensity: 120, pan: 128, tilt: 160, red: 255, green: 120, blue: 60, gobo: 0, strobe: 0 }
+          },
+          fadeMs: 2000
+        }, fadeMs: 2000, holdMs: 0 }
       ],
       loop: false
     }
@@ -1244,50 +1318,6 @@ const developmentDefaultShow: ShowDef = {
   createdAt: Date.now(),
   updatedAt: Date.now(),
   fixtures: showBuddyFixtures,
-  cues: [
-    {
-      id: 's1',
-      name: 'Warm Welcome',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: showBuddyCueValues({
-        red: 220,
-        green: 110,
-        blue: 30,
-        white: 24,
-        amber: 36,
-        intensity: 128
-      }),
-      fadeMs: 1200
-    },
-    {
-      id: 's2',
-      name: 'Sermon Focus',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: showBuddyCueValues({
-        red: 50,
-        green: 110,
-        blue: 220,
-        white: 110,
-        amber: 0,
-        intensity: 150
-      }),
-      fadeMs: 800
-    },
-    {
-      id: 's3',
-      name: 'Communion Glow',
-      presetIds: [], sequenceIds: [],
-      fixtureValues: showBuddyCueValues({
-        red: 180,
-        green: 50,
-        blue: 20,
-        white: 12,
-        amber: 160,
-        intensity: 100
-      }),
-      fadeMs: 2000
-    }
-  ],
   automations: [],
   effects: [],
   cueLists: [
@@ -1295,9 +1325,48 @@ const developmentDefaultShow: ShowDef = {
       id: 'c1',
       name: 'Sunday Set',
       steps: [
-        { id: 'cs1', cueId: 's1', fadeMs: 1500, holdMs: 0 },
-        { id: 'cs2', cueId: 's2', fadeMs: 1000, holdMs: 0 },
-        { id: 'cs3', cueId: 's3', fadeMs: 2000, holdMs: 0 }
+        { id: 'cs1', cue: {
+          id: 's1',
+          name: 'Warm Welcome',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: showBuddyCueValues({
+            red: 220,
+            green: 110,
+            blue: 30,
+            white: 24,
+            amber: 36,
+            intensity: 128
+          }),
+          fadeMs: 1200
+        }, fadeMs: 1500, holdMs: 0 },
+        { id: 'cs2', cue: {
+          id: 's2',
+          name: 'Sermon Focus',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: showBuddyCueValues({
+            red: 50,
+            green: 110,
+            blue: 220,
+            white: 110,
+            amber: 0,
+            intensity: 150
+          }),
+          fadeMs: 800
+        }, fadeMs: 1000, holdMs: 0 },
+        { id: 'cs3', cue: {
+          id: 's3',
+          name: 'Communion Glow',
+          presetIds: [], sequenceIds: [],
+          fixtureValues: showBuddyCueValues({
+            red: 180,
+            green: 50,
+            blue: 20,
+            white: 12,
+            amber: 160,
+            intensity: 100
+          }),
+          fadeMs: 2000
+        }, fadeMs: 2000, holdMs: 0 }
       ],
       loop: false
     }
@@ -1317,13 +1386,18 @@ let sessionPasscode = ''
 function writeColourToActiveCue(get: () => ShowState, patch: Record<string, Record<string, number>>) {
   // While a cue's ad-hoc layer is being edited, the wheel writes to that
   // cue even if the operator switched the active cue mid-edit.
-  const targetId = get().editingCueAdHocId ?? get().activeCueId
-  if (!targetId) get().ensureActiveCue()
-  const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
-  if (!cue) return
-  const fixtureValues = { ...cue.fixtureValues }
+  const targetId = get().editingCueAdHocId ?? activeCueId(get())
+  if (!targetId) return
+  // No active cue, no write (Jake, 27 Nov 2026 — inline cues: there is
+  // no free-floating cue to mint any more; a Design write with no
+  // active cue has nowhere to land, so it is dropped, not silently
+  // stored in a cue nobody can see. Normal Design writes are manual
+  // overrides and never reach here).
+  const found = findInlineCue(get().show, get().cueLists, targetId)
+  if (!found) return
+  const fixtureValues = { ...found.cue.fixtureValues }
   for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-  get().updateCue(cue.id, { fixtureValues })
+  get().updateCue(found.cue.id, { fixtureValues })
 }
 
 export const useShowStore = create<ShowState>((set, get) => {
@@ -1381,25 +1455,26 @@ const actions: ShowState = {
     const state = get(), previous = state.undoStack.at(-1)
     if (!previous || !state.show) return
     const next = structuredClone(previous)
-    // Restoring an older cue list can drop the cue the active id points
-    // at — a dangling id makes every later wheel write silently drop
-    // (Jake, 20 Nov 2026), so the id is cleared unless the cue survives.
-    const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
-    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
-    const cue = next.cues.find((item) => item.id === activeCueId)
+    // Restoring an older show can drop the holder the active cue lives
+    // in — a dangling reference makes every later wheel write silently
+    // drop (Jake, 20 Nov 2026), so the reference is cleared unless the
+    // holder survives. The button / step comes back with its cue: undo
+    // restores both together, because the cue lives inside the holder.
+    const activeCueRef = refResolves(next, next.cueLists ?? [], state.activeCueRef) ? state.activeCueRef : null
+    set({ show: next, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: state.undoStack.slice(0, -1), redoStack: [...state.redoStack, structuredClone(state.show)].slice(-200), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueRef })
+    const cue = resolveCueRef(next, next.cueLists ?? [], activeCueRef)
     if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : defaultsPatch(get()))
   },
   redo: () => {
     const state = get(), following = state.redoStack.at(-1)
     if (!following || !state.show) return
     const next = structuredClone(following)
-    const activeCueId = next.cues.some((item) => item.id === state.activeCueId) ? state.activeCueId : null
-    set({ show: next, cues: next.cues, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueId })
-    const cue = next.cues.find((item) => item.id === activeCueId)
+    const activeCueRef = refResolves(next, next.cueLists ?? [], state.activeCueRef) ? state.activeCueRef : null
+    set({ show: next, presets: next.presets ?? [], effects: next.effects ?? [], automations: next.automations, cueLists: next.cueLists ?? [], midiMappings: next.midiMappings ?? [], master: next.masterIntensity ?? 255, bpm: next.bpm ?? 120, undoStack: [...state.undoStack, structuredClone(state.show)].slice(-200), redoStack: state.redoStack.slice(0, -1), historyGrouping: false, historyGroupRecorded: false, selectedPageObjects: [], activeCueRef })
+    const cue = resolveCueRef(next, next.cueLists ?? [], activeCueRef)
     if (!state.blackout) sendImmediate(cue ? cueOutput(get(), cue) : defaultsPatch(get()))
   },
   show: defaultShow,
-  cues: defaultShow.cues,
   presets: defaultShow.presets ?? [],
   activeSequenceIds: [],
   activePresetIds: [],
@@ -1441,7 +1516,7 @@ const actions: ShowState = {
   newProjectTemplate: null,
   bpm: 120,
   isPlaying: false,
-  activeCueId: null,
+  activeCueRef: null,
   selectedFixtureIds: [],
   newFixtureIds: [],
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
@@ -1509,14 +1584,15 @@ const actions: ShowState = {
     const restoredLiveValues: Record<string, number> = restoring
       ? Object.fromEntries(Object.entries(show?.startup?.liveValues ?? {}).filter(([id, value]) => Number.isFinite(value) && restoredPage?.controls.some((c) => c.id === id)).map(([id, value]) => [id, clamp(value)]))
       : {}
-    const restoredCueId = restoring && show?.cues.some((s) => s.id === show?.startup?.cueId) && Object.keys(restoredLiveValues).some((id) => restoredLiveValues[id] > 0 && restoredPage?.controls.find((c) => c.id === id)?.cueId === show?.startup?.cueId)
-      ? show?.startup?.cueId ?? null
-      : null
+    // The startup cue is resolved across holders: it comes back only
+    // when the inline cue it names lives in a lit button on the
+    // visible page (the same rule as before, now via the holder).
+    const restoredCue = restoring && show?.startup?.cueId ? findInlineCue(show, show.cueLists ?? [], show.startup.cueId) : undefined
+    const restoredCueRef: ActiveCueRef | null = restoredCue && restoredCue.ref.kind === 'button' && restoredCue.ref.pageId === restoredPageId && (restoredLiveValues[restoredCue.ref.controlId] ?? 0) > 0 ? restoredCue.ref : null
     set({
       undoStack: [], redoStack: [], historyGrouping: false, historyGroupRecorded: false,
       show,
       activeSequenceIds: [],
-      cues: show?.cues ?? [],
       presets: show?.presets ?? [],
       activePresetIds: show?.startup?.mode === 'restore' ? (show.startup.presetIds ?? []).filter((id) => show.presets?.some((p) => p.id === id)) : [],
       activeLiveValues: restoredLiveValues,
@@ -1556,7 +1632,7 @@ const actions: ShowState = {
       highlightMode: false,
       setupWizardStep: null,
       bpm: show?.bpm ?? 120,
-      activeCueId: restoredCueId,
+      activeCueRef: restoredCueRef,
       selectedFixtureIds: [],
       selectedBeams: [],
       newFixtureIds: [],
@@ -1567,7 +1643,7 @@ const actions: ShowState = {
       manualCrossfade: 1,
       manualCrossfadeAnchor: 1
     })
-    const restored = get().cues.find((cue) => cue.id === get().activeCueId)
+    const restored = resolveActiveCue(get())
     if (restored) sendImmediate(cueOutput(get(), restored))
     else if (show) sendImmediate(defaultsPatch(get()))
     // "Activate at startup" (Guide ch.11, p.204): cue buttons on the
@@ -1585,25 +1661,28 @@ const actions: ShowState = {
   showForSave: () => {
     const state = get()
     if (!state.show || state.show.startup?.mode !== 'restore') return state.show
-    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: Object.fromEntries(Object.entries(state.activeLiveValues).filter(([, value]) => value > 0)), pageId: state.activeLivePageId, cueId: state.activeCueId } }
+    return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: Object.fromEntries(Object.entries(state.activeLiveValues).filter(([, value]) => value > 0)), pageId: state.activeLivePageId, cueId: activeCueId(state) } }
   },
   setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
-  setControlCue: (controlId, cueId) => {
+  setControlCue: (controlId, cue) => {
     const state = get()
     const page = activeLivePage(state)
     const control = page?.controls.find((c) => c.id === controlId)
-    if (!page || !control || control.cueId === cueId) return
-    const oldId = control.cueId
+    if (!page || !control || control.cue?.id === cue?.id) return
+    // The cue is copied into the button; a copy whose id is already
+    // held elsewhere gets a fresh id, so two holders never share one
+    // cue id (an edit to one must never touch the other).
+    const copy = cue ? structuredClone(cue) : undefined
+    if (copy && findInlineCue(state.show, state.cueLists, copy.id)) copy.id = crypto.randomUUID()
     const nextPages = state.show!.livePages!.map((item) =>
       item.id === page.id
-        ? { ...item, controls: item.controls.map((c) => c.id === controlId ? { ...c, cueId } : c) }
+        ? { ...item, controls: item.controls.map((c) => c.id === controlId ? { ...c, cue: copy } : c) }
         : item
     )
-    // Unlinking a button's cue (Jake, 27 Nov 2026): the old cue is
-    // deleted from memory when nothing else references it.
-    const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, state.cueLists, oldId ? [oldId] : [], state.pageClipboard)
-    const activeCleared = swept.includes(state.activeCueId ?? '')
-    set((s) => persistState(s, { livePages: nextPages, cues }, { cues, ...(activeCleared ? { activeCueId: null } : {}) }))
+    // Unlinking a button's cue drops the cue outright — it lived in
+    // the button, so there is nothing left to sweep.
+    const activeCleared = !copy && state.activeCueRef?.kind === 'button' && state.activeCueRef.controlId === controlId
+    set((s) => persistState(s, { livePages: nextPages }, { ...(activeCleared ? { activeCueRef: null } : {}) }))
     if (activeCleared) get().refreshBaseOutput()
   },
   dropOnLivePage: (payload, target, split) => set((state) => {
@@ -1615,26 +1694,22 @@ const actions: ShowState = {
     // A standalone button takes it into its own lists, as before.
     if (target.kind === 'cue') {
       const control = page.controls.find((item) => item.id === target.cueId)
-      if (control?.cueId) {
+      if (control?.cue) {
         const clean = normalizeDropPayload(payload)
         if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
-        const cues = state.cues.map((item) => item.id === control.cueId ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(item.sequenceIds ?? []), ...clean.sequenceIds])] } : item)
-        return { ...persistState(state, { cues }, { cues }), selectedPageObjects: [{ type: 'cue' as const, id: control.id }] }
+        const found = patchInlineCue(state, control.cue.id, (cue) => ({ ...cue, presetIds: [...new Set([...(cue.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(cue.sequenceIds ?? []), ...clean.sequenceIds])] }))
+        if (!found) return state
+        return { ...persistWithCuePatch(state, found), selectedPageObjects: [{ type: 'cue' as const, id: control.id }] }
       }
-      // A cuelist step addresses its cue definition directly by cue id
-      // (the step inspector's drop, Jake 27 Nov 2026 — cuelist widget
+      // A cuelist step addresses its cue directly by cue id (the step
+      // inspector's drop, Jake 27 Nov 2026 — cuelist widget
       // replication): a step has no button, so there is no control to
-      // resolve through, and the drop above silently did nothing because
-      // no control carries the cue's id (found by the real-app probe).
-      // The selection is left alone — the widget stays selected and the
-      // inspector stays open.
-      const cue = state.cues.find((item) => item.id === target.cueId)
-      if (cue) {
-        const clean = normalizeDropPayload(payload)
-        if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
-        const cues = state.cues.map((item) => item.id === cue.id ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(item.sequenceIds ?? []), ...clean.sequenceIds])] } : item)
-        return { ...persistState(state, { cues }, { cues }) }
-      }
+      // resolve through. The selection is left alone — the widget stays
+      // selected and the inspector stays open.
+      const clean = normalizeDropPayload(payload)
+      if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
+      const found = patchInlineCue(state, target.cueId, (cue) => ({ ...cue, presetIds: [...new Set([...(cue.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(cue.sequenceIds ?? []), ...clean.sequenceIds])] }))
+      if (found) return persistWithCuePatch(state, found)
     }
     let n = 0
     const { page: next, refs } = applyLiveDrop(page, payload, target, () => `page-object-${Date.now()}-${++n}`, page.defaultStyles, split)
@@ -1651,17 +1726,36 @@ const actions: ShowState = {
       const level = clamp(value)
       // Always active (Guide ch.11, p.204): a toggle button attached to
       // others keeps one of the group lit — turning off the only lit
-      // button in its group is refused. Switching still works: the
-      // exclusive / touching release below deletes the old button's
-      // value directly, never through this guard.
+      // button in its group is refused. The lock belongs to the GROUP,
+      // not the button (p.204: "it ensures that one of the attached
+      // buttons is active at any time"; p.215: "If the 'Always active'
+      // option is enabled for a group, you cannot deactivate the active
+      // button in the group"). Jake, 27 Nov 2026: if ANY member of an
+      // attached group has Always active, the group's lit member cannot
+      // be turned off, whichever member that is — re-clicking the active
+      // button does nothing, and clicking a neighbour switches to it but
+      // the neighbour inherits the lock. Evaluated here at deactivation
+      // time, so detaching a button (moving it away from the group)
+      // drops it from the lock and turning the option off releases the
+      // group again; no flag is copied onto members. Only latching push
+      // buttons take part — a fader touching the group is not a group
+      // member (attach is buttons-only in the guide), so a lit fader
+      // does not count as the group's lit button either.
       if (level === 0) {
         for (const page of state.show?.livePages ?? []) {
           const control = page.controls.find((cue) => cue.id === id)
-          if (!control || !isLatchingControl(control) || !control.alwaysActive) continue
+          if (!control || !isLatchingControl(control)) continue
           if (!((state.activeLiveValues[id] ?? 0) > 0)) continue
           const attachedIds = page.controls.filter((other) => other.id !== id && (other.attachedTo === id || control.attachedTo === other.id)).map((other) => other.id)
           const siblings = [...new Set([...touchingGroupSiblings(page, id), ...attachedIds])]
-          if (siblings.length && !siblings.some((sibling) => (state.activeLiveValues[sibling] ?? 0) > 0)) return state
+          const group = [control, ...siblings.map((sibling) => page.controls.find((other) => other.id === sibling)).filter((member): member is LiveControl => !!member && isLatchingControl(member))]
+          // The group is latching push buttons only — a button with no
+          // other button in its group (lone, or touching only a fader)
+          // is not attached to other buttons, so the option does not
+          // apply to it and it toggles off as before.
+          if (group.length < 2) continue
+          if (!group.some((member) => member.alwaysActive)) continue
+          if (!group.some((member) => member.id !== id && (state.activeLiveValues[member.id] ?? 0) > 0)) return state
         }
       }
       const activeLiveValues = { ...state.activeLiveValues, [id]: level }
@@ -1771,14 +1865,13 @@ const actions: ShowState = {
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? applyCueContents(control, command) : control) } : item))
   }),
   editCueDefContents: (cueId, command) => set((state) => {
-    if (!state.cues.some((item) => item.id === cueId)) return state
-    const cues = state.cues.map((item) => item.id === cueId ? applyCueDefContents(item, command) : item)
-    return persistState(state, { cues }, { cues })
+    const found = patchInlineCue(state, cueId, (cue) => applyCueDefContents(cue, command))
+    return found ? persistWithCuePatch(state, found) : state
   }),
   promoteAdHocToPreset: (source) => {
     let created: string | null = null
     set((state) => {
-      const cue = 'cueId' in source ? state.cues.find((item) => item.id === source.cueId) : undefined
+      const cue = 'cueId' in source ? findInlineCue(state.show, state.cueLists, source.cueId)?.cue : undefined
       const page = activeLivePage(state)
       const control = 'controlId' in source ? page?.controls.find((item) => item.id === source.controlId) : undefined
       const values = cue?.fixtureValues ?? control?.adHocValues ?? {}
@@ -1790,8 +1883,9 @@ const actions: ShowState = {
       created = preset.id
       const presets = [...state.presets, preset]
       if (cue) {
-        const cues = state.cues.map((item) => item.id === cue.id ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), preset.id])], fixtureValues: {} } : item)
-        return persistState(state, { presets, cues }, { presets, cues })
+        const found = patchInlineCue(state, cue.id, (item) => ({ ...item, presetIds: [...new Set([...(item.presetIds ?? []), preset.id])], fixtureValues: {} }))
+        if (!found) return state
+        return persistWithCuePatch(state, found, { presets }, { presets })
       }
       if (!page || !control) return state
       const nextPage = { ...page, controls: page.controls.map((item) => item.id === control.id ? { ...item, presetIds: [...new Set([...item.presetIds, preset.id])], adHocValues: {} } : item) }
@@ -1833,10 +1927,10 @@ const actions: ShowState = {
     const state = get()
     for (const page of state.show?.livePages ?? []) for (const control of page.controls) {
       if (!((state.activeLiveValues[control.id] ?? 0) > 0)) continue
-      const cue = control.cueId ? state.cues.find((item) => item.id === control.cueId) : undefined
+      const cue = control.cue
       if ([...(cue?.sequenceIds ?? []), ...(control.sequenceIds ?? [])].some((id) => ids.includes(id))) get().setLiveValue(control.id, 0)
     }
-    const activeCue = state.cues.find((item) => item.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     if (activeCue && (activeCue.sequenceIds ?? []).some((id) => ids.includes(id))) get().deactivateCue()
     if (state.activeSequenceIds.some((id) => ids.includes(id))) set((current) => ({ activeSequenceIds: current.activeSequenceIds.filter((id) => !ids.includes(id)) }))
   },
@@ -1910,17 +2004,15 @@ const actions: ShowState = {
   editCueListCommand: (listId, command) => {
     const state = get()
     const list = state.cueLists.find((l) => l.id === listId)
-    // 'remove' drops a step; 'rename-step' re-points one — either way the
-    // OLD cue may have just lost its last reference (Jake, 27 Nov 2026:
-    // removing a cue from a cuelist deletes it from memory when nothing
-    // else references it).
-    const oldStep = command.type === 'remove' || command.type === 'rename-step'
+    // 'remove' drops a step — and the cue inside it goes with it
+    // (inline model: the cue lives in the step, so there is nothing
+    // left to sweep). The active cue clears when it was that step.
+    const oldStep = command.type === 'remove'
       ? list?.steps.find((step) => step.id === command.id)
       : undefined
     const nextLists = state.cueLists.map((item) => item.id === listId ? applyCueListCommand(item, command) : item)
-    const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], nextLists, oldStep ? [oldStep.cueId] : [], state.pageClipboard)
-    const activeCleared = swept.includes(state.activeCueId ?? '')
-    set((s) => persistState(s, { cueLists: nextLists, cues }, { cueLists: nextLists, cues, ...(activeCleared ? { activeCueId: null } : {}) }))
+    const activeCleared = oldStep !== undefined && state.activeCueRef?.kind === 'step' && state.activeCueRef.listId === listId && state.activeCueRef.stepId === oldStep.id
+    set((s) => persistState(s, { cueLists: nextLists }, { cueLists: nextLists, ...(activeCleared ? { activeCueRef: null } : {}) }))
     if (activeCleared) get().refreshBaseOutput()
   },
   deleteSelectedPageObjects: () => {
@@ -1935,14 +2027,14 @@ const actions: ShowState = {
       ))
       const nextPages = state.show!.livePages!.map((item) => item.id === page.id ? deleteObjects(page, state.selectedPageObjects) : item)
       // Deleting a cue button off the canvas (Jake, 27 Nov 2026): its cue
-      // is deleted from memory when nothing else references it. One
-      // persistState so the undo entry covers both the button and the cue.
-      const deletedCueIds = page.controls.filter((c) => deletedIds.has(c.id)).map((c) => c.cueId).filter((id): id is string => Boolean(id))
+      // lives inside the button, so it is deleted with it — one
+      // persistState so the undo entry covers both together. A cue
+      // copied into another holder is untouched (separate copies).
       // Deleting a cuelist WIDGET (Jake, 27 Nov 2026 — the widget-scoped
       // lifecycle): when no widget on any page shows the list any more,
-      // the list itself goes with it, and its step cues are swept like
-      // a deleted button's cue. Cut is the exception: the clipboard
-      // holds the widget, so the list stays alive for Paste.
+      // the list itself goes with it, and its step cues go with the
+      // list. Cut is the exception: the clipboard holds the widget, so
+      // the list stays alive for Paste.
       const deletedWidgetIds = new Set(state.selectedPageObjects.filter((ref) => ref.type === 'list').map((ref) => ref.id))
       const deletedListIds = page.cueListWidgets?.filter((w) => deletedWidgetIds.has(w.id)).map((w) => w.cueListId) ?? []
       const stillReferenced = new Set<string>([
@@ -1951,15 +2043,14 @@ const actions: ShowState = {
       ])
       const removedLists = state.cueLists.filter((l) => deletedListIds.includes(l.id) && !stillReferenced.has(l.id))
       const nextLists = state.cueLists.filter((l) => !removedLists.some((r) => r.id === l.id))
-      const removedStepCueIds = removedLists.flatMap((l) => l.steps.map((step) => step.cueId))
-      const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, nextLists, [...deletedCueIds, ...removedStepCueIds], state.pageClipboard)
-      activeCleared = swept.includes(state.activeCueId ?? '')
+      const activeRef = state.activeCueRef
+      activeCleared = (activeRef?.kind === 'button' && deletedIds.has(activeRef.controlId))
+        || (activeRef?.kind === 'step' && removedLists.some((l) => l.id === activeRef.listId))
       const activeListRemoved = removedLists.some((l) => l.id === state.activeCueListId)
       return {
-        ...persistState(state, { livePages: nextPages, cues, cueLists: nextLists }, {
-          cues,
+        ...persistState(state, { livePages: nextPages, cueLists: nextLists }, {
           cueLists: nextLists,
-          ...(activeCleared ? { activeCueId: null } : {}),
+          ...(activeCleared ? { activeCueRef: null } : {}),
           ...(activeListRemoved ? { activeCueListId: nextLists[0]?.id ?? null, activeCueIndex: -1, cuePlaying: false, cuePaused: false } : {})
         }),
         activeLiveValues,
@@ -2020,7 +2111,7 @@ const actions: ShowState = {
   copyFixtureProperties: (property) => {
     const state = get(), fixture = state.show?.fixtures.find((f) => f.id === state.selectedFixtureIds[0])
     if (!fixture) return
-    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})[fixture.id] }
     for (const id of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === id)?.fixtureValues[fixture.id])
     Object.assign(values, state.manualOverrides[fixture.id])
@@ -2034,13 +2125,15 @@ const actions: ShowState = {
     // cue's ad-hoc layer is being edited, when it pastes into the cue.
     const toOverrides = manual ?? !state.editingCueAdHocId
     if (toOverrides) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, patch) }); return }
-    const targetId = state.editingCueAdHocId ?? state.activeCueId
-    if (!targetId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
-    if (!cue) return
-    const fixtureValues = { ...cue.fixtureValues }
+    // No active cue, no write — there is no free-floating cue to mint
+    // any more (see writeColourToActiveCue); the paste is dropped.
+    const targetId = state.editingCueAdHocId ?? activeCueId(get())
+    if (!targetId) return
+    const found = findInlineCue(get().show, get().cueLists, targetId)
+    if (!found) return
+    const fixtureValues = { ...found.cue.fixtureValues }
     for (const [id, values] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...values }
-    get().updateCue(cue.id, { fixtureValues })
+    get().updateCue(found.cue.id, { fixtureValues })
   },
   saveFan: (fan) => {
     const state = get()
@@ -2058,13 +2151,13 @@ const actions: ShowState = {
     // clearing the overrides later cannot resurrect the cue's copy
     // (or the other way round).
     if (!state.editingCueAdHocId) {
-      const cue = state.cues.find((s) => (s.fans ?? []).some((f) => f.id === fan.id))
+      const cue = collectInlineCues(state.show, state.cueLists).find((s) => (s.fans ?? []).some((f) => f.id === fan.id))
       if (cue) get().updateCue(cue.id, { fans: (cue.fans ?? []).filter((f) => f.id !== fan.id), fixtureValues: scrubFanValues(cue.fixtureValues, values) })
       const next = get()
       set({ manualOverrides: mergeManualOverrides(next.manualOverrides, values), manualFans: [...next.manualFans.filter((f) => f.id !== fan.id), structuredClone(fan)] })
       return
     }
-    const cue = state.cues.find((s) => s.id === state.activeCueId)
+    const cue = resolveActiveCue(state)
     if (!cue) return
     const manualFans = state.manualFans.filter((f) => f.id !== fan.id)
     const manualOverrides = manualFans.length === state.manualFans.length
@@ -2091,7 +2184,7 @@ const actions: ShowState = {
       set({ manualOverrides, manualFans: pruneManualFans(manualOverrides, state.manualFans.filter((f) => f.id !== id), state.show.fixtures) })
       return
     }
-    const cue = state.cues.find((s) => s.id === state.activeCueId), fan = cue?.fans?.find((f) => f.id === id)
+    const cue = resolveActiveCue(state), fan = cue?.fans?.find((f) => f.id === id)
     if (!cue || !fan) return
     const fixtureValues = keepValues ? cue.fixtureValues : scrubFanValues(cue.fixtureValues, evaluateFan(state.show.fixtures, fan))
     get().updateCue(cue.id, { fans: cue.fans?.filter((f) => f.id !== id), fixtureValues })
@@ -2112,7 +2205,7 @@ const actions: ShowState = {
     const state = get()
     const fixtures = (state.show?.fixtures ?? []).filter((f) => state.selectedFixtureIds.includes(f.id))
     if (!fixtures.length) return
-    const activeCue = state.cues.find((c) => c.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     const cueValues = activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {}
     get().beginHistoryGroup()
     for (const fixture of fixtures) {
@@ -2196,7 +2289,7 @@ const actions: ShowState = {
     set((state) => {
       const master = clamp(value)
       if (!state.blackout) {
-        const active = state.cues.find((s) => s.id === state.activeCueId)
+        const active = resolveActiveCue(state)
         if (active) sendImmediate(cueOutput({ ...state, master }, active))
         else if (get().isPlaying) {
           // Automation loop reads master from the store on its next frame.
@@ -2213,7 +2306,7 @@ const actions: ShowState = {
         sendImmediate(allZeroPatch())
       } else {
         setEffectBlackout(false)
-        const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+        const activeCue = resolveActiveCue(state)
         if (activeCue) sendImmediate(cueOutput(state, activeCue))
         else if (state.show) sendImmediate(defaultsPatch(state))
       }
@@ -2315,13 +2408,14 @@ const actions: ShowState = {
       if (Object.keys(beamPatch).length) patch[selected.fixtureId] = { ...patch[selected.fixtureId], ...beamPatch }
     }
     if (manual) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, patch) }); return }
-    const targetId = state.editingCueAdHocId ?? state.activeCueId
-    if (!targetId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
-    if (!cue) return
-    const fixtureValues = { ...cue.fixtureValues }
+    // No active cue, no write — see writeColourToActiveCue.
+    const targetId = state.editingCueAdHocId ?? activeCueId(get())
+    if (!targetId) return
+    const found = findInlineCue(get().show, get().cueLists, targetId)
+    if (!found) return
+    const fixtureValues = { ...found.cue.fixtureValues }
     for (const [id, attributes] of Object.entries(patch)) fixtureValues[id] = { ...fixtureValues[id], ...attributes }
-    get().updateCue(cue.id, { fixtureValues })
+    get().updateCue(found.cue.id, { fixtureValues })
   },
 
   updateBeamValues: (fixtureId, beamId, values, manual = false) => {
@@ -2331,11 +2425,12 @@ const actions: ShowState = {
     const patch = beamValuePatch(fixture, beam, values)
     if (!Object.keys(patch).length) return
     if (manual) { set({ manualOverrides: mergeManualOverrides(state.manualOverrides, { [fixtureId]: patch }) }); return }
-    const targetId = state.editingCueAdHocId ?? state.activeCueId
-    if (!targetId) get().ensureActiveCue()
-    const cue = get().cues.find((s) => s.id === (get().editingCueAdHocId ?? get().activeCueId))
-    if (!cue) return
-    get().updateCue(cue.id, { fixtureValues: { ...cue.fixtureValues, [fixtureId]: { ...cue.fixtureValues[fixtureId], ...patch } } })
+    // No active cue, no write — see writeColourToActiveCue.
+    const targetId = state.editingCueAdHocId ?? activeCueId(get())
+    if (!targetId) return
+    const found = findInlineCue(get().show, get().cueLists, targetId)
+    if (!found) return
+    get().updateCue(found.cue.id, { fixtureValues: { ...found.cue.fixtureValues, [fixtureId]: { ...found.cue.fixtureValues[fixtureId], ...patch } } })
   },
 
   groupSelectedFixtures: (name) => set((state) => {
@@ -2396,7 +2491,7 @@ const actions: ShowState = {
   refreshBaseOutput: (fadeMs?: number) => {
     const state = get()
     if (!state.show || state.blackout) return
-    const active = state.cues.find((cue) => cue.id === state.activeCueId)
+    const active = resolveActiveCue(state)
     // Fade-aware (Jake, 24 Nov 2026): this used to sendImmediate, which
     // cancelled any in-flight base fade — so a cue recall snapped the
     // instant it started, because the manual-overrides effect calls
@@ -2413,31 +2508,32 @@ const actions: ShowState = {
 
   activateCue: (id) =>
     set((state) => {
-      const cue = state.cues.find((s) => s.id === id)
-      if (!cue) return state
+      const found = findInlineCue(state.show, state.cueLists, id)
+      if (!found) return state
+      const cue = found.cue
       // Fade time (Jake, 24 Nov 2026): the cue's own fadeMs where set,
       // the global Default fade otherwise — a cue with no explicit
       // time fades over the global setting, it never snaps.
       if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: cue.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
-        activeCueId: id,
+        activeCueRef: found.ref,
         cuePlaying: false
       }
     }),
 
   deactivateCue: () =>
     set((state) => {
-      if (!state.activeCueId) return state
-      const cue = state.cues.find((s) => s.id === state.activeCueId)
+      if (!state.activeCueRef) return state
+      const cue = resolveActiveCue(state)
       // Fade time mirrors activation (Jake, 24 Nov 2026): the cue's own
       // fadeMs where set, the global Default fade otherwise — the rig
       // fades out over the same time it faded in. The base look is
       // computed with the cue already cleared, so its values cannot
       // leak back in; active presets, overrides and Live values still
       // apply, as in refreshBaseOutput.
-      if (!state.blackout) reassertBase(defaultsPatch({ ...state, activeCueId: null }), resolveFadeMs({ explicitFadeMs: cue?.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
+      if (!state.blackout) reassertBase(defaultsPatch({ ...state, activeCueRef: null }), resolveFadeMs({ explicitFadeMs: cue?.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
-        activeCueId: null,
+        activeCueRef: null,
         // A cue list playing this cue stops with it. The list position
         // (activeCueListId/activeCueIndex) is kept, so Go resumes from
         // the current step with cueNext.
@@ -2448,29 +2544,30 @@ const actions: ShowState = {
 
   flashCue: (id) =>
     set((state) => {
-      const cue = state.cues.find((s) => s.id === id)
-      if (!cue || state.blackout) return state
+      const found = findInlineCue(state.show, state.cueLists, id)
+      if (!found || state.blackout) return state
+      const cue = found.cue
       // Nest only the first press; repeated presses shouldn't overwrite the look
       // we're flashing from.
       if (!flashState) {
-        flashState = { patch: getCurrentPatch(), activeCueId: state.activeCueId }
+        flashState = { patch: getCurrentPatch(), activeCueRef: state.activeCueRef }
       }
       sendImmediate(cueOutput(state, cue))
-      return { activeCueId: id, cuePlaying: false }
+      return { activeCueRef: found.ref, cuePlaying: false }
     }),
 
   endFlash: () =>
     set((state) => {
       if (!flashState) return state
-      const { patch, activeCueId } = flashState
+      const { patch, activeCueRef } = flashState
       flashState = null
-      suppressPresetsForCue(Boolean(state.cues.find((cue) => cue.id === activeCueId)?.blackout))
+      suppressPresetsForCue(Boolean(resolveCueRef(state.show, state.cueLists, activeCueRef)?.blackout))
       if (!state.blackout) sendImmediate(patch)
-      return { activeCueId }
+      return { activeCueRef }
     }),
 
   capturePreset: (name, category) => set((state) => {
-    const cue = state.cues.find((item) => item.id === state.activeCueId)
+    const cue = resolveActiveCue(state)
     if (!cue || !state.show || !name.trim() || state.selectedFixtureIds.length === 0) return state
     const fixtureValues: PresetDef['fixtureValues'] = {}
     for (const fixture of state.show.fixtures) {
@@ -2494,7 +2591,7 @@ const actions: ShowState = {
     set((state) => {
       if (!state.show || state.selectedFixtureIds.length === 0) return state
       const fixtures = state.show.fixtures
-      const cue = state.activeCueId ? state.cues.find((item) => item.id === state.activeCueId) : undefined
+      const cue = resolveActiveCue(state)
       const cueValues = cue ? resolveCueValues(cue, state.presets, fixtures) : {}
       const fixtureValues: PresetDef['fixtureValues'] = {}
       for (const fixture of fixtures) {
@@ -2537,7 +2634,7 @@ const actions: ShowState = {
   convertCuesToPresets: () => {
     const state = get()
     const existing = new Set(state.presets.map((p) => p.id))
-    const converted = cuesToPresets(state.cues, state.show?.fixtures ?? []).filter((p) => !existing.has(p.id))
+    const converted = cuesToPresets(collectInlineCues(state.show, state.cueLists), state.show?.fixtures ?? []).filter((p) => !existing.has(p.id))
     if (!converted.length) return 0
     set((current) => {
       const presets = [...current.presets, ...converted]
@@ -2582,7 +2679,7 @@ const actions: ShowState = {
   },
   createSequence: (name) => set((state) => {
     if (!name.trim()) return state
-    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     const values = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})
     for (const [id, patch] of Object.entries(state.manualOverrides)) values[id] = { ...values[id], ...patch }
     const sequence: SequenceDef = { id: crypto.randomUUID(), name: name.trim(), order: 'forward', loop: false, timing: 'manual', stepsPerBeat: 1, steps: [{ id: crypto.randomUUID(), name: 'Step 1', fixtureValues: values, presetIds: [], fadeMs: 1000, holdMs: 0 }] }
@@ -2592,7 +2689,7 @@ const actions: ShowState = {
   addSequenceStep: (id) => {
     const state = get(), sequence = state.show?.sequences?.find((s) => s.id === id)
     if (!sequence) return
-    const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     const fixtureValues = structuredClone(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})
     for (const [fixtureId, patch] of Object.entries(state.manualOverrides)) fixtureValues[fixtureId] = { ...fixtureValues[fixtureId], ...patch }
     get().updateSequence(id, { steps: [...sequence.steps, { id: crypto.randomUUID(), name: `Step ${sequence.steps.length + 1}`, fixtureValues, presetIds: [], fadeMs: 0, holdMs: 1000 }] })
@@ -2616,12 +2713,11 @@ const actions: ShowState = {
     // was deleted and re-captured). Strip the id everywhere it is
     // referenced; migrateShow heals shows that were already broken.
     const strip = (ids?: string[]) => (ids ?? []).filter((item) => item !== id)
-    const livePages = (state.show?.livePages ?? []).map((page) => ({
-      ...page,
-      controls: page.controls.map((control) => ({ ...control, sequenceIds: strip(control.sequenceIds) }))
-    }))
-    const cues = state.cues.map((cue) => ({ ...cue, sequenceIds: strip(cue.sequenceIds) }))
-    return persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })), livePages, cues }, { cues })
+    // mapAllInlineCues strips the id from the cues inside buttons/steps;
+    // the buttons' own sequenceIds still need stripping (below).
+    const { livePages: pages, cueLists } = mapAllInlineCues(state, (cue) => ({ ...cue, sequenceIds: strip(cue.sequenceIds) }))
+    const livePages = pages.map((page) => ({ ...page, controls: page.controls.map((control) => ({ ...control, sequenceIds: strip(control.sequenceIds) })) }))
+    return persistState(state, { sequences: state.show?.sequences?.filter((s) => s.id !== id), presetGroups: state.show?.presetGroups?.map((g) => ({ ...g, sequenceIds: g.sequenceIds?.filter((item) => item !== id) })), livePages, cueLists }, { cueLists })
   }),
   duplicateSequence: (id) => set((state) => {
     const source = state.show?.sequences?.find((s) => s.id === id)
@@ -2737,13 +2833,13 @@ const actions: ShowState = {
     set({ editingPresetId: null, activePresetIds: snapshot.activePresetIds, selectedFixtureIds: snapshot.selectedFixtureIds })
   },
   startEditingCueAdHoc: (id) => {
-    const state = get(), cue = state.cues.find((c) => c.id === id)
+    const state = get(), cue = findInlineCue(state.show, state.cueLists, id)?.cue
     if (!cue) return
     // One editor at a time (Jake, 22 Nov 2026): as for presets above.
     if (state.editingEffectId) state.exitEffectEditor()
     if (state.editingCueAdHocId && state.editingCueAdHocId !== id) state.saveEditingCueAdHoc()
     if (state.editingPresetId) state.saveEditingPreset()
-    editingCueAdHocSnapshot = { cue: structuredClone(cue), activeCueId: state.activeCueId, selectedFixtureIds: [...state.selectedFixtureIds] }
+    editingCueAdHocSnapshot = { cue: structuredClone(cue), activeCueId: activeCueId(state), selectedFixtureIds: [...state.selectedFixtureIds] }
     const fixtureIds = Object.keys(cue.fixtureValues).filter((fixtureId) => state.show?.fixtures.some((f) => f.id === fixtureId))
     if (fixtureIds.length) state.selectFixtures(fixtureIds)
     // The cue must be active while its ad-hoc layer is edited: Design
@@ -2767,15 +2863,42 @@ const actions: ShowState = {
   },
   addOverridesToCues: (ids, selectedOnly = false) => {
     const state = get()
-    const targets = ids ?? addOverridesTargetIds(state)
+    // Targets are resolved here, not via liveOverrideTargets.ts: that
+    // lib reads the removed step.cueId, and its state shape (a
+    // top-level cues slice plus activeCueId) no longer exists. Same
+    // semantics, re-housed: the Live selection when there is one, else
+    // the active cue (the native-menu / keyboard path). A selected
+    // button merges into its cue, or into its own ad-hoc values when
+    // standalone; a selected cuelist widget merges into the active
+    // step's cue, or the first step's cue when the list is not the
+    // active one.
+    const targets = ids ?? (() => {
+      const found: string[] = []
+      for (const ref of state.selectedPageObjects) {
+        if (ref.type === 'cue') {
+          const control = (state.show?.livePages ?? []).flatMap((p) => p.controls).find((c) => c.id === ref.id)
+          found.push(control?.cue?.id ?? ref.id)
+        } else if (ref.type === 'list') {
+          const widget = (state.show?.livePages ?? []).flatMap((p) => p.cueListWidgets ?? []).find((w) => w.id === ref.id)
+          const list = widget ? state.cueLists.find((l) => l.id === widget.cueListId) : undefined
+          if (!list) continue
+          const step = state.activeCueListId === list.id ? list.steps[state.activeCueIndex] : undefined
+          const cueId = (step ?? list.steps[0])?.cue.id
+          if (cueId) found.push(cueId)
+        }
+      }
+      if (found.length > 0) return [...new Set(found)]
+      const active = activeCueId(state)
+      return active ? [active] : []
+    })()
     if (!targets.length || !Object.keys(state.manualOverrides).length) return
     const targetSet = new Set(targets)
-    const cues = state.cues.map((cue) => targetSet.has(cue.id) ? { ...cue, fixtureValues: mergeOverridesIntoAdHoc(cue.fixtureValues, state.manualOverrides, selectedOnly, state.selectedFixtureIds) } : cue)
-    const livePages = (state.show?.livePages ?? []).map((page) => ({
+    const { livePages, cueLists } = mapAllInlineCues(state, (cue) => targetSet.has(cue.id) ? { ...cue, fixtureValues: mergeOverridesIntoAdHoc(cue.fixtureValues, state.manualOverrides, selectedOnly, state.selectedFixtureIds) } : cue)
+    const pages = livePages.map((page) => ({
       ...page,
       controls: page.controls.map((control) => targetSet.has(control.id) ? { ...control, adHocValues: mergeOverridesIntoAdHoc(control.adHocValues ?? {}, state.manualOverrides, selectedOnly, state.selectedFixtureIds) } : control)
     }))
-    set(persistState(state, { cues, livePages }, { cues }))
+    set(persistState(state, { livePages: pages, cueLists }, { cueLists }))
   },
   setShowOverrideLabels: (visible) => set({ showOverrideLabels: visible }),
   toggleOverrideLabels: () => set((state) => ({ showOverrideLabels: !state.showOverrideLabels })),
@@ -2828,7 +2951,7 @@ const actions: ShowState = {
     if (!preset || !state.show) return
     const fixtureValues = structuredClone(preset.fixtureValues)
     for (const fixture of state.show.fixtures.filter((f) => state.selectedFixtureIds.includes(f.id))) {
-      const activeCue = state.cues.find((s) => s.id === state.activeCueId)
+      const activeCue = resolveActiveCue(state)
       const values = { ...(activeCue ? resolveCueValues(activeCue, state.presets, state.show?.fixtures ?? []) : {})[fixture.id] }
       for (const activeId of state.activePresetIds) Object.assign(values, state.presets.find((p) => p.id === activeId)?.fixtureValues[fixture.id])
       Object.assign(values, state.manualOverrides[fixture.id])
@@ -2862,28 +2985,24 @@ const actions: ShowState = {
       // a preset that no longer exists; migrateShow heals shows that
       // were already broken.
       const strip = (ids?: string[]) => (ids ?? []).filter((item) => item !== id)
-      const livePages = (state.show?.livePages ?? []).map((page) => ({
-        ...page,
-        controls: page.controls.map((control) => ({ ...control, presetIds: strip(control.presetIds) }))
-      }))
-      const cues = state.cues.map((cue) => ({ ...cue, presetIds: strip(cue.presetIds) }))
+      // mapAllInlineCues strips the id from the cues inside buttons/steps;
+      // the buttons' own presetIds still need stripping (below).
+      const { livePages: pages, cueLists } = mapAllInlineCues(state, (cue) => ({ ...cue, presetIds: strip(cue.presetIds) }))
+      const livePages = pages.map((page) => ({ ...page, controls: page.controls.map((control) => ({ ...control, presetIds: strip(control.presetIds) })) }))
       const sequences = (state.show?.sequences ?? []).map((sequence) => ({
         ...sequence,
         steps: sequence.steps.map((step) => ({ ...step, presetIds: strip(step.presetIds) }))
       }))
-      return persistState(state, { presets, livePages, cues, sequences }, { presets, cues, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
+      return persistState(state, { presets, livePages, cueLists, sequences }, { presets, cueLists, activePresetIds: state.activePresetIds.filter((item) => item !== id), editingPresetId: state.editingPresetId === id ? null : state.editingPresetId, previewPresetId: state.previewPresetId === id ? null : state.previewPresetId })
     })
     get().refreshBaseOutput()
   },
 
   addCue: (ids, name) => {
-    let newCue: CueDef | undefined
-    set((state) => {
-      newCue = buildNewCue(state, ids, name)
-      const cues = [...state.cues, newCue]
-      return persistState(state, { cues }, { cues })
-    })
-    return newCue!
+    // A factory, not a store write (Jake, 27 Nov 2026 — inline cues:
+    // there is no cue list to add it to any more). The caller places
+    // the returned cue with setControlCue or addCueToList*.
+    return buildNewCue(get(), ids, name)
   },
 
   addCueToList: (listId, ids, name) => {
@@ -2893,10 +3012,9 @@ const actions: ShowState = {
       if (!list) return state
       const cue = buildNewCue(state, ids, name)
       cueId = cue.id
-      const step: CueStepDef = { id: crypto.randomUUID(), cueId: cue.id, fadeMs: cue.fadeMs, holdMs: 0 }
-      const cues = [...state.cues, cue]
+      const step: CueStepDef = { id: crypto.randomUUID(), cue, fadeMs: cue.fadeMs, holdMs: 0 }
       const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps: [...item.steps, step] } : item)
-      return persistState(state, { cues, cueLists }, { cues, cueLists })
+      return persistState(state, { cueLists }, { cueLists })
     })
     return cueId
   },
@@ -2906,7 +3024,7 @@ const actions: ShowState = {
     set((state) => {
       const list = state.cueLists.find((item) => item.id === listId)
       if (!list) return state
-      const cueName = name ?? nextListCueName(list, state.cues)
+      const cueName = name ?? nextListCueName(list)
       const cue = buildNewCue(state, ids, cueName)
       cueId = cue.id
       // LightKey's new-cue fade is 00:00.5 (Jake's screenshots show
@@ -2915,79 +3033,41 @@ const actions: ShowState = {
       // agree. The global default fade (1000ms) is untouched: it is
       // the button default, not the cuelist default.
       cue.fadeMs = 500
-      const step: CueStepDef = { id: crypto.randomUUID(), cueId: cue.id, fadeMs: 500, holdMs: 0 }
+      const step: CueStepDef = { id: crypto.randomUUID(), cue, fadeMs: 500, holdMs: 0 }
       const at = index === undefined ? list.steps.length : Math.max(0, Math.min(index, list.steps.length))
       const steps = [...list.steps]
       steps.splice(at, 0, step)
-      const cues = [...state.cues, cue]
       const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps } : item)
-      return persistState(state, { cues, cueLists }, { cues, cueLists })
+      return persistState(state, { cueLists }, { cueLists })
     })
     return cueId
   },
 
-  // A write with no active cue must land somewhere: create the cue the
-  // way addCue does, but activate it in the same update — the model
-  // updateSelectedFixtures uses (it builds the cue inline and sets
-  // activeCueId together). Calling addCue() here would repeat the old
-  // bug: the cue would exist but stay inactive and the write would be
-  // dropped by the lookup that follows. A truthy id is not enough: undo
-  // / redo can restore a cue list that no longer contains the active cue,
-  // leaving a dangling id that every writer would then silently drop
-  // (Jake, 20 Nov 2026) — so the cue must exist, not just the id.
-  ensureActiveCue: () => {
-    if (get().activeCueId && get().cues.some((s) => s.id === get().activeCueId)) return
-    set((state) => {
-      if (state.activeCueId && state.cues.some((s) => s.id === state.activeCueId)) return state
-      const fixtures = state.show?.fixtures ?? []
-      const newCue: CueDef = {
-        id: crypto.randomUUID(),
-        name: `Cue ${nextCueNumber(state.cues)}`,
-        presetIds: [],
-        sequenceIds: [],
-        fixtureValues: newCueFixtureValues(fixtures, state.manualOverrides),
-        fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
-      }
-      const cues = [...state.cues, newCue]
-      return persistState(state, { cues }, { cues, activeCueId: newCue.id, cuePlaying: false })
-    })
-  },
-
-  duplicateCue: (id) =>
-    set((state) => {
-      const index = state.cues.findIndex((s) => s.id === id)
-      const source = state.cues[index]
-      if (!source) return state
-      const copy: CueDef = {
-        ...source,
-        id: crypto.randomUUID(),
-        name: `${source.name} Copy`,
-        presetIds: [...(source.presetIds ?? [])],
-        sequenceIds: [...(source.sequenceIds ?? [])],
-        fixtureValues: structuredClone(source.fixtureValues),
-        fadeMs: source.fadeMs
-      }
-      const cues = [...state.cues]
-      cues.splice(index + 1, 0, copy)
-      return persistState(state, { cues }, { cues })
-    }),
-
+  // ensureActiveCue is gone (Jake, 27 Nov 2026 — inline cues: a write
+  // with no active cue has no holder to mint into, so it is dropped,
+  // not silently stored in a cue nobody can see). duplicateCue is gone
+  // too: duplication is per-holder now (duplicateCueSteps for list
+  // steps, duplicateSelectedPageObjects for buttons).
   updateCue: (id, patch) =>
     set((state) => {
-      const cues = state.cues.map((s) => (s.id === id ? { ...s, ...patch } : s))
-      const updated = cues.find((s) => s.id === id)
-      if (updated && state.activeCueId === id && !state.blackout) {
+      // Patch the inline cue wherever it lives — its button or its
+      // cuelist step — so the edit lands in that one holder's copy
+      // only. A cue copied into another holder is untouched.
+      const found = patchInlineCue(state, id, (cue) => ({ ...cue, ...patch }))
+      if (!found) return state
+      if (found.cue && activeCueId(state) === id && !state.blackout) {
         // A live edit retargets a fade in flight instead of snapping
         // it, and stays immediate when nothing is fading.
-        reassertBase(cueOutput(state, updated))
+        reassertBase(cueOutput(state, found.cue))
       }
-      return persistState(state, { cues }, { cues })
+      return persistWithCuePatch(state, found)
     }),
 
   updateSelectedFixtures: (values, manual = false) =>
     set((state) => {
-      const targetId = state.editingCueAdHocId ?? state.activeCueId
-      const existingCue = state.cues.find((cue) => cue.id === targetId)
+      const targetId = state.editingCueAdHocId ?? activeCueId(state)
+      const existing = targetId ? findInlineCue(state.show, state.cueLists, targetId) : undefined
+      const existingCue = existing?.cue
       const selectedFixtureIds = state.selectedFixtureIds.filter((id) =>
         state.show?.fixtures.some((fixture) => fixture.id === id)
       )
@@ -3011,65 +3091,34 @@ const actions: ShowState = {
         return { manualOverrides: mergeManualOverrides(state.manualOverrides, patchByFixture) }
       }
 
-      const activeCue: CueDef = existingCue ?? {
-        id: crypto.randomUUID(), name: `Cue ${nextCueNumber(state.cues)}`, fadeMs: 1000,
-        presetIds: [], sequenceIds: [],
-        fixtureValues: newCueFixtureValues(state.show.fixtures, state.manualOverrides)
-      }
+      // No active cue, no write (Jake, 27 Nov 2026 — inline cues:
+      // there is no free-floating cue to mint any more; a Design
+      // write with no active cue has nowhere to land, so it is
+      // dropped. Normal Design writes are manual overrides and never
+      // reach here).
+      if (!existingCue || !existing) return state
       const selected = new Set(selectedFixtureIds)
-      const sourceCues = existingCue ? state.cues : [...state.cues, activeCue]
-      const cues = sourceCues.map((cue) => {
-        if (cue.id !== activeCue.id) return cue
-        const fixtureValues = { ...cue.fixtureValues }
-        for (const fixtureId of selected) {
-          // A whole-fixture colour write fans out to every beam
-          // (Jake, 19 Nov 2026): the White / Amber / UV sliders, and
-          // any other bare colour write, land on every cell of a
-          // multipart fixture, not just beam 1. Per-beam writes never
-          // reach here — with beams selected DesignTab routes them
-          // through updateSelectedBeamValues instead.
-          const fixture = state.show?.fixtures.find((f) => f.id === fixtureId)
-          fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...(fixture ? fanColourToBeams(fixture, patch) : patch) }
-        }
-        return { ...cue, fixtureValues }
-      })
-      const updatedCue = cues.find((cue) => cue.id === activeCue.id)
-      if (updatedCue && !state.blackout) reassertBase(cueOutput(state, updatedCue))
-      return persistState(state, { cues }, { cues, activeCueId: activeCue.id, cuePlaying: false })
+      const fixtureValues = { ...existingCue.fixtureValues }
+      for (const fixtureId of selected) {
+        // A whole-fixture colour write fans out to every beam
+        // (Jake, 19 Nov 2026): the White / Amber / UV sliders, and
+        // any other bare colour write, land on every cell of a
+        // multipart fixture, not just beam 1. Per-beam writes never
+        // reach here — with beams selected DesignTab routes them
+        // through updateSelectedBeamValues instead.
+        const fixture = state.show?.fixtures.find((f) => f.id === fixtureId)
+        fixtureValues[fixtureId] = { ...(fixtureValues[fixtureId] ?? {}), ...(fixture ? fanColourToBeams(fixture, patch) : patch) }
+      }
+      const updatedCue = { ...existingCue, fixtureValues }
+      if (!state.blackout) reassertBase(cueOutput(state, updatedCue))
+      const found = patchInlineCue(state, existingCue.id, () => updatedCue)
+      if (!found) return state
+      return persistWithCuePatch(state, found, undefined, { activeCueRef: existing.ref, cuePlaying: false })
     }),
 
-  deleteCue: (id) => {
-    const wasActive = get().activeCueId === id
-    set((state) => {
-      const cues = state.cues.filter((s) => s.id !== id)
-      const cueLists = state.cueLists.map((list) => ({
-        ...list,
-        steps: list.steps.filter((step) => step.cueId !== id)
-      }))
-      // Same stale-reference class as deletePreset (Jake, 26 Nov 2026):
-      // a Live button bound to the deleted cue would keep its name, light
-      // up, and drive nothing. Unbind it; migrateShow heals old shows.
-      const livePages = (state.show?.livePages ?? []).map((page) => ({
-        ...page,
-        controls: page.controls.map((control) => control.cueId === id ? { ...control, cueId: undefined } : control)
-      }))
-      return persistState(
-        state,
-        { cues, cueLists, livePages },
-        {
-          cues,
-          cueLists,
-          activeCueId: state.activeCueId === id ? null : state.activeCueId
-        }
-      )
-    })
-    // The rig returns to the defaults look, not to zeros (Jake,
-    // 20 Nov 2026 — a deleted cue must not black the rig out when the
-    // dimmer is up). Sent after the set so the deleted cue is gone
-    // from the levels the defaults resolve against.
-    if (wasActive) get().refreshBaseOutput()
-  },
-
+  // deleteCue is gone (Jake, 27 Nov 2026 — inline cues: deleting a cue
+  // means deleting its holder — removeCueStep for a list step,
+  // deleteSelectedPageObjects for a button).
   addFixture: (preset, name, group) =>
     set((state) => {
       const fixtures = state.show?.fixtures ?? []
@@ -3084,11 +3133,11 @@ const actions: ShowState = {
         group: group?.trim() || 'Ungrouped'
       }
       const nextFixtures = [...fixtures, fixture]
-      const cues = state.cues.map((cue) => ({
+      const { livePages, cueLists } = mapAllInlineCues(state, (cue) => ({
         ...cue,
         fixtureValues: { ...cue.fixtureValues, [fixture.id]: defaultFixtureValues(fixture) }
       }))
-      return persistState(state, { fixtures: nextFixtures, cues }, { cues })
+      return persistState(state, { fixtures: nextFixtures, livePages, cueLists }, { cueLists })
     }),
 
   addProfileFixtures: (profile, options) => set((state) => {
@@ -3104,8 +3153,8 @@ const actions: ShowState = {
       const positions = landing[fixture.id] ?? []
       return { ...fixture, inStorage: false, ...(positions[0] ? { previewPosition: positions[0] } : {}), ...(positions.length ? { previewPositions: positions } : {}) }
     })
-    const cues = state.cues.map((cue) => ({ ...cue, fixtureValues: { ...cue.fixtureValues, ...Object.fromEntries(placed.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
-    return persistState(state, { fixtures: [...existing, ...placed], cues }, { cues, newFixtureIds: placed.map((fixture) => fixture.id) })
+    const { livePages, cueLists } = mapAllInlineCues(state, (cue) => ({ ...cue, fixtureValues: { ...cue.fixtureValues, ...Object.fromEntries(placed.map((fixture) => [fixture.id, defaultFixtureValues(fixture)])) } }))
+    return persistState(state, { fixtures: [...existing, ...placed], livePages, cueLists }, { cueLists, newFixtureIds: placed.map((fixture) => fixture.id) })
   }),
   clearNewFixtureIds: () => set({ newFixtureIds: [] }),
   saveFixtureProfile: (profile) => set((state) => {
@@ -3130,9 +3179,9 @@ const actions: ShowState = {
     delete copy.previewPosition
     delete copy.previewPositions
     if (copy.channelStart + copy.channels - 1 > 512) throw new Error('No free channels for the duplicate')
-    const cues = state.cues.map((s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
+    const { livePages, cueLists } = mapAllInlineCues(state, (s) => ({ ...s, fixtureValues: { ...s.fixtureValues, ...(s.fixtureValues[id] ? { [copy.id]: { ...s.fixtureValues[id] } } : {}) } }))
     const presets = state.presets.map((p) => ({ ...p, fixtureValues: { ...p.fixtureValues, ...(p.fixtureValues[id] ? { [copy.id]: { ...p.fixtureValues[id] } } : {}) } }))
-    return persistState(state, { fixtures: [...state.show!.fixtures, copy], cues, presets }, { cues, presets })
+    return persistState(state, { fixtures: [...state.show!.fixtures, copy], livePages, cueLists, presets }, { cueLists, presets })
   }),
   reassignFixtureProfile: (id, profile, modeId) => {
     const mode = profile.modes.find((m) => m.id === modeId) ?? profile.modes[0]
@@ -3156,7 +3205,7 @@ const actions: ShowState = {
           channels: Number.isFinite(count) ? Math.max(1, Math.round(count)) : f.channels
         }
       })
-      const active = state.cues.find((s) => s.id === state.activeCueId)
+      const active = resolveActiveCue(state)
       if (active && !state.blackout) {
         reassertBase(cueOutput({ ...state, show: state.show ? { ...state.show, fixtures } : null }, active))
       }
@@ -3238,7 +3287,7 @@ const actions: ShowState = {
     set((state) => {
       const removed = (state.show?.fixtures ?? []).find((f) => f.id === id)
       const fixtures = (state.show?.fixtures ?? []).filter((f) => f.id !== id)
-      const cues = state.cues.map((cue) => {
+      const { livePages: cuePages, cueLists } = mapAllInlineCues(state, (cue) => {
         const fixtureValues = { ...cue.fixtureValues }
         delete fixtureValues[id]
         return { ...cue, fixtureValues }
@@ -3248,7 +3297,7 @@ const actions: ShowState = {
         ...effect,
         fixtureIds: effect.fixtureIds.filter((fixtureId) => fixtureId !== id)
       }))
-      const active = cues.find((s) => s.id === state.activeCueId)
+      const active = resolveActiveCue({ ...state, show: state.show ? { ...state.show, livePages: cuePages } : null, cueLists })
       if (!state.blackout) {
         const patch = active
           ? cueOutput(
@@ -3266,12 +3315,12 @@ const actions: ShowState = {
         reassertBase(patch)
       }
       const presets = state.presets.map((preset) => { const fixtureValues = { ...preset.fixtureValues }; delete fixtureValues[id]; return { ...preset, fixtureValues } })
-      const livePages = state.show?.livePages?.map((page) => ({ ...page, controls: page.controls.map((control) => { const adHocValues = { ...control.adHocValues }; delete adHocValues[id]; return { ...control, adHocValues } }) }))
+      const livePages = cuePages.map((page) => ({ ...page, controls: page.controls.map((control) => { const adHocValues = { ...control.adHocValues }; delete adHocValues[id]; return { ...control, adHocValues } }) }))
       return persistState(
         state,
-        { fixtures, cues, automations, effects, presets, livePages },
+        { fixtures, livePages, cueLists, automations, effects, presets },
         {
-          cues,
+          cueLists,
           presets,
           automations,
           effects,
@@ -3542,8 +3591,8 @@ const actions: ShowState = {
           get().updatePresetContents(preset.id, fixtureValues)
         }
       } else {
-        const cueId = owner?.type === 'cue' ? owner.id : state.activeCueId
-        const cue = cueId ? state.cues.find((c) => c.id === cueId) : undefined
+        const cueId = owner?.type === 'cue' ? owner.id : activeCueId(state)
+        const cue = cueId ? findInlineCue(state.show, state.cueLists, cueId)?.cue : undefined
         if (cue) {
           const fixtureValues = { ...cue.fixtureValues }
           for (const [fixtureId, values] of Object.entries(baked)) {
@@ -3623,23 +3672,21 @@ const actions: ShowState = {
   removeCueList: (id) => {
     let activeCleared = false
     set((state) => {
-      const removed = state.cueLists.find((l) => l.id === id)
+      // Deleting a cuelist (Jake, 27 Nov 2026): its step cues live in
+      // the steps, so they go with the list — nothing else to sweep.
+      // A cue copied into a button or another list is untouched.
       const cueLists = state.cueLists.filter((l) => l.id !== id)
-      // Deleting a cuelist (Jake, 27 Nov 2026): every step cue that
-      // nothing else references is deleted from memory with it.
-      const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], cueLists, removed?.steps.map((step) => step.cueId) ?? [], state.pageClipboard)
-      activeCleared = swept.includes(state.activeCueId ?? '')
+      activeCleared = state.activeCueRef?.kind === 'step' && state.activeCueRef.listId === id
       return persistState(
         state,
-        { cueLists, cues },
+        { cueLists },
         {
           cueLists,
-          cues,
           activeCueListId:
             state.activeCueListId === id ? (cueLists[0]?.id ?? null) : state.activeCueListId,
           activeCueIndex: state.activeCueListId === id ? -1 : state.activeCueIndex,
           cuePlaying: state.activeCueListId === id ? false : state.cuePlaying,
-          ...(activeCleared ? { activeCueId: null } : {})
+          ...(activeCleared ? { activeCueRef: null } : {})
         }
       )
     })
@@ -3651,11 +3698,13 @@ const actions: ShowState = {
       const list = state.cueLists.find((l) => l.id === listId)
       if (!list) return state
       const targets = stepIds ? list.steps.filter((step) => stepIds.includes(step.id)) : list.steps
-      const renamed = renumberCueNames(targets, state.cues)
+      const renamed = renumberCueNames(targets)
       if (!renamed.length) return state
-      const names = new Map(renamed.map((item) => [item.cueId, item.name]))
-      const cues = state.cues.map((cue) => names.has(cue.id) ? { ...cue, name: names.get(cue.id)! } : cue)
-      return persistState(state, { cues }, { cues })
+      const names = new Map(renamed.map((item) => [item.stepId, item.name]))
+      const cueLists = state.cueLists.map((item) => item.id === listId
+        ? { ...item, steps: item.steps.map((step) => names.has(step.id) ? { ...step, cue: { ...step.cue, name: names.get(step.id)! } } : step) }
+        : item)
+      return persistState(state, { cueLists }, { cueLists })
     }),
 
   addCueListGroup: (listId, name, afterStepId) => {
@@ -3708,14 +3757,18 @@ const actions: ShowState = {
 
   addCueStep: (listId, cueId) =>
     set((state) => {
-      const cue = cueId ?? state.cues[0]?.id
-      if (!cue) return state
+      // Copies an existing cue into a new step (fresh step id AND
+      // fresh cue id — the copy is a separate cue from the original,
+      // Jake, 27 Nov 2026). With no id, copies the first inline cue;
+      // with no cue anywhere, nothing to copy.
+      const source = cueId ? findInlineCue(state.show, state.cueLists, cueId)?.cue : collectInlineCues(state.show, state.cueLists)[0]
+      if (!source) return state
       const cueLists = state.cueLists.map((list) => {
         if (list.id !== listId) return list
         const step: CueStepDef = {
           id: crypto.randomUUID(),
-          cueId: cue,
-          fadeMs: state.cues.find((s) => s.id === cue)?.fadeMs ?? 1000,
+          cue: { ...structuredClone(source), id: crypto.randomUUID() },
+          fadeMs: source.fadeMs,
           holdMs: 0
         }
         return { ...list, steps: [...list.steps, step] }
@@ -3739,18 +3792,16 @@ const actions: ShowState = {
   removeCueStep: (listId, stepId) => {
     let activeCleared = false
     set((state) => {
-      const list = state.cueLists.find((l) => l.id === listId)
-      const step = list?.steps.find((s) => s.id === stepId)
       const cueLists = state.cueLists.map((item) =>
         item.id === listId
           ? { ...item, steps: item.steps.filter((s) => s.id !== stepId) }
           : item
       )
-      // Removing a cue from a cuelist (Jake, 27 Nov 2026): the cue is
-      // deleted from memory when nothing else references it.
-      const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], cueLists, step ? [step.cueId] : [], state.pageClipboard)
-      activeCleared = swept.includes(state.activeCueId ?? '')
-      return persistState(state, { cueLists, cues }, { cueLists, cues, ...(activeCleared ? { activeCueId: null } : {}) })
+      // Removing a step removes its cue with it — the cue lives in the
+      // step, so there is nothing left to sweep (Jake, 27 Nov 2026).
+      // A cue copied into a button or another list is untouched.
+      activeCleared = state.activeCueRef?.kind === 'step' && state.activeCueRef.listId === listId && state.activeCueRef.stepId === stepId
+      return persistState(state, { cueLists }, { cueLists, ...(activeCleared ? { activeCueRef: null } : {}) })
     })
     if (activeCleared) get().refreshBaseOutput()
   },
@@ -3776,7 +3827,6 @@ const actions: ShowState = {
       // Targets in list order, whatever order the selection arrived in.
       const targets = new Set(list.steps.filter((step) => stepIds.includes(step.id)).map((step) => step.id))
       if (!targets.size) return state
-      const cues = [...state.cues]
       const steps: CueStepDef[] = []
       // Copies made so far (their steps, in order): the next number is
       // read off the FULL list — originals plus these copies — so a
@@ -3785,13 +3835,12 @@ const actions: ShowState = {
       for (const step of list.steps) {
         steps.push(step)
         if (!targets.has(step.id)) continue
-        const source = state.cues.find((cue) => cue.id === step.cueId)
-        if (!source) continue
+        const source = step.cue
         // Guide ch.11, p.189: duplicating a cue increments the new
         // cue's number. The next number is read off the list as it
         // stands with the copies already made, so duplicating several
         // steps at once yields 003, 004, … in list order.
-        const name = nextListCueName({ ...list, steps: [...list.steps, ...madeSteps] }, cues)
+        const name = nextListCueName({ ...list, steps: [...list.steps, ...madeSteps] })
         const copy: CueDef = {
           ...source,
           id: crypto.randomUUID(),
@@ -3802,13 +3851,14 @@ const actions: ShowState = {
           fans: source.fans ? structuredClone(source.fans) : undefined,
           fadeMs: source.fadeMs
         }
-        cues.push(copy)
         // The copy keeps the step's own settings (timing, group,
-        // enabled state, modifiers) — only the cue id is new.
+        // enabled state, modifiers) — only the cue id is new. The
+        // step fade stays the step's own; the cue fade stays the
+        // cue's own (they are two different times).
         const copyStep: CueStepDef = {
           ...step,
           id: crypto.randomUUID(),
-          cueId: copy.id,
+          cue: copy,
           selectedModifiers: step.selectedModifiers ? [...step.selectedModifiers] : undefined,
           speedModifierOptions: step.speedModifierOptions ? [...step.speedModifierOptions] : undefined
         }
@@ -3822,7 +3872,7 @@ const actions: ShowState = {
       const activeCueIndex = state.activeCueListId === listId && state.activeCueIndex >= 0
         ? steps.findIndex((step) => step.id === list.steps[state.activeCueIndex]?.id)
         : state.activeCueIndex
-      return persistState(state, { cues, cueLists }, { cues, cueLists, activeCueIndex })
+      return persistState(state, { cueLists }, { cueLists, activeCueIndex })
     }),
 
   setActiveCueList: (id) => set({ activeCueListId: id, activeCueIndex: -1, cuePlaying: false }),
@@ -3832,7 +3882,7 @@ const actions: ShowState = {
       const list = state.cueLists.find((l) => l.id === listId)
       if (!list) return state
       const step = list.steps[index]
-      const cue = step ? state.cues.find((s) => s.id === step.cueId) : undefined
+      const cue = step?.cue
       if (!step || !cue) return state
       // Activate (Guide ch.11, p.219) jumps instantly — fade 0.
       // Activate With Fade fades according to the previous cue's fade
@@ -3842,7 +3892,7 @@ const actions: ShowState = {
       return {
         activeCueListId: listId,
         activeCueIndex: index,
-        activeCueId: cue.id,
+        activeCueRef: { kind: 'step', listId, stepId: step.id },
         cuePlaying: true,
         cuePaused: false,
         cueRevision: state.cueRevision + 1,
@@ -3862,12 +3912,12 @@ const actions: ShowState = {
       const next = nextEnabledIndex(list, state.activeCueIndex, 1)
       if (next < 0) return { ...state, cuePlaying: false, cuePaused: false }
       const step = list.steps[next]
-      const cue = state.cues.find((s) => s.id === step.cueId)
+      const cue = step.cue
       if (!cue) return { ...state, cuePlaying: false, cuePaused: false }
       if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueIndex: next,
-        activeCueId: cue.id,
+        activeCueRef: { kind: 'step', listId: list.id, stepId: step.id },
         cuePlaying: true,
         cuePaused: false,
         cueRevision: state.cueRevision + 1,
@@ -3882,12 +3932,12 @@ const actions: ShowState = {
       const prev = nextEnabledIndex(list, state.activeCueIndex, -1)
       if (prev < 0) return state
       const step = list.steps[prev]
-      const cue = state.cues.find((s) => s.id === step.cueId)
+      const cue = step.cue
       if (!cue) return state
       if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueIndex: prev,
-        activeCueId: cue.id,
+        activeCueRef: { kind: 'step', listId: list.id, stepId: step.id },
         cuePlaying: true,
         cuePaused: false,
         cueRevision: state.cueRevision + 1,
@@ -3906,7 +3956,7 @@ const actions: ShowState = {
     // the active cue IS the list's current cue (goToCue sets both
     // together), so deactivating it is deactivating the list's cue; the
     // list position is kept, so Go resumes from the current step.
-    if (state.cuePlaying && state.activeCueId) get().deactivateCue()
+    if (state.cuePlaying && state.activeCueRef) get().deactivateCue()
     else set({ cuePlaying: false, cuePaused: false })
   },
   /**
@@ -3927,8 +3977,8 @@ const actions: ShowState = {
       const list = state.cueLists.find((l) => l.id === state.activeCueListId)
       const nextIndex = list ? manualCrossfadeNextIndex(list, state.activeCueIndex) : -1
       if (!list || nextIndex < 0 || state.activeCueIndex < 0) return { manualCrossfade: position }
-      const current = state.cues.find((s) => s.id === list.steps[state.activeCueIndex]?.cueId)
-      const next = state.cues.find((s) => s.id === list.steps[nextIndex]?.cueId)
+      const current = list.steps[state.activeCueIndex]?.cue
+      const next = list.steps[nextIndex]?.cue
       if (!current || !next) return { manualCrossfade: position }
       const progress = manualCrossfadeProgress(state.manualCrossfadeAnchor, position)
       if (!state.blackout) {
@@ -3948,7 +3998,7 @@ const actions: ShowState = {
           manualCrossfade: position,
           manualCrossfadeAnchor: position,
           activeCueIndex: nextIndex,
-          activeCueId: next.id,
+          activeCueRef: { kind: 'step', listId: list.id, stepId: list.steps[nextIndex]!.id },
           cueRevision: state.cueRevision + 1
         }
       }
@@ -3972,7 +4022,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'duplicateCueSteps', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'updateCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'duplicateCueSteps', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureFaderControls', 'configureSpeedModifierOptions', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {

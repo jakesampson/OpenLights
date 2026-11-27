@@ -69,7 +69,6 @@ function seedShow() {
   const s = () => useShowStore.getState()
   s().setShow(migrateShow({
     fixtures: FIXTURES,
-    cues: [],
     fixtureGroups: [],
     presets: [RED, FULL],
     livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [
@@ -86,7 +85,7 @@ function seedShow() {
       liveActivationOrder: {},
       liveActivationCounter: 0,
       manualOverrides: {},
-      activeCueId: null,
+      activeCueRef: null,
       activeLivePageId: 'page1'
     })
   })
@@ -97,7 +96,7 @@ beforeEach(() => {
   Element.prototype.releasePointerCapture = () => {}
   frames.clear()
   const state = useShowStore.getState()
-  state.setShow(migrateShow({ fixtures: [], cues: [] } as unknown as ShowDef))
+  state.setShow(migrateShow({ fixtures: [] } as unknown as ShowDef))
   state.exitSetupWizard()
   state.setWelcomeOpen(false)
   state.setNewProjectDialogOpen(false)

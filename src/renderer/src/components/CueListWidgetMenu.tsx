@@ -10,7 +10,7 @@
 // as CueButtonMenu. Items that cannot act are disabled with the reason
 // as their tooltip (no silent no-ops).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, collectInlineCues } from '../stores/showStore'
 import { isClipboardEmpty } from '../lib/livePageObjects'
 import { LIGHTKEY_MODIFIERS, applicableModifiers } from '../lib/liveModifiers'
 import { flyoutSide, flyoutTopShift } from '../lib/menuPosition'
@@ -67,7 +67,12 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
   }, [openSubmenu, onClose])
 
   const list = useShowStore((s) => s.cueLists.find((l) => l.id === listId))
-  const cues = useShowStore((s) => s.cues)
+  // Inline cues (Jake, 27 Nov 2026): there is no project-wide cue
+  // list — `cues` is the collected view over the buttons' and steps'
+  // inline cues, for the call sites that still take a cue list.
+  const show = useShowStore((s) => s.show)
+  const cueLists = useShowStore((s) => s.cueLists)
+  const cues = collectInlineCues(show, cueLists)
   const presets = useShowStore((s) => s.presets)
   const fixtures = useShowStore((s) => s.show?.fixtures ?? [])
   const sequences = useShowStore((s) => s.show?.sequences ?? [])
@@ -86,7 +91,7 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
   const anchorStepId = stepId ?? selectedStepIds[0] ?? (activeCueListId === list.id && activeCueIndex >= 0 ? list.steps[activeCueIndex]?.id : undefined) ?? list.steps[0]?.id
   const anchorStep = list.steps.find((s) => s.id === anchorStepId)
   const anchorIndex = anchorStep ? list.steps.indexOf(anchorStep) : -1
-  const anchorCue = anchorStep ? cues.find((c) => c.id === anchorStep.cueId) : undefined
+  const anchorCue = anchorStep?.cue
   // Duplicate acts on the right-clicked step, else the selected steps
   // (a right-click on a step selects just that step first, so the two
   // agree there; a right-click on blank canvas keeps a multi-step
@@ -98,10 +103,12 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
     window.dispatchEvent(new CustomEvent('openlights-open-list-info', { detail: { widgetId } }))
 
   // The Modifiers submenu acts on the anchor step's cue. applicableModifiers
-  // reads a button-like control, so the step is presented as one: the cue
-  // id is what it resolves, and the step's own lists are empty.
-  const syntheticControl = anchorCue && anchorStep
-    ? { id: anchorStep.id, name: anchorCue.name, type: 'push', x: 0, y: 0, cueId: anchorCue.id } as LiveControl
+  // reads a button-like control, so the step is presented as one: the
+  // step's cue itself, with its contents mirrored onto the control's
+  // own lists (liveModifiers.ts still reads those lists, not
+  // control.cue — see CueButtonMenu).
+  const syntheticControl: LiveControl | null = anchorCue && anchorStep
+    ? { id: anchorStep.id, name: anchorCue.name, type: 'push', x: 0, y: 0, cue: anchorCue, presetIds: anchorCue.presetIds ?? [], sequenceIds: anchorCue.sequenceIds ?? [], adHocValues: anchorCue.fixtureValues ?? {} }
     : null
   const applies = syntheticControl ? applicableModifiers(syntheticControl, cues, presets, fixtures, sequences, effects) : new Set<string>()
   const selectedModifiers = anchorStep?.selectedModifiers ?? []
@@ -153,7 +160,7 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
       disabledReason: Object.keys(manualOverrides).length ? null : 'No overridden properties to add',
       // With a step anchored, the overrides merge into that cue only;
       // otherwise into every cue in the list (Guide ch.11, p.202).
-      action: () => state.addOverridesToCues(anchorCue ? [anchorCue.id] : list.steps.map((s) => s.cueId), false),
+      action: () => state.addOverridesToCues(anchorCue ? [anchorCue.id] : list.steps.map((s) => s.cue.id), false),
     },
     { key: 'sep2', separator: true },
     // Cut / Copy / Paste / Delete are in the cuelist menu even in Live
@@ -256,7 +263,7 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
         const anchorIndex = anchor ? list.steps.findIndex((s) => s.id === anchor) : -1
         const at = anchorIndex >= 0 ? (event.shiftKey ? anchorIndex : anchorIndex + 1) : undefined
         const cueId = state.addCueToListAt(list.id, at)
-        const step = useShowStore.getState().cueLists.find((l) => l.id === list.id)?.steps.find((s) => s.cueId === cueId)
+        const step = useShowStore.getState().cueLists.find((l) => l.id === list.id)?.steps.find((s) => s.cue.id === cueId)
         if (step) openStepInfo(step.id)
         onClose()
       },

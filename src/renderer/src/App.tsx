@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useShowStore } from './stores/showStore'
+import { useShowStore, resolveActiveCue, collectInlineCues, findInlineCue } from './stores/showStore'
 import { AutomationPanel } from './components/AutomationPanel'
 import { MidiPanel } from './components/MidiPanel'
 import { NdiAmbiencePanel } from './components/NdiAmbiencePanel'
@@ -56,7 +56,8 @@ export default function App() {
   const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent)
   const {
     show,
-    cues,
+    cueLists,
+    activeCueRef,
     effects,
     previewEffect,
     presets,
@@ -67,7 +68,6 @@ export default function App() {
     activeLivePageId,
     manualOverrides,
     bpm,
-    activeCueId,
     master,
     setMaster,
     setBpm,
@@ -112,10 +112,10 @@ export default function App() {
   const liveLevels = useMemo(() => {
     const outputLevels = liveOutputLevels(show?.livePages, activeLiveValues)
     const controls = orderedLiveControls(show?.livePages, outputLevels, liveActivationOrder)
-    return liveIntensityLevels({ controls, levels: outputLevels, presets, cues, fixtures: show?.fixtures ?? [] })
-  }, [show?.livePages, activeLiveValues, liveActivationOrder, presets, cues, show?.fixtures])
+    return liveIntensityLevels({ controls, levels: outputLevels, presets, fixtures: show?.fixtures ?? [] })
+  }, [show?.livePages, activeLiveValues, liveActivationOrder, presets, show?.fixtures])
   const effectiveLevels = useMemo(() => {
-    const activeCue = cues.find((item) => item.id === activeCueId)
+    const activeCue = resolveActiveCue({ show, cueLists, activeCueRef })
     return effectiveIntensityLevels({
       cueValues: activeCue ? resolveCueValues(activeCue, presets, show?.fixtures ?? []) : {},
       activePresetIds,
@@ -123,7 +123,7 @@ export default function App() {
       manualOverrides,
       liveLevels
     })
-  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures, liveLevels])
+  }, [show, cueLists, activeCueRef, presets, activePresetIds, manualOverrides, show?.fixtures, liveLevels])
   /** The base look in attribute space (the active cue's resolved values,
    *  then manually activated presets, then Design overrides — later
    *  wins): the effect runtime's colour source for virtual-dimmer
@@ -137,7 +137,7 @@ export default function App() {
         values[fixtureId] = { ...(values[fixtureId] ?? {}), ...attrs }
       }
     }
-    const activeCue = cues.find((item) => item.id === activeCueId)
+    const activeCue = resolveActiveCue({ show, cueLists, activeCueRef })
     if (activeCue) take(resolveCueValues(activeCue, presets, show?.fixtures ?? []))
     for (const id of activePresetIds) {
       const preset = presets.find((item) => item.id === id)
@@ -145,7 +145,7 @@ export default function App() {
     }
     take(manualOverrides)
     return values
-  }, [cues, activeCueId, presets, activePresetIds, manualOverrides, show?.fixtures])
+  }, [show, cueLists, activeCueRef, presets, activePresetIds, manualOverrides, show?.fixtures])
   const [tab, setTab] = useState<Tab>('Design')
   // Panel sizes (Jake, 27 Nov 2026): the four main panels resize by
   // dragging the dividers between them. Per-machine, so they live in
@@ -303,7 +303,7 @@ export default function App() {
   const editingLiveEffect = editingLiveEffectId
     ? effects.find((e) => e.id === editingLiveEffectId)
     : undefined
-  const editingCueAdHoc = editingCueAdHocId ? cues.find((c) => c.id === editingCueAdHocId) : undefined
+  const editingCueAdHoc = editingCueAdHocId ? findInlineCue(show, cueLists, editingCueAdHocId)?.cue : undefined
   // In-place cue ad-hoc editing opens in Design (Guide ch.11, p.201).
   useEffect(() => { if (editingCueAdHocId) setTab('Design') }, [editingCueAdHocId])
   // Editing an effect opens in Design (Jake, 27 Nov 2026): the effect
@@ -414,7 +414,7 @@ export default function App() {
         const channels = await window.electronAPI.getChannels()
         if (!alive) return
         const state = useShowStore.getState()
-        const cue = state.cues.find((item) => item.id === state.activeCueId)
+        const cue = resolveActiveCue(state)
         const hue = adaptiveBackgroundHue(state.show?.fixtures ?? [], channels, cue ? resolveCue(cue, state.presets, state.show?.fixtures ?? []) : undefined)
         root.style.setProperty('--adaptive-hue', String(hue ?? 283))
       } catch { /* Keep the previous appearance if output is unavailable. */ }
@@ -446,20 +446,20 @@ export default function App() {
     // cue's sequences run for as long as that cue is lit. A stored cue's
     // sequences (Piece 8) run the same way while it is the active cue —
     // in Design, or as the current step of a cuelist.
-    const activeCue = cues.find((cue) => cue.id === activeCueId)
-    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues, cues), ...(activeCue?.sequenceIds ?? [])])
+    const activeCue = resolveActiveCue({ show, cueLists, activeCueRef })
+    const ids = new Set([...activeSequenceIds, ...activeCueSequenceIds(show?.livePages, activeLiveValues, collectInlineCues(show, cueLists)), ...(activeCue?.sequenceIds ?? [])])
     configureSequences([...ids].flatMap((id) => (show?.sequences ?? []).filter((s) => s.id === id)), presets)
-  }, [show?.sequences, show?.livePages, activeSequenceIds, activeLiveValues, presets, cues, activeCueId])
+  }, [show?.sequences, show?.livePages, show, cueLists, activeCueRef, activeSequenceIds, activeLiveValues, presets])
 
   // A run-once sequence auto-deactivates when it finishes (Video 2,
   // Jake 27 Nov 2026): the output layer only stops animating, so poll
   // the finished ids and release the buttons / cues running them. A
   // looping sequence never completes, so it repeats infinitely.
   useEffect(() => {
-    if (!activeSequenceIds.length && !activeCueId && !Object.values(activeLiveValues).some((level) => level > 0)) return
+    if (!activeSequenceIds.length && !activeCueRef && !Object.values(activeLiveValues).some((level) => level > 0)) return
     const timer = window.setInterval(() => useShowStore.getState().deactivateCompletedSequences(), 250)
     return () => window.clearInterval(timer)
-  }, [activeSequenceIds, activeCueId, activeLiveValues])
+  }, [activeSequenceIds, activeCueRef, activeLiveValues])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
@@ -517,7 +517,7 @@ export default function App() {
         Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name, fadeMs: 0, fixtureValues: scaled }, master))
         Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id, name, fadeMs: 0, fixtureValues: withEffectiveIntensity(full, levels) }, master))
       }
-      const cue = cues.find((item) => item.id === control.cueId)
+      const cue = control.cue
       if (cue && !cue.blackout) {
         const resolved = resolveCue(cue, presets, show?.fixtures ?? [])
         emit(resolved.id, resolved.name, resolved.fixtureValues)
@@ -551,7 +551,7 @@ export default function App() {
       return (previousLevels[id] ?? 0) !== (outputLevels[id] ?? 0)
     })
     configureLiveOutput(patch, changed || liveChanged ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, cues, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master, effectiveLevels])
+  }, [show?.livePages, show?.fixtures, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master, effectiveLevels])
 
   useEffect(() => {
     configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: withEffectiveIntensity(manualOverrides, effectiveLevels) }, master))
@@ -675,11 +675,11 @@ export default function App() {
       else if (command === 'previous') state.cuePrev()
       else if (command === 'go') { if (previewSpacePan.held) { /* Space+drag pan over the Preview (Guide p.53) — Go must not fire. */ } else if (toolPanel === 'Automation') window.dispatchEvent(new Event('openlights-toggle-play')); else state.cueNext() }
       else if (command === 'escape') { if (state.editingPresetId) state.cancelEditingPreset(); else if (state.editingCueAdHocId) state.cancelEditingCueAdHoc(); else if (state.editingEffectTemplateId) state.cancelEditingEffectTemplate(); else if (state.editingLiveEffectId) state.cancelEditingLiveEffect(); else if (state.editingEffectId) state.setEditingEffectId(null); else if (state.effectChooserAttribute) state.setEffectChooserAttribute(null); else if (toolPanel && !setupWizardStep) setToolPanel(null); else if (setupWizardStep) { /* The wizard is modal: Back / Next / × navigate, Escape does not dismiss it (and never stops a cue mid-setup). Nested dialogs keep their own Escape handling (PatchDialog, CalibrationDialog). */ } else if (viewMenuOpen) setViewMenuOpen(false); else if (settingsOpen) setSettingsOpen(false); else if (state.showOverrideLabels) state.setShowOverrideLabels(false); else state.stopCue() }
-      else if (command.startsWith('cue')) { const cue = state.cues[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
+      else if (command.startsWith('cue')) { const cue = collectInlineCues(state.show, state.cueLists)[Number(command.slice(3)) - 1]; if (cue) state.activateCue(cue.id) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [toolPanel, settingsOpen, viewMenuOpen, cues, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab, setupWizardStep])
+  }, [toolPanel, settingsOpen, viewMenuOpen, activateCue, cueNext, cuePrev, stopCue, toggleBlackout, tab, setupWizardStep])
 
   useEffect(() => window.electronAPI.onMenuCommand((command) => {
     const binding = SHORTCUTS.find((item) => item.command === command)

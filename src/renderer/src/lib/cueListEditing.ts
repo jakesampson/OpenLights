@@ -5,12 +5,12 @@ import type { CueDef, CueListDef, CueListGroupDef, CueStepDef } from '@shared/ty
  *  increments the new cue's number" — "001 New Cue", "002 New Cue",
  *  …). The number is the highest leading number among the list's step
  *  cues plus one, zero-padded to three digits; a fresh list starts at
- *  001. */
-export function nextListCueName(list: CueListDef, cues: { id: string; name: string }[]): string {
+ *  001. The step IS its cue now (Jake, 27 Nov 2026 — inline cues), so
+ *  the names are read off the steps themselves. */
+export function nextListCueName(list: CueListDef): string {
   let max = 0
   for (const step of list.steps) {
-    const cue = cues.find((item) => item.id === step.cueId)
-    const match = cue ? /^(\d+)\b/.exec(cue.name) : null
+    const match = /^(\d+)\b/.exec(step.cue.name)
     if (match) max = Math.max(max, Number(match[1]))
   }
   return `${String(max + 1).padStart(3, '0')} New Cue`
@@ -27,24 +27,23 @@ export function splitCueNumber(name: string): [number | null, string] {
 /** Renumber cues (Guide ch.11, p.195): rename the first cue to set
  *  where the numbers begin, select the cues to renumber, then Renumber
  *  adds increasing numbers before the names (or updates existing
- *  ones). Pure: returns the new cue names keyed by cue id for the
- *  given steps, in list order, starting from the first step's leading
- *  number (or 1 when it has none). */
+ *  ones). Pure: returns the new cue names keyed by step id (and cue
+ *  id, for callers that address the cue) for the given steps, in list
+ *  order, starting from the first step's leading number (or 1 when it
+ *  has none). The rename lands on the step's own cue — a cue shared
+ *  with a button or another list is NOT renamed with it any more
+ *  (Jake, 27 Nov 2026 — inline copies are separate). */
 export function renumberCueNames(
-  steps: CueStepDef[],
-  cues: { id: string; name: string }[]
-): { cueId: string; name: string }[] {
+  steps: CueStepDef[]
+): { stepId: string; cueId: string; name: string }[] {
   if (!steps.length) return []
-  const firstCue = cues.find((item) => item.id === steps[0].cueId)
-  const [start] = firstCue ? splitCueNumber(firstCue.name) : [null]
+  const [start] = splitCueNumber(steps[0].cue.name)
   let next = start ?? 1
   return steps.map((step) => {
-    const cue = cues.find((item) => item.id === step.cueId)
-    if (!cue) return { cueId: step.cueId, name: '' }
-    const [, rest] = splitCueNumber(cue.name)
+    const [, rest] = splitCueNumber(step.cue.name)
     const name = `${String(next).padStart(3, '0')} ${rest || 'New Cue'}`
     next += 1
-    return { cueId: cue.id, name }
+    return { stepId: step.id, cueId: step.cue.id, name }
   })
 }
 
@@ -133,23 +132,25 @@ export type CueListCommand =
   | { type: 'add'; step: CueStepDef; index?: number }
   | { type: 'remove'; id: string }
   | { type: 'move'; id: string; direction: -1 | 1 }
-  | { type: 'rename-step'; id: string; cueId: string }
+  /** Rename a step's cue (the step IS its cue — there is no shared cue
+   *  to re-point at any more, so the old re-pointing form is gone). */
+  | { type: 'rename-step'; id: string; name: string }
   | { type: 'paste'; steps: CueStepDef[]; index?: number; makeId: () => string }
 
 export function editCueList(list: CueListDef, command: CueListCommand): CueListDef {
   if (command.type === 'add') { const steps = [...list.steps]; steps.splice(command.index ?? steps.length, 0, structuredClone(command.step)); return { ...list, steps } }
   if (command.type === 'remove') return { ...list, steps: list.steps.filter((step) => step.id !== command.id) }
-  if (command.type === 'rename-step') return { ...list, steps: list.steps.map((step) => step.id === command.id ? { ...step, cueId: command.cueId } : step) }
-  if (command.type === 'paste') { const steps = [...list.steps]; steps.splice(command.index ?? steps.length, 0, ...command.steps.map((step) => ({ ...structuredClone(step), id: command.makeId() }))); return { ...list, steps } }
+  if (command.type === 'rename-step') return { ...list, steps: list.steps.map((step) => step.id === command.id ? { ...step, cue: { ...step.cue, name: command.name } } : step) }
+  if (command.type === 'paste') { const steps = [...list.steps]; steps.splice(command.index ?? steps.length, 0, ...command.steps.map((step) => { const copy = structuredClone(step); copy.id = command.makeId(); copy.cue = { ...copy.cue, id: copy.id }; return copy })); return { ...list, steps } }
   const index = list.steps.findIndex((step) => step.id === command.id), target = index + command.direction
   if (index < 0 || target < 0 || target >= list.steps.length) return list
   const steps = [...list.steps]; [steps[index], steps[target]] = [steps[target], steps[index]]
   return { ...list, steps }
 }
 
-export function filterCueSteps(list: CueListDef, cues: { id: string; name: string }[], query: string): CueStepDef[] {
+export function filterCueSteps(list: CueListDef, query: string): CueStepDef[] {
   const needle = query.trim().toLowerCase()
-  return needle ? list.steps.filter((step) => cues.find((cue) => cue.id === step.cueId)?.name.toLowerCase().includes(needle)) : list.steps
+  return needle ? list.steps.filter((step) => step.cue.name.toLowerCase().includes(needle)) : list.steps
 }
 
 export function cueListStatus(list: CueListDef, index: number, elapsedMs: number) {

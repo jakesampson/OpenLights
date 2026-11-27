@@ -12,7 +12,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { readFileSync } from 'node:fs'
 import { join, dirname, basename, resolve } from 'node:path'
 import { DesignTab } from '../src/renderer/src/components/DesignTab'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, findInlineCue } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import { importOflFixture } from '../src/shared/oflFixtureFormat'
 import type { FixtureDef } from '../src/shared/types'
@@ -80,8 +80,14 @@ function barFixture(): FixtureDef {
 }
 
 function cueValues(fixtureId: string) {
-  return useShowStore.getState().cues.find((c) => c.id === 'c1')?.fixtureValues[fixtureId] ?? {}
+  const state = useShowStore.getState()
+  return findInlineCue(state.show, state.cueLists, 'c1')?.cue.fixtureValues[fixtureId] ?? {}
 }
+
+// A cue survives migration only in a holder: the seed button carries
+// it. A fresh object per seed — migrateShow shallow-copies its input
+// and writes the inlined cue onto the button.
+const cuePage = () => ({ id: 'page1', name: 'Page', controls: [{ id: 'btn1', name: 'Cue 1', type: 'push', cueId: 'c1', presetIds: [] }] })
 
 // A Design write defines an override (LightKey's real Overrides).
 function overrideValues(fixtureId: string) {
@@ -95,9 +101,10 @@ describe('additional-colour sliders across beams', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [q5Fixture()],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0, uv: 0, 'uv 2': 200, 'uv 3': 100, 'uv 4': 100, 'uv 5': 100 } } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0, uv: 0, 'uv 2': 200, 'uv 3': 100, 'uv 4': 100, 'uv 5': 100 } } }],
+      livePages: [cuePage()],
     }))
-    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     expect(sliderEl('UV for selected fixtures').getAttribute('aria-valuenow')).toBe('100')
   })
@@ -106,9 +113,10 @@ describe('additional-colour sliders across beams', () => {
     const s = () => useShowStore.getState()
     s().setShow(migrateShow({
       fixtures: [q5Fixture()],
-      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0 } } }]
+      cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { q5: { intensity: 255, red: 0, green: 0, blue: 0 } } }],
+      livePages: [cuePage()],
     }))
-    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueId: 'c1', editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
+    useShowStore.setState({ selectedFixtureIds: ['q5'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: null, editingCueAdHocId: null, manualOverrides: {}, showOverrideLabels: false })
     renderInRoot(<DesignTab />)
     // Pointer at the top of the 150-tall mocked track: full (255).
     act(() => { sliderEl('UV for selected fixtures').dispatchEvent(pointer('pointerdown', 75, 0)) })
@@ -130,9 +138,10 @@ describe('preset wheel edit across beams', () => {
     s().setShow(migrateShow({
       fixtures: [barFixture()],
       cues: [{ id: 'c1', name: 'Cue 1', fadeMs: 0, fixtureValues: { bar4: { intensity: 255, ...allGreen } } }],
+      livePages: [cuePage()],
       presets: [{ id: 'p1', name: 'Red', category: 'color', fixtureValues: { bar4: { intensity: 255, red: 0, green: 255, blue: 0 } } }]
     }))
-    useShowStore.setState({ selectedFixtureIds: ['bar4'], activeCueId: 'c1', editingPresetId: 'p1' })
+    useShowStore.setState({ selectedFixtureIds: ['bar4'], activeCueRef: { kind: 'button', pageId: 'page1', controlId: 'btn1' }, editingPresetId: 'p1' })
     renderInRoot(<DesignTab />)
     const wheel = container?.querySelector('.color-wheel')
     if (!wheel) throw new Error('no .color-wheel in the rendered output')

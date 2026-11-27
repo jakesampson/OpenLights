@@ -18,12 +18,12 @@ import { useDragEnd } from './useDragEnd'
 import { FanningHud } from './FanningHud'
 import { CalibrationDialog } from './CalibrationDialog'
 import { isCalibrationComplete } from '../lib/calibration'
-import { useShowStore } from '../stores/showStore'
+import { useShowStore, resolveActiveCue } from '../stores/showStore'
 import { previewSpacePan } from '../lib/previewSpacePan'
 import { layoutOverrideLabels, overridePropertyGroups } from '../lib/overrideLabels'
 import { resolveFixtureClickSelection } from '../lib/fixtureGroups'
 import { demoArcPositions, instanceKey, instancePositions } from '../lib/previewLayout'
-import type { FanDef, FixtureDef, CueDef, PreviewTruss } from '@shared/types'
+import type { FanDef, FixtureDef, PreviewTruss } from '@shared/types'
 
 interface Pos { x: number; y: number }
 interface FixtureView extends FixtureDef {
@@ -74,7 +74,7 @@ function fixturePositions(count: number) {
 }
 
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, presets, previewPresetId, contentsPreview, activeCueId, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, cueLists, activeCueRef, presets, previewPresetId, contentsPreview, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
   // Plain-click selection (Jake, 26 Nov 2026): 1 click selects the
   // fixture's group, clicking the same fixture again singles it out,
   // Shift-click toggles one fixture at a time. Non-edit clicks route
@@ -149,7 +149,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     // lives in the session's manual fans, or on the cue being edited
     // ad-hoc.
     const state = useShowStore.getState()
-    const activeCue = state.cues.find((c) => c.id === state.activeCueId)
+    const activeCue = resolveActiveCue(state)
     const existing = state.manualFans.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
       ?? activeCue?.fans?.find((f) => f.attribute === chosen && f.fixtureIds.some((id) => selectedFixtureIds.includes(id)))
     if (existing) { setFanDraft(structuredClone(existing)); return }
@@ -201,7 +201,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
     setFanDraft(committed)
     const state = useShowStore.getState()
     const isNew = !state.manualFans.some((f) => f.id === committed.id)
-      && !state.cues.find((c) => c.id === state.activeCueId)?.fans?.some((f) => f.id === committed.id)
+      && !resolveActiveCue(state)?.fans?.some((f) => f.id === committed.id)
     state.saveFan(committed)
     const pending = pendingAlsoFan.current
     if (isNew && pending) {
@@ -406,8 +406,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
   }, [editing, dragGuard.end])
   const storedFixtures = (show?.fixtures ?? []).filter((f) => f.inStorage)
   const fixtures: FixtureDef[] = (show?.fixtures ?? []).filter((f) => !f.inStorage)
-  const cues: CueDef[] = show?.cues ?? []
-  const activeCue = activeCueId ? cues.find((s) => s.id === activeCueId) : null
+  const activeCue = resolveActiveCue({ show, cueLists, activeCueRef }) ?? null
   // The HUD lists every saved fan: the session's manual fans first,
   // then the fans on the cue being edited ad-hoc — a fan id lives in
   // exactly one place, so the two lists never overlap.

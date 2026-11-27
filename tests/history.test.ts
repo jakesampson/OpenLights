@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { collectInlineCues, useShowStore } from '../src/renderer/src/stores/showStore'
 import { FIXTURE_PRESETS } from '../src/shared/types'
 vi.stubGlobal('window', { electronAPI: { setChannels: vi.fn() } })
 vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1))
@@ -21,7 +21,7 @@ describe('programming history', () => {
     roundTrip(() => store().removeFixture(store().show!.fixtures[0].id))
   })
   it('undoes preset capture, rename and deletion', () => {
-    store().activateCue(initial.cues[0].id); store().selectFixtures([initial.fixtures[0].id])
+    store().activateCue(collectInlineCues(initial, initial.cueLists ?? [])[0].id); store().selectFixtures([initial.fixtures[0].id])
     roundTrip(() => store().capturePreset('Captured', 'color'))
     const id = store().presets[0].id
     roundTrip(() => store().renamePreset(id, 'Renamed'))

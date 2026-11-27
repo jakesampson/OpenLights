@@ -63,7 +63,7 @@ describe('MIDI mapping migration', () => {
   it('fills absent arrays and invalid root values', () => {
     for (const raw of [null, undefined, 8, {}, { fixtures: 'invalid' }]) {
       const show = migrateShow(raw)
-      expect(show.fixtures).toEqual([]); expect(show.cues).toEqual([]); expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+      expect(show.fixtures).toEqual([]); expect((show as unknown as Record<string, unknown>).cues).toBeUndefined(); expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     }
   })
   it('warns without downgrading future files', () => {
@@ -96,11 +96,16 @@ describe('scene to cue migration (schema v2, LightKey language)', () => {
     const show: any = migrateShow(legacyV1Show())
     expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
     expect(show.scenes).toBeUndefined()
-    expect(show.cues).toHaveLength(1)
-    expect(show.cues[0]).toMatchObject({ id: 's1', name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } })
-    expect(show.cueLists[0].steps[0].cueId).toBe('s1')
+    // No project-wide cue store any more (schema v6, Jake 27 Nov 2026):
+    // the look is inlined into each holder. The button, first holder,
+    // keeps the original id; the step's copy gets a fresh one.
+    expect((show as unknown as Record<string, unknown>).cues).toBeUndefined()
+    expect(show.livePages[0].controls[0].cue).toMatchObject({ id: 's1', name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } })
+    expect(show.cueLists[0].steps[0].cue).toMatchObject({ name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } })
+    expect(show.cueLists[0].steps[0].cue.id).not.toBe('s1')
+    expect(show.cueLists[0].steps[0].cueId).toBeUndefined()
     expect(show.cueLists[0].steps[0].sceneId).toBeUndefined()
-    expect(show.livePages[0].controls[0].cueId).toBe('s1')
+    expect(show.livePages[0].controls[0].cueId).toBeUndefined()
     expect(show.livePages[0].controls[0].sceneId).toBeUndefined()
     expect(show.midiMappings[0].targetType).toBe('cue')
     expect(show.startup.cueId).toBe('s1')
@@ -119,8 +124,74 @@ describe('scene to cue migration (schema v2, LightKey language)', () => {
 
   it('loads the demo show file with its looks intact as cues', () => {
     const demo = migrateShow(JSON.parse(readFileSync(join(process.cwd(), 'demo-projects', 'ShowBuddyActive-Demo.json'), 'utf8')))
-    expect(demo.cues.map((c: any) => c.name)).toEqual(['Warm Welcome', 'Sermon Focus', 'Communion Glow'])
-    expect(demo.cueLists[0].steps.map((s: any) => s.cueId)).toEqual(['s1', 's2', 's3'])
+    // The demo has 3 cues (not 4 — "Sunday Set" is the cuelist's name),
+    // each referenced once, so each step keeps its original id — and
+    // the step fade stays the step's own (1500/1000/2000) while the cue
+    // fade stays the cue's own (1200/800/2000).
+    expect((demo as unknown as Record<string, unknown>).cues).toBeUndefined()
+    expect(demo.cueLists[0].steps.map((s: any) => s.cue.name)).toEqual(['Warm Welcome', 'Sermon Focus', 'Communion Glow'])
+    expect(demo.cueLists[0].steps.map((s: any) => s.cue.id)).toEqual(['s1', 's2', 's3'])
+    expect(demo.cueLists[0].steps.map((s: any) => [s.cue.fadeMs, s.fadeMs])).toEqual([[1200, 1500], [800, 1000], [2000, 2000]])
+  })
+})
+
+describe('inline cue migration (schema v6, Jake 27 Nov 2026)', () => {
+  // An old-format show: one cue shared by a button and a list step, one
+  // orphan, a MIDI cue target and a startup restore pointing at the cue.
+  const oldShow = () => ({
+    schemaVersion: 5,
+    id: 'old', name: 'Old show', createdAt: 0, updatedAt: 0,
+    fixtures: [{ id: 'f1', name: 'Wash', type: 'par', channelStart: 1, channels: 3 }],
+    cues: [
+      { id: 's1', name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } },
+      { id: 'orphan', name: 'Orphan', fadeMs: 0, fixtureValues: {} }
+    ],
+    cueLists: [{ id: 'l1', name: 'List', steps: [{ id: 'step1', cueId: 's1', fadeMs: 1500, holdMs: 0 }] }],
+    livePages: [{ id: 'p1', name: 'Page', controls: [{ id: 'b1', name: 'Warm', type: 'toggle', cueId: 's1', presetIds: [], x: 0, y: 0 }] }],
+    midiMappings: [{ id: 'm1', targetType: 'cue', targetId: 's1', midiType: 'noteon', channel: 1, number: 60 }],
+    startup: { mode: 'restore', presetIds: [], liveValues: { b1: 255 }, pageId: 'p1', cueId: 's1' },
+    automations: []
+  })
+
+  it('copies a shared cue into each holder as separate cues', () => {
+    const show: any = migrateShow(oldShow())
+    expect(show.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(show.cues).toBeUndefined()
+    const buttonCue = show.livePages[0].controls[0].cue
+    const stepCue = show.cueLists[0].steps[0].cue
+    expect(buttonCue.id).toBe('s1')
+    expect(stepCue.id).not.toBe('s1')
+    expect(stepCue).toMatchObject({ name: 'Warm Welcome', fadeMs: 1500, fixtureValues: { f1: { intensity: 200 } } })
+    // Separate copies: the step fade stays the step's own.
+    expect(stepCue.fadeMs).toBe(1500)
+    expect(show.cueLists[0].steps[0].fadeMs).toBe(1500)
+  })
+
+  it('drops an unreferenced cue', () => {
+    const show: any = migrateShow(oldShow())
+    expect(JSON.stringify(show)).not.toContain('Orphan')
+    expect(JSON.stringify(show)).not.toContain('orphan')
+  })
+
+  it('remaps the startup cue and the MIDI cue target to the button copy', () => {
+    const show: any = migrateShow(oldShow())
+    expect(show.startup.cueId).toBe('s1')
+    expect(show.midiMappings[0].targetId).toBe('s1')
+    expect(show.midiMappings[0].targetType).toBe('cue')
+  })
+
+  it('writes no cues key after save', () => {
+    const store = useShowStore.getState()
+    store.setShow(migrateShow(oldShow()) as unknown as Parameters<typeof store.setShow>[0])
+    const saved = store.showForSave() as unknown as Record<string, unknown>
+    expect(saved).toBeTruthy()
+    expect('cues' in saved!).toBe(false)
+  })
+
+  it('is idempotent and does not bump schemaVersion', () => {
+    const once: any = migrateShow(oldShow())
+    expect(once.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    expect(migrateShow(JSON.parse(JSON.stringify(once)))).toEqual(once)
   })
 })
 

@@ -13,7 +13,7 @@ const frames: Array<FrameRequestCallback | null> = []
 vi.stubGlobal('window', { electronAPI: { setChannels: (values: Record<number, number>) => engine.setChannels(values) } })
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
 vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames[id - 1] = null })
-import { useShowStore } from '../src/renderer/src/stores/showStore'
+import { useShowStore, collectInlineCues, activeCueId } from '../src/renderer/src/stores/showStore'
 import { configureEffects, sendImmediate } from '../src/renderer/src/lib/output'
 
 // Virtual-dimmer Q12BT (rgba-4ch, no intensity channel) at 1-4; a
@@ -28,7 +28,6 @@ function makeShow(overrides: Partial<ShowDef> = {}): ShowDef {
   return {
     id: 'show', name: 'Test', createdAt: 0, updatedAt: 0, masterIntensity: 255,
     fixtures,
-    cues: [],
     automations: [],
     preferences,
     ...overrides,
@@ -65,8 +64,8 @@ describe('wizard "Full" preset', () => {
   it('creates exactly one preset, "Full", with full values for every fixture, and no cue', () => {
     const state = finishWizard()
     expect(state.setupWizardStep).toBeNull()
-    expect(state.cues).toHaveLength(0)
-    expect(state.activeCueId).toBeNull()
+    expect(collectInlineCues(state.show, state.cueLists)).toHaveLength(0)
+    expect(activeCueId(state)).toBeNull()
     expect(state.presets).toHaveLength(1)
     const full = state.presets[0]
     expect(full.name).toBe('Full')
