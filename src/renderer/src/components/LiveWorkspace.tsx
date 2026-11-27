@@ -8,7 +8,7 @@ import {
 } from '../lib/liveDrops'
 import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { resolveCueValues } from '@shared/cueResolution'
-import { manualCrossfadeProgress, nextEnabledIndex } from '../lib/cueListPlayback'
+import { manualCrossfadeProgress } from '../lib/cueListPlayback'
 import { orderedCuelistItems } from '../lib/cueListEditing'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor, LIGHTKEY_BUTTON_COLORS, DEFAULT_BUTTON_APPEARANCE_COLOR } from '../lib/liveButtonColor'
 import { controlBehavior, isFaderControl, isFlashControl, isLatchingControl } from '../lib/liveControlBehavior'
@@ -1429,7 +1429,12 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
           // function + the screenshots' icon, and Jake can settle it
           // in one tap (see the report).
           const playing = cuePlaying && activeCueListId === list?.id && current >= 0
-          const nextIndex = list && current >= 0 ? nextEnabledIndex(list, current, 1) : (list?.steps.findIndex((s) => !s.disabled) ?? -1)
+          // Go restarts from the first enabled cue (Jake, 28 Nov 2026:
+          // in LightKey the Play button starts from cue 1 again when
+          // the list is stopped or finished) — not from the current
+          // step, and not by advancing past the end (which does
+          // nothing once the list has finished).
+          const firstIndex = list?.steps.findIndex((s) => !s.disabled) ?? -1
           const xfadeProgress = activeCueListId === list?.id && current >= 0 ? manualCrossfadeProgress(manualCrossfadeAnchor, manualCrossfade) : 0
           const goingForward = xfadeProgress > 0
           const items = list ? orderedCuelistItems(list) : []
@@ -1458,12 +1463,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
           return <div key={widget.id} data-page-object={`list:${widget.id}`} data-cuelist-widget={list?.id} className={`absolute flex flex-col rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 ${list?.textSize === 'large' ? 'text-sm' : 'text-xs'}`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={allowDrop} onDrop={(event) => dropOnList(event, list?.id)} onContextMenu={(event) => openWidgetMenu(event, null)}>
             <div className={editing ? 'flex cursor-grab items-center justify-between gap-2 rounded bg-bg p-1' : 'flex items-center justify-between gap-2'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>
               {renamingList === widget.id ? <input autoFocus aria-label="Cuelist name" defaultValue={list?.name ?? ''} className="min-w-0 flex-1 rounded bg-bg p-1 text-xs" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { const value = (e.target as HTMLInputElement).value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) } else if (e.key === 'Escape') setRenamingList(null) }} onBlur={(e) => { const value = e.target.value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) }} /> : <span className="min-w-0 truncate font-semibold">{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</span>}
-              {/* "Edit" opens the cuelist inspector (Priority, Size, + –
-                  buttons, Xfade, Loops). The label is an approximation:
-                  LightKey's widget carries an "Edit" label top-right
-                  (Jake's screenshot 5.20.25); what it opens there is
-                  the cuelist inspector, which is what this does. */}
-              <button type="button" aria-label={`Edit ${list?.name ?? 'cuelist'}`} title="Edit cuelist" onClick={(e) => { e.stopPropagation(); openListInspector(widget.id) }} onPointerDown={(e) => e.stopPropagation()} className="shrink-0 rounded px-1.5 py-0.5 text-dim hover:bg-panel">Edit</button>
+              {/* No Edit button on the widget (Jake, 28 Nov 2026):
+                  LightKey's cuelist has none — the "Edit" in his
+                  screenshot was the Live view's Edit button, not the
+                  widget's. The earlier button here (which opened the
+                  list inspector) was an approximation read from that
+                  screenshot and has been removed; the list inspector
+                  opens via right-click → Get Info. */}
             </div>
             {list ? (
               <div className="mt-1 flex min-h-0 flex-1 gap-1">
@@ -1513,9 +1519,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
                       if (group && collapsedGroups[group.id] === true) return null
                       // Active means this step's cue is the one playing —
                       // the list position alone is not enough:
-                      // deactivateCue keeps the index so Go resumes, so
-                      // a deactivated step would otherwise still read
-                      // as active.
+                      // deactivateCue keeps the index, so a deactivated
+                      // step would otherwise still read as active.
                       const active = activeCueListId === list.id && current === index && cuePlaying && activeCueId === step.cue.id
                       const selected = widgetSelectedSteps.includes(step.id)
                       return (
@@ -1537,11 +1542,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
                 {/* Transport (Guide ch.11, p.218): Go / Stop, Pause,
                     Next / Previous — big pill buttons, the way LightKey
                     draws them, stacked between the steps and the Xfade
-                    fader. Go advances from the current step (or starts
-                    at the first enabled cue); Shift-click on the third
+                    fader. Go starts from the first enabled cue when the
+                    list is stopped or finished (Jake, 28 Nov 2026:
+                    LightKey's Play button restarts from cue 1); while
+                    playing it is Stop. Shift-click on the third
                     button reverses it. */}
                 <div className="flex w-14 shrink-0 flex-col gap-2 pt-5">
-                  <button type="button" aria-label={playing ? 'Stop cuelist' : 'Go'} title={playing ? 'Stop — deactivate the cuelist' : 'Go — start playback'} onClick={() => { if (playing) stopCue(); else if (current >= 0) cueNext(); else if (nextIndex >= 0) goToCue(list.id, nextIndex) }} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">{playing ? '■' : '▶'}</button>
+                  <button type="button" aria-label={playing ? 'Stop cuelist' : 'Go'} title={playing ? 'Stop — deactivate the cuelist' : 'Go — start playback'} onClick={() => { if (playing) stopCue(); else if (firstIndex >= 0) goToCue(list.id, firstIndex) }} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">{playing ? '■' : '▶'}</button>
                   <button type="button" aria-label={cuePaused ? 'Resume cuelist' : 'Pause cuelist'} title={cuePaused ? 'Resume — the hold time runs again' : 'Pause — the hold time stops running'} onClick={() => setCuePaused(!cuePaused)} disabled={!playing} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">❚❚</button>
                   <button type="button" aria-label="Next cue" title="Next cue (Shift-click: previous cue)" onClick={(event) => { if (event.shiftKey) cuePrev(); else cueNext() }} className="rounded-lg bg-panel py-2 text-base hover:bg-panel2 disabled:opacity-40">{goingForward ? '»' : '«'}</button>
                 </div>

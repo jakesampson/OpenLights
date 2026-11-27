@@ -17,8 +17,8 @@ describe('Live window restoration', () => {
     expect(LIVE_WINDOW_COMMANDS).toContain('deactivateCue')
     // …and the row's active flag must also require the step's cue to be
     // the active one: deactivateCue deliberately keeps the list position
-    // (activeCueListId/activeCueIndex) so Go resumes, so position alone
-    // would leave a deactivated step reading as active.
+    // (activeCueListId/activeCueIndex), so position alone would leave
+    // a deactivated step reading as active.
     expect(LIVE_WINDOW_COMMANDS).toContain('stopCue')
   })
 
@@ -40,8 +40,11 @@ describe('Live window restoration', () => {
     expect(liveTab).not.toContain('CueListsSection')
     // The widget transport calls its actions inside arrows (Jake,
     // 27 Nov 2026 — cuelist widget replication): Go/Stop wraps
-    // stopCue(), the third button wraps cuePrev()/cueNext().
-    expect(workspace).toContain('if (playing) stopCue(); else if (current >= 0) cueNext();')
+    // stopCue(), the third button wraps cuePrev()/cueNext(). Go
+    // restarts from the first enabled cue when the list is stopped
+    // or finished (Jake, 28 Nov 2026) — it does not advance from
+    // the current step.
+    expect(workspace).toContain('if (playing) stopCue(); else if (firstIndex >= 0) goToCue(list.id, firstIndex)')
     expect(workspace).toContain('if (event.shiftKey) cuePrev(); else cueNext()')
     expect(workspace).not.toContain('onClick={stopCue}')
     expect(workspace).not.toContain('onClick={cuePrev}')

@@ -2535,8 +2535,10 @@ const actions: ShowState = {
       return {
         activeCueRef: null,
         // A cue list playing this cue stops with it. The list position
-        // (activeCueListId/activeCueIndex) is kept, so Go resumes from
-        // the current step with cueNext.
+        // (activeCueListId/activeCueIndex) is kept. Go does not resume
+        // from it, though: the Play button restarts from the first
+        // enabled cue (Jake, 28 Nov 2026 — LightKey starts from cue 1
+        // again when the list is stopped or finished).
         cuePlaying: false,
         cuePaused: false
       }
@@ -3955,7 +3957,8 @@ const actions: ShowState = {
     // Stop looked broken: the lights stayed on. While a list is playing,
     // the active cue IS the list's current cue (goToCue sets both
     // together), so deactivating it is deactivating the list's cue; the
-    // list position is kept, so Go resumes from the current step.
+    // list position is kept, but Go restarts from the first enabled cue
+    // (Jake, 28 Nov 2026), it does not resume from the stopped step.
     if (state.cuePlaying && state.activeCueRef) get().deactivateCue()
     else set({ cuePlaying: false, cuePaused: false })
   },

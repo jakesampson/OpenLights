@@ -205,7 +205,7 @@ describe('cue deactivation', () => {
     expect(useShowStore.getState().cuePlaying).toBe(true)
   })
 
-  it('toggling off a playing list stops playback but keeps its place, so Go resumes', () => {
+  it('toggling off a playing list stops playback but keeps its place, so cueNext advances from it', () => {
     const store = useShowStore.getState()
     store.setShow(makeShow())
     store.goToCue('c1', 0)
@@ -269,7 +269,8 @@ describe('cue deactivation', () => {
     store.stopCue()
     // LightKey p.218: Stop deactivates the cues in the cuelist. The
     // lights go out (not just the playback), but the list keeps its
-    // place, so Go resumes from the current step.
+    // place, so cueNext still advances from the current step (the
+    // Play button restarts from cue 1 instead — Jake, 28 Nov 2026).
     expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(useShowStore.getState().cuePlaying).toBe(false)
     expect(useShowStore.getState().activeCueListId).toBe('c1')

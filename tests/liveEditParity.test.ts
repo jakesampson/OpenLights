@@ -64,7 +64,10 @@ describe('Live / Live Edit parity', () => {
     // The transport is the widget's three pill buttons now (Jake,
     // 27 Nov 2026 — cuelist widget replication): Go/Stop, Pause,
     // Next (Shift-click: previous). The glyphs are ▶/■, ❚❚, »/«.
-    expect(workspace).toContain("onClick={() => { if (playing) stopCue(); else if (current >= 0) cueNext(); else if (nextIndex >= 0) goToCue(list.id, nextIndex) }}")
+    // Go restarts from the first enabled cue when the list is
+    // stopped or finished (Jake, 28 Nov 2026) — it does not advance
+    // from the current step.
+    expect(workspace).toContain("onClick={() => { if (playing) stopCue(); else if (firstIndex >= 0) goToCue(list.id, firstIndex) }}")
     expect(workspace).toContain("aria-label={playing ? 'Stop cuelist' : 'Go'}")
     // Arrow calls, not bare handler references: React passes the click
     // event to a bare onClick={stopCue}, and in the Live window that

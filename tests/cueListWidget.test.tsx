@@ -441,11 +441,16 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(container!.querySelector('[data-cuelist-widget]')).toBeNull()
   })
 
-  it('list inspector: the Edit button opens the cuelist options', () => {
+  it('list inspector: Get Info opens the cuelist options, and the widget carries no Edit button (Jake, 28 Nov 2026)', () => {
+    // CORRECTION (Jake, 28 Nov 2026): LightKey's cuelist has NO Edit
+    // button — the "Edit" in his screenshot was the Live view's Edit
+    // button, not the widget's. The button (and the test that clicked
+    // it) is gone; the list inspector opens via right-click → Get Info.
     seedShow()
     renderInRoot(<App />)
     switchToLive()
-    clickWidgetButton('Edit Sunday Set')
+    expect(widgetEl().querySelector('[aria-label^="Edit"]'), 'no Edit button on the widget').toBeNull()
+    clickMenuItem(openWidgetMenu(), 'Get Info')
     const panel = inspectorEl()
     expect(panel.textContent).toContain('Sunday Set')
     expect(panel.textContent).toContain('Priority')

@@ -86,8 +86,13 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
   const state = useShowStore.getState()
   const run = (fn: () => void) => { fn(); onClose() }
   // The step this menu acts on: the right-clicked step, else the first
-  // selected step, else the playing step, else the first step. Get Info
-  // on the widget with no step opens the cuelist inspector instead.
+  // selected step, else the playing step, else the first step. The
+  // cue-acting items (Activate, Edit Ad Hoc, Add Overrides, Modifiers)
+  // use this anchor. Get Info / Show Properties do NOT — they go by
+  // the click target (Jake, 28 Nov 2026): a step opens that step's
+  // inspector, the widget background opens the cuelist inspector
+  // (LightKey's object model — the Edit button that used to open the
+  // list inspector is gone).
   const anchorStepId = stepId ?? selectedStepIds[0] ?? (activeCueListId === list.id && activeCueIndex >= 0 ? list.steps[activeCueIndex]?.id : undefined) ?? list.steps[0]?.id
   const anchorStep = list.steps.find((s) => s.id === anchorStepId)
   const anchorIndex = anchorStep ? list.steps.indexOf(anchorStep) : -1
@@ -117,7 +122,7 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
     {
       key: 'getInfo', label: 'Get Info',
       action: () => {
-        if (stepId || anchorStep) openStepInfo(anchorStep?.id ?? list.steps[0].id)
+        if (stepId) openStepInfo(stepId)
         else openListInfo()
       },
     },
@@ -145,7 +150,7 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
     {
       key: 'showProperties', label: 'Show Properties',
       action: () => {
-        if (stepId || anchorStep) openStepInfo(anchorStep?.id ?? list.steps[0].id)
+        if (stepId) openStepInfo(stepId)
         else openListInfo()
       },
     },

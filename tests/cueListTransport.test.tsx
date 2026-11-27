@@ -140,17 +140,40 @@ describe('cue-list transport on the canvas widget', () => {
     expect(stepRow('Wash Blue').textContent).not.toContain('▶')
   })
 
-  it('widget: Stop deactivates the playing cue and Go resumes from the same step', () => {
+  it('widget: Stop deactivates the playing cue and Go restarts from cue 1 (Jake, 28 Nov 2026)', () => {
+    // CORRECTION (Jake, 28 Nov 2026): in LightKey, when the list is
+    // stopped the Play button starts from cue 1 again — it does not
+    // resume from the stopped step. The old test asserted the resume
+    // (Go after Stop landed on Wash Blue).
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     clickWidgetButton('Go')
     expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
+    clickWidgetButton('Next cue')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
     clickWidgetButton('Stop')
     expect(activeCueId(useShowStore.getState())).toBeNull()
     expect(useShowStore.getState().cuePlaying).toBe(false)
     clickWidgetButton('Go')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
+  })
+
+  it('widget: Go restarts from cue 1 after the list has finished (Jake, 28 Nov 2026)', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    clickWidgetButton('Go')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
+    clickWidgetButton('Next cue')
     expect(activeCueId(useShowStore.getState())).toBe('cue-blue')
+    // Past the last cue the list stops (playing false).
+    clickWidgetButton('Next cue')
+    expect(useShowStore.getState().cuePlaying).toBe(false)
+    clickWidgetButton('Go')
+    expect(activeCueId(useShowStore.getState())).toBe('cue-fullon')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
   })
 
   it('widget: a step single-click selects it and a double-click jumps to its cue (guide p.219)', () => {
