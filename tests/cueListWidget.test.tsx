@@ -284,15 +284,34 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(widgetEl().textContent).toContain('011 Blue')
   })
 
-  it('widget menu: Duplicate is greyed, and New Group groups the selected steps', () => {
+  it('widget menu: Duplicate is greyed with nothing selected, enabled with a step selected', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     const menu = openWidgetMenu()
     const duplicate = [...menu.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Duplicate') as HTMLButtonElement
     expect(duplicate.disabled).toBe(true)
-    expect(duplicate.title).toContain('only have one cuelist')
-    // Select both steps, then group them.
+    expect(duplicate.title).toContain('No cue selected')
+    // Select a step, reopen the menu: Duplicate is enabled, and it
+    // copies the step in place with the next number (Guide ch.11,
+    // p.189) — Jake's screenshot 7.10.50.
+    act(() => { stepRow('001 Violet').dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    const menu2 = openWidgetMenu('001 Violet')
+    const duplicate2 = [...menu2.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Duplicate') as HTMLButtonElement
+    expect(duplicate2.disabled).toBe(false)
+    clickMenuItem(menu2, 'Duplicate')
+    const state = useShowStore.getState()
+    expect(state.cueLists[0].steps.map((s) => state.cues.find((c) => c.id === s.cueId)?.name)).toEqual(['001 Violet', '003 New Cue', '002 Blue'])
+    const copy = state.cues.find((c) => c.name === '003 New Cue')!
+    expect(copy.id).not.toBe('cue-violet')
+    expect(copy.presetIds).toEqual(['preset-violet'])
+  })
+
+  it('widget menu: New Group groups the selected steps', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    openWidgetMenu()
     act(() => { stepRow('001 Violet').dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     act(() => { stepRow('002 Blue').dispatchEvent(new window.MouseEvent('click', { bubbles: true, shiftKey: true })) })
     clickMenuItem(openWidgetMenu(), 'New Group From Selection')

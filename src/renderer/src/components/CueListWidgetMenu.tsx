@@ -87,6 +87,11 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
   const anchorStep = list.steps.find((s) => s.id === anchorStepId)
   const anchorIndex = anchorStep ? list.steps.indexOf(anchorStep) : -1
   const anchorCue = anchorStep ? cues.find((c) => c.id === anchorStep.cueId) : undefined
+  // Duplicate acts on the right-clicked step, else the selected steps
+  // (a right-click on a step selects just that step first, so the two
+  // agree there; a right-click on blank canvas keeps a multi-step
+  // selection, which duplicates each step in place, in list order).
+  const duplicateTargets = stepId ? [stepId] : selectedStepIds
   const openStepInfo = (targetStepId: string) =>
     window.dispatchEvent(new CustomEvent('openlights-open-step-info', { detail: { listId, stepId: targetStepId } }))
   const openListInfo = () =>
@@ -182,13 +187,20 @@ export function CueListWidgetMenu({ widgetId, listId, stepId, selectedStepIds, o
       disabledReason: list.steps.length ? null : 'No cues to renumber',
       action: () => state.renumberCueList(list.id, selectedStepIds.length ? selectedStepIds : undefined),
     },
-    // Duplicate: the guide (ch.11, p.190) says cuelists can't be
-    // duplicated — "a Live view page can only have one cuelist" — while
-    // Jake's screenshot shows Duplicate enabled. The guide's explicit
-    // rule wins until Jake calls it; duplicating would have to mean a
-    // second widget on the same page, which the one-cuelist rule
-    // forbids, so there is nothing honest to duplicate into.
-    { key: 'duplicate', label: 'Duplicate', disabledReason: 'A Live view page can only have one cuelist' },
+    // Duplicate (Guide ch.11, p.189 — "When you add a new cue or
+    // duplicate a cue, Lightkey automatically increments the new cue's
+    // number"): the menu's Duplicate acts on the selected cue step(s)
+    // inside the list — Jake's screenshot 5.20.33 shows it enabled,
+    // and 7.10.50 shows the result (001 / 002 / 003 New Cue). The
+    // guide's one-cuelist-per-page rule (p.190 — "A page can't contain
+    // more than one cuelist") forbids duplicating the LIST itself, so
+    // there is no list-duplicate path; duplicating the whole list
+    // stays impossible.
+    {
+      key: 'duplicate', label: 'Duplicate',
+      disabledReason: duplicateTargets.length ? null : 'No cue selected to duplicate',
+      action: () => state.duplicateCueSteps(list.id, duplicateTargets),
+    },
     { key: 'delete', label: 'Delete', action: () => state.deleteSelectedPageObjects() },
     { key: 'sep3', separator: true },
     {

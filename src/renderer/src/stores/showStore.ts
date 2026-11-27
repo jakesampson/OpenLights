@@ -643,6 +643,14 @@ interface ShowState {
   updateCueStep: (listId: string, stepId: string, patch: Partial<CueStepDef>) => void
   removeCueStep: (listId: string, stepId: string) => void
   moveCueStep: (listId: string, stepId: string, direction: -1 | 1) => void
+  /** Duplicate cue step(s) (Guide ch.11, p.189 — "When you add a new
+   *  cue or duplicate a cue, Lightkey automatically increments the new
+   *  cue's number"): each given step's cue is copied (new id, all
+   *  contents, timing and step settings) and inserted immediately
+   *  after the original, named with the next number in the list
+   *  ("003 New Cue", …). The LIST itself is never duplicated — a page
+   *  can only hold one cuelist (Guide ch.11, p.190). One undo step. */
+  duplicateCueSteps: (listId: string, stepIds: string[]) => void
   setActiveCueList: (id: string | null) => void
   goToCue: (listId: string, index: number, fadeMsOverride?: number) => void
   cueNext: () => void
@@ -3761,6 +3769,62 @@ const actions: ShowState = {
       return persistState(state, { cueLists }, { cueLists })
     }),
 
+  duplicateCueSteps: (listId, stepIds) =>
+    set((state) => {
+      const list = state.cueLists.find((l) => l.id === listId)
+      if (!list) return state
+      // Targets in list order, whatever order the selection arrived in.
+      const targets = new Set(list.steps.filter((step) => stepIds.includes(step.id)).map((step) => step.id))
+      if (!targets.size) return state
+      const cues = [...state.cues]
+      const steps: CueStepDef[] = []
+      // Copies made so far (their steps, in order): the next number is
+      // read off the FULL list — originals plus these copies — so a
+      // copy never reuses a number an earlier copy just took.
+      const madeSteps: CueStepDef[] = []
+      for (const step of list.steps) {
+        steps.push(step)
+        if (!targets.has(step.id)) continue
+        const source = state.cues.find((cue) => cue.id === step.cueId)
+        if (!source) continue
+        // Guide ch.11, p.189: duplicating a cue increments the new
+        // cue's number. The next number is read off the list as it
+        // stands with the copies already made, so duplicating several
+        // steps at once yields 003, 004, … in list order.
+        const name = nextListCueName({ ...list, steps: [...list.steps, ...madeSteps] }, cues)
+        const copy: CueDef = {
+          ...source,
+          id: crypto.randomUUID(),
+          name,
+          presetIds: [...(source.presetIds ?? [])],
+          sequenceIds: [...(source.sequenceIds ?? [])],
+          fixtureValues: structuredClone(source.fixtureValues),
+          fans: source.fans ? structuredClone(source.fans) : undefined,
+          fadeMs: source.fadeMs
+        }
+        cues.push(copy)
+        // The copy keeps the step's own settings (timing, group,
+        // enabled state, modifiers) — only the cue id is new.
+        const copyStep: CueStepDef = {
+          ...step,
+          id: crypto.randomUUID(),
+          cueId: copy.id,
+          selectedModifiers: step.selectedModifiers ? [...step.selectedModifiers] : undefined,
+          speedModifierOptions: step.speedModifierOptions ? [...step.speedModifierOptions] : undefined
+        }
+        steps.push(copyStep)
+        madeSteps.push(copyStep)
+      }
+      const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps } : item)
+      // Insertions land after their originals, so an active step at or
+      // after an insertion point shifts — re-derive its index from the
+      // step id so Go still resumes from the cue that was playing.
+      const activeCueIndex = state.activeCueListId === listId && state.activeCueIndex >= 0
+        ? steps.findIndex((step) => step.id === list.steps[state.activeCueIndex]?.id)
+        : state.activeCueIndex
+      return persistState(state, { cues, cueLists }, { cues, cueLists, activeCueIndex })
+    }),
+
   setActiveCueList: (id) => set({ activeCueListId: id, activeCueIndex: -1, cuePlaying: false }),
 
   goToCue: (listId, index, fadeMsOverride) =>
@@ -3908,7 +3972,7 @@ const actions: ShowState = {
       return persistState(state, { midiMappings }, { midiMappings })
     })
  }
-  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
+  const editingCommands = ['addSequenceStep', 'removeSequenceStep', 'duplicateSequenceStep', 'moveSequenceStep', 'reorderSequenceSteps', 'createSequence', 'updateSequence', 'deleteSequence', 'duplicateSequence', 'updateSequenceStep', 'createPresetGroup', 'updatePresetGroup', 'assignPresetGroup', 'assignSequenceGroup', 'duplicatePreset', 'deletePresetGroup', 'applyPaletteDrop', 'updateEditingPresetValues', 'applyPresetsToOverrides', 'addOverridesToPresets', 'addOverridesToCues', 'startEditingCueAdHoc', 'saveEditingCueAdHoc', 'cancelEditingCueAdHoc', 'updatePresetContents', 'updatePresetFromCurrent', 'removePresetProperty', 'saveFan', 'deleteFan', 'pasteFixtureProperties', 'setSelectedColor', 'setSelectedBaseColor', 'setColorDefault', 'loadColorDefault', 'resetColorDefault', 'addColorFavorite', 'removeColorFavorite', 'updateSelectedBeamValues', 'updateBeamValues', 'createFixtureGroup', 'renameFixtureGroup', 'parentFixtureGroup', 'moveFixtureGroup', 'removeFixtureGroup', 'ungroupSelectedFixtures', 'saveFixtureProfile', 'deleteFixtureProfile', 'reassignFixtureProfile', 'duplicateFixture', 'addProfileFixtures', 'locateFixtures', 'pasteStageObjects', 'duplicateStageObjects', 'flipStageObjects', 'orderStageObjects', 'setStageObjects', 'addStageObject', 'updateStageObject', 'removeStageObjects', 'setShow', 'setLivePages', 'dropOnLivePage', 'moveSelectedPageObjects', 'resizePageObject', 'renamePageObject', 'attachPageObject', 'setPageObjectStyle', 'configureFrame', 'deleteSelectedPageObjects', 'duplicateSelectedPageObjects', 'pastePageObjects', 'updateProject', 'setStartupMode', 'setAudioPath', 'setIsPlaying', 'groupSelectedFixtures', 'groupSelection', 'createGroupsForMe', 'finishSetupWizard', 'updateSelectedFixtures', 'setManualOverrides', 'capturePreset', 'capturePresetFromLook', 'convertCuesToPresets', 'renamePreset', 'deletePreset', 'addCue', 'addCueToList', 'duplicateCue', 'updateCue', 'deleteCue', 'addFixture', 'updateFixture', 'setFixturePosition', 'setFixturePositions', 'setFixtureInstancePositions', 'setPreviewTrusses', 'removeFixture', 'addAutomation', 'updateAutomation', 'removeAutomation', 'addEffect', 'updateEffect', 'removeEffect', 'pasteEffect', 'saveEffectTemplate', 'applyEffectTemplate', 'updateEffectTemplate', 'saveEditingLiveEffect', 'renameEffectTemplate', 'duplicateEffectTemplate', 'deleteEffectTemplate', 'addCueList', 'updateCueList', 'renameCueList', 'removeCueList', 'addCueStep', 'updateCueStep', 'removeCueStep', 'moveCueStep', 'duplicateCueSteps', 'setMidiMappings', 'addMidiMapping', 'removeMidiMapping', 'undo', 'redo'] as const
   const mutable = actions as unknown as Record<string, unknown>
   const guardedEditingCommands = [...editingCommands, 'editCueContents', 'configureCueTiming', 'configureCueAppearance', 'configureCueModifiers', 'configureFaderControls', 'configureSpeedModifierOptions', 'configureCuePriority', 'configureCueFrameStep', 'editCueListCommand'] as const
   for (const command of guardedEditingCommands) {
