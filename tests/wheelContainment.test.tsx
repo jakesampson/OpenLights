@@ -1,13 +1,18 @@
 // Colour wheel containment (Jake, 28 Nov 2026): at a tall bottom panel
 // the height-driven wheel (543px) burst out of its 378px card — the
 // card sizes to its contents (the svg's intrinsic 220px) while the
-// wheel stretches to the card body's height. A ResizeObserver on the
+// wheel stretched to the card body's height. A ResizeObserver on the
 // card body measures the body height and the wheel wrapper takes that
-// exact size, so the card grows to contain the wheel. These tests
-// drive the observer with fake heights (jsdom has no layout) and
-// assert the wrapper's explicit size follows the measured height —
-// and that before any measurement it keeps the old aspect-square
-// behaviour with no explicit size.
+// exact size, so the card grows to contain the wheel. Then Jake
+// corrected the growth itself: the wheel should NOT scale with the
+// panel at all — it has a LOCKED width like LightKey (200px, whose
+// hue ring renders at ~176px, matching LightKey's measured ~177px).
+// The wrapper now takes the smaller of the body height and that
+// locked size, shrinking only if the panel is dragged too short to
+// hold it. These tests drive the observer with fake heights (jsdom
+// has no layout) and assert the wrapper's explicit size follows the
+// lock — and that before any measurement it keeps the old
+// aspect-square behaviour with no explicit size.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import React from 'react'
@@ -112,24 +117,33 @@ describe('colour wheel containment', () => {
     expect(wrapper?.className).toContain('aspect-square')
   })
 
-  it('takes the measured body height as its exact size', () => {
+  it('locks at LightKey size when the body is taller, and tracks the body when it is shorter', () => {
     const wrapper = wheelWrapper()
     expect(wrapper).not.toBeNull()
+    // A tall panel does NOT grow the wheel past the lock.
     act(() => { MockResizeObserver.instances[0].fire(543) })
-    expect(wrapper?.style.width).toBe('543px')
-    expect(wrapper?.style.height).toBe('543px')
-    // A shorter panel shrinks it back — the size tracks the body.
-    act(() => { MockResizeObserver.instances[0].fire(197) })
-    expect(wrapper?.style.width).toBe('197px')
-    expect(wrapper?.style.height).toBe('197px')
+    expect(wrapper?.style.width).toBe('200px')
+    expect(wrapper?.style.height).toBe('200px')
+    act(() => { MockResizeObserver.instances[0].fire(640) })
+    expect(wrapper?.style.width).toBe('200px')
+    expect(wrapper?.style.height).toBe('200px')
+    // A body shorter than the lock shrinks it — a hard 200px in a
+    // shorter body would burst out of the card again.
+    act(() => { MockResizeObserver.instances[0].fire(150) })
+    expect(wrapper?.style.width).toBe('150px')
+    expect(wrapper?.style.height).toBe('150px')
+    // And it grows back to the lock, never past it.
+    act(() => { MockResizeObserver.instances[0].fire(300) })
+    expect(wrapper?.style.width).toBe('200px')
+    expect(wrapper?.style.height).toBe('200px')
   })
 
   it('ignores a repeat measurement of the same height', () => {
     const wrapper = wheelWrapper()
     act(() => { MockResizeObserver.instances[0].fire(543) })
     act(() => { MockResizeObserver.instances[0].fire(543) })
-    expect(wrapper?.style.width).toBe('543px')
-    expect(wrapper?.style.height).toBe('543px')
+    expect(wrapper?.style.width).toBe('200px')
+    expect(wrapper?.style.height).toBe('200px')
   })
 
   it('leaves the wheel and the card contents untouched', () => {

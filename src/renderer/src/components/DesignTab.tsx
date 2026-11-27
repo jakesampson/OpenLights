@@ -19,6 +19,12 @@ import { dispatchFanHud, FanDeleteDot, FanMenuButton, FannedIcon } from './Prope
 
 const POSITION_ATTRIBUTES = ['pan', 'tilt', 'panFine', 'tiltFine']
 
+// The colour wheel's locked size in CSS px (Jake, 28 Nov 2026): like
+// LightKey, the wheel does not scale with the panel. LightKey's hue
+// ring measures ~177 CSS px; our svg's ring is 194/220 of the box,
+// so a 200px box renders a ~176px ring — the same size.
+const LIGHTKEY_WHEEL_SIZE = 200
+
 // Colour attributes the round Color control owns (LightKey Guide p.82–
 // 86): Red/Green/Blue (or Cyan/Magenta/Yellow) are driven by the hue
 // wheel, and the additional colour channels by the sliders beside it —
@@ -408,22 +414,24 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
   const [selectedControl, setSelectedControl] = useState<SelectedDesignControl | null>(null)
   const inspectorRef = useRef<HTMLDivElement>(null)
   // The wheel's diameter (Jake, 28 Nov 2026): the wheel is a square
-  // that fills the colour card's body height — it grows with the panel
-  // — but the card's width is sized to its contents, and the svg's
-  // intrinsic 220px made the card only 378px wide while the
-  // height-driven wheel grew to 543px at a tall panel, so the wheel
-  // burst out of the card's right border. A ResizeObserver measures
-  // the body's height and the wheel is given that exact size, so the
-  // card grows to contain it (wheel + sliders + padding) instead of
-  // the wheel overflowing it. The body height is set by the card and
-  // the row, never by the wheel, so there is no feedback loop; the
-  // state only changes when the measured height actually changes.
-  // The observer is a callback ref because the body mounts and
-  // unmounts with the effect/fan branches, which replace it. Until
-  // the first measurement the wheel keeps its old aspect-square
-  // behaviour (the explicit size below is only applied once known),
-  // and where ResizeObserver does not exist (jsdom tests) the size
-  // simply stays unmeasured and the old behaviour stands.
+  // with a LOCKED width, like LightKey — it does not scale with the
+  // panel. LightKey's wheel measures ~177 CSS px across its hue ring
+  // (Jake's screenshot, 28 Nov: 355 file px at DPR 2); our svg's
+  // ring is 194/220 of the box, so a 200px box renders a ~176px
+  // ring — the same size. A ResizeObserver measures the card body's
+  // height and the wheel takes the smaller of that height and the
+  // locked size: 200px whenever the panel can hold it, shrinking
+  // only if the panel is dragged too short to fit it (a hard 200px
+  // in a shorter body would burst out of the card again — the bug
+  // this replaced). The body height is set by the card and the row,
+  // never by the wheel, so there is no feedback loop; the state only
+  // changes when the size actually changes. The observer is a
+  // callback ref because the body mounts and unmounts with the
+  // effect/fan branches, which replace it. Until the first
+  // measurement the wheel keeps its old aspect-square behaviour (the
+  // explicit size below is only applied once known), and where
+  // ResizeObserver does not exist (jsdom tests) the size simply stays
+  // unmeasured and the old behaviour stands.
   const [wheelSize, setWheelSize] = useState<number | null>(null)
   const wheelBodyObserverRef = useRef<ResizeObserver | null>(null)
   const wheelBodyRef = useCallback((node: HTMLDivElement | null) => {
@@ -432,7 +440,10 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
     if (node && typeof ResizeObserver !== 'undefined') {
       const observer = new ResizeObserver((entries) => {
         const height = Math.round(entries[0]?.contentRect.height ?? node.clientHeight)
-        if (height > 0) setWheelSize((prev) => (prev === height ? prev : height))
+        if (height > 0) {
+          const size = Math.min(height, LIGHTKEY_WHEEL_SIZE)
+          setWheelSize((prev) => (prev === size ? prev : size))
+        }
       })
       observer.observe(node)
       wheelBodyObserverRef.current = observer
@@ -878,15 +889,15 @@ export function DesignTab({ effectTabHost, effectToolsHost, chooserLeftHost, cho
             </div>
           ) : (
             <div ref={wheelBodyRef} className="flex min-h-0 flex-1 items-stretch gap-1">
-              {/* Square, height-stretched: the wheel grows with the card
-                  body (aspect-square off the stretched height) instead
-                  of the old fixed 150px — and once the ResizeObserver
-                  above has measured the body, the wrapper takes that
-                  exact size (width and height), so the card grows to
-                  contain the wheel instead of the wheel bursting out
-                  of the card at tall panel sizes (Jake, 28 Nov 2026).
-                  The explicit size wins over aspect-square; while it
-                  is unmeasured the aspect-square fallback stands. */}
+              {/* Square, height-stretched: the wheel is LOCKED at
+                  LightKey's size (200px) and does not scale with the
+                  panel (Jake, 28 Nov 2026) — once the ResizeObserver
+                  above has measured the body, the wrapper takes the
+                  smaller of the body height and that size, so the
+                  card always contains the wheel instead of the wheel
+                  bursting out of the card at tall panel sizes. The
+                  explicit size wins over aspect-square; while it is
+                  unmeasured the aspect-square fallback stands. */}
               <div
                 className="flex aspect-square min-h-0 min-w-0 flex-none self-stretch"
                 style={wheelSize !== null ? { width: wheelSize, height: wheelSize } : undefined}
