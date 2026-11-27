@@ -304,7 +304,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
       }
       if (Object.keys(cue.fixtureValues ?? {}).length) rows.push({ key: 'cue:ad-hoc', kind: 'ad-hoc', id: `cue:${cue.id}`, name: 'Ad hoc properties', source: 'cue', values: cue.fixtureValues ?? {} })
     }
-    for (const id of control.presetIds) {
+    for (const id of control.presetIds ?? []) {
       const preset = presets.find((p) => p.id === id)
       if (preset) rows.push({ key: `control:preset:${id}`, kind: 'preset', id, name: preset.name, source: 'control', values: preset.fixtureValues ?? {} })
     }
@@ -470,7 +470,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     // prints the speed after its name.
     const sequenceSpeed = (() => {
       const cue = control.cueId ? cues.find((c) => c.id === control.cueId) : undefined
-      const presetCount = [...(cue?.presetIds ?? []), ...control.presetIds].length
+      const presetCount = [...(cue?.presetIds ?? []), ...(control.presetIds ?? [])].length
       const sequenceIds = [...(cue?.sequenceIds ?? []), ...(control.sequenceIds ?? [])]
       if (presetCount > 0 || sequenceIds.length !== 1) return null
       const scale = show?.sequences?.find((s) => s.id === sequenceIds[0])?.timeScale
@@ -1036,7 +1036,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                   {Object.entries(row.values).flatMap(([fixtureId, values]) => Object.entries(values).map(([property, value]) => <label key={`${fixtureId}:${property}`} className="flex items-center gap-1"><span className="min-w-0 flex-1 truncate">{fixtureId} · {property}</span><input aria-label={`${fixtureId} ${property}`} type="number" min="0" max="255" value={value} className="w-16 rounded bg-bg p-1" onChange={(event) => row.source === 'cue' && selectedControl.cueId ? editCueDefContents(selectedControl.cueId, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) }) : editCueContents(selectedControl.id, { type: 'set-ad-hoc', fixtureId, property, value: Number(event.target.value) })} /><button type="button" aria-label={`Remove ${fixtureId} ${property}`} onClick={() => row.source === 'cue' && selectedControl.cueId ? editCueDefContents(selectedControl.cueId, { type: 'remove-ad-hoc', fixtureId, property }) : editCueContents(selectedControl.id, { type: 'remove-ad-hoc', fixtureId, property })}>×</button></label>))}
                 </div>
               })()}
-              <details><summary className="cursor-pointer">Presets ({selectedControl.presetIds.length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={selectedControl.presetIds.includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...selectedControl.presetIds, p.id] : selectedControl.presetIds.filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>
+              <details><summary className="cursor-pointer">Presets ({(selectedControl.presetIds ?? []).length})</summary>{presets.map((p) => <label key={p.id} className="block"><input type="checkbox" checked={(selectedControl.presetIds ?? []).includes(p.id)} onChange={(e) => patchControl(selectedControl.id, { presetIds: e.target.checked ? [...(selectedControl.presetIds ?? []), p.id] : (selectedControl.presetIds ?? []).filter((id) => id !== p.id) })} /> {p.name}</label>)}</details>
               <details><summary className="cursor-pointer">Sequences ({(selectedControl.sequenceIds ?? []).length})</summary>{(show?.sequences ?? []).map((s) => <label key={s.id} className="block"><input type="checkbox" checked={(selectedControl.sequenceIds ?? []).includes(s.id)} onChange={(e) => patchControl(selectedControl.id, { sequenceIds: e.target.checked ? [...(selectedControl.sequenceIds ?? []), s.id] : (selectedControl.sequenceIds ?? []).filter((id) => id !== s.id) })} /> {s.name}</label>)}</details>
               <details><summary className="cursor-pointer">Effects ({(selectedControl.effectIds ?? []).length})</summary>{effects.map((e) => <label key={e.id} className="block"><input type="checkbox" checked={(selectedControl.effectIds ?? []).includes(e.id)} onChange={(event) => patchControl(selectedControl.id, { effectIds: event.target.checked ? [...(selectedControl.effectIds ?? []), e.id] : (selectedControl.effectIds ?? []).filter((id) => id !== e.id) })} /> {e.name}</label>)}</details>
             </div>}

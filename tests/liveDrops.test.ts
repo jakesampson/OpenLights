@@ -157,6 +157,16 @@ describe('dropping on a cue button (7.10)', () => {
     const page = makePage()
     expect(applyLiveDrop(page, payload(), { kind: 'cue', cueId: 'missing' }, makeId).page).toBe(page)
   })
+
+  it('does not throw when the target control has no presetIds (old show)', () => {
+    // A control from an older or hand-edited show can lack presetIds
+    // entirely (the type requires it, the file need not have it) —
+    // dropping a preset onto it must merge onto an empty list, not
+    // throw "control.presetIds is not iterable" (Jake, 27 Nov 2026).
+    const page: LivePage = { id: 'page', name: 'Page', controls: [{ id: 'c1', name: 'Old', type: 'toggle', x: 20, y: 20 } as never] }
+    const { page: next } = applyLiveDrop(page, payload(), { kind: 'cue', cueId: 'c1' }, makeId)
+    expect(next.controls[0]).toMatchObject({ presetIds: ['p1', 'p2'], sequenceIds: ['s1'] })
+  })
 })
 
 describe('sequences started by active cues (7.10)', () => {

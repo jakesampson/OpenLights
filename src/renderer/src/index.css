@@ -64,6 +64,18 @@ body {
   border-color: var(--accent);
 }
 
+/* Compact cue-list transport (main Live tab, Jake 27 Nov 2026): the bar
+   is one slim row, so its Stop / Back / Go buttons use the small size
+   (same as the header Edit button below) — .btn-theme's own 6px 12px
+   padding and 32px min-height otherwise make the row 38px tall and
+   squeeze the Live canvas. */
+.cue-transport-compact .btn-theme {
+  min-height: 26px;
+  padding: 3px 10px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
 /* Patch library footer (Jake, 20 Nov 2026): the five footer buttons are
    one row of equal buttons — same width, same height, labels never wrap.
    They share the row evenly (flex-basis 0) once the model count is gone. */

@@ -192,7 +192,7 @@ export function applyLiveDrop(
     if (!cue) return { page, refs: [] }
     const updated = {
       ...cue,
-      presetIds: uniqueIds([...cue.presetIds, ...clean.presetIds]),
+      presetIds: uniqueIds([...(cue.presetIds ?? []), ...clean.presetIds]),
       sequenceIds: uniqueIds([...(cue.sequenceIds ?? []), ...clean.sequenceIds])
     }
     return {

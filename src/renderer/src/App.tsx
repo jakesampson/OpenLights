@@ -788,7 +788,12 @@ export default function App() {
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell flex flex-col' : 'playback-shell'}`}>
             {tab === 'Live' ? <>
-              <div className="min-h-0 flex-1">
+              {/* Canvas floor (Jake, 27 Nov 2026): the transport used to
+                  squeeze this wrapper to 2px and hide every Live button.
+                  The bottom panel is 294px and the slim transport is
+                  ~33px, so a 200px floor fits and the disclosed steps
+                  scroll the panel instead of collapsing the canvas. */}
+              <div className="min-h-[200px] flex-1">
               <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />
               </div>
               {/* Cue-list transport (Jake, 27 Nov 2026 — "nothing is
