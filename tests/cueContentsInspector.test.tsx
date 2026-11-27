@@ -2,7 +2,10 @@
 // Videos 1 + 2): the Get Info popup shows the cue's ingredients as a
 // list — presets, sequences, ad-hoc — with a per-row ×, a right-click
 // menu, and row selection that highlights the palette item and labels
-// its fixtures in the Preview. Tabs: Contents / Options / Button.
+// its fixtures in the Preview. Sections, not tabs: Contents, Timing,
+// Button, Font, Modifiers, Live Triggers (Jake, 27 Nov 2026 —
+// LightKey's floating panel; Activate is the tail of the Button
+// section and Group a label row).
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
@@ -76,10 +79,10 @@ function openPopup(buttonId: string) {
   return dialog as HTMLElement
 }
 
-function clickTab(dialog: HTMLElement, label: string) {
-  const tab = Array.from(dialog.querySelectorAll('[role="tab"]')).find((el) => el.textContent?.toLowerCase() === label.toLowerCase())
-  expect(tab).toBeTruthy()
-  act(() => { tab!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+function toggleSection(dialog: HTMLElement, title: string) {
+  const header = Array.from(dialog.querySelectorAll('button[aria-expanded]')).find((el) => el.textContent?.includes(title))
+  expect(header).toBeTruthy()
+  act(() => { header!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 }
 
 function contentsList(dialog: HTMLElement) {
@@ -170,26 +173,41 @@ describe('cue contents inspector', () => {
     expect(next.show?.livePages?.[0].controls.find((c) => c.id === 'btn2')?.presetIds).toContain(promoted!.id)
   })
 
-  it('tabs switch between Contents, Options and Button', () => {
+  it('sections collapse and expand in place, in LightKey\'s order — no tabs', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     act(() => { useShowStore.getState().setLiveEditing(true) })
     const dialog = openPopup('btn2')
-    // Contents is the default tab.
+    // No tabs: every section is present at once, in LightKey's order.
+    expect(dialog.querySelector('[role="tablist"]')).toBeNull()
+    expect(dialog.querySelector('[role="tab"]')).toBeNull()
+    const sections = Array.from(dialog.querySelectorAll('[data-section]')).map((el) => el.getAttribute('data-section'))
+    expect(sections).toEqual(['contents', 'timing', 'button', 'font', 'modifiers', 'triggers'])
+    // Contents, Timing and Button are open by default.
     expect(dialog.querySelector('[aria-label="Cue contents"]')).toBeTruthy()
-    clickTab(dialog, 'Options')
-    expect(dialog.textContent).toContain('Timing')
-    // The Options tab carries LightKey's Modifiers checklist now (Item 4,
-    // 27 Nov 2026) — the old intensity/speed/size % inputs are gone.
-    expect(dialog.textContent).toContain('Modifiers')
-    expect(dialog.textContent).toContain('Hue')
-    expect(dialog.querySelector('[aria-label="Cue contents"]')).toBeNull()
-    clickTab(dialog, 'Button')
+    expect(dialog.textContent).toContain('Fade In')
     expect(dialog.textContent).toContain('Behavior')
     expect(dialog.textContent).toContain('Always active')
     expect(dialog.textContent).toContain('Automatic')
-    // Priority lives in the Button section (guide p.204), not Options.
+    // The Modifiers checklist lives in its own section now (Item 4,
+    // 27 Nov 2026) — the old intensity/speed/size % inputs are gone.
+    expect(dialog.textContent).toContain('Modifiers')
+    expect(dialog.textContent).toContain('Hue')
+    // Priority lives in the Button section (guide p.204).
     expect(dialog.textContent).toContain('Priority')
+    // Collapsing Timing hides its fields in place; expanding brings
+    // them back. The header itself stays visible.
+    toggleSection(dialog, 'Timing')
+    expect(dialog.querySelector('[aria-label="Fade In"]')).toBeNull()
+    toggleSection(dialog, 'Timing')
+    expect(dialog.querySelector('[aria-label="Fade In"]')).toBeTruthy()
+    // Font starts collapsed; Show Fonts (Edit mode only, guide p.204)
+    // opens it.
+    expect(dialog.querySelector('[aria-label="Cue font size"]')).toBeNull()
+    const showFonts = Array.from(dialog.querySelectorAll('button')).find((el) => el.textContent === 'Show Fonts') as HTMLButtonElement
+    expect(showFonts.disabled).toBe(false)
+    act(() => { showFonts.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(dialog.querySelector('[aria-label="Cue font size"]')).toBeTruthy()
   })
 })

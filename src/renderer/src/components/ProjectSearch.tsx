@@ -3,6 +3,14 @@ import { useShowStore } from '../stores/showStore'
 import { searchProject, type ProjectSearchResult } from '../lib/searchProject'
 export function ProjectSearch({ onReveal }: { onReveal: (result: ProjectSearchResult) => void }) {
   const show = useShowStore((s) => s.show)
+  // During playback, the name of the active cue is shown in the center
+  // of the toolbar (Guide ch.11, p.218) — here as the search field's
+  // placeholder while the search is empty. When nothing is playing it
+  // stays "Search Project" (this app has no "No overrides" field).
+  const activeCueName = useShowStore((s) => {
+    const step = s.cuePlaying ? s.cueLists.find((l) => l.id === s.activeCueListId)?.steps[s.activeCueIndex] : undefined
+    return step ? s.cues.find((c) => c.id === step.cueId)?.name ?? null : null
+  })
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -25,7 +33,7 @@ export function ProjectSearch({ onReveal }: { onReveal: (result: ProjectSearchRe
   }
   return <div ref={rootRef} className={`project-search relative ${open ? 'open' : ''}`}>
     <button type="button" className="project-search-button" aria-label={open ? 'Close project search' : 'Search project'} aria-expanded={open} onClick={() => open ? setOpen(false) : revealSearch()}>⌕</button>
-    <input ref={inputRef} type="search" aria-label="Search project input" placeholder="Search Project" value={query} onChange={(e) => setQuery(e.target.value)} />
+    <input ref={inputRef} type="search" aria-label="Search project input" placeholder={activeCueName ?? 'Search Project'} value={query} onChange={(e) => setQuery(e.target.value)} />
     {open && query.trim() && <div className="absolute right-0 top-full z-50 mt-1 max-h-72 w-72 overflow-auto rounded border border-line bg-panel p-2 shadow-xl">{results.length ? results.map((r) => <button key={`${r.type}-${r.pageId ?? r.listId ?? ''}-${r.id}`} className="block w-full rounded px-2 py-1 text-left text-xs hover:bg-panel2" onClick={() => { onReveal(r); setQuery(''); setOpen(false) }}>{r.name}<span className="ml-2 text-dim">{r.type}</span></button>) : <p className="text-xs text-dim">No matches</p>}</div>}
   </div>
 }

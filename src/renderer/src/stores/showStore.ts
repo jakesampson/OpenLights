@@ -8,8 +8,8 @@ import { orderedLiveControls } from '../lib/cuePriority'
 import { isLatchingControl } from '../lib/liveControlBehavior'
 import { applyLiveDrop, normalizeDropPayload, type LiveDropPayload, type LiveDropTarget } from '../lib/liveDrops'
 import { applyCueContents, applyCueDefContents, type CueContentsCommand } from '../lib/cueContents'
-import { editCueList as applyCueListCommand, type CueListCommand } from '../lib/cueListEditing'
-import { manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress } from '../lib/cueListPlayback'
+import { editCueList as applyCueListCommand, type CueListCommand, nextListCueName, renumberCueNames, addCueListGroup as buildCueListGroup } from '../lib/cueListEditing'
+import { manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress, nextEnabledIndex } from '../lib/cueListPlayback'
 import { stepFrame } from '../lib/frameStepping'
 import {
   copyObjects, deleteObjects, duplicateObjects, isClipboardEmpty, moveObjects, newCueObject,
@@ -197,6 +197,10 @@ interface ShowState {
   activeCueListId: string | null
   activeCueIndex: number
   cuePlaying: boolean
+  /** Playback paused (the ❚❚ transport button, Guide ch.11, p.218):
+   *  the current cue stays lit but its hold time stops running. A Go,
+   *  a jump or Stop clears it. Session-only, never persisted. */
+  cuePaused: boolean
   cueRevision: number
   manualCrossfade: number
   /**
@@ -471,6 +475,17 @@ interface ShowState {
       zero cues and a drag mints the cue it drops. Returns the new cue
       id, or '' when the list does not exist. */
   addCueToList: (listId: string, ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => string
+  /**
+   * LightKey's New Cue (Guide ch.11, p.191): add a cue to a cuelist at
+   * an index — below the clicked step, above it with Shift, at the end
+   * with no anchor. The cue is auto-numbered ("001 New Cue", …) and
+   * captures the active presets and sequences plus overridden
+   * properties as ad-hoc properties, exactly as buildNewCue does. A
+   * new cue's fade time is 500ms — LightKey's default, proven by
+   * Jake's screenshots (both new steps show 00:00.5). Returns the new
+   * cue's id so the caller can open its inspector.
+   */
+  addCueToListAt: (listId: string, index?: number, ids?: { presetIds?: string[]; sequenceIds?: string[] }, name?: string) => string
   /** Create a cue AND make it active when no cue is active (the write
       paths' model — mirroring updateSelectedFixtures). addCue on its own
       deliberately does not activate (the Add-cue button's behaviour), so
@@ -607,14 +622,35 @@ interface ShowState {
   updateCueList: (id: string, patch: Partial<CueListDef>) => void
   renameCueList: (id: string, name: string) => void
   removeCueList: (id: string) => void
+  /** Renumber (Guide ch.11, p.195): re-number the given steps (or all
+   *  steps when none are given) in list order, starting from the first
+   *  step's leading number, or 1. Renames the CUEs — a cue shared with
+   *  a button or another list is renamed everywhere it is used. */
+  renumberCueList: (listId: string, stepIds?: string[]) => void
+  /** New Group (Guide ch.11, p.192): an empty named group below the
+   *  given step (or at the end). Returns the group's id. */
+  addCueListGroup: (listId: string, name: string, afterStepId?: string | null) => string
+  /** New Group From Selection (Guide ch.11, p.192): wrap the given
+   *  steps in a new named group. Returns the group's id. */
+  addCueListGroupFromSelection: (listId: string, stepIds: string[], name: string) => string
+  renameCueListGroup: (listId: string, groupId: string, name: string) => void
+  /** Delete a group: the group header goes away and its steps stay,
+   *  ungrouped, in place — the cues are not deleted. (LightKey's
+   *  guide does not say what deleting a group does to its cues; this
+   *  is the conservative reading, reported to Jake.) */
+  removeCueListGroup: (listId: string, groupId: string) => void
   addCueStep: (listId: string, cueId?: string) => void
   updateCueStep: (listId: string, stepId: string, patch: Partial<CueStepDef>) => void
   removeCueStep: (listId: string, stepId: string) => void
   moveCueStep: (listId: string, stepId: string, direction: -1 | 1) => void
   setActiveCueList: (id: string | null) => void
-  goToCue: (listId: string, index: number) => void
+  goToCue: (listId: string, index: number, fadeMsOverride?: number) => void
   cueNext: () => void
   cuePrev: () => void
+  /** Pause or resume cuelist playback (Guide ch.11, p.218). Pausing
+   *  holds the current cue lit and stops its hold time; it has no
+   *  effect unless the current cue has a hold time. */
+  setCuePaused: (paused: boolean) => void
   setManualCrossfade: (value: number) => void
   stepLiveFrame: (frameId: string, direction: -1 | 1) => void
   stopCue: () => void
@@ -1403,6 +1439,7 @@ const actions: ShowState = {
   activeCueListId: defaultShow.cueLists?.[0]?.id ?? null,
   activeCueIndex: -1,
   cuePlaying: false,
+  cuePaused: false,
   cueRevision: 0,
   manualCrossfade: 1,
   manualCrossfadeAnchor: 1,
@@ -1575,6 +1612,20 @@ const actions: ShowState = {
         if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
         const cues = state.cues.map((item) => item.id === control.cueId ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(item.sequenceIds ?? []), ...clean.sequenceIds])] } : item)
         return { ...persistState(state, { cues }, { cues }), selectedPageObjects: [{ type: 'cue' as const, id: control.id }] }
+      }
+      // A cuelist step addresses its cue definition directly by cue id
+      // (the step inspector's drop, Jake 27 Nov 2026 — cuelist widget
+      // replication): a step has no button, so there is no control to
+      // resolve through, and the drop above silently did nothing because
+      // no control carries the cue's id (found by the real-app probe).
+      // The selection is left alone — the widget stays selected and the
+      // inspector stays open.
+      const cue = state.cues.find((item) => item.id === target.cueId)
+      if (cue) {
+        const clean = normalizeDropPayload(payload)
+        if (clean.ndiAmbience || clean.effectIds.length || (!clean.presetIds.length && !clean.sequenceIds.length)) return state
+        const cues = state.cues.map((item) => item.id === cue.id ? { ...item, presetIds: [...new Set([...(item.presetIds ?? []), ...clean.presetIds])], sequenceIds: [...new Set([...(item.sequenceIds ?? []), ...clean.sequenceIds])] } : item)
+        return { ...persistState(state, { cues }, { cues }) }
       }
     }
     let n = 0
@@ -1879,10 +1930,30 @@ const actions: ShowState = {
       // is deleted from memory when nothing else references it. One
       // persistState so the undo entry covers both the button and the cue.
       const deletedCueIds = page.controls.filter((c) => deletedIds.has(c.id)).map((c) => c.cueId).filter((id): id is string => Boolean(id))
-      const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, state.cueLists, deletedCueIds, state.pageClipboard)
+      // Deleting a cuelist WIDGET (Jake, 27 Nov 2026 — the widget-scoped
+      // lifecycle): when no widget on any page shows the list any more,
+      // the list itself goes with it, and its step cues are swept like
+      // a deleted button's cue. Cut is the exception: the clipboard
+      // holds the widget, so the list stays alive for Paste.
+      const deletedWidgetIds = new Set(state.selectedPageObjects.filter((ref) => ref.type === 'list').map((ref) => ref.id))
+      const deletedListIds = page.cueListWidgets?.filter((w) => deletedWidgetIds.has(w.id)).map((w) => w.cueListId) ?? []
+      const stillReferenced = new Set<string>([
+        ...nextPages.flatMap((p) => p.cueListWidgets?.map((w) => w.cueListId) ?? []),
+        ...(state.pageClipboard?.widgets ?? []).map((w) => w.cueListId)
+      ])
+      const removedLists = state.cueLists.filter((l) => deletedListIds.includes(l.id) && !stillReferenced.has(l.id))
+      const nextLists = state.cueLists.filter((l) => !removedLists.some((r) => r.id === l.id))
+      const removedStepCueIds = removedLists.flatMap((l) => l.steps.map((step) => step.cueId))
+      const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, nextLists, [...deletedCueIds, ...removedStepCueIds], state.pageClipboard)
       activeCleared = swept.includes(state.activeCueId ?? '')
+      const activeListRemoved = removedLists.some((l) => l.id === state.activeCueListId)
       return {
-        ...persistState(state, { livePages: nextPages, cues }, { cues, ...(activeCleared ? { activeCueId: null } : {}) }),
+        ...persistState(state, { livePages: nextPages, cues, cueLists: nextLists }, {
+          cues,
+          cueLists: nextLists,
+          ...(activeCleared ? { activeCueId: null } : {}),
+          ...(activeListRemoved ? { activeCueListId: nextLists[0]?.id ?? null, activeCueIndex: -1, cuePlaying: false, cuePaused: false } : {})
+        }),
         activeLiveValues,
         pageActiveValues,
         selectedPageObjects: []
@@ -2362,7 +2433,8 @@ const actions: ShowState = {
         // A cue list playing this cue stops with it. The list position
         // (activeCueListId/activeCueIndex) is kept, so Go resumes from
         // the current step with cueNext.
-        cuePlaying: false
+        cuePlaying: false,
+        cuePaused: false
       }
     }),
 
@@ -2816,6 +2888,31 @@ const actions: ShowState = {
       const step: CueStepDef = { id: crypto.randomUUID(), cueId: cue.id, fadeMs: cue.fadeMs, holdMs: 0 }
       const cues = [...state.cues, cue]
       const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps: [...item.steps, step] } : item)
+      return persistState(state, { cues, cueLists }, { cues, cueLists })
+    })
+    return cueId
+  },
+
+  addCueToListAt: (listId, index, ids, name) => {
+    let cueId = ''
+    set((state) => {
+      const list = state.cueLists.find((item) => item.id === listId)
+      if (!list) return state
+      const cueName = name ?? nextListCueName(list, state.cues)
+      const cue = buildNewCue(state, ids, cueName)
+      cueId = cue.id
+      // LightKey's new-cue fade is 00:00.5 (Jake's screenshots show
+      // both new steps at 00:00.5) — the cue and the step both carry
+      // it, so the inspector's Timing and the widget's Fade column
+      // agree. The global default fade (1000ms) is untouched: it is
+      // the button default, not the cuelist default.
+      cue.fadeMs = 500
+      const step: CueStepDef = { id: crypto.randomUUID(), cueId: cue.id, fadeMs: 500, holdMs: 0 }
+      const at = index === undefined ? list.steps.length : Math.max(0, Math.min(index, list.steps.length))
+      const steps = [...list.steps]
+      steps.splice(at, 0, step)
+      const cues = [...state.cues, cue]
+      const cueLists = state.cueLists.map((item) => item.id === listId ? { ...item, steps } : item)
       return persistState(state, { cues, cueLists }, { cues, cueLists })
     })
     return cueId
@@ -3482,7 +3579,7 @@ const actions: ShowState = {
 
   addCueList: (name) => {
     // Returns the new list's id, so the caller can place a widget for it
-    // (Live Edit's "New Cue List" inserts the list and its widget in one
+    // (Live Edit's "Insert Cuelist" inserts the list and its widget in one
     // go — there was no UI to create a cue list at all before, so a fresh
     // project could never get a cuelist).
     const id = crypto.randomUUID()
@@ -3540,6 +3637,66 @@ const actions: ShowState = {
     })
     if (activeCleared) get().refreshBaseOutput()
   },
+
+  renumberCueList: (listId, stepIds) =>
+    set((state) => {
+      const list = state.cueLists.find((l) => l.id === listId)
+      if (!list) return state
+      const targets = stepIds ? list.steps.filter((step) => stepIds.includes(step.id)) : list.steps
+      const renamed = renumberCueNames(targets, state.cues)
+      if (!renamed.length) return state
+      const names = new Map(renamed.map((item) => [item.cueId, item.name]))
+      const cues = state.cues.map((cue) => names.has(cue.id) ? { ...cue, name: names.get(cue.id)! } : cue)
+      return persistState(state, { cues }, { cues })
+    }),
+
+  addCueListGroup: (listId, name, afterStepId) => {
+    let groupId = ''
+    set((state) => {
+      const list = state.cueLists.find((l) => l.id === listId)
+      if (!list) return state
+      const { groups, group } = buildCueListGroup(list, name, () => crypto.randomUUID(), afterStepId)
+      groupId = group.id
+      const cueLists = state.cueLists.map((l) => l.id === listId ? { ...l, groups } : l)
+      return persistState(state, { cueLists }, { cueLists })
+    })
+    return groupId
+  },
+
+  addCueListGroupFromSelection: (listId, stepIds, name) => {
+    let groupId = ''
+    set((state) => {
+      const list = state.cueLists.find((l) => l.id === listId)
+      if (!list) return state
+      const { groups, group } = buildCueListGroup(list, name, () => crypto.randomUUID())
+      groupId = group.id
+      const cueLists = state.cueLists.map((l) => l.id === listId
+        ? { ...l, groups, steps: l.steps.map((step) => stepIds.includes(step.id) ? { ...step, groupId: group.id } : step) }
+        : l)
+      return persistState(state, { cueLists }, { cueLists })
+    })
+    return groupId
+  },
+
+  renameCueListGroup: (listId, groupId, name) =>
+    set((state) => {
+      const cueLists = state.cueLists.map((l) => l.id === listId
+        ? { ...l, groups: (l.groups ?? []).map((g) => g.id === groupId ? { ...g, name } : g) }
+        : l)
+      return persistState(state, { cueLists }, { cueLists })
+    }),
+
+  removeCueListGroup: (listId, groupId) =>
+    set((state) => {
+      const cueLists = state.cueLists.map((l) => l.id === listId
+        ? {
+            ...l,
+            groups: (l.groups ?? []).filter((g) => g.id !== groupId),
+            steps: l.steps.map((step) => step.groupId === groupId ? { ...step, groupId: undefined } : step)
+          }
+        : l)
+      return persistState(state, { cueLists }, { cueLists })
+    }),
 
   addCueStep: (listId, cueId) =>
     set((state) => {
@@ -3606,19 +3763,24 @@ const actions: ShowState = {
 
   setActiveCueList: (id) => set({ activeCueListId: id, activeCueIndex: -1, cuePlaying: false }),
 
-  goToCue: (listId, index) =>
+  goToCue: (listId, index, fadeMsOverride) =>
     set((state) => {
       const list = state.cueLists.find((l) => l.id === listId)
       if (!list) return state
       const step = list.steps[index]
       const cue = step ? state.cues.find((s) => s.id === step.cueId) : undefined
       if (!step || !cue) return state
-      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
+      // Activate (Guide ch.11, p.219) jumps instantly — fade 0.
+      // Activate With Fade fades according to the previous cue's fade
+      // time: the caller passes the cue being left's fadeMs.
+      const fadeMs = fadeMsOverride ?? step.fadeMs
+      if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueListId: listId,
         activeCueIndex: index,
         activeCueId: cue.id,
         cuePlaying: true,
+        cuePaused: false,
         cueRevision: state.cueRevision + 1,
         // The jump lands the slider where it is: the jumped-to cue is now
         // the current cue at whatever end the slider rests on, so a drag
@@ -3631,19 +3793,19 @@ const actions: ShowState = {
     set((state) => {
       const list = state.cueLists.find((l) => l.id === state.activeCueListId)
       if (!list || list.steps.length === 0) return state
-      let next = state.activeCueIndex + 1
-      if (next >= list.steps.length) {
-        if (list.loop) next = 0
-        else return { ...state, cuePlaying: false }
-      }
+      // An unchecked cue is skipped (Guide ch.11, p.218); past the
+      // last enabled step the list stops (or wraps when it loops).
+      const next = nextEnabledIndex(list, state.activeCueIndex, 1)
+      if (next < 0) return { ...state, cuePlaying: false, cuePaused: false }
       const step = list.steps[next]
       const cue = state.cues.find((s) => s.id === step.cueId)
-      if (!cue) return { ...state, cuePlaying: false }
+      if (!cue) return { ...state, cuePlaying: false, cuePaused: false }
       if (!state.blackout) sendChannels(cueOutput(state, cue), resolveFadeMs({ explicitFadeMs: step.fadeMs, defaultFadeMs: state.show?.preferences?.defaultFadeMs }))
       return {
         activeCueIndex: next,
         activeCueId: cue.id,
         cuePlaying: true,
+        cuePaused: false,
         cueRevision: state.cueRevision + 1,
         manualCrossfadeAnchor: state.manualCrossfade
       }
@@ -3653,8 +3815,8 @@ const actions: ShowState = {
     set((state) => {
       const list = state.cueLists.find((l) => l.id === state.activeCueListId)
       if (!list || list.steps.length === 0) return state
-      let prev = state.activeCueIndex - 1
-      if (prev < 0) prev = list.loop ? list.steps.length - 1 : 0
+      const prev = nextEnabledIndex(list, state.activeCueIndex, -1)
+      if (prev < 0) return state
       const step = list.steps[prev]
       const cue = state.cues.find((s) => s.id === step.cueId)
       if (!cue) return state
@@ -3663,10 +3825,13 @@ const actions: ShowState = {
         activeCueIndex: prev,
         activeCueId: cue.id,
         cuePlaying: true,
+        cuePaused: false,
         cueRevision: state.cueRevision + 1,
         manualCrossfadeAnchor: state.manualCrossfade
       }
     }),
+
+  setCuePaused: (paused) => set({ cuePaused: paused }),
 
   stopCue: () => {
     const state = get()
@@ -3678,7 +3843,7 @@ const actions: ShowState = {
     // together), so deactivating it is deactivating the list's cue; the
     // list position is kept, so Go resumes from the current step.
     if (state.cuePlaying && state.activeCueId) get().deactivateCue()
-    else set({ cuePlaying: false })
+    else set({ cuePlaying: false, cuePaused: false })
   },
   /**
    * Manual crossfade (8.8a, LightKey Guide ch.11, pp.193, 219): dragging

@@ -102,7 +102,9 @@ describe('Edit Ad Hoc Properties in Live mode', () => {
     act(() => { window.dispatchEvent(new Event('openlights-open-live-properties')) })
     const dialog = container!.querySelector('[role="dialog"]')
     expect(dialog).toBeTruthy()
-    expect(dialog!.getAttribute('aria-label')).toBe('cue properties')
+    // The floating inspector is titled after the control (LightKey,
+    // Jake 27 Nov 2026) — "Full On inspector", not "cue properties".
+    expect(dialog!.getAttribute('aria-label')).toBe('Full On inspector')
     expect(dialog!.textContent).toContain('Ad hoc properties')
   })
 

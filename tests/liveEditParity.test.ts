@@ -61,14 +61,18 @@ describe('Live / Live Edit parity', () => {
   it('shows the cuelist transport in both modes', () => {
     // Go / Back / Stop used to be rendered only when `!editing`.
     expect(workspace).not.toContain('{!editing && list &&')
-    expect(workspace).toContain('onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button>')
+    // The transport is the widget's three pill buttons now (Jake,
+    // 27 Nov 2026 — cuelist widget replication): Go/Stop, Pause,
+    // Next (Shift-click: previous). The glyphs are ▶/■, ❚❚, »/«.
+    expect(workspace).toContain("onClick={() => { if (playing) stopCue(); else if (current >= 0) cueNext(); else if (nextIndex >= 0) goToCue(list.id, nextIndex) }}")
+    expect(workspace).toContain("aria-label={playing ? 'Stop cuelist' : 'Go'}")
     // Arrow calls, not bare handler references: React passes the click
     // event to a bare onClick={stopCue}, and in the Live window that
     // action is an IPC proxy that forwards every argument — Electron's
     // structured clone rejects the event, so Stop/Back silently did
     // nothing there (26 Nov 2026, found by the real-app probe).
-    expect(workspace).toContain('onClick={() => cuePrev()}')
-    expect(workspace).toContain('onClick={() => stopCue()}')
+    expect(workspace).toContain("onClick={(event) => { if (event.shiftKey) cuePrev(); else cueNext() }}")
+    expect(workspace).toContain("onClick={() => setCuePaused(!cuePaused)}")
   })
 
   it('selects the pressed cue button or cue list in both modes, so the inspector follows it', () => {

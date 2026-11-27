@@ -38,13 +38,20 @@ describe('Live window restoration', () => {
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
     const workspace = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
     expect(liveTab).not.toContain('CueListsSection')
-    expect(workspace).toContain('onClick={() => stopCue()}')
-    expect(workspace).toContain('onClick={() => cuePrev()}')
+    // The widget transport calls its actions inside arrows (Jake,
+    // 27 Nov 2026 — cuelist widget replication): Go/Stop wraps
+    // stopCue(), the third button wraps cuePrev()/cueNext().
+    expect(workspace).toContain('if (playing) stopCue(); else if (current >= 0) cueNext();')
+    expect(workspace).toContain('if (event.shiftKey) cuePrev(); else cueNext()')
     expect(workspace).not.toContain('onClick={stopCue}')
     expect(workspace).not.toContain('onClick={cuePrev}')
     expect(liveTab).toContain('onClick={() => clearPresets()}')
     expect(liveTab).not.toContain('onClick={clearPresets}')
-    // The row toggle already called deactivateCue() with no args — pin it.
-    expect(workspace).toContain('deactivateCue()')
+    // Stop still deactivates with no arguments — the call lives in the
+    // store's stopCue now (the row toggle that used to call
+    // deactivateCue() is gone: single-click selects, double-click
+    // activates, Guide ch.11 p.219).
+    const store = readFileSync(resolve(__dirname, '..', 'src/renderer/src/stores/showStore.ts'), 'utf8')
+    expect(store).toContain('if (state.cuePlaying && state.activeCueId) get().deactivateCue()')
   })
 })

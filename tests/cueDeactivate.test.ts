@@ -288,13 +288,17 @@ describe('cue deactivation', () => {
 })
 
 describe('cue toggle wiring (cuelist rows)', () => {
-  it('the cuelist row deactivates when active and activates otherwise', () => {
-    // The cue grid is gone (Jake, 26 Nov 2026 — Option 2): the toggle
-    // lives on the cuelist rows. The rows moved onto the cuelist widget
-    // on the canvas (Jake, 27 Nov 2026 — cuelist as a widget, LightKey's
-    // way; the fixed CueListsSection is gone).
+  it('the cuelist row selects on click and activates on double-click — no click toggle', () => {
+    // The cue grid is gone (Jake, 26 Nov 2026 — Option 2) and so is the
+    // row click-toggle: Guide ch.11 p.219 says a single click SELECTS a
+    // cue and a double-click ACTIVATES it, and Stop deactivates instead
+    // (Jake, 27 Nov 2026 — cuelist widget replication). The rows moved
+    // onto the cuelist widget on the canvas (Jake, 27 Nov 2026 — cuelist
+    // as a widget, LightKey's way; the fixed CueListsSection is gone).
     const workspace = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
-    expect(workspace).toContain('onClick={() => (active ? deactivateCue() : goToCue(list.id, index))}')
+    expect(workspace).toContain('onClick={(event) => selectStep(step.id, event.shiftKey || event.metaKey || event.ctrlKey)}')
+    expect(workspace).toContain('onDoubleClick={() => goToCue(list.id, index)}')
+    expect(workspace).not.toContain('onClick={() => (active ? deactivateCue() : goToCue(list.id, index))}')
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
     expect(liveTab).not.toContain('CueListsSection')
   })

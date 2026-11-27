@@ -1179,15 +1179,17 @@ select optgroup { background: #555658; color: #fff; }
   transform: translate(-50%, calc(-100% - 10px));
 }
 
-/* Live Edit button properties popup: slides in from the right over the
-   canvas (Jake, 18 Nov 2026). The popup scrolls on its own; the canvas
-   behind it does not move. */
-@keyframes live-properties-slide-in {
-  from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+/* Live Edit button properties inspector: LightKey's floating panel
+   (Jake, 27 Nov 2026) — a rounded popover that appears beside the
+   control. The popup scrolls on its own; the canvas behind it does
+   not move. */
+@keyframes live-properties-pop-in {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 .live-properties-popup {
-  animation: live-properties-slide-in 160ms ease-out;
+  animation: live-properties-pop-in 120ms ease-out;
+  transform-origin: top left;
 }
 
 /* Newly patched fixtures fade/scale in when they land on the Preview

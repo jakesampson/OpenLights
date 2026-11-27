@@ -184,6 +184,36 @@ export interface CueStepDef {
   fadeMs: number
   holdMs: number // time to wait before auto-advancing
   groupId?: string
+  /** Unchecked in the cuelist (the ✓ left of the step name): the cue is
+   *  skipped during playback (Guide ch.11, p.218 — "If the checkbox to
+   *  the left of a cue's name is not selected, the cue is skipped").
+   *  Absent = enabled. A direct jump (double-click / Activate) still
+   *  lands on a disabled cue; only sequential advance skips it. */
+  disabled?: boolean
+  /** Modifiers selected for this cue as played in this list (the cue
+   *  inspector's Modifiers checklist, Jake's screenshots 5.22.04 /
+   *  5.22.06) — stored on the step, like a button's modifiers live on
+   *  the button, not on the shared cue. */
+  selectedModifiers?: string[]
+  /** Which aspects the Speed modifier affects for this cue (Guide
+   *  ch.11, pp.206–207). Absent = every applicable aspect. */
+  speedModifierOptions?: string[]
+  /** "Exclude from Live Triggers" for this cue in this list. */
+  excludeFromLiveTriggers?: boolean
+}
+
+/** A cue group inside a cuelist (Guide ch.11, p.192): cues organised
+ *  in groups "for a better overview", collapsible, nestable, with no
+ *  effect on playback order. Groups are named rows in the widget; the
+ *  steps they contain carry the group id. */
+export interface CueListGroupDef {
+  id: string
+  name: string
+  parentId?: string
+  /** Where an empty group's header sits: the step it was inserted
+   *  below (null = the top of the list, undefined = the end). A group
+   *  with member steps anchors before its first member instead. */
+  afterStepId?: string | null
 }
 
 export interface CueListDef {
@@ -191,6 +221,22 @@ export interface CueListDef {
   name: string
   steps: CueStepDef[]
   loop?: boolean
+  /** Cue groups in this list (see CueListGroupDef). */
+  groups?: CueListGroupDef[]
+  /** The cuelist's priority (Guide ch.11, p.190 — "Like buttons and
+   *  frames, cuelists have a priority", set in the cuelist inspector).
+   *  1–9, default 5 (Normal). */
+  priority?: number
+  /** Show the per-row + / − buttons that add and remove cues (Guide
+   *  ch.11, p.190 — "+ – buttons: Deselect to hide the buttons for
+   *  adding and removing cues in each row"). Default true. */
+  showStepButtons?: boolean
+  /** Show the Xfade slider for manual crossfades (Guide ch.11, p.190 —
+   *  "Xfade slider: Deselect to hide the slider for manual
+   *  crossfades"). Default true. */
+  showXfade?: boolean
+  /** Two text sizes for the cuelist (Guide ch.11, p.190). */
+  textSize?: 'normal' | 'large'
 }
 
 export type EffectWaveform = 'sine' | 'triangle' | 'square' | 'saw' | 'random' | 'cosine' | 'pulse' | 'smooth'

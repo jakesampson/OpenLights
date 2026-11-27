@@ -36,12 +36,18 @@ describe('manual crossfade fader UI (8.8a)', () => {
     expect(liveTab).not.toContain('CueListsSection')
     const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
     expect(app).not.toContain('CueListsSection')
-    expect(workspace).toContain('<XfadeSlider listId={list.id} />')
+    expect(workspace).toContain('<XfadeSlider vertical listId={list.id} />')
   })
 
   it('is rendered inside the cuelist widget on the Live page', () => {
-    expect(workspace).toContain('<XfadeSlider listId={list.id} />')
-    // The existing widget transport is untouched.
-    for (const text of ['Stop', 'Back', 'Go', 'Current:', 'Next:']) expect(workspace).toContain(text)
+    expect(workspace).toContain('<XfadeSlider vertical listId={list.id} />')
+    // The widget transport is the three pill buttons (Jake, 27 Nov 2026
+    // — cuelist widget replication): Go/Stop, Pause, Next (Shift-click:
+    // previous) — ▶/■, ❚❚, »/« glyphs with aria-labels, no Back /
+    // Current: / Next: text any more.
+    for (const text of ["aria-label={playing ? 'Stop cuelist' : 'Go'}", "aria-label={cuePaused ? 'Resume cuelist' : 'Pause cuelist'}", 'aria-label="Next cue"', '{goingForward ? \'»\' : \'«\'}']) expect(workspace).toContain(text)
+    // ("Back" alone would also match liveButtonBackground; the old
+    // transport's text buttons are the precise strings.)
+    for (const text of ['>Back</button>', '>Go</button>', 'Current:', 'Next:']) expect(workspace).not.toContain(text)
   })
 })

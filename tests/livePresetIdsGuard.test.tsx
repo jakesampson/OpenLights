@@ -1,7 +1,7 @@
 // A Live control without presetIds (old or hand-edited show) must not
 // blank the app: LiveWorkspace read control.presetIds unguarded in the
-// contents builder, the button label and the inspector Presets block, so
-// switching to the Live tab threw "control.presetIds is not iterable"
+// contents builder, the button label and the inspector contents list,
+// so switching to the Live tab threw "control.presetIds is not iterable"
 // and — with no error boundary anywhere in the renderer — unmounted
 // the whole app (Jake, 27 Nov 2026 — found while probing the Live-panel
 // regression; his own show renders, so his controls have it, but any
@@ -92,14 +92,16 @@ describe('live control without presetIds', () => {
     renderInRoot(<App />)
     switchToLive()
     expect(container!.textContent).toContain('Old Button')
-    // Edit mode + double-click opens the contents inspector (contents
-    // builder + Presets block both read presetIds).
+    // Edit mode + double-click opens the contents inspector (the
+    // contents builder reads presetIds, and must not throw when it is
+    // missing). The cue's ad-hoc values render as the contents row.
     act(() => { useShowStore.getState().setLiveEditing(true) })
     const button = container!.querySelector('[data-project-id="btn1"]')
     expect(button).toBeTruthy()
     act(() => { button!.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
     const dialog = container!.querySelector('[role="dialog"]')
     expect(dialog).toBeTruthy()
-    expect(dialog!.textContent).toContain('Presets (0)')
+    expect(dialog!.querySelector('[aria-label="Cue contents"]')).toBeTruthy()
+    expect(dialog!.textContent).toContain('Ad hoc properties')
   })
 })

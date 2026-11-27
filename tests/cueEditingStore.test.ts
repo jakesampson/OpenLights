@@ -67,6 +67,20 @@ describe('cue editing store', () => {
     expect(next.cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red'])
   })
 
+  it('dropping a preset onto a cuelist step (cue id, no button) adds it to the cue', () => {
+    // The step inspector's drop (Jake, 27 Nov 2026 — cuelist widget
+    // replication): a step has no button, so the drop addresses the cue
+    // definition directly by cue id. The store used to resolve only
+    // control ids here, so the drop silently did nothing (found by the
+    // real-app probe: the drag landed, the drop fired, the cue stayed
+    // empty).
+    useShowStore.getState().dropOnLivePage({ presetIds: ['p-blue'], sequenceIds: [], effectIds: [] }, { kind: 'cue', cueId: 'cue1' })
+    const next = useShowStore.getState()
+    expect(next.cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red', 'p-blue'])
+    useShowStore.getState().undo()
+    expect(useShowStore.getState().cues.find((c) => c.id === 'cue1')?.presetIds).toEqual(['p-red'])
+  })
+
   it('editCueDefContents adds and removes cue ingredients', () => {
     const state = useShowStore.getState()
     state.editCueDefContents('cue1', { type: 'add-sequence', id: 'seq1' })

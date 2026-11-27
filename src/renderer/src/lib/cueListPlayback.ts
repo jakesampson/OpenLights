@@ -10,12 +10,33 @@ export function manualCrossfade(from: Record<number, number>, to: Record<number,
  * Index of the cue a manual crossfade fades to from `index`, or -1 when
  * there is no next cue: past the last step of a non-looping list, a
  * single-step list (looping back would fade a cue into itself), or an
- * index that is not on the list.
+ * index that is not on the list. Disabled steps are skipped — the fade
+ * goes to the next enabled cue (Guide ch.11, p.218: an unchecked cue
+ * is skipped).
  */
 export function manualCrossfadeNextIndex(list: CueListDef, index: number): number {
   if (index < 0 || index >= list.steps.length) return -1
-  if (index + 1 < list.steps.length) return index + 1
-  return list.loop && list.steps.length > 1 ? 0 : -1
+  return nextEnabledIndex(list, index, 1)
+}
+
+/** The next enabled step after `index` (direction +1) or before it
+ *  (direction -1), or -1 when there is none. Wraps when the list
+ *  loops; a single enabled step never wraps onto itself. Used by
+ *  cueNext / cuePrev and the manual crossfade so an unchecked cue is
+ *  skipped in every direction (Guide ch.11, p.218). */
+export function nextEnabledIndex(list: CueListDef, index: number, direction: 1 | -1): number {
+  const steps = list.steps
+  if (!steps.length || index < -1 || index >= steps.length) return -1
+  for (let offset = 1; offset <= steps.length; offset += 1) {
+    let at = index + direction * offset
+    if (list.loop) at = ((at % steps.length) + steps.length) % steps.length
+    else if (at < 0 || at >= steps.length) return -1
+    // A full circle back to the starting step means it is the only
+    // enabled one — never wrap onto itself.
+    if (at === index) return -1
+    if (!steps[at].disabled) return at
+  }
+  return -1
 }
 
 /**

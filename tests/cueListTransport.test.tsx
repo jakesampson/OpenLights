@@ -2,9 +2,13 @@
 // "Make it LightKey's way — cuelist as a widget on the canvas, no fixed
 // bar"): the fixed CueListsSection is gone from both the main Live tab
 // and the separate Live window. The cuelist lives ONLY as a placed
-// widget on the Live canvas, LightKey's way, carrying Stop / Back / Go,
-// Xfade and its steps — including the step toggle (clicking the active
-// step turns its cue off again, Jake 26 Nov 2026 — Option 2).
+// widget on the Live canvas, LightKey's way, carrying the column
+// headers (Name | Hold Time | Fade Time | Xfade), its steps (✓, ▶,
+// Hold, Fade + −), the transport (Go / Stop, Pause, Next / Previous)
+// and the vertical Xfade fader. Step clicks follow the guide (ch.11,
+// p.219): single-click selects, double-click activates; the old step
+// toggle (clicking the active step turns its cue off again, Jake 26
+// Nov 2026 — Option 2) is gone — Stop deactivates instead.
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
@@ -74,9 +78,24 @@ function widgetEl() {
 
 function clickWidgetButton(label: string) {
   const widget = widgetEl()
-  const matches = [...widget.querySelectorAll('button')].filter((b) => b.textContent?.includes(label))
+  const matches = [...widget.querySelectorAll('button')].filter((b) => b.textContent?.includes(label) || b.getAttribute('aria-label')?.includes(label))
   expect(matches, `widget button containing "${label}"`).toHaveLength(1)
   act(() => { matches[0]!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+}
+
+function stepRow(name: string) {
+  const widget = widgetEl()
+  const row = [...widget.querySelectorAll('div')].find((el) => el.getAttribute('aria-label') === name)
+  expect(row, `step row "${name}"`).toBeTruthy()
+  return row!
+}
+
+function clickStep(name: string) {
+  act(() => { stepRow(name).dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+}
+
+function doubleClickStep(name: string) {
+  act(() => { stepRow(name).dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })) })
 }
 
 beforeEach(() => {
@@ -100,22 +119,26 @@ afterEach(() => {
 })
 
 describe('cue-list transport on the canvas widget', () => {
-  it('widget: shows the list, current / next cue, Xfade and Go steps onto Full On', () => {
+  it('widget: shows the LightKey columns, steps and Xfade, and Go steps onto Full On', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
     const widget = widgetEl()
     expect(widget.textContent).toContain('Sunday Set')
-    expect(widget.textContent).toContain('Current: Not started')
-    expect(widget.textContent).toContain('Next: Full On')
+    for (const header of ['Name', 'Hold Time', 'Fade Time', 'Xfade']) expect(widget.textContent).toContain(header)
+    expect(widget.textContent).toContain('Full On')
+    expect(widget.textContent).toContain('Wash Blue')
+    expect(widget.textContent).toContain('—')
+    expect(widget.textContent).toContain('00:00.5')
     expect(widget.querySelector('input[aria-label="Xfade Sunday Set"]')).toBeTruthy()
-    expect(widget.textContent).toContain('Cue 1')
-    expect(widget.textContent).toContain('Cue 2')
+    expect(widget.querySelector('input[aria-label="Include Full On in playback"]')).toBeTruthy()
+    expect(widget.textContent).not.toContain('Current:')
+    expect(widget.textContent).not.toContain('Next:')
     clickWidgetButton('Go')
     expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
     expect(useShowStore.getState().cuePlaying).toBe(true)
-    expect(widgetEl().textContent).toContain('Current: Full On')
-    expect(widgetEl().textContent).toContain('Next: Wash Blue')
+    expect(stepRow('Full On').textContent).toContain('▶')
+    expect(stepRow('Wash Blue').textContent).not.toContain('▶')
   })
 
   it('widget: Stop deactivates the playing cue and Go resumes from the same step', () => {
@@ -131,14 +154,21 @@ describe('cue-list transport on the canvas widget', () => {
     expect(useShowStore.getState().activeCueId).toBe('cue-blue')
   })
 
-  it('widget: a step click jumps to its cue, and clicking the active step turns it off', () => {
+  it('widget: a step single-click selects it and a double-click jumps to its cue (guide p.219)', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
-    clickWidgetButton('Wash Blue')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
-    clickWidgetButton('Wash Blue')
+    clickStep('Wash Blue')
     expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(stepRow('Wash Blue').className).toContain('bg-panel')
+    expect(stepRow('Full On').className).not.toContain('bg-panel')
+    doubleClickStep('Wash Blue')
+    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
+    // Clicking the active step again does NOT turn it off any more —
+    // Stop deactivates (the old step toggle is gone).
+    clickStep('Wash Blue')
+    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
   })
 
   it('widget: with no cue lists there is no fixed transport bar anywhere', () => {
@@ -176,6 +206,6 @@ describe('cue-list transport on the canvas widget', () => {
     expect(container!.querySelector('.cue-transport-compact')).toBeNull()
     clickWidgetButton('Go')
     expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
-    expect(widgetEl().textContent).toContain('Current: Full On')
+    expect(stepRow('Full On').textContent).toContain('▶')
   })
 })

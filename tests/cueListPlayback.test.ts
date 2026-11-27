@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cueGroupRange, manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress } from '../src/renderer/src/lib/cueListPlayback'
+import { cueGroupRange, manualCrossfade, manualCrossfadeNextIndex, manualCrossfadeProgress, nextEnabledIndex } from '../src/renderer/src/lib/cueListPlayback'
 
 const list = { id: 'l', name: 'L', steps: [{ id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 }, { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0 }, { id: 'c', cueId: 'c', fadeMs: 0, holdMs: 0 }], loop: false }
 const looping = { ...list, loop: true }
@@ -34,5 +34,34 @@ describe('manual crossfade fader (8.8a)', () => {
     expect(manualCrossfadeProgress(0, 0.5)).toBe(0.5)
     expect(manualCrossfadeProgress(0, 0)).toBe(0)
     expect(manualCrossfadeProgress(0, 1)).toBe(1)
+  })
+})
+
+describe('skipping unchecked cues (guide p.218)', () => {
+  const withDisabled = {
+    id: 'l', name: 'L',
+    steps: [
+      { id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 },
+      { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0, disabled: true },
+      { id: 'c', cueId: 'c', fadeMs: 0, holdMs: 0 },
+    ],
+    loop: false
+  }
+  it('next / previous skip disabled steps and stop at the ends', () => {
+    expect(nextEnabledIndex(withDisabled, 0, 1)).toBe(2)
+    expect(nextEnabledIndex(withDisabled, 2, -1)).toBe(0)
+    expect(nextEnabledIndex(withDisabled, 2, 1)).toBe(-1)
+    expect(nextEnabledIndex(withDisabled, 0, -1)).toBe(-1)
+    // From "not started" the next cue is the first enabled one.
+    expect(nextEnabledIndex(withDisabled, -1, 1)).toBe(0)
+    expect(manualCrossfadeNextIndex(withDisabled, 0)).toBe(2)
+    expect(manualCrossfadeNextIndex(withDisabled, -1)).toBe(-1)
+  })
+  it('a looping list never wraps onto the only enabled step', () => {
+    const looping = { ...withDisabled, loop: true, steps: [{ id: 'a', cueId: 'a', fadeMs: 0, holdMs: 0 }, { id: 'b', cueId: 'b', fadeMs: 0, holdMs: 0, disabled: true }] }
+    expect(nextEnabledIndex(looping, 0, 1)).toBe(-1)
+    expect(nextEnabledIndex(looping, 0, -1)).toBe(-1)
+    const twoEnabled = { ...withDisabled, loop: true }
+    expect(nextEnabledIndex(twoEnabled, 2, 1)).toBe(0)
   })
 })

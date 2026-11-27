@@ -80,9 +80,11 @@ describe('Live Edit — LightKey layout', () => {
 
   it('has a LightKey right-click context menu on the canvas', () => {
     expect(workspace).toContain('aria-label="Live edit actions"')
-    // "New Cue List" (Jake, 26 Nov 2026): there was no UI to create a cue
-    // list at all, so "Insert Cuelist" stayed disabled in a fresh project.
-    for (const item of ['New Button', 'New Cue List', 'Insert Text', 'Insert Cuelist', 'Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', '✓ Return to Live', 'Edit Live View']) {
+    // "Insert Cuelist" creates the list and its widget in one go
+    // (Jake's screenshot 5.20.12: LightKey's canvas menu has only
+    // "Insert Cuelist" — no separate "New Cue List" — and on a fresh
+    // page it produces the empty widget).
+    for (const item of ['New Button', 'Insert Text', 'Insert Cuelist', 'Cut', 'Copy', 'Paste', 'Duplicate', 'Delete', '✓ Return to Live', 'Edit Live View']) {
       expect(workspace).toContain(item)
     }
     expect(workspace).toContain('snapCanvasPoint')

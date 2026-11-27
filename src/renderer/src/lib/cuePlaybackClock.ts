@@ -7,7 +7,9 @@ export function startCuePlaybackClock(): () => void {
   const update = () => {
     const state = useShowStore.getState()
     const step = state.cueLists.find((list) => list.id === state.activeCueListId)?.steps[state.activeCueIndex]
-    const valid = state.cuePlaying && step && Number.isFinite(step.holdMs) && step.holdMs > 0
+    // Paused (the ❚❚ transport button, Guide ch.11, p.218): the hold
+    // time stops running while the current cue stays lit.
+    const valid = state.cuePlaying && !state.cuePaused && step && Number.isFinite(step.holdMs) && step.holdMs > 0
     const key = valid ? `${state.cueRevision}:${state.activeCueListId}:${state.activeCueIndex}:${step.id}:${step.holdMs}` : ''
     if (key === scheduled) return
     if (timer !== null) clearTimeout(timer)
