@@ -10,7 +10,6 @@ import { WorkspaceToolbar } from './components/WorkspaceToolbar'
 import { ProjectSearch } from './components/ProjectSearch'
 import { SHORTCUTS, buildShortcutsList, matchShortcut } from './lib/shortcuts'
 import { LiveTab } from './components/LiveTab'
-import { CueListsSection } from './components/CueListsSection'
 import { LiveWorkspace } from './components/LiveWorkspace'
 import { MasterFader } from './components/MasterFader'
 import { StagePreview } from './components/StagePreview'
@@ -788,24 +787,15 @@ export default function App() {
           </div>
           <div className={`bottom-panel-body ${tab === 'Live' ? 'live-page-shell flex flex-col' : 'playback-shell'}`}>
             {tab === 'Live' ? <>
-              {/* Canvas floor (Jake, 27 Nov 2026): the transport used to
-                  squeeze this wrapper to 2px and hide every Live button.
-                  The bottom panel is 294px and the slim transport is
-                  ~33px, so a 200px floor fits and the disclosed steps
-                  scroll the panel instead of collapsing the canvas. */}
+              {/* Canvas floor (Jake, 27 Nov 2026): the fixed cue-list
+                  transport used to squeeze this wrapper to 2px and hide
+                  every Live button. The bar is gone — the cuelist lives
+                  only as a placed widget on the canvas, LightKey's way —
+                  but the 200px floor stays as a guard in the 294px
+                  bottom panel, so the canvas can never collapse again. */}
               <div className="min-h-[200px] flex-1">
               <LiveWorkspace masterOverlay toolbarHost={liveToolbarHost} />
               </div>
-              {/* Cue-list transport (Jake, 27 Nov 2026 — "nothing is
-                  visible to see that or turn it off"): the main window
-                  used to show no trace of the active cuelist, so a Go
-                  (context menu, Space) could step onto a cue like "Full
-                  On" with nothing visible to explain it or stop it.
-                  The compact transport — list, current / next cue,
-                  Stop / Back / Go — sits below the canvas; its steps
-                  and Xfade are behind a disclosure. The separate Live
-                  window keeps the full section (LiveTab). */}
-              <CueListsSection variant="compact" />
             </> : <BottomPlayback effectTabHost={effectTabHost} effectToolsHost={effectToolsHost} chooserLeftHost={chooserLeftHost} chooserSearchHost={chooserSearchHost} movementChartHost={movementChartHost} />}
           </div>
         </div>

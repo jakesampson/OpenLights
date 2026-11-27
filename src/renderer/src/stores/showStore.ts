@@ -213,6 +213,7 @@ interface ShowState {
   setStartupMode: (mode: 'none' | 'restore') => void
   showForSave: () => ShowDef | null
   setLivePages: (pages: LivePage[]) => void
+  setControlCue: (controlId: string, cueId: string | undefined) => void
   dropOnLivePage: (payload: LiveDropPayload, target: LiveDropTarget, split?: boolean) => void
   setLiveValue: (id: string, value: number) => void
   getLiveOutputLevels: () => Record<string, number>
@@ -797,6 +798,38 @@ function buildNewCue(state: ShowState, explicit?: { presetIds?: string[]; sequen
     fixtureValues: newCueAdHocValues(fixtures, state.manualOverrides),
     fadeMs: state.show?.preferences?.defaultFadeMs ?? 1000
   }
+}
+
+/**
+ * Reference-counted cue deletion (Jake, 27 Nov 2026 — "if a cue is
+ * deleted off the canvas... kaboooom its deleted from memory"): a cue
+ * exists only on the canvas — a Live button or a cuelist step. Given the
+ * collections AFTER a removal, drop every candidate cue that no Live
+ * button on any page, no cuelist step, and no clipboard control
+ * references any more. The clipboard counts so Cut keeps the cue alive
+ * for a paste-back; a cue still referenced anywhere is never deleted.
+ * Existing orphans are NOT swept here — this runs only on the removal
+ * paths below, going forward (PRBC Default's ~200 orphan cues stay
+ * untouched until Jake decides). Returns the swept cue ids alongside
+ * the next cue list so callers can clear an active cue that just died.
+ */
+function sweepUnreferencedCues(
+  cues: CueDef[],
+  livePages: LivePage[],
+  cueLists: CueListDef[],
+  candidates: Iterable<string>,
+  clipboard?: PageClipboard | null
+): { cues: CueDef[]; swept: string[] } {
+  const wanted = new Set(candidates)
+  if (!wanted.size) return { cues, swept: [] }
+  const referenced = new Set<string>()
+  for (const page of livePages) for (const control of page.controls) if (control.cueId) referenced.add(control.cueId)
+  for (const list of cueLists) for (const step of list.steps) referenced.add(step.cueId)
+  for (const control of clipboard?.controls ?? []) if (control.cueId) referenced.add(control.cueId)
+  const swept = [...wanted].filter((id) => !referenced.has(id))
+  if (!swept.length) return { cues, swept: [] }
+  const doomed = new Set(swept)
+  return { cues: cues.filter((cue) => !doomed.has(cue.id)), swept }
 }
 
 export function nextFreeChannel(fixtures: FixtureDef[]): number {
@@ -1493,6 +1526,24 @@ const actions: ShowState = {
     return { ...state.show, startup: { mode: 'restore', presetIds: [...state.activePresetIds], liveValues: Object.fromEntries(Object.entries(state.activeLiveValues).filter(([, value]) => value > 0)), pageId: state.activeLivePageId, cueId: state.activeCueId } }
   },
   setLivePages: (livePages) => set((state) => saveLivePages(state, livePages)),
+  setControlCue: (controlId, cueId) => {
+    const state = get()
+    const page = activeLivePage(state)
+    const control = page?.controls.find((c) => c.id === controlId)
+    if (!page || !control || control.cueId === cueId) return
+    const oldId = control.cueId
+    const nextPages = state.show!.livePages!.map((item) =>
+      item.id === page.id
+        ? { ...item, controls: item.controls.map((c) => c.id === controlId ? { ...c, cueId } : c) }
+        : item
+    )
+    // Unlinking a button's cue (Jake, 27 Nov 2026): the old cue is
+    // deleted from memory when nothing else references it.
+    const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, state.cueLists, oldId ? [oldId] : [], state.pageClipboard)
+    const activeCleared = swept.includes(state.activeCueId ?? '')
+    set((s) => persistState(s, { livePages: nextPages, cues }, { cues, ...(activeCleared ? { activeCueId: null } : {}) }))
+    if (activeCleared) get().refreshBaseOutput()
+  },
   dropOnLivePage: (payload, target, split) => set((state) => {
     const page = activeLivePage(state)
     if (!page || !state.show) return state
@@ -1747,25 +1798,48 @@ const actions: ShowState = {
     if (!page) return state
     return saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? { ...item, controls: item.controls.map((control) => control.id === controlId ? { ...control, frameStep: action } : control) } : item))
   }),
-  editCueListCommand: (listId, command) => set((state) => {
-    const cueLists = state.cueLists.map((list) => list.id === listId ? applyCueListCommand(list, command) : list)
-    return persistState(state, { cueLists }, { cueLists })
-  }),
-  deleteSelectedPageObjects: () => set((state) => {
-    const page = activeLivePage(state)
-    if (!page || !state.selectedPageObjects.length) return state
-    const deletedIds = new Set(state.selectedPageObjects.filter((ref) => ref.type === 'cue').map((ref) => ref.id))
-    const activeLiveValues = Object.fromEntries(Object.entries(state.activeLiveValues).filter(([id]) => !deletedIds.has(id)))
-    const pageActiveValues = Object.fromEntries(Object.entries(state.pageActiveValues).map(([pageId, values]) =>
-      [pageId, Object.fromEntries(Object.entries(values).filter(([id]) => !deletedIds.has(id)))]
-    ))
-    return {
-      ...saveLivePages(state, state.show!.livePages!.map((item) => item.id === page.id ? deleteObjects(page, state.selectedPageObjects) : item)),
-      activeLiveValues,
-      pageActiveValues,
-      selectedPageObjects: []
-    }
-  }),
+  editCueListCommand: (listId, command) => {
+    const state = get()
+    const list = state.cueLists.find((l) => l.id === listId)
+    // 'remove' drops a step; 'rename-step' re-points one — either way the
+    // OLD cue may have just lost its last reference (Jake, 27 Nov 2026:
+    // removing a cue from a cuelist deletes it from memory when nothing
+    // else references it).
+    const oldStep = command.type === 'remove' || command.type === 'rename-step'
+      ? list?.steps.find((step) => step.id === command.id)
+      : undefined
+    const nextLists = state.cueLists.map((item) => item.id === listId ? applyCueListCommand(item, command) : item)
+    const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], nextLists, oldStep ? [oldStep.cueId] : [], state.pageClipboard)
+    const activeCleared = swept.includes(state.activeCueId ?? '')
+    set((s) => persistState(s, { cueLists: nextLists, cues }, { cueLists: nextLists, cues, ...(activeCleared ? { activeCueId: null } : {}) }))
+    if (activeCleared) get().refreshBaseOutput()
+  },
+  deleteSelectedPageObjects: () => {
+    let activeCleared = false
+    set((state) => {
+      const page = activeLivePage(state)
+      if (!page || !state.selectedPageObjects.length) return state
+      const deletedIds = new Set(state.selectedPageObjects.filter((ref) => ref.type === 'cue').map((ref) => ref.id))
+      const activeLiveValues = Object.fromEntries(Object.entries(state.activeLiveValues).filter(([id]) => !deletedIds.has(id)))
+      const pageActiveValues = Object.fromEntries(Object.entries(state.pageActiveValues).map(([pageId, values]) =>
+        [pageId, Object.fromEntries(Object.entries(values).filter(([id]) => !deletedIds.has(id)))]
+      ))
+      const nextPages = state.show!.livePages!.map((item) => item.id === page.id ? deleteObjects(page, state.selectedPageObjects) : item)
+      // Deleting a cue button off the canvas (Jake, 27 Nov 2026): its cue
+      // is deleted from memory when nothing else references it. One
+      // persistState so the undo entry covers both the button and the cue.
+      const deletedCueIds = page.controls.filter((c) => deletedIds.has(c.id)).map((c) => c.cueId).filter((id): id is string => Boolean(id))
+      const { cues, swept } = sweepUnreferencedCues(state.cues, nextPages, state.cueLists, deletedCueIds, state.pageClipboard)
+      activeCleared = swept.includes(state.activeCueId ?? '')
+      return {
+        ...persistState(state, { livePages: nextPages, cues }, { cues, ...(activeCleared ? { activeCueId: null } : {}) }),
+        activeLiveValues,
+        pageActiveValues,
+        selectedPageObjects: []
+      }
+    })
+    if (activeCleared) get().refreshBaseOutput()
+  },
   duplicateSelectedPageObjects: () => set((state) => {
     const page = activeLivePage(state)
     if (!page || !state.selectedPageObjects.length) return state
@@ -3391,21 +3465,31 @@ const actions: ShowState = {
       return persistState(state, { cueLists }, { cueLists })
     }),
 
-  removeCueList: (id) =>
+  removeCueList: (id) => {
+    let activeCleared = false
     set((state) => {
+      const removed = state.cueLists.find((l) => l.id === id)
       const cueLists = state.cueLists.filter((l) => l.id !== id)
+      // Deleting a cuelist (Jake, 27 Nov 2026): every step cue that
+      // nothing else references is deleted from memory with it.
+      const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], cueLists, removed?.steps.map((step) => step.cueId) ?? [], state.pageClipboard)
+      activeCleared = swept.includes(state.activeCueId ?? '')
       return persistState(
         state,
-        { cueLists },
+        { cueLists, cues },
         {
           cueLists,
+          cues,
           activeCueListId:
             state.activeCueListId === id ? (cueLists[0]?.id ?? null) : state.activeCueListId,
           activeCueIndex: state.activeCueListId === id ? -1 : state.activeCueIndex,
-          cuePlaying: state.activeCueListId === id ? false : state.cuePlaying
+          cuePlaying: state.activeCueListId === id ? false : state.cuePlaying,
+          ...(activeCleared ? { activeCueId: null } : {})
         }
       )
-    }),
+    })
+    if (activeCleared) get().refreshBaseOutput()
+  },
 
   addCueStep: (listId, cueId) =>
     set((state) => {
@@ -3437,15 +3521,24 @@ const actions: ShowState = {
       return persistState(state, { cueLists }, { cueLists })
     }),
 
-  removeCueStep: (listId, stepId) =>
+  removeCueStep: (listId, stepId) => {
+    let activeCleared = false
     set((state) => {
-      const cueLists = state.cueLists.map((list) =>
-        list.id === listId
-          ? { ...list, steps: list.steps.filter((step) => step.id !== stepId) }
-          : list
+      const list = state.cueLists.find((l) => l.id === listId)
+      const step = list?.steps.find((s) => s.id === stepId)
+      const cueLists = state.cueLists.map((item) =>
+        item.id === listId
+          ? { ...item, steps: item.steps.filter((s) => s.id !== stepId) }
+          : item
       )
-      return persistState(state, { cueLists }, { cueLists })
-    }),
+      // Removing a cue from a cuelist (Jake, 27 Nov 2026): the cue is
+      // deleted from memory when nothing else references it.
+      const { cues, swept } = sweepUnreferencedCues(state.cues, state.show?.livePages ?? [], cueLists, step ? [step.cueId] : [], state.pageClipboard)
+      activeCleared = swept.includes(state.activeCueId ?? '')
+      return persistState(state, { cueLists, cues }, { cueLists, cues, ...(activeCleared ? { activeCueId: null } : {}) })
+    })
+    if (activeCleared) get().refreshBaseOutput()
+  },
 
   moveCueStep: (listId, stepId, direction) =>
     set((state) => {

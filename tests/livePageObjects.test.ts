@@ -97,10 +97,12 @@ describe('live page multi-object logic (7.5)', () => {
     const clip = copyObjects(page, [cue('c1'), { type: 'list', id: 'w1' }])
     let n = 0
     const { page: next, refs } = pasteObjects(page, clip, () => `new-${++n}`, 10, 10)
-    expect(refs.map((r) => r.id)).toEqual(['new-1', 'new-2'])
+    // One cuelist widget per page (Jake, 27 Nov 2026): the page already
+    // has w1, so the pasted widget is dropped — only the button lands.
+    expect(refs.map((r) => r.id)).toEqual(['new-1'])
     expect(next.controls.map((c) => c.id)).toEqual(['c1', 'c2', 'new-1'])
     expect(next.controls[2]).toMatchObject({ x: 30, y: 30 })
-    expect(next.cueListWidgets!.map((w) => w.id)).toEqual(['w1', 'new-2'])
+    expect(next.cueListWidgets!.map((w) => w.id)).toEqual(['w1'])
     expect(page.controls).toHaveLength(2)
   })
 
@@ -247,5 +249,54 @@ describe('live object text styles (7.8)', () => {
 
     const frame = setObjectStyle(page, { type: 'annotation', id: 'a1' }, { italic: true })
     expect(frame.annotations![0].style).toEqual({ ...DEFAULT_OBJECT_STYLES.frame, italic: true })
+  })
+})
+
+describe('one cuelist widget per page (Jake, 27 Nov 2026 — cuelist as a canvas widget, LightKey: a page can\'t contain more than one cuelist)', () => {
+  const widgetClipboard = () => ({
+    controls: [],
+    widgets: [{ id: 'w2', cueListId: 'list', x: 100, y: 100 }],
+    annotations: []
+  })
+
+  it('pasting a widget onto a page that already has one drops it', () => {
+    const page = makePage()
+    const pasted = pasteObjects(page, widgetClipboard(), () => 'new-id')
+    expect(pasted.page.cueListWidgets).toHaveLength(1)
+    expect(pasted.page.cueListWidgets![0].id).toBe('w1')
+    expect(pasted.refs).toEqual([])
+  })
+
+  it('pasting a widget onto a page with none keeps exactly one, even from a clipboard with two', () => {
+    const page = makePage()
+    page.cueListWidgets = []
+    const clipboard = {
+      controls: [],
+      widgets: [
+        { id: 'w2', cueListId: 'list', x: 100, y: 100 },
+        { id: 'w3', cueListId: 'list', x: 200, y: 100 }
+      ],
+      annotations: []
+    }
+    const pasted = pasteObjects(page, clipboard, () => 'new-id')
+    expect(pasted.page.cueListWidgets).toHaveLength(1)
+    expect(pasted.refs).toHaveLength(1)
+    expect(pasted.refs[0]).toEqual({ type: 'list', id: 'new-id' })
+  })
+
+  it('duplicating a widget on its own page does not create a second one', () => {
+    const page = makePage()
+    const duplicated = duplicateObjects(page, [{ type: 'list', id: 'w1' }], () => 'new-id')
+    expect(duplicated.page.cueListWidgets).toHaveLength(1)
+    expect(duplicated.page.cueListWidgets![0].id).toBe('w1')
+    expect(duplicated.refs).toEqual([])
+  })
+
+  it('pasting buttons still works when the widget is dropped', () => {
+    const page = makePage()
+    const clipboard = { controls: [{ id: 'c9', name: 'Nine', type: 'toggle', presetIds: [], x: 0, y: 0 }], widgets: [{ id: 'w2', cueListId: 'list', x: 100, y: 100 }], annotations: [] }
+    const pasted = pasteObjects(page, clipboard as never, () => 'new-id')
+    expect(pasted.page.controls.map((c) => c.id)).toContain('new-id')
+    expect(pasted.page.cueListWidgets).toHaveLength(1)
   })
 })

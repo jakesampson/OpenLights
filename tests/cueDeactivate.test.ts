@@ -290,13 +290,13 @@ describe('cue deactivation', () => {
 describe('cue toggle wiring (cuelist rows)', () => {
   it('the cuelist row deactivates when active and activates otherwise', () => {
     // The cue grid is gone (Jake, 26 Nov 2026 — Option 2): the toggle
-    // lives on the cuelist rows. The rows moved from LiveTab into the
-    // shared CueListsSection (Jake, 27 Nov 2026 — the main window's
-    // Live tab shows the compact transport too).
-    const section = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/CueListsSection.tsx'), 'utf8')
-    expect(section).toContain('onClick={() => (active ? deactivateCue() : goToCue(list.id, index))}')
+    // lives on the cuelist rows. The rows moved onto the cuelist widget
+    // on the canvas (Jake, 27 Nov 2026 — cuelist as a widget, LightKey's
+    // way; the fixed CueListsSection is gone).
+    const workspace = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
+    expect(workspace).toContain('onClick={() => (active ? deactivateCue() : goToCue(list.id, index))}')
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
-    expect(liveTab).toContain('<CueListsSection />')
+    expect(liveTab).not.toContain('CueListsSection')
   })
 
   it('neither Live view renders a cue grid any more', () => {

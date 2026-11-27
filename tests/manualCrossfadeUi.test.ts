@@ -8,11 +8,11 @@ import { resolve } from 'node:path'
 // The live-output behaviour is covered at the store level in
 // tests/store.test.ts and the pure helpers in
 // tests/cueListPlayback.test.ts; these tests prove the UI wiring — the
-// slider is rendered inside both cuelist surfaces and drives the store.
+// slider is rendered inside the cuelist widget on the Live page and
+// drives the store.
 describe('manual crossfade fader UI (8.8a)', () => {
   const root = resolve(__dirname, '..')
   const slider = readFileSync(resolve(root, 'src/renderer/src/components/XfadeSlider.tsx'), 'utf8')
-  const section = readFileSync(resolve(root, 'src/renderer/src/components/CueListsSection.tsx'), 'utf8')
   const liveTab = readFileSync(resolve(root, 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
   const workspace = readFileSync(resolve(root, 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
 
@@ -30,14 +30,13 @@ describe('manual crossfade fader UI (8.8a)', () => {
     expect(slider).toContain('disabled={disabled}')
   })
 
-  it('is rendered inside the cuelist in the Live tab Cue Lists section', () => {
-    // The section moved from LiveTab into the shared CueListsSection
-    // (Jake, 27 Nov 2026); LiveTab renders it, and the main window's
-    // Live tab renders the compact variant.
-    expect(section).toContain('<XfadeSlider listId={list.id} />')
-    expect(liveTab).toContain('<CueListsSection />')
-    // The existing cuelist transport is untouched.
-    for (const text of ['Stop', 'Back', 'Go', 'Current', 'Next']) expect(section).toContain(text)
+  it('lives only in the cuelist widget — there is no fixed Cue Lists section any more', () => {
+    // Jake, 27 Nov 2026 — cuelist as a canvas widget, LightKey's way;
+    // the fixed CueListsSection is gone from both Live views.
+    expect(liveTab).not.toContain('CueListsSection')
+    const app = readFileSync(resolve(root, 'src/renderer/src/App.tsx'), 'utf8')
+    expect(app).not.toContain('CueListsSection')
+    expect(workspace).toContain('<XfadeSlider listId={list.id} />')
   })
 
   it('is rendered inside the cuelist widget on the Live page', () => {

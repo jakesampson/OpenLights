@@ -1,17 +1,17 @@
-// Cue-list transport in the main Live tab (Jake, 27 Nov 2026 —
-// "nothing is visible to see that or turn it off"): the main window
-// used to show no trace of the active cuelist, so a Go (context menu,
-// Space) could step onto a cue like "Full On" with nothing visible to
-// explain it or stop it. The compact transport below the canvas shows
-// the list, the current / next cue, and Stop / Back / Go; the separate
-// Live window keeps the full section.
+// Cue-list transport on the canvas widget (Jake, 27 Nov 2026 —
+// "Make it LightKey's way — cuelist as a widget on the canvas, no fixed
+// bar"): the fixed CueListsSection is gone from both the main Live tab
+// and the separate Live window. The cuelist lives ONLY as a placed
+// widget on the Live canvas, LightKey's way, carrying Stop / Back / Go,
+// Xfade and its steps — including the step toggle (clicking the active
+// step turns its cue off again, Jake 26 Nov 2026 — Option 2).
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import React from 'react'
 import { act } from 'react-dom/test-utils'
 import { createRoot, type Root } from 'react-dom/client'
 import App from '../src/renderer/src/App'
-import { CueListsSection } from '../src/renderer/src/components/CueListsSection'
+import { LiveTab } from '../src/renderer/src/components/LiveTab'
 import { useShowStore } from '../src/renderer/src/stores/showStore'
 import { migrateShow } from '../src/shared/migrations'
 import type { ShowDef } from '../src/shared/types'
@@ -54,7 +54,7 @@ function seedShow(cueLists: unknown[] = [{ id: 'list1', name: 'Sunday Set', step
     cues: [FULL_ON, WASH_BLUE],
     cueLists,
     presets: [],
-    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [] }],
+    livePages: [{ id: 'page1', name: 'Page', fadeMs: 0, controls: [], cueListWidgets: cueLists.length ? [{ id: 'w1', cueListId: 'list1', x: 20, y: 20, width: 240, height: 240 }] : [] }],
   } as unknown as ShowDef))
   act(() => { useShowStore.setState({ activeLivePageId: 'page1' }) })
 }
@@ -66,9 +66,16 @@ function switchToLive() {
   expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeTruthy()
 }
 
-function clickButton(label: string) {
-  const matches = [...(container?.querySelectorAll('button') ?? [])].filter((b) => b.textContent?.includes(label))
-  expect(matches, `button containing "${label}"`).toHaveLength(1)
+function widgetEl() {
+  const widget = [...container!.querySelectorAll('div')].find((el) => el.className.includes('absolute') && el.textContent?.includes('Sunday Set'))
+  expect(widget, 'cuelist widget on the canvas').toBeTruthy()
+  return widget!
+}
+
+function clickWidgetButton(label: string) {
+  const widget = widgetEl()
+  const matches = [...widget.querySelectorAll('button')].filter((b) => b.textContent?.includes(label))
+  expect(matches, `widget button containing "${label}"`).toHaveLength(1)
   act(() => { matches[0]!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
 }
 
@@ -92,112 +99,83 @@ afterEach(() => {
   container = undefined
 })
 
-describe('cue-list transport', () => {
-  it('compact: shows the list, current / next cue, and Go steps onto Full On', () => {
-    seedShow()
-    renderInRoot(<CueListsSection variant="compact" />)
-    expect(container!.textContent).toContain('Sunday Set')
-    expect(container!.textContent).toContain('Press Go to begin')
-    expect(container!.textContent).toContain('Current: Not started')
-    expect(container!.textContent).toContain('Next: Full On')
-    clickButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
-    expect(useShowStore.getState().cuePlaying).toBe(true)
-    expect(container!.textContent).toContain('Cue 1 of 2 · running')
-    expect(container!.textContent).toContain('Current: Full On')
-    expect(container!.textContent).toContain('Next: Wash Blue')
-  })
-
-  it('compact: Stop deactivates the playing cue and Go resumes from the same step', () => {
-    seedShow()
-    renderInRoot(<CueListsSection variant="compact" />)
-    clickButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
-    clickButton('Stop')
-    expect(useShowStore.getState().activeCueId).toBeNull()
-    expect(useShowStore.getState().cuePlaying).toBe(false)
-    expect(container!.textContent).toContain('Cue 1 of 2 · stopped')
-    clickButton('Go')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
-  })
-
-  it('compact: the steps and Xfade sit behind a disclosure, and a step click jumps to its cue', () => {
-    seedShow()
-    renderInRoot(<CueListsSection variant="compact" />)
-    expect(container!.textContent).not.toContain('Cue 2')
-    clickButton('Show steps ▸')
-    expect(container!.textContent).toContain('Cue 2')
-    clickButton('Wash Blue')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
-  })
-
-  it('compact: with no cue lists it says so instead of showing nothing', () => {
-    seedShow([])
-    renderInRoot(<CueListsSection variant="compact" />)
-    expect(container!.textContent).toContain('Create or select cue lists from Live Edit.')
-  })
-
-  it('full: shows Current / Next boxes, Xfade and every step (separate Live window)', () => {
-    seedShow()
-    renderInRoot(<CueListsSection variant="full" />)
-    expect(container!.textContent).toContain('Current')
-    expect(container!.textContent).toContain('Next')
-    expect(container!.textContent).toContain('Cue 2')
-    clickButton('Go')
-    expect(container!.textContent).toContain('Cue 1 of 2 · running')
-  })
-
-  it('compact: with two lists it shows one slim bar for the active list, with a picker to switch', () => {
-    seedShow([
-      { id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-fullon', fadeMs: 500, holdMs: 0 }, { id: 's2', cueId: 'cue-blue', fadeMs: 500, holdMs: 0 }] },
-      { id: 'list2', name: 'Full', steps: [{ id: 's3', cueId: 'cue-blue', fadeMs: 1000, holdMs: 0 }] },
-    ])
-    renderInRoot(<CueListsSection variant="compact" />)
-    // The active (first) list only — two per-list boxes used to squeeze
-    // the Live canvas to 2px and hide every button (Jake, 27 Nov 2026).
-    expect(container!.querySelectorAll('select[aria-label="Cue list"]')).toHaveLength(1)
-    const picker = container!.querySelector('select[aria-label="Cue list"]') as HTMLSelectElement
-    expect(picker.value).toBe('list1')
-    expect(container!.textContent).toContain('Sunday Set')
-    act(() => {
-      picker.value = 'list2'
-      picker.dispatchEvent(new window.Event('change', { bubbles: true }))
-    })
-    expect(container!.textContent).toContain('Full')
-    expect(container!.textContent).toContain('Next: Wash Blue · 1s fade')
-    // Go on the displayed (non-active) list starts that list.
-    clickButton('Go')
-    expect(useShowStore.getState().activeCueListId).toBe('list2')
-    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
-  })
-
-  it('compact: the bar starts clear of the Master fader (102px inset)', () => {
-    seedShow()
-    renderInRoot(<CueListsSection variant="compact" />)
-    // The fader column ends at 106px from the panel edge and the body
-    // adds 6px of padding, so the bar needs 102px to clear it by 2px.
-    const section = container!.querySelector('section')
-    expect(section).toBeTruthy()
-    expect(window.getComputedStyle(section!).paddingLeft).toBe('102px')
-  })
-
-  it('main window: the compact transport sits in the Live tab below the canvas', () => {
+describe('cue-list transport on the canvas widget', () => {
+  it('widget: shows the list, current / next cue, Xfade and Go steps onto Full On', () => {
     seedShow()
     renderInRoot(<App />)
     switchToLive()
-    const body = container!.querySelector('.live-page-shell')
-    expect(body).toBeTruthy()
-    expect(body!.textContent).toContain('Sunday Set')
-    expect(body!.textContent).toContain('Next: Full On')
-    // The canvas is still there, above the transport.
-    const canvas = container!.querySelector('[aria-label="Live page canvas"]')
-    expect(canvas).toBeTruthy()
-    expect(body!.contains(canvas)).toBe(true)
-    // DOM order: the canvas wrapper comes before the transport section.
-    const transport = [...container!.querySelectorAll('.live-page-shell section')].find((s) => s.textContent?.includes('Sunday Set'))
-    expect(transport).toBeTruthy()
-    expect(canvas!.compareDocumentPosition(transport!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
-    clickButton('Go')
+    const widget = widgetEl()
+    expect(widget.textContent).toContain('Sunday Set')
+    expect(widget.textContent).toContain('Current: Not started')
+    expect(widget.textContent).toContain('Next: Full On')
+    expect(widget.querySelector('input[aria-label="Xfade Sunday Set"]')).toBeTruthy()
+    expect(widget.textContent).toContain('Cue 1')
+    expect(widget.textContent).toContain('Cue 2')
+    clickWidgetButton('Go')
     expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(useShowStore.getState().cuePlaying).toBe(true)
+    expect(widgetEl().textContent).toContain('Current: Full On')
+    expect(widgetEl().textContent).toContain('Next: Wash Blue')
+  })
+
+  it('widget: Stop deactivates the playing cue and Go resumes from the same step', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    clickWidgetButton('Go')
+    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    clickWidgetButton('Stop')
+    expect(useShowStore.getState().activeCueId).toBeNull()
+    expect(useShowStore.getState().cuePlaying).toBe(false)
+    clickWidgetButton('Go')
+    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+  })
+
+  it('widget: a step click jumps to its cue, and clicking the active step turns it off', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    clickWidgetButton('Wash Blue')
+    expect(useShowStore.getState().activeCueId).toBe('cue-blue')
+    clickWidgetButton('Wash Blue')
+    expect(useShowStore.getState().activeCueId).toBeNull()
+  })
+
+  it('widget: with no cue lists there is no fixed transport bar anywhere', () => {
+    seedShow([])
+    renderInRoot(<App />)
+    switchToLive()
+    expect(container!.querySelector('.cue-transport-compact')).toBeNull()
+    expect(container!.textContent).not.toContain('Create or select cue lists from Live Edit.')
+    expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeTruthy()
+  })
+
+  it('main window: with two lists the widget shows its own list and no fixed bar exists', () => {
+    seedShow([
+      { id: 'list1', name: 'Sunday Set', steps: [{ id: 's1', cueId: 'cue-fullon', fadeMs: 500, holdMs: 0 }, { id: 's2', cueId: 'cue-blue', fadeMs: 500, holdMs: 0 }] },
+      { id: 'list2', name: 'Evening Set', steps: [{ id: 's3', cueId: 'cue-blue', fadeMs: 1000, holdMs: 0 }] },
+    ])
+    renderInRoot(<App />)
+    switchToLive()
+    expect(container!.querySelector('.cue-transport-compact')).toBeNull()
+    const widget = widgetEl()
+    expect(widget.textContent).toContain('Sunday Set')
+    expect(widget.textContent).not.toContain('Evening Set')
+    // The widget sits on the canvas, not below it.
+    const canvas = container!.querySelector('[aria-label="Live page canvas"]')
+    expect(canvas!.contains(widget)).toBe(true)
+    clickWidgetButton('Go')
+    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(useShowStore.getState().activeCueListId).toBe('list1')
+  })
+
+  it('separate Live window: the widget carries the transport there too', () => {
+    seedShow()
+    renderInRoot(<LiveTab />)
+    expect(container!.querySelector('[aria-label="Live page canvas"]')).toBeTruthy()
+    expect(container!.querySelector('.cue-transport-compact')).toBeNull()
+    clickWidgetButton('Go')
+    expect(useShowStore.getState().activeCueId).toBe('cue-fullon')
+    expect(widgetEl().textContent).toContain('Current: Full On')
   })
 })

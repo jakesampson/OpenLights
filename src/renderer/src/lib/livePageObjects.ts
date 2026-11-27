@@ -265,14 +265,29 @@ const withNewIds = (
 /** Paste clipboard objects onto a page with fresh ids and a small offset. */
 export function pasteObjects(page: LivePage, clipboard: PageClipboard, makeId: () => string, dx = 20, dy = 20): Pasted {
   const pasted = withNewIds(clipboard, makeId, dx, dy)
+  // One cuelist widget per page (LightKey: a page can't contain more than
+  // one cuelist — Jake, 27 Nov 2026, cuelist as a canvas widget): pasting
+  // or duplicating onto a page that already has one drops the extra
+  // widgets; when the page has none, the first pasted widget wins.
+  // withNewIds pushes refs in clipboard order — controls, then widgets,
+  // then annotations — so the dropped widgets' refs are the widget refs
+  // past the kept ones (keyed by position, not id: makeId need not be
+  // unique in tests).
+  const existing = page.cueListWidgets ?? []
+  const widgets = existing.length ? [] : pasted.widgets.slice(0, 1)
+  const refs = [
+    ...pasted.refs.slice(0, pasted.controls.length),
+    ...pasted.refs.slice(pasted.controls.length, pasted.controls.length + widgets.length),
+    ...pasted.refs.slice(pasted.controls.length + pasted.widgets.length)
+  ]
   return {
     page: {
       ...page,
       controls: [...page.controls, ...pasted.controls],
-      cueListWidgets: [...(page.cueListWidgets ?? []), ...pasted.widgets],
+      cueListWidgets: [...existing, ...widgets],
       annotations: [...(page.annotations ?? []), ...pasted.annotations]
     },
-    refs: pasted.refs
+    refs
   }
 }
 

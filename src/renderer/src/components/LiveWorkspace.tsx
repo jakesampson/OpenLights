@@ -72,9 +72,9 @@ function TimingInput({ label, ms, onCommit }: { label: string; ms: number; onCom
 
 export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { masterOverlay?: boolean; toolbarHost?: HTMLElement | null } = {}) {
   const {
-    locked, show, cues, presets, effects, activePresetIds, cueLists, setLivePages, selectLivePage, activeLivePageId,
+    locked, show, cues, presets, effects, activePresetIds, cueLists, setLivePages, setControlCue, selectLivePage, activeLivePageId,
     activeLiveValues, setLiveValue, manualOverrides, clearManualOverrides, activeCueListId,
-    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, addCueList, addCueToList, liveEditing, setLiveEditing,
+    activeCueIndex, cuePlaying, goToCue, cueNext, cuePrev, stopCue, deactivateCue, activeCueId, addCueList, addCueToList, liveEditing, setLiveEditing,
     editCueContents, editCueDefContents, promoteAdHocToPreset, setContentsPreview, setPaletteReveal,
     configureFramePrevNext, startEditingPreset, startEditingLiveEffect, stepLiveFrame,
     configureCueTiming, configureCueAppearance, configureCueModifiers,
@@ -619,6 +619,9 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   }
   const addList = (at?: { x: number; y: number }) => {
     if (!page || !cueLists[0]) return
+    // One cuelist widget per page (LightKey: a page can't contain more
+    // than one cuelist — Jake, 27 Nov 2026, cuelist as a canvas widget).
+    if ((page.cueListWidgets ?? []).length > 0) return
     const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
     const widget = newWidgetObject(crypto.randomUUID(), cueLists[0].id, point.x, point.y, page.defaultStyles)
     savePage({ ...page, cueListWidgets: [...(page.cueListWidgets ?? []), widget] }); setPageObjectSelection([{ type: 'list', id: widget.id }])
@@ -631,6 +634,8 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
   // (Guide ch.11 p.189: a cuelist is an object placed on the page).
   const addNewList = (at?: { x: number; y: number }) => {
     if (!page) return
+    // One cuelist widget per page (see addList).
+    if ((page.cueListWidgets ?? []).length > 0) return
     const listId = addCueList()
     const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
     const widget = newWidgetObject(crypto.randomUUID(), listId, point.x, point.y, page.defaultStyles)
@@ -959,6 +964,32 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
             <p className="mt-1 text-dim">Current: {current >= 0 ? cues.find((s) => s.id === list?.steps[current]?.cueId)?.name ?? 'Missing cue' : 'Not started'}</p><p className="text-dim">Next: {next ? cues.find((s) => s.id === next.cueId)?.name ?? 'Missing cue' : 'End of list'}</p>
             {list && <div className="mt-2 flex gap-1"><button className="btn-theme" onClick={() => stopCue()} disabled={current < 0 || !cuePlaying}>Stop</button><button className="btn-theme" onClick={() => cuePrev()} disabled={current < 0}>Back</button><button className="btn-theme on" disabled={!list.steps.length} onClick={() => current >= 0 ? cueNext() : goToCue(list.id, 0)}>Go</button></div>}
             {list && <div className="mt-2"><XfadeSlider listId={list.id} /></div>}
+            {list && (list.steps.length === 0 ? (
+              <p className="mt-2 text-dim">No cues yet</p>
+            ) : (
+              // The cuelist's steps live on the widget (Jake, 27 Nov 2026 —
+              // cuelist as a canvas widget, LightKey's way): the step
+              // toggle is ported verbatim from the removed fixed
+              // CueListsSection (Jake, 26 Nov 2026 — Option 2). The list
+              // scrolls inside the widget, which is resizable; new widgets
+              // default to 240px tall so a few steps show at once.
+              <div className="mt-2 overflow-y-auto" style={{ maxHeight: Math.max(48, h - 152) }}>
+                {list.steps.map((step, index) => {
+                  const stepCue = cues.find((s) => s.id === step.cueId)
+                  // Active means this step's cue is the one playing — the
+                  // list position alone is not enough: deactivateCue keeps
+                  // the index so Go resumes, so a deactivated step would
+                  // otherwise still read as active.
+                  const active = activeCueListId === list.id && current === index && activeCueId === step.cueId
+                  return (
+                    <button key={step.id} type="button" onClick={() => (active ? deactivateCue() : goToCue(list.id, index))} className={`mt-1 flex w-full items-center justify-between gap-1 rounded border border-line px-2 py-1 text-left ${active ? 'active' : 'bg-panel2 text-text hover:bg-accent hover:text-[#111]'}`} title={`${stepCue?.name ?? 'Missing cue'} · ${step.fadeMs}ms fade`}>
+                      <span className="min-w-0 truncate">{stepCue?.name ?? 'Missing cue'}</span>
+                      <span className="shrink-0 text-[9px] opacity-70">Cue {index + 1}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            ))}
             {resizeHandle(ref, x, y, w, h)}
           </div>
         })}
@@ -1063,7 +1094,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
                 <h4 className="font-semibold text-text">Button</h4>
                 <label className="text-dim">Type<select aria-label="Cue control type" value={selectedControl.type} onChange={(e) => { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: e.target.value as LiveControl['type'] }) }} className="ml-1 rounded bg-bg p-1">{(Object.keys(BUTTON_TYPE_LABELS) as LiveControl['type'][]).map((type) => <option key={type} value={type}>{BUTTON_TYPE_LABELS[type]}</option>)}</select></label>
                 {selectedControl.type === 'flash' && <label className="mt-1 block text-dim">Behavior<select aria-label="Push button behavior" value="flash" onChange={(e) => { if (e.target.value === 'toggle') { setLiveValue(selectedControl.id, 0); patchControl(selectedControl.id, { type: 'toggle' }) } }} className="ml-1 rounded bg-bg p-1"><option value="flash">Flash</option><option value="toggle">Toggle</option></select></label>}
-                <label className="mt-1 block text-dim">Cue<select aria-label="Cue" value={selectedControl.cueId ?? ''} onChange={(e) => patchControl(selectedControl.id, { cueId: e.target.value || undefined })} className="ml-1 rounded bg-bg p-1"><option value="">No cue</option>{cues.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
+                <label className="mt-1 block text-dim">Cue<select aria-label="Cue" value={selectedControl.cueId ?? ''} onChange={(e) => setControlCue(selectedControl.id, e.target.value || undefined)} className="ml-1 rounded bg-bg p-1"><option value="">No cue</option>{cues.filter((s) => !s.blackout).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
               </div>
               <div className="flex flex-wrap items-end gap-2">
                 <label className="text-dim">Colour<input aria-label="Cue colour" type="color" value={selectedControl.appearance?.color ?? DEFAULT_BUTTON_APPEARANCE_COLOR} className="ml-1" onChange={(event) => configureCueAppearance(selectedControl.id, { color: event.target.value })} /></label>
@@ -1114,9 +1145,9 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null }: { m
     </div>}
     {contextMenu && <div ref={menuRef} role="menu" aria-label="Live edit actions" className="fixed z-[300] min-w-44 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: menuPos.left, top: menuPos.top }}>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addControl(contextMenu.at); setContextMenu(null) }}>New Button</button>
-      <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addNewList(contextMenu.at); setContextMenu(null) }}>New Cue List</button>
+      <button type="button" role="menuitem" disabled={(page?.cueListWidgets?.length ?? 0) > 0} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addNewList(contextMenu.at); setContextMenu(null) }}>New Cue List</button>
       <button type="button" role="menuitem" className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2" onClick={() => { addAnnotation('label', contextMenu.at); setContextMenu(null) }}>Insert Text</button>
-      <button type="button" role="menuitem" disabled={!cueLists.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addList(contextMenu.at); setContextMenu(null) }}>Insert Cuelist</button>
+      <button type="button" role="menuitem" disabled={!cueLists.length || (page?.cueListWidgets?.length ?? 0) > 0} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { addList(contextMenu.at); setContextMenu(null) }}>Insert Cuelist</button>
       <div className="my-1 border-t border-line" />
       <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { cutSelected(); setContextMenu(null) }}>Cut</button>
       <button type="button" role="menuitem" disabled={!selectedPageObjects.length} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2 disabled:opacity-40" onClick={() => { copySelectedPageObjects(); setContextMenu(null) }}>Copy</button>

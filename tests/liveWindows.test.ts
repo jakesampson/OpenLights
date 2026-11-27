@@ -31,23 +31,20 @@ describe('Live window restoration', () => {
     // so the command never reached the main window and the buttons
     // silently did nothing (plus a "could not be cloned" page error).
     // Every Live-window handler must call the action with no arguments.
-    // The transport lives in the shared CueListsSection now (Jake, 27
-    // Nov 2026 — the main window's Live tab shows the compact transport
-    // too); LiveTab renders it, and the cuelist widget in LiveWorkspace
-    // has its own transport.
-    const section = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/CueListsSection.tsx'), 'utf8')
+    // The transport lives on the cuelist widget on the canvas now (Jake,
+    // 27 Nov 2026 — cuelist as a widget, LightKey's way; the fixed
+    // CueListsSection is gone); LiveTab renders the workspace, and the
+    // widget in LiveWorkspace has its own transport.
     const liveTab = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveTab.tsx'), 'utf8')
     const workspace = readFileSync(resolve(__dirname, '..', 'src/renderer/src/components/LiveWorkspace.tsx'), 'utf8')
-    expect(liveTab).toContain('<CueListsSection />')
-    for (const source of [section, workspace]) {
-      expect(source).toContain('onClick={() => stopCue()}')
-      expect(source).toContain('onClick={() => cuePrev()}')
-      expect(source).not.toContain('onClick={stopCue}')
-      expect(source).not.toContain('onClick={cuePrev}')
-    }
+    expect(liveTab).not.toContain('CueListsSection')
+    expect(workspace).toContain('onClick={() => stopCue()}')
+    expect(workspace).toContain('onClick={() => cuePrev()}')
+    expect(workspace).not.toContain('onClick={stopCue}')
+    expect(workspace).not.toContain('onClick={cuePrev}')
     expect(liveTab).toContain('onClick={() => clearPresets()}')
     expect(liveTab).not.toContain('onClick={clearPresets}')
     // The row toggle already called deactivateCue() with no args — pin it.
-    expect(section).toContain('deactivateCue()')
+    expect(workspace).toContain('deactivateCue()')
   })
 })

@@ -8,7 +8,7 @@ export const LIVE_CUE_SIZE = { width: 120, height: 40 }
  *  pitch. 120x40 is the nearest 10px-grid step; the pitch leaves the
  *  same ~10px gaps LightKey does. */
 export const LIVE_CUE_STEP = { x: 130, y: 50 }
-export const LIVE_LIST_SIZE = { width: 240, height: 150 }
+export const LIVE_LIST_SIZE = { width: 240, height: 240 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 

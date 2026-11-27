@@ -584,11 +584,13 @@ describe('Live page multi-select and multi-object commands (7.5)', () => {
     useShowStore.getState().copySelectedPageObjects()
     useShowStore.getState().pastePageObjects(10, 10)
     const pasted = useShowStore.getState().selectedPageObjects
-    expect(pasted).toHaveLength(2)
+    // One cuelist widget per page (Jake, 27 Nov 2026): the page already
+    // has w1, so the pasted widget is dropped — only the button lands.
+    expect(pasted).toHaveLength(1)
     expect(pasted.map((r) => r.id)).not.toContain('c1')
     expect(page().controls).toHaveLength(3)
     expect(page().controls[2]).toMatchObject({ name: 'One', x: 30, y: 30 })
-    expect(page().cueListWidgets).toHaveLength(2)
+    expect(page().cueListWidgets).toHaveLength(1)
     useShowStore.getState().undo()
     expect(page().controls).toHaveLength(2)
     expect(page().cueListWidgets).toHaveLength(1)
