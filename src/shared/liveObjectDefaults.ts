@@ -9,6 +9,19 @@ export const LIVE_CUE_SIZE = { width: 120, height: 40 }
  *  same ~10px gaps LightKey does. */
 export const LIVE_CUE_STEP = { x: 130, y: 50 }
 export const LIVE_LIST_SIZE = { width: 240, height: 240 }
+/** Size of a newly inserted cuelist widget (Jake, 28 Nov 2026):
+ *  LightKey's default cuelist is compact and non-obtrusive — under
+ *  280px high (his 10.32am LightKey screenshot measures ~230 CSS px:
+ *  the Xfade track spans ~395 file px at DPR 2, plus the header row)
+ *  — and its controls are NOT squashed at that height: the header,
+ *  the step rows, the three transport pills and the Xfade slider all
+ *  fit. Ours used to insert at 480x300, which Jake called annoying
+ *  for a small cuelist. 480x240 is the nearest 10px-grid size under
+ *  his 280 bound; the width stays 480 so the columns (Name / Hold /
+ *  Fade / transport / Xfade) keep their room. The widget can still be
+ *  resized smaller or larger afterwards, and Done still enlarges it
+ *  to fill the free space — this only changes where it starts. */
+export const LIVE_LIST_DEFAULT_SIZE = { width: 480, height: 240 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 

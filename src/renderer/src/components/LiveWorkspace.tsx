@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { CueDef, FaderControlProperty, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
-import { clampModifier, clampLiveSize, clampCuelistSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
+import { clampModifier, clampLiveSize, clampCuelistSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_DEFAULT_SIZE, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
   decodeLiveDrop, dropLabel, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
@@ -1078,7 +1078,7 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if ((page.cueListWidgets ?? []).length > 0) return
     const listId = addCueList()
     const point = at ?? position(page.controls.length + (page.cueListWidgets?.length ?? 0))
-    const widget = { ...newWidgetObject(crypto.randomUUID(), listId, point.x, point.y, page.defaultStyles), width: 480, height: 300 }
+    const widget = { ...newWidgetObject(crypto.randomUUID(), listId, point.x, point.y, page.defaultStyles), width: LIVE_LIST_DEFAULT_SIZE.width, height: LIVE_LIST_DEFAULT_SIZE.height }
     savePage({ ...page, cueListWidgets: [...(page.cueListWidgets ?? []), widget] }); setPageObjectSelection([{ type: 'list', id: widget.id }])
   }
   const addAnnotation = (type: 'label' | 'frame', at?: { x: number; y: number }) => {

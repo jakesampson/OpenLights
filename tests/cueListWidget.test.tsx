@@ -551,3 +551,55 @@ describe('no background, no drag bar, drag from anywhere (Jake, 28 Nov 2026)', (
     expect(widget.height).toBe(300)
   })
 })
+
+describe('compact default height (Jake, 28 Nov 2026)', () => {
+  it('Insert Cuelist creates a 480x240 widget — LightKey\'s compact default, under 280px', () => {
+    // Jake's LightKey screenshot measures ~230 CSS px tall and is
+    // non-obtrusive with all controls laid out; ours inserted at
+    // 480x300, which he called annoying for a small cuelist.
+    seedShow([], [])
+    renderInRoot(<App />)
+    switchToLive()
+    enterEditMode()
+    const canvas = container!.querySelector('[aria-label="Live page canvas"]') as HTMLElement
+    expect(canvas, 'live canvas').toBeTruthy()
+    act(() => { canvas.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, clientX: 200, clientY: 200 })) })
+    const menu = container!.querySelector('[aria-label="Live edit actions"]')
+    expect(menu, 'canvas menu').toBeTruthy()
+    const item = [...menu!.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Insert Cuelist')
+    expect(item, 'Insert Cuelist item').toBeTruthy()
+    act(() => { item!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    const widgets = useShowStore.getState().show!.livePages![0].cueListWidgets!
+    expect(widgets).toHaveLength(1)
+    expect(widgets[0].width).toBe(480)
+    expect(widgets[0].height).toBe(240)
+    const el = widgetEl() as HTMLElement
+    expect(el.style.width).toBe('480px')
+    expect(el.style.height).toBe('240px')
+    // The compact widget still carries everything: the placeholder,
+    // the transport and the Xfade column are all present, not clipped
+    // away by the smaller height.
+    expect(el.textContent).toContain('Cuelist')
+    expect(el.querySelector('[aria-label="Go"]')).toBeTruthy()
+    expect(el.querySelector('[aria-label="Pause cuelist"]')).toBeTruthy()
+    expect(el.querySelector('[aria-label="Next cue"]')).toBeTruthy()
+    expect(el.textContent).toContain('Xfade')
+  })
+
+  it('a 300-tall cuelist still compacts back to 240 without losing its controls', () => {
+    // The resize clamp lets a cuelist shrink to the compact default —
+    // the point of the smaller default is that a small list can sit
+    // compact, even after Done enlarged it or it was made taller.
+    seedShow()
+    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 20, 480, 240) })
+    renderInRoot(<App />)
+    switchToLive()
+    const el = widgetEl() as HTMLElement
+    expect(el.style.height).toBe('240px')
+    expect(el.querySelector('[aria-label="Go"]')).toBeTruthy()
+    expect(el.querySelector('[aria-label="Pause cuelist"]')).toBeTruthy()
+    expect(el.querySelector('[aria-label="Next cue"]')).toBeTruthy()
+    expect(stepRow('001 Violet')).toBeTruthy()
+    expect(stepRow('002 Blue')).toBeTruthy()
+  })
+})
