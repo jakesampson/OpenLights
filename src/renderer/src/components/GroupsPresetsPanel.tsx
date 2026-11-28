@@ -69,6 +69,7 @@ export function GroupsPresetsPanel() {
     effects,
     selectedFixtureIds,
     updateEffect,
+    setEffectInPalette,
     startEditingLiveEffect,
     removeEffect,
     capturePresetFromLook,
@@ -532,7 +533,7 @@ export function GroupsPresetsPanel() {
     walk(null)
     for (const preset of ungroupedPresets) if (matches(preset.name)) rows.push({ kind: 'preset', id: preset.id })
     for (const sequence of ungroupedSequences) if (matches(sequence.name)) rows.push({ kind: 'sequence', id: sequence.id })
-    for (const effect of effects) if (matches(effect.name)) rows.push({ kind: 'effect', id: effect.id })
+    for (const effect of effects) if (effect.inPalette !== false && matches(effect.name)) rows.push({ kind: 'effect', id: effect.id })
     return rows
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, presets, sequences, effects, search, collapsed])
@@ -929,7 +930,11 @@ export function GroupsPresetsPanel() {
           {groups.filter((g) => (g.parentId ?? null) === null).map((group) => groupRow(group, 0))}
           {ungroupedPresets.map((preset) => presetRow(preset.id, null))}
           {ungroupedSequences.map((sequence) => sequenceRow(sequence.id, null))}
-          {effects.filter((effect) => matchesQuery(effect.name)).map((effect) => {
+          {/* The palette shows only effects added to it (Jake, 28 Nov
+              2026): creating an effect attaches it to the fixtures but
+              does not put it in the palette — it is added explicitly
+              from the effect row's right-click menu. */}
+          {effects.filter((effect) => effect.inPalette !== false && matchesQuery(effect.name)).map((effect) => {
             const item: PaletteItem = { kind: 'effect', id: effect.id }
             const payload = dragPayloadFor(item)
             return (
@@ -997,6 +1002,7 @@ export function GroupsPresetsPanel() {
       )}
       {contextMenu && <PaletteContextMenu
         x={contextMenu.x} y={contextMenu.y} target={contextMenu.target}
+        targetEffectInPalette={contextMenu.target?.kind === 'effect' ? effects.find((e) => e.id === contextMenu.target?.id)?.inPalette !== false : undefined}
         contextMenuRef={contextMenuRef}
         hasSelection={selected.length > 0}
         relatedCues={relatedCues}
@@ -1071,6 +1077,10 @@ export function GroupsPresetsPanel() {
               : target.kind === 'group' ? groups.find((g) => g.id === target.id)?.name
               : target.kind === 'effect' ? effects.find((e) => e.id === target.id)?.name : undefined
             if (label) deleteItem(target, label)
+          } else if (action === 'add-to-palette') {
+            if (target.kind === 'effect') setEffectInPalette(target.id, true)
+          } else if (action === 'remove-from-palette') {
+            if (target.kind === 'effect') setEffectInPalette(target.id, false)
           }
         }}
       />}
@@ -1080,6 +1090,7 @@ export function GroupsPresetsPanel() {
 
 type PaletteMenuAction =
   | 'show-properties' | 'apply' | 'edit' | 'add-overrides' | 'rename' | 'duplicate' | 'delete'
+  | 'add-to-palette' | 'remove-from-palette'
   | 'select-unused'
   | 'new-preset' | 'new-preset-snapshot' | 'new-group' | 'new-group-from-selection'
   | 'new-sequence' | 'new-sequence-from-selection'
@@ -1093,8 +1104,13 @@ type PaletteMenuAction =
 // Two LightKey items are NOT here: "External Control" — no such feature
 // exists in OpenLights — and group "Duplicate" — a preset can belong to
 // only one group, so a duplicated group could not share its members.
-function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relatedCues, onShowInCue, onClose, onAction }: {
+function PaletteContextMenu({ x, y, target, targetEffectInPalette, contextMenuRef, hasSelection, relatedCues, onShowInCue, onClose, onAction }: {
   x: number; y: number; target: PaletteItem | null
+  /** Whether the targeted effect is in the palette (Jake, 28 Nov 2026):
+   *  only meaningful for effect targets — an effect not in the palette
+   *  has no row to right-click, so this is always true in practice for
+   *  a shown row; undefined is treated as in the palette. */
+  targetEffectInPalette?: boolean
   contextMenuRef: { current: HTMLDivElement | null }
   hasSelection: boolean
   relatedCues: { pageId: string; pageName: string; controlId: string; controlName: string }[]
@@ -1128,6 +1144,12 @@ function PaletteContextMenu({ x, y, target, contextMenuRef, hasSelection, relate
         {target.kind !== 'effect' && item('show-properties', 'Show Properties')}
         {target.kind !== 'effect' && item('apply', target.kind === 'sequence' ? 'Run / Stop' : 'Apply')}
         {item('edit', 'Edit')}
+        {/* Add to / Remove from Preset Palette (Jake, 28 Nov 2026):
+            creating an effect does not put it in the palette — it is
+            added here, explicitly, and can be removed the same way.
+            Removing it hides the row only; the effect keeps running
+            on its fixtures. */}
+        {target.kind === 'effect' && item(targetEffectInPalette === false ? 'add-to-palette' : 'remove-from-palette', targetEffectInPalette === false ? 'Add to Preset Palette' : 'Remove from Preset Palette')}
         {(target.kind === 'preset' || target.kind === 'sequence') && (
           <div className="relative" onMouseEnter={() => setShowInCueOpen(true)} onMouseLeave={() => setShowInCueOpen(false)}>
             <button type="button" role="menuitem" aria-haspopup="true" aria-expanded={showInCueOpen}

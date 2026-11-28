@@ -1348,6 +1348,10 @@ describe('preset palette hover-Edit and right-click Edit (Jake, Nov 2026)', () =
     setShow()
     act(() => {
       useShowStore.getState().addEffect(chaseEffect())
+      // Newly created effects stay OUT of the palette (LightKey: explicit
+      // Add to Preset Palette). This row is an effect the user added, so
+      // mark it in before the palette renders it.
+      useShowStore.getState().setEffectInPalette('e-chase', true)
       useShowStore.setState({
         presets: [{ id: 'p1', name: 'Warm Wash', category: 'color', fixtureValues: { fx1: { red: 255 } } }]
       })

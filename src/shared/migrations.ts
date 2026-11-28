@@ -406,9 +406,16 @@ export function migrateShow(raw: unknown, extraLibraryProfiles: FixtureProfile[]
       })
     }
   }
-  // Fans on inline cues (schema v6: a cue lives inside its button or
-  // step) and on presets — a missing list is an empty list, never a
-  // crash on an old file.
+  // Palette membership (Jake, 28 Nov 2026): effects loaded from an old
+  // show keep showing in the Preset Palette — the flag did not exist
+  // when they were created, so a missing flag means "in the palette".
+  // Newly created effects are false (addEffect defaults them out);
+  // saved templates are untouched — applying one creates a new effect,
+  // which stays out until added.
+  for (const raw of (doc.effects as unknown[])) {
+    const effect = record(raw)
+    if (effect.inPalette === undefined) effect.inPalette = true
+  }
   for (const key of ['presets']) doc[key] = (doc[key] as unknown[]).map((raw) => ({ ...record(raw), fans: Array.isArray(record(raw).fans) ? record(raw).fans : [] }))
   for (const rawPage of doc.livePages as unknown[]) {
     const controls = record(rawPage).controls

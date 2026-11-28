@@ -449,6 +449,14 @@ export interface EffectDef {
    *  colors use the 'screen' blend mode. */
   blendMode?: 'replace' | 'add' | 'max' | 'screen'
   enabled: boolean
+  /** In the Preset Palette (Jake, 28 Nov 2026): creating an effect in
+   *  LightKey attaches it to the fixtures — it does NOT put it in the
+   *  palette until you right-click and add it there. Newly created
+   *  effects are false (they run on their fixtures but have no palette
+   *  row); effects loaded from an old show are migrated to true, so
+   *  existing shows keep showing their palette effects. The effect
+   *  editor/chooser lists project effects regardless of this flag. */
+  inPalette?: boolean
 }
 
 export interface PreviewTruss {

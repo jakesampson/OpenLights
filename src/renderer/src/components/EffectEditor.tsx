@@ -2941,19 +2941,57 @@ function MovementEditor({ effect, update, movementChartHost }: { effect: EffectD
 
 /** The effect icon LightKey shows in Design in place of a property's normal
  *  controls when that property is effect-controlled (Guide ch.10, p.149).
- *  Clicking it opens the effect in the editor. */
+ *  Clicking it opens the effect in the editor. Right-clicking it offers
+ *  Add to / Remove from Preset Palette (Jake, 28 Nov 2026): a newly
+ *  created effect is not in the palette, so this indicator — where the
+ *  user just made the effect — is the reachable surface for adding it;
+ *  the palette row's own menu offers the same pair once it is in. */
 export function EffectIndicator({ effect, onEdit }: { effect: EffectDef; onEdit: () => void }) {
+  const setEffectInPalette = useShowStore((s) => s.setEffectInPalette)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const pos = useClampedMenuPosition(menu?.x ?? 0, menu?.y ?? 0, menuRef)
+  useEffect(() => {
+    if (!menu) return
+    const close = (event: PointerEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) setMenu(null)
+    }
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [menu])
+  const inPalette = effect.inPalette !== false
   return (
-    <button
-      type="button"
-      onClick={(event) => { event.stopPropagation(); onEdit() }}
-      title={`Edit effect ${effect.name}`}
-      className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded border border-line bg-panel2 px-1 py-2 text-[11px] text-dim hover:border-[#0A84FF]"
-    >
-      <span aria-hidden="true" className="text-base leading-none">∿</span>
-      <span className="max-w-full truncate">{effect.name}</span>
-      <span className="text-[10px] uppercase tracking-wider">Effect</span>
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={(event) => { event.stopPropagation(); onEdit() }}
+        onContextMenu={(event) => { event.preventDefault(); event.stopPropagation(); setMenu({ x: event.clientX, y: event.clientY }) }}
+        title={`Edit effect ${effect.name}`}
+        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 rounded border border-line bg-panel2 px-1 py-2 text-[11px] text-dim hover:border-[#0A84FF]"
+      >
+        <span aria-hidden="true" className="text-base leading-none">∿</span>
+        <span className="max-w-full truncate">{effect.name}</span>
+        <span className="text-[10px] uppercase tracking-wider">Effect</span>
+      </button>
+      {menu && (
+        <div ref={menuRef} role="menu" aria-label="Effect actions" className="fixed z-[300] min-w-48 rounded border border-line bg-panel p-1 shadow-xl" style={{ left: pos.left, top: pos.top }}>
+          <button
+            type="button" role="menuitem"
+            className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2"
+            onClick={() => { setEffectInPalette(effect.id, !inPalette); setMenu(null) }}
+          >
+            {inPalette ? 'Remove from Preset Palette' : 'Add to Preset Palette'}
+          </button>
+          <button
+            type="button" role="menuitem"
+            className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-panel2"
+            onClick={() => { setMenu(null); onEdit() }}
+          >
+            Edit
+          </button>
+        </div>
+      )}
+    </>
   )
 }
 

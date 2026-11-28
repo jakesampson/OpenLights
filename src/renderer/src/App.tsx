@@ -38,6 +38,7 @@ import { configureAmbienceFixtures } from './lib/ndiAmbience'
 import { ensureNdiSession, getNdiSessionState, initNdiSession, setSessionActive, useNdiSession } from './lib/ndiSession'
 import { findNdiScreen } from '@shared/ndiAmbience'
 import { activeOwnedEffects } from './lib/effectOwnership'
+import { dimmerEffectOwnedChannels, liveBaseValues, stripOwnedDimmerChannels } from './lib/effectDimmerOwnership'
 import { ContextMenu } from './components/ContextMenu'
 import { OverridesField } from './components/OverridesField'
 import { editAdHocTarget } from './lib/liveOverrideTargets'
@@ -139,13 +140,24 @@ export default function App() {
     }
     const activeCue = resolveActiveCue({ show, cueLists, activeCueRef })
     if (activeCue) take(resolveCueValues(activeCue, presets, show?.fixtures ?? []))
+    // Lit Live pads are part of the look too (Jake, 28 Nov 2026 — the
+    // layering blank): a running Dimmer effect takes its colour from
+    // the base look, so a Live colour button must reach it, or the
+    // effect chases in the default blue while the button is lit. Live
+    // sits below presets in the layer order, so it is taken before them.
+    take(liveBaseValues(show?.livePages, activeLiveValues, liveActivationOrder, presets, show?.fixtures ?? []))
     for (const id of activePresetIds) {
       const preset = presets.find((item) => item.id === id)
       if (preset) take(preset.fixtureValues ?? {})
     }
     take(manualOverrides)
-    return values
-  }, [show, cueLists, activeCueRef, presets, activePresetIds, manualOverrides, show?.fixtures])
+    // The base is the effect's colour source, so it carries the same
+    // base-colour completion as the preset layer (Jake, 22 Nov 2026):
+    // a partial Red look must not leak the default blue through the
+    // channels it never wrote — once the preset patch stops masking
+    // the effect (below), that leak would show.
+    return completePresetBaseColour(values, show?.fixtures ?? [])
+  }, [show, cueLists, activeCueRef, presets, activePresetIds, manualOverrides, show?.fixtures, activeLiveValues, liveActivationOrder])
   const [tab, setTab] = useState<Tab>('Design')
   // Panel sizes (Jake, 27 Nov 2026): the four main panels resize by
   // dragging the dividers between them. Per-machine, so they live in
@@ -435,13 +447,31 @@ export default function App() {
     return () => { alive = false; window.clearInterval(timer); root.style.removeProperty('--adaptive-hue'); root.removeAttribute('data-adaptive') }
   }, [adaptiveBackground])
 
+  // The effects actually running this frame (Jake, 28 Nov 2026): the
+  // stored list with ownership applied — a Live button's effects forced
+  // on, an owned effect only while its owner is active. Computed once
+  // here so the output loop and the dimmer-ownership strip below agree
+  // on exactly which effects are running.
+  const runtimeEffects = useMemo(
+    () => activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues, liveEffects: activeLiveEffectIds(show?.livePages, activeLiveValues) }),
+    [effects, activePresetIds, activeSequenceIds, activeLiveValues, show?.livePages]
+  )
+  // The LED channels a running Dimmer effect owns on virtual-dimmer
+  // fixtures (Jake, 28 Nov 2026 — the layering blank): the preset/live/
+  // override patches must not write these, or their explicit zeros sit
+  // above the effect layer and blank the rig.
+  const ownedDimmerChannels = useMemo(
+    () => dimmerEffectOwnedChannels(show?.fixtures ?? [], runtimeEffects),
+    [show?.fixtures, runtimeEffects]
+  )
+
   useEffect(() => {
     // The chooser preview runs last so it wins over a stored effect on
     // the same channels — what the user is previewing is what they see.
     // It is session-only (never in show.effects), so it can never be
     // captured into a cue or survive a reload.
     configureEffects({
-      effects: [...activeOwnedEffects(effects, { presets: activePresetIds, sequences: activeSequenceIds, cues: activeLiveValues, liveEffects: activeLiveEffectIds(show?.livePages, activeLiveValues) }), ...(previewEffect ? [previewEffect] : [])],
+      effects: [...runtimeEffects, ...(previewEffect ? [previewEffect] : [])],
       fixtures: show?.fixtures ?? [],
       movementPaths: show?.movementPaths ?? [],
       bpm,
@@ -449,7 +479,7 @@ export default function App() {
       blackout,
       baseValues: baseAttributeValues
     })
-  }, [effects, previewEffect, activePresetIds, activeSequenceIds, activeLiveValues, show?.fixtures, show?.livePages, bpm, master, blackout, baseAttributeValues])
+  }, [runtimeEffects, previewEffect, show?.fixtures, bpm, master, blackout, baseAttributeValues])
 
   useEffect(() => {
     // Sequences can be started globally or dropped onto a live cue; an active
@@ -484,8 +514,13 @@ export default function App() {
       // preset never wrote (Jake, 22 Nov 2026).
       Object.assign(patch, computeCueChannels(show?.fixtures ?? [], { id: preset.id, name: preset.name, fadeMs: 0, fixtureValues: withEffectiveIntensity(completePresetBaseColour(fanPresetFixtureValues(preset.fixtureValues, show?.fixtures ?? []), show?.fixtures ?? []), effectiveLevels) }, master))
     }
-    configurePresetOutput(patch)
-  }, [presets, activePresetIds, show?.fixtures, master, effectiveLevels])
+    // A running Dimmer effect owns the LED channels on virtual-dimmer
+    // fixtures (Jake, 28 Nov 2026 — the layering blank): strip them
+    // here, or the preset's zero-scaled colours sit above the effect
+    // layer and blank the rig. The effect layer already carries the
+    // preset's colour from the base look.
+    configurePresetOutput(stripOwnedDimmerChannels(patch, ownedDimmerChannels))
+  }, [presets, activePresetIds, show?.fixtures, master, effectiveLevels, ownedDimmerChannels])
 
   useEffect(() => {
     const patch: Record<number, number> = {}
@@ -560,11 +595,21 @@ export default function App() {
       if (!control || !isLatchingControl(control)) return false
       return (previousLevels[id] ?? 0) !== (outputLevels[id] ?? 0)
     })
-    configureLiveOutput(patch, changed || liveChanged ? pageFade : 0)
-  }, [show?.livePages, show?.fixtures, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master, effectiveLevels])
+    // A running Dimmer effect owns the LED channels on virtual-dimmer
+    // fixtures (Jake, 28 Nov 2026 — the layering blank): strip them
+    // here, or the Live button's zero-scaled colours sit above the
+    // effect layer and blank the rig. The effect layer already carries
+    // the button's colour from the base look.
+    configureLiveOutput(stripOwnedDimmerChannels(patch, ownedDimmerChannels), changed || liveChanged ? pageFade : 0)
+  }, [show?.livePages, show?.fixtures, presets, activeLiveValues, liveActivationOrder, activeLivePageId, master, effectiveLevels, ownedDimmerChannels])
 
   useEffect(() => {
-    configureOverrideOutput(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: withEffectiveIntensity(manualOverrides, effectiveLevels) }, master))
+    // Same ownership strip as the preset/live patches (Jake, 28 Nov
+    // 2026): a Design override's zero-scaled colours must not sit above
+    // a running Dimmer effect on a virtual-dimmer fixture either — the
+    // effect layer already carries the override's colour from the base
+    // look, so the colour changes while the effect keeps dimming.
+    configureOverrideOutput(stripOwnedDimmerChannels(computeCueChannels(show?.fixtures ?? [], { id: 'manual', name: 'Manual', fadeMs: 0, fixtureValues: withEffectiveIntensity(manualOverrides, effectiveLevels) }, master), ownedDimmerChannels))
     // The base look is otherwise only recomputed when a cue activates,
     // so it would stay dark after a dimmer drag (Jake, 20 Nov 2026:
     // the dimmer drags but no light appears until the wheel is
@@ -572,7 +617,7 @@ export default function App() {
     // base with the current effective intensities — a no-op under
     // blackout or with no show open.
     refreshBaseOutput()
-  }, [manualOverrides, show?.fixtures, master, effectiveLevels, refreshBaseOutput])
+  }, [manualOverrides, show?.fixtures, master, effectiveLevels, refreshBaseOutput, ownedDimmerChannels])
 
   useEffect(() => isLiveWindow() ? undefined : startCuePlaybackClock(), [])
   useEffect(() => startLiveWindowBridge(), [])
