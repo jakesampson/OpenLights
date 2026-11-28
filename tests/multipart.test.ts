@@ -78,11 +78,14 @@ describe('OFL beam derivation (Piece 7)', () => {
 describe('effects across cells (Piece 7)', () => {
   it('chases a red effect across the four cells with phase spread', () => {
     // 4Bar 15ch: Red 1..4 sit on DMX 4, 7, 10, 13. Sine at t=0 with a
-    // full 360° spread phases the cells 0°, 120°, 240°, 360°.
+    // full 360° spread phases the cells 0°, -120°, -240°, -360° — each
+    // following cell trails the one before it (LightKey guide: "each pixel
+    // changes later than the preceding one"), so cells 2 and 3 are the
+    // mirror of the pre-fix values.
     const patch = computeEffectPatch([barFixture()], [effect()], 0, 120)
     expect(patch[4]).toBeCloseTo(128)
-    expect(patch[7]).toBeCloseTo(238)
-    expect(patch[10]).toBeCloseTo(18)
+    expect(patch[7]).toBeCloseTo(18)
+    expect(patch[10]).toBeCloseTo(238)
     expect(patch[13]).toBeCloseTo(128)
   })
 

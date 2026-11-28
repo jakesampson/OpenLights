@@ -404,8 +404,10 @@ export function computeEffectPatch(
       const map = fixtureChannelMap(fixture)
       const channelOffset = map[attribute]
 
+      // Guide p.154: the spread is subtracted — a later pixel runs behind the
+      // preceding one, so the wave chases across the cells in fixture order.
       const phase =
-        timeSeconds * frequency +
+        timeSeconds * frequency -
         (pixels.length > 1 ? spread * pixel.position : 0)
       const wave = waveformValue(effect.waveform, phase, index)
       const value = effect.minValue !== undefined || effect.maxValue !== undefined

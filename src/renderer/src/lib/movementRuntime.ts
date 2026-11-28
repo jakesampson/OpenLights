@@ -262,7 +262,9 @@ export function computeMovementPatch(
   ) => {
     pixels.forEach((pixel) => {
       if (pixel.fixture.disabled) return
-      const t = cycleOf((timeSeconds + pixel.phaseIndex * timeOffset * duration) / duration)
+      // Guide p.154: the offset is subtracted — each pixel runs behind the
+      // preceding one, so the path is traced in fixture order, not against it.
+      const t = cycleOf((timeSeconds - pixel.phaseIndex * timeOffset * duration) / duration)
       const point = pointAt(t)
       const { pan: panRange, tilt: tiltRange } = panTiltRange(pixel.fixture)
       const range = component === 'pan' ? panRange : tiltRange

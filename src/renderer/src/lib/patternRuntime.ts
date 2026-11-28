@@ -281,13 +281,16 @@ export function patternPixelValue(
     case 'chase': {
       // Guide p.154: pixels cyclically take on the value of each sample. Each sample
       // lasts stepsPerValue steps; a step is duration / (samples * stepsPerValue).
-      // Time offset shifts a pixel's clock forward (it begins mid-pattern); delay
-      // holds a pixel at the first sample until its delayed clock starts.
+      // Time offset shifts a pixel's clock BACK — each pixel changes later than the
+      // preceding one, so a later pixel begins mid-pattern (cyclically behind).
+      // Delay holds a pixel at the first sample until its delayed clock starts.
       const stepDuration = sampleDuration
       const offsetSeconds = pixelIndex * timeOffset * stepsPerValue * stepDuration
       const delaySeconds = pixelIndex * delay * stepsPerValue * stepDuration
-      const localT = timeSeconds + offsetSeconds
-      const effectiveT = localT < delaySeconds ? 0 : localT - delaySeconds
+      const localT = timeSeconds - offsetSeconds
+      // With no delay the (possibly negative) offset clock wraps, so the pixel
+      // begins mid-pattern; with a delay it waits at the first sample instead.
+      const effectiveT = delaySeconds > 0 && localT < delaySeconds ? 0 : localT - delaySeconds
       const stepIndex = Math.floor(effectiveT / stepDuration)
       const sampleIndex = ((stepIndex % n) + n) % n
       const nextSampleIndex = (sampleIndex + 1) % n

@@ -185,7 +185,9 @@ export function computeDrawableCurvePatch(
   const midY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0
 
   const localT = (pixel: EffectPixel) => {
-    const t = timeSeconds + pixel.phaseIndex * timeOffset * duration
+    // Guide p.154 / pp.163-164: each pixel changes LATER than the preceding
+    // one — the offset is subtracted, so a later pixel trails (runs behind).
+    const t = timeSeconds - pixel.phaseIndex * timeOffset * duration
     return ((t / duration) % 1 + 1) % 1
   }
 
