@@ -64,6 +64,16 @@ export function clampLiveSize(value: number): number {
   return Math.max(MIN_LIVE_OBJECT_SIZE, Math.min(MAX_LIVE_OBJECT_SIZE, Math.round(value / 10) * 10))
 }
 
+/** Clamp a cuelist's size: snapped to the 10px grid with the same 40px
+ *  floor, but NO 900px ceiling — LightKey's cuelist fills the Live
+ *  view when you exit edit mode (Guide ch.11 p.189; Jake, 28 Nov
+ *  2026), so on his screen it runs to ~2600px wide, far past the cap
+ *  that keeps cue buttons and labels sane. */
+export function clampCuelistSize(value: number): number {
+  if (!Number.isFinite(value)) return MIN_LIVE_OBJECT_SIZE
+  return Math.max(MIN_LIVE_OBJECT_SIZE, Math.round(value / 10) * 10)
+}
+
 export const validLiveSize = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value) && value > 0
 

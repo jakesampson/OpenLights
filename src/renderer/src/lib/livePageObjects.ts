@@ -1,6 +1,6 @@
 import type { LiveControl, LiveDefaultStyles, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
 import {
-  clampLiveSize, snapCanvasValue,
+  clampLiveSize, clampCuelistSize, snapCanvasValue,
   LIVE_CUE_SIZE, LIVE_FRAME_SIZE, LIVE_LABEL_SIZE, LIVE_LIST_SIZE, styleFor
 } from '@shared/liveObjectDefaults'
 
@@ -70,9 +70,14 @@ export function objectSize(page: LivePage, ref: PageObjectRef): { width: number;
   return object ? { width: object.width, height: object.height } : { ...LIVE_CUE_SIZE }
 }
 
-/** Resize one object, clamping and snapping both dimensions. Immutable. */
+/** Resize one object, clamping and snapping both dimensions. Immutable.
+ *  Cuelists use the uncapped clamp (clampCuelistSize) — LightKey's
+ *  cuelist fills the Live view, so it must be able to grow past the
+ *  900px ceiling that keeps cue buttons and labels sane (Jake,
+ *  28 Nov 2026). */
 export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, height: number): LivePage {
-  const w = clampLiveSize(width), h = clampLiveSize(height)
+  const clamp = ref.type === 'list' ? clampCuelistSize : clampLiveSize
+  const w = clamp(width), h = clamp(height)
   return {
     ...page,
     controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, width: w, height: h } : c),
@@ -88,7 +93,8 @@ export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, 
  * 10px grid and never go below 0, like a drag.
  */
 export function resizeObjectTo(page: LivePage, ref: PageObjectRef, x: number, y: number, width: number, height: number): LivePage {
-  const w = clampLiveSize(width), h = clampLiveSize(height)
+  const clamp = ref.type === 'list' ? clampCuelistSize : clampLiveSize
+  const w = clamp(width), h = clamp(height)
   const left = Math.max(0, snapCanvasValue(x)), top = Math.max(0, snapCanvasValue(y))
   return {
     ...page,

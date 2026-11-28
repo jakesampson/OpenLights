@@ -473,3 +473,81 @@ describe('cuelist widget (LightKey walkthrough)', () => {
     expect(input.placeholder).toBe('001 Violet')
   })
 })
+
+describe('no background, no drag bar, drag from anywhere (Jake, 28 Nov 2026)', () => {
+  function pointer(type: string, x: number, y: number, buttons = 1) {
+    return new window.PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, buttons, pointerId: 1 })
+  }
+
+  beforeEach(() => {
+    // jsdom has no pointer capture — the widget takes it once a drag starts.
+    Element.prototype.setPointerCapture = () => {}
+    Element.prototype.releasePointerCapture = () => {}
+  })
+
+  it('blends into the panel: no background, no border, no title row in Live mode', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    const widget = widgetEl()
+    expect(widget.className).not.toContain('bg-panel2')
+    expect(widget.className).not.toContain('border-line')
+    expect(widget.className).not.toContain('border-accent')
+    expect(widget.textContent).not.toContain('Sunday Set')
+    expect(widget.textContent).not.toContain('↕')
+  })
+
+  it('shows its outline only while selected in Edit mode', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    enterEditMode()
+    expect(widgetEl().className).not.toContain('border-accent')
+    act(() => { widgetEl().dispatchEvent(pointer('pointerdown', 100, 100)) })
+    expect(widgetEl().className).toContain('border-accent')
+  })
+
+  it('drags from a step row in Edit mode, and a plain click still selects the cue', () => {
+    seedShow()
+    renderInRoot(<App />)
+    switchToLive()
+    enterEditMode()
+    // Press on the step row and move past the threshold: the widget moves.
+    const row = stepRow('001 Violet')
+    act(() => { row.dispatchEvent(pointer('pointerdown', 100, 100)) })
+    act(() => { widgetEl().dispatchEvent(pointer('pointermove', 200, 150)) })
+    act(() => { widgetEl().dispatchEvent(pointer('pointerup', 200, 150, 0)) })
+    const moved = useShowStore.getState().show!.livePages![0].cueListWidgets![0]
+    expect(moved.x).toBe(120)
+    expect(moved.y).toBe(70)
+    // The click that follows the drag's pointerup is swallowed, so the
+    // row under the pointer is not selected by the drag.
+    act(() => { row.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(stepRow('001 Violet').className).not.toContain('bg-panel')
+    // A plain click (no movement) on the other row selects it instead.
+    const row2 = stepRow('002 Blue')
+    act(() => { row2.dispatchEvent(pointer('pointerdown', 100, 100)) })
+    act(() => { row2.dispatchEvent(pointer('pointerup', 100, 100, 0)) })
+    act(() => { row2.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(stepRow('002 Blue').className).toContain('bg-panel')
+  })
+
+  it('Done enlarges the cuelist to fill the free space at the bottom', () => {
+    seedShow()
+    // Move the widget to the bottom free space of a 1200x800 view.
+    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 500, 480, 300) })
+    renderInRoot(<App />)
+    switchToLive()
+    const viewport = container!.querySelector('[aria-label="Live canvas viewport"]') as HTMLElement
+    Object.defineProperty(viewport, 'clientWidth', { value: 1200, configurable: true })
+    Object.defineProperty(viewport, 'clientHeight', { value: 800, configurable: true })
+    enterEditMode()
+    const done = Array.from(container!.querySelectorAll('.live-page-edit')).find((el) => el.textContent?.trim() === 'Done')
+    expect(done).toBeTruthy()
+    act(() => { done!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(useShowStore.getState().liveEditing).toBe(false)
+    const widget = useShowStore.getState().show!.livePages![0].cueListWidgets![0]
+    expect(widget.width).toBe(1180)
+    expect(widget.height).toBe(300)
+  })
+})

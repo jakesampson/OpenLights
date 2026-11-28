@@ -70,7 +70,9 @@ function switchToLive() {
 }
 
 function widgetEl() {
-  const widget = [...container!.querySelectorAll('div')].find((el) => el.className.includes('absolute') && el.textContent?.includes('Sunday Set'))
+  // The widget has no title row (Jake, 28 Nov 2026) — its name no
+  // longer appears in its text, so find it by its data attribute.
+  const widget = container!.querySelector('[data-cuelist-widget]')
   expect(widget, 'cuelist widget on the canvas').toBeTruthy()
   return widget!
 }
@@ -123,7 +125,9 @@ describe('cue-list transport on the canvas widget', () => {
     renderInRoot(<App />)
     switchToLive()
     const widget = widgetEl()
-    expect(widget.textContent).toContain('Sunday Set')
+    // The list name no longer renders as a title (Jake, 28 Nov 2026)
+    // — the steps area carries it as its label instead.
+    expect(widget.querySelector('[aria-label="Sunday Set cues"]')).toBeTruthy()
     for (const header of ['Name', 'Hold Time', 'Fade Time', 'Xfade']) expect(widget.textContent).toContain(header)
     expect(widget.textContent).toContain('Full On')
     expect(widget.textContent).toContain('Wash Blue')
@@ -211,8 +215,10 @@ describe('cue-list transport on the canvas widget', () => {
     switchToLive()
     expect(container!.querySelector('.cue-transport-compact')).toBeNull()
     const widget = widgetEl()
-    expect(widget.textContent).toContain('Sunday Set')
-    expect(widget.textContent).not.toContain('Evening Set')
+    // The list name no longer renders as a title (Jake, 28 Nov 2026)
+    // — the steps area carries it as its label instead.
+    expect(widget.querySelector('[aria-label="Sunday Set cues"]')).toBeTruthy()
+    expect(widget.querySelector('[aria-label="Evening Set cues"]')).toBeNull()
     // The widget sits on the canvas, not below it.
     const canvas = container!.querySelector('[aria-label="Live page canvas"]')
     expect(canvas!.contains(widget)).toBe(true)

@@ -81,9 +81,16 @@ describe('Live / Live Edit parity', () => {
   it('selects the pressed cue button or cue list in both modes, so the inspector follows it', () => {
     expect(workspace).toContain('const selectRef = (ref: Selection)')
     expect(workspace).toContain('onPointerDown={(e) => onControlPointerDown(e, ref, x, y)}')
-    expect(workspace).toContain('onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }}')
-    // Selection is visible in both modes, not only while editing.
-    expect(workspace).not.toContain("isSelected(ref) && editing ? 'border-accent'")
+    // The widget's drag bar is gone (Jake, 28 Nov 2026) — the whole
+    // widget is the handle now, via the same armed pattern as buttons,
+    // and selectRef still runs before the editing guard, so pressing
+    // the widget selects it in BOTH modes and the inspector follows.
+    expect(workspace).toContain('onPointerDown={(e) => onWidgetPointerDown(e, ref, x, y)}')
+    // Selection is visible in both modes for cue buttons — but the
+    // CUELIST widget is the exception Jake asked for (28 Nov 2026):
+    // in Live mode it blends into the panel with no border at all,
+    // and the outline only appears while selected in Edit mode.
+    expect(workspace).toContain("isSelected(ref) && editing ? 'rounded border border-accent' : ''")
   })
 
   it('activation goes through the same store path in both modes', () => {

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import type { CueDef, FaderControlProperty, FrameConfig, LiveControl, LiveObjectKind, LiveObjectStyle, LivePage } from '@shared/types'
-import { clampModifier, clampLiveSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
+import { clampModifier, clampLiveSize, clampCuelistSize, snapCanvasValue, canvasSizeFor, DEFAULT_OBJECT_STYLES, frameConfigFor, LIVE_CUE_SIZE, LIVE_CUE_STEP, LIVE_LIST_SIZE, type LiveCanvasBounds } from '@shared/liveObjectDefaults'
 import { isLiveWindow } from '../lib/liveWindowBridge'
 import {
   decodeLiveDrop, dropLabel, LIVE_DROP_MIME, LEGACY_PRESET_MIME, type LiveDropPayload
@@ -10,6 +10,7 @@ import { formatTimingMs, parseTimingMs } from '../lib/liveTiming'
 import { resolveCueValues } from '@shared/cueResolution'
 import { manualCrossfadeProgress } from '../lib/cueListPlayback'
 import { orderedCuelistItems } from '../lib/cueListEditing'
+import { enlargeCuelistToFitView } from '../lib/cuelistLayout'
 import { liveButtonBackground, liveButtonTextColor, liveControlButtonColor, LIGHTKEY_BUTTON_COLORS, DEFAULT_BUTTON_APPEARANCE_COLOR } from '../lib/liveButtonColor'
 import { controlBehavior, isFaderControl, isFlashControl, isLatchingControl } from '../lib/liveControlBehavior'
 import { DEFAULT_CUE_PRIORITY, cuePriorityLabel } from '../lib/cuePriority'
@@ -779,9 +780,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if (r.handle.includes('s')) height = r.height + dy
     if (r.handle.includes('w')) { width = r.width - dx; x = r.x + dx }
     if (r.handle.includes('n')) { height = r.height - dy; y = r.y + dy }
-    // Clamp first (clampLiveSize snaps to the 10px grid), then re-anchor
-    // the origin to the clamped size so the opposite edge does not drift.
-    width = clampLiveSize(width); height = clampLiveSize(height)
+    // Clamp first (the clamp snaps to the 10px grid), then re-anchor
+    // the origin to the clamped size so the opposite edge does not
+    // drift. Cuelists use the uncapped clamp — LightKey's cuelist
+    // fills the Live view, so a widget Done enlarged past 900px must
+    // not snap back to 900 on the next handle drag (Jake, 28 Nov 2026).
+    const clamp = r.ref.type === 'list' ? clampCuelistSize : clampLiveSize
+    width = clamp(width); height = clamp(height)
     if (r.handle.includes('w')) x = r.x + (r.width - width)
     if (r.handle.includes('n')) y = r.y + (r.height - height)
     x = Math.max(0, snapCanvasValue(x)); y = Math.max(0, snapCanvasValue(y))
@@ -794,19 +799,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if (page && !liveAlignmentOff) {
       if (r.handle.includes('e')) {
         const edge = alignEdgeX(page, r.ref.id, draft.x + draft.width)
-        if (edge !== null) { draft.width = clampLiveSize(edge - draft.x); vertical.push(edge) }
+        if (edge !== null) { draft.width = clamp(edge - draft.x); vertical.push(edge) }
       }
       if (r.handle.includes('w')) {
         const edge = alignEdgeX(page, r.ref.id, draft.x)
-        if (edge !== null) { draft.width = clampLiveSize(r.x + r.width - edge); draft.x = edge; vertical.push(edge) }
+        if (edge !== null) { draft.width = clamp(r.x + r.width - edge); draft.x = edge; vertical.push(edge) }
       }
       if (r.handle.includes('s')) {
         const edge = alignEdgeY(page, r.ref.id, draft.y + draft.height)
-        if (edge !== null) { draft.height = clampLiveSize(edge - draft.y); horizontal.push(edge) }
+        if (edge !== null) { draft.height = clamp(edge - draft.y); horizontal.push(edge) }
       }
       if (r.handle.includes('n')) {
         const edge = alignEdgeY(page, r.ref.id, draft.y)
-        if (edge !== null) { draft.height = clampLiveSize(r.y + r.height - edge); draft.y = edge; horizontal.push(edge) }
+        if (edge !== null) { draft.height = clamp(r.y + r.height - edge); draft.y = edge; horizontal.push(edge) }
       }
     }
     setGuides({ vertical, horizontal })
@@ -947,8 +952,38 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
   const patchControl = (id: string, patch: Partial<LiveControl>) => {
     if (page) savePage({ ...page, controls: page.controls.map((item) => item.id === id ? { ...item, ...patch } : item) })
   }
+  // Auto-enlarge the cuelist on leaving edit mode (Guide ch.11 p.189;
+  // Jake, 28 Nov 2026): it grows right and down from where it was left
+  // to fill the free space, stopping at other objects or the edge of the
+  // visible Live view — full width when it sits at the bottom, the free
+  // strip when it sits at the side. Never shrinks; a cuelist already
+  // filling its space is left alone, so Done stays a no-op for it and
+  // writes nothing (no undo entry, no autosave dirt).
+  const autoEnlargeCuelist = () => {
+    if (!page) return
+    const widget = page.cueListWidgets?.[0]
+    if (!widget) return
+    const viewport = canvasViewportRef.current
+    if (!viewport) return
+    const width = widget.width ?? LIVE_LIST_SIZE.width
+    const height = widget.height ?? LIVE_LIST_SIZE.height
+    const size = enlargeCuelistToFitView(
+      { x: widget.x, y: widget.y, width, height },
+      { right: viewport.scrollLeft + viewport.clientWidth, bottom: viewport.scrollTop + viewport.clientHeight },
+      positionedObjects(page).filter((o) => o.id !== widget.id),
+    )
+    if (size.width !== width || size.height !== height) {
+      resizePageObject({ type: 'list', id: widget.id }, size.width, size.height)
+    }
+  }
+
   const toggleEditing = () => {
     if (editing) {
+      // LightKey enlarges the cuelist to fit the Live view when you
+      // exit edit mode (Guide ch.11 p.189; Jake, 28 Nov 2026) — from
+      // where it was left, it grows right and down to fill the free
+      // space, stopping at other objects or the view edge.
+      autoEnlargeCuelist()
       setLiveEditing(false)
       setPopupOpen(false)
       clearPageObjectSelection()
@@ -1139,6 +1174,25 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
   // a press on one never arms a drag. The fader track is a div, not an
   // input, so it is excluded by its data-fader-track marker.
   const onControlPointerDown = (event: React.PointerEvent, ref: Selection, x: number, y: number) => {
+    if (event.shiftKey && editing && !locked) { togglePageObjectSelection(ref); return }
+    selectRef(ref)
+    if (!editing || locked || event.button !== 0) return
+    if ((event.target as HTMLElement).closest('input, select, textarea, [data-fader-track]')) return
+    armedDrag.current = { ref, startX: event.clientX, startY: event.clientY, x, y }
+  }
+
+  // Drag-anywhere for the cuelist widget (Jake, 28 Nov 2026): the top
+  // drag bar is gone — the whole widget is the handle, the way cue
+  // buttons already work (see onControlPointerDown above). A press arms
+  // a drag; only movement past DRAG_THRESHOLD starts one, so a plain
+  // click still selects a cue and the transport buttons, steppers and
+  // Xfade slider keep working, and a drag swallows the click that
+  // follows its pointerup (onControlClickCapture). Inputs inside the
+  // widget (the Xfade slider, the step time cells, the rename inputs)
+  // keep their own behaviour — a press on one never arms a drag — and
+  // the resize handles stopPropagation in beginResize, so they resize
+  // instead of dragging.
+  const onWidgetPointerDown = (event: React.PointerEvent, ref: Selection, x: number, y: number) => {
     if (event.shiftKey && editing && !locked) { togglePageObjectSelection(ref); return }
     selectRef(ref)
     if (!editing || locked || event.button !== 0) return
@@ -1460,17 +1514,30 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
             if (stepId) selectStep(stepId, false)
             setListWidgetMenu({ widgetId: widget.id, listId: list?.id ?? '', stepId, x: event.clientX, y: event.clientY })
           }
-          return <div key={widget.id} data-page-object={`list:${widget.id}`} data-cuelist-widget={list?.id} className={`absolute flex flex-col rounded border ${isSelected(ref) ? 'border-accent' : 'border-line'} bg-panel2 p-2 ${list?.textSize === 'large' ? 'text-sm' : 'text-xs'}`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden' }} onDragOver={allowDrop} onDrop={(event) => dropOnList(event, list?.id)} onContextMenu={(event) => openWidgetMenu(event, null)}>
-            <div className={editing ? 'flex cursor-grab items-center justify-between gap-2 rounded bg-bg p-1' : 'flex items-center justify-between gap-2'} style={css(widget.style)} onPointerDown={(e) => { selectRef(ref); beginDrag(e, ref, x, y) }} onPointerMove={moveDrag} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setDraft(null) }}>
-              {renamingList === widget.id ? <input autoFocus aria-label="Cuelist name" defaultValue={list?.name ?? ''} className="min-w-0 flex-1 rounded bg-bg p-1 text-xs" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { const value = (e.target as HTMLInputElement).value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) } else if (e.key === 'Escape') setRenamingList(null) }} onBlur={(e) => { const value = e.target.value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) }} /> : <span className="min-w-0 truncate font-semibold">{editing && !locked && '↕ '}{list?.name ?? 'Missing cue list'}</span>}
-              {/* No Edit button on the widget (Jake, 28 Nov 2026):
-                  LightKey's cuelist has none — the "Edit" in his
-                  screenshot was the Live view's Edit button, not the
-                  widget's. The earlier button here (which opened the
-                  list inspector) was an approximation read from that
-                  screenshot and has been removed; the list inspector
-                  opens via right-click → Get Info. */}
-            </div>
+          // No background, no border, no title bar (Jake, 28 Nov 2026):
+          // LightKey's cuelist blends into the Live view — it is just
+          // its contents on the panel. The outline only appears while
+          // the widget is selected in Edit mode, so you can still see
+          // what you are grabbing; in Live mode (and unselected) there
+          // is nothing to see but the steps, transport and Xfade. The
+          // widget's own text style now lives on the container, so the
+          // list's font still applies without a title row to carry it.
+          // The whole widget is the drag handle (drag-anywhere, same
+          // armed pattern as cue buttons): a press arms a drag, only
+          // movement past DRAG_THRESHOLD starts one, so plain clicks
+          // still select cues and the transport, steppers and Xfade
+          // keep working.
+          return <div key={widget.id} data-page-object={`list:${widget.id}`} data-cuelist-widget={list?.id} className={`absolute flex flex-col ${isSelected(ref) && editing ? 'rounded border border-accent' : ''} ${editing && !locked ? 'cursor-grab' : ''} p-2 ${list?.textSize === 'large' ? 'text-sm' : 'text-xs'}`} style={{ left: x, top: y, width: w, height: h, overflow: 'hidden', ...css(widget.style) }} onDragOver={allowDrop} onDrop={(event) => dropOnList(event, list?.id)} onContextMenu={(event) => openWidgetMenu(event, null)} onPointerDown={(e) => onWidgetPointerDown(e, ref, x, y)} onPointerMove={onControlPointerMove} onPointerUp={onControlPointerUp} onPointerCancel={onControlPointerCancel} onClickCapture={onControlClickCapture}>
+            {/* The title bar is gone (Jake, 28 Nov 2026): no drag bar —
+                the whole widget is the drag handle now. The name input
+                only renders while the list is being renamed (right-click
+                → Rename); otherwise there is no title row at all, like
+                LightKey. */}
+            {renamingList === widget.id && (
+              <div className="flex items-center gap-2">
+                <input autoFocus aria-label="Cuelist name" defaultValue={list?.name ?? ''} className="min-w-0 flex-1 rounded bg-bg p-1 text-xs" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Enter') { const value = (e.target as HTMLInputElement).value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) } else if (e.key === 'Escape') setRenamingList(null) }} onBlur={(e) => { const value = e.target.value.trim(); if (value && list) renameCueList(list.id, value); setRenamingList(null) }} />
+              </div>
+            )}
             {list ? (
               <div className="mt-1 flex min-h-0 flex-1 gap-1">
                 <div className="flex min-w-0 flex-1 flex-col">
