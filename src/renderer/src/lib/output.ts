@@ -75,6 +75,18 @@ let highlight: { active: boolean; fixtureIds: Set<string> } = { active: false, f
 let calibration: Record<number, number> = {}
 let ambience: Record<number, number> = {}
 let lastOutput: Record<number, number> = {}
+/**
+ * The frame the rig was showing just before the most recent effect
+ * stopped, kept for the rest of the current commit only (Jake, 28 Nov
+ * 2026 — blue flash on Dimmer Effect off): the App's commit flushes
+ * the sequences, preset and override layers — all synchronous — after
+ * configureEffects and before the live layer, and each of those flushes
+ * composes the stale stripped live patch with the effect already gone,
+ * so the blue base underneath is what lastOutput holds by the time the
+ * live fade starts. A fade that snapshots that would start from blue.
+ * The next live fade consumes this frame as its start point instead.
+ */
+let preEffectStopOutput: Record<number, number> | null = null
 /** Frame counter for the Preview (Jake, 26 Nov 2026): `push()` bumps
  *  this on every frame it sends, so StagePreview can drive its beam
  *  from the same ~60fps rAF loop as the chart dot instead of polling
@@ -604,12 +616,37 @@ export function configureEffects(config: Partial<EffectRuntime>) {
   // for the whole activation and another effect's activation never
   // reshuffles it.
   if (config.effects !== undefined) effectActivationSeeds = assignActivationSeeds(effectActivationSeeds, config.effects)
+  // An effect stopping hands its channels back to the layers below it.
+  // Remember what the rig was showing first: the commit's later flushes
+  // (sequences, presets, overrides) all run before the live layer and
+  // would otherwise leave lastOutput holding the blue base underneath
+  // (see preEffectStopOutput above). Cleared by the next live fade, or
+  // by the microtask below if no fade follows in this commit.
+  if (config.effects !== undefined) {
+    const wasEnabled = new Set(runtime.effects.filter((effect) => effect.enabled).map((effect) => effect.id))
+    const nowEnabled = new Set(config.effects.filter((effect) => effect.enabled).map((effect) => effect.id))
+    if ([...wasEnabled].some((id) => !nowEnabled.has(id))) {
+      preEffectStopOutput = { ...lastOutput }
+      queueMicrotask(() => { preEffectStopOutput = null })
+    }
+  }
   runtime = { ...runtime, ...config }
   if (!runtime.blackout && (runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()
   } else {
     stopEffectLoop()
-    flush()
+    // Defer the flush one microtask, not right now: the live layer still
+    // holds the patch the effect was stripping (its LED channels were
+    // owned by the effect), so a flush here would push the base
+    // underneath — blue at full when Full On is lit — and poison the
+    // last shown frame the live fade snapshots when it starts in the
+    // same commit (Jake, 28 Nov 2026 — blue flash on Dimmer Effect
+    // off). A microtask runs after the whole commit's effects, so the
+    // live fade's own immediate flush lands first and this one then
+    // composes with the corrected live patch. When no live fade follows
+    // (an effect toggled off in Design), this still updates the rig one
+    // microtask later — far inside one DMX frame.
+    queueMicrotask(() => { flush() })
   }
 }
 
@@ -635,14 +672,52 @@ export function configureLiveOutput(patch: Record<number, number>, fadeMs = 0) {
   liveFadeTarget = null
   if (fadeMs <= 0) { live = { ...patch }; flush(); return }
   const from = { ...live }, target = { ...patch }, start = performance.now()
+  // What the rig is actually showing right now — the last composed frame
+  // pushed out. A channel the old live patch did not drive must fade
+  // from that shown value, not from the base underneath: while a Dimmer
+  // effect ran, the live patch's LED channels were stripped (the effect
+  // owned them), and by the time this fade starts the effect is already
+  // gone from effectPatch, so the underneath reads the blue base and the
+  // rig flashes blue for the whole fade (Jake, 28 Nov 2026 — Full On +
+  // Green + Dimmer Effect lit, effect off, blue full for 0.5s then
+  // green). Snapshot once: the tick's flush() keeps moving lastOutput,
+  // which would bend the fade into a lag instead of a straight ramp.
+  // The snapshot is only the start point for channels the old patch did
+  // not drive; a channel the new patch lets go of still ends at what
+  // will show through once it does (the underneath), or the rig would
+  // sit at its old value through the fade and snap at the end.
+  // What the rig was showing when the fade starts: the frame from just
+  // before the most recent effect stopped when one stopped in this
+  // commit (preEffectStopOutput), else the last transmitted frame.
+  const shown = preEffectStopOutput ?? { ...lastOutput }
+  preEffectStopOutput = null
   liveFadeTarget = target
   const channels = new Set([...Object.keys(from), ...Object.keys(target)].map(Number))
+  // A channel the old patch did not drive fades in from what the rig was
+  // showing; a channel the new patch lets go of fades out to what will
+  // show through once it does (the underneath) — otherwise the rig would
+  // sit at its old value through the fade and snap at the end.
+  const fallbackFor = (channel: number, underneath: Record<number, number>) =>
+    from[channel] === undefined
+      ? (shown[channel] ?? underneath[channel] ?? 0)
+      : (underneath[channel] ?? 0)
+  // Apply the fade's starting point at once, not on the first tick: the
+  // effect stopping already flushed once with the stale stripped patch,
+  // and the base fade's tick will flush again before this fade's first
+  // tick — without this the blue base would still reach the wire for a
+  // frame. Starting from the shown values, that flush pushes the look
+  // the rig already has.
+  const startUnderneath = mergeEffects({ ...base, ...sequencePatch(performance.now()) }, effectPatch(performance.now()))
+  const startPatch: Record<number, number> = {}
+  for (const channel of channels) startPatch[channel] = from[channel] ?? fallbackFor(channel, startUnderneath)
+  live = startPatch
+  flush()
   const tick = (now: number) => {
     const t = smoothstep(Math.max(0, Math.min(1, (now - start) / fadeMs)))
     const underneath = mergeEffects({ ...base, ...sequencePatch(now) }, effectPatch(now))
     const next: Record<number, number> = {}
     for (const channel of channels) {
-      const fallback = underneath[channel] ?? 0
+      const fallback = fallbackFor(channel, underneath)
       next[channel] = Math.round((from[channel] ?? fallback) * (1 - t) + (target[channel] ?? fallback) * t)
     }
     live = t >= 1 ? target : next
