@@ -8,7 +8,7 @@ import { applyHighlight } from './highlight'
  */
 
 import type { EffectDef, FixtureDef, MovementPathDef } from '@shared/types'
-import { computeEffectPatch, mergeEffects } from './effects'
+import { assignActivationSeeds, computeEffectPatch, mergeEffects } from './effects'
 import { composeOutput } from './outputModel'
 import { computeCueChannels } from './automationRuntime'
 import { applyCalibrationOutput } from './calibration'
@@ -115,6 +115,11 @@ let runtime: EffectRuntime = {
   master: 255,
   blackout: false
 }
+
+/** Per-effect Random (Variable) activation seeds (Guide p.151) — keyed by
+ *  effect id, minted in configureEffects when an effect becomes enabled
+ *  and kept for the whole activation; see assignActivationSeeds. */
+let effectActivationSeeds = new Map<string, number>()
 
 /**
  * The dimmer the Preview draws for each fixture (0..255) — the number
@@ -315,7 +320,7 @@ function effectPatch(now: number): Record<number, number> {
     time,
     runtime.bpm,
     runtime.master,
-    { movementPaths: runtime.movementPaths ?? [], baseValues: runtime.baseValues }
+    { movementPaths: runtime.movementPaths ?? [], baseValues: runtime.baseValues, activationSeeds: Object.fromEntries(effectActivationSeeds) }
   )
 }
 
@@ -593,6 +598,12 @@ function startEffectLoop() {
  * show, master, tempo, blackout state or effect list changes.
  */
 export function configureEffects(config: Partial<EffectRuntime>) {
+  // Guide p.151: a Random (Variable) order re-rolls each time its effect
+  // becomes active. The seed map is refreshed here — this is where the
+  // enabled transitions are visible — so each effect keeps its own seed
+  // for the whole activation and another effect's activation never
+  // reshuffles it.
+  if (config.effects !== undefined) effectActivationSeeds = assignActivationSeeds(effectActivationSeeds, config.effects)
   runtime = { ...runtime, ...config }
   if (!runtime.blackout && (runtime.effects.some((effect) => effect.enabled) || sequences.length > 0)) {
     startEffectLoop()

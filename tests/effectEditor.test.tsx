@@ -1179,6 +1179,109 @@ describe('effect editor pill bar, sample strip, params and fixture order (Jake, 
     expect(useShowStore.getState().effects[0].fixtureIds).toEqual(['fx1'])
   })
 
+  it('picking Random (Fixed) re-rolls the stored seed each time (Guide p.151)', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    const pick = (label: string) => {
+      const trigger = container?.querySelector('[aria-label="Fixture order menu"]') as HTMLButtonElement | null
+      if (!trigger) throw new Error('no Fixture Order trigger')
+      act(() => { trigger.click() })
+      const menu = document.body.querySelector('[aria-label="Fixture order"]')
+      if (!menu) throw new Error('no Fixture Order menu')
+      const button = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined
+      if (!button) throw new Error(`no menu item "${label}"`)
+      act(() => { button.click() })
+    }
+    pick('Random (Fixed)')
+    const first = useShowStore.getState().effects[0]
+    expect(first.fixtureOrder).toBe('random-fixed')
+    expect(first.randomOrderSeed).toBeDefined()
+    pick('Random (Fixed)')
+    const second = useShowStore.getState().effects[0]
+    expect(second.fixtureOrder).toBe('random-fixed')
+    expect(second.randomOrderSeed).toBeDefined()
+    expect(second.randomOrderSeed).not.toBe(first.randomOrderSeed)
+  })
+
+  it('picking Custom Order… opens number editing; OK applies, Cancel discards (Guide pp.152-153)', () => {
+    setShow()
+    act(() => {
+      useShowStore.getState().addEffect(chaseEffect())
+      useShowStore.setState({ editingEffectId: 'e-chase' })
+    })
+    renderInRoot(<DesignTab />)
+    const pick = (label: string) => {
+      const trigger = container?.querySelector('[aria-label="Fixture order menu"]') as HTMLButtonElement | null
+      if (!trigger) throw new Error('no Fixture Order trigger')
+      act(() => { trigger.click() })
+      const menu = document.body.querySelector('[aria-label="Fixture order"]')
+      if (!menu) throw new Error('no Fixture Order menu')
+      const button = Array.from(menu.querySelectorAll('button')).find((b) => b.textContent?.includes(label)) as HTMLButtonElement | undefined
+      if (!button) throw new Error(`no menu item "${label}"`)
+      act(() => { button.click() })
+    }
+    // Picking opens the numbering session but does NOT change the effect yet.
+    pick('Custom Order…')
+    expect(useShowStore.getState().customOrderEditing).toEqual({ effectId: 'e-chase', numbers: { fx1: 1 } })
+    expect(useShowStore.getState().effects[0].fixtureOrder).toBeUndefined()
+    // Editing a number and OK writes the numbers and the custom order.
+    act(() => {
+      useShowStore.getState().setCustomOrderNumber('fx1', 3)
+      useShowStore.getState().confirmCustomOrder()
+    })
+    const applied = useShowStore.getState().effects[0]
+    expect(applied.fixtureOrder).toBe('custom')
+    expect(applied.customFixtureNumbers).toEqual({ fx1: 3 })
+    expect(useShowStore.getState().customOrderEditing).toBeNull()
+    // Picking again reloads the stored numbers; cancelling leaves them alone.
+    pick('Custom Order…')
+    expect(useShowStore.getState().customOrderEditing).toEqual({ effectId: 'e-chase', numbers: { fx1: 3 } })
+    act(() => {
+      useShowStore.getState().setCustomOrderNumber('fx1', 7)
+      useShowStore.getState().cancelCustomOrderEditing()
+    })
+    expect(useShowStore.getState().effects[0].customFixtureNumbers).toEqual({ fx1: 3 })
+    expect(useShowStore.getState().customOrderEditing).toBeNull()
+    // Select Beams is greyed while the order is custom (whole fixtures only).
+    const trigger = container?.querySelector('[aria-label="Fixture order menu"]') as HTMLButtonElement | null
+    act(() => { trigger?.click() })
+    const menu = document.body.querySelector('[aria-label="Fixture order"]')
+    const beams = Array.from(menu?.querySelectorAll('button') ?? []).find((b) => b.textContent?.includes('Select Beams')) as HTMLButtonElement
+    expect(beams.disabled).toBe(true)
+  })
+
+  it('custom-order numbering starts from the current order and closing the editor cancels it', () => {
+    setShow()
+    const fixtures = [
+      { id: 'f1', name: 'P1', type: 'par', channelStart: 1, channels: 4, previewPosition: { x: 0, y: 0 } },
+      { id: 'f2', name: 'P2', type: 'par', channelStart: 5, channels: 4, previewPosition: { x: 100, y: 0 } },
+      { id: 'f3', name: 'P3', type: 'par', channelStart: 9, channels: 4, previewPosition: { x: 200, y: 0 } }
+    ]
+    act(() => {
+      const base = useShowStore.getState()
+      useShowStore.setState({ show: base.show ? { ...base.show, fixtures } : base.show })
+      base.addEffect({ ...chaseEffect(), id: 'e-num', name: 'Numbered', fixtureIds: ['f1', 'f2', 'f3'], fixtureOrder: 'left-right' })
+      useShowStore.setState({ editingEffectId: 'e-num' })
+    })
+    // No stored numbers: 1..n in the current (left-right) order.
+    act(() => { useShowStore.getState().startCustomOrderEditing('e-num') })
+    expect(useShowStore.getState().customOrderEditing).toEqual({ effectId: 'e-num', numbers: { f1: 1, f2: 2, f3: 3 } })
+    act(() => { useShowStore.getState().cancelCustomOrderEditing() })
+    // Stored numbers stand; a fixture without one continues past the largest.
+    act(() => {
+      useShowStore.getState().updateEffect('e-num', { customFixtureNumbers: { f3: 1, f1: 2 } })
+      useShowStore.getState().startCustomOrderEditing('e-num')
+    })
+    expect(useShowStore.getState().customOrderEditing).toEqual({ effectId: 'e-num', numbers: { f3: 1, f1: 2, f2: 3 } })
+    // Closing the editor cancels the session.
+    act(() => { useShowStore.getState().setEditingEffectId(null) })
+    expect(useShowStore.getState().customOrderEditing).toBeNull()
+  })
+
   it('chooser header is one row: swap pill + search, no duplicate Design/Live, no Close', () => {
     setShow()
     act(() => { useShowStore.setState({ effectChooserAttribute: 'intensity' }) })

@@ -11,12 +11,49 @@ import { computeMovementPatch } from './movementRuntime'
  *  presets + overrides, later wins): the colour source for a Dimmer effect
  *  on a virtual-dimmer fixture, where the effect scales the LED channels
  *  by the level and a channel patch has already scaled the base dimmer
- *  away. */
+ *  away. `activationSeeds` carries a PER-EFFECT seed (keyed by effect id);
+ *  an effect uses its own entry, falling back to the single `activationSeed`
+ *  (and then 0) — so activating one random-variable effect never reshuffles
+ *  another already-running one. */
 export interface EffectPatchOptions {
   movementPaths?: MovementPathDef[]
   base?: Record<number, number>
   activationSeed?: number
+  activationSeeds?: Record<string, number>
   baseValues?: Record<string, Record<string, number>>
+}
+
+/** Per-effect activation seeds for Random (Variable) orders (Guide p.151:
+ *  the random order changes each time the effect becomes active, and stays
+ *  the same within one activation). Given the previous seed map and the
+ *  effects now handed to the output loop, keep each still-enabled effect's
+ *  seed and mint a fresh one for every effect that just became enabled
+ *  (or appeared); disabled and absent effects drop out, so re-enabling one
+ *  later is a new activation with a new order. Pure, so the rule is
+ *  unit-testable without the output loop. */
+export function assignActivationSeeds(
+  previous: Map<string, number>,
+  effects: EffectDef[],
+  freshSeed: () => number = () => Math.floor(Math.random() * 0x7fffffff)
+): Map<string, number> {
+  const next = new Map<string, number>()
+  for (const effect of effects) {
+    if (!effect.enabled) continue
+    const kept = previous.get(effect.id)
+    next.set(effect.id, kept !== undefined ? kept : freshSeed())
+  }
+  return next
+}
+
+/** Per-pixel time-offset stagger, in units of one pixel step (Guide p.152):
+ *  with Consider Spacing on, the stagger follows the spacing-based
+ *  `position` (projected Preview distance) instead of the uniform phase
+ *  index — the first pixel has zero delay and the last the full
+ *  (count-1) × timeOffset stagger, with intermediate pixels by distance.
+ *  With spacing off it is exactly the phase index, so grouping/repeat
+ *  behaviour is unchanged. */
+export function pixelTimeStagger(pixel: EffectPixel, count: number, considerSpacing: boolean): number {
+  return considerSpacing ? pixel.position * (count - 1) : pixel.phaseIndex
 }
 
 /**
@@ -125,6 +162,30 @@ function addressOf(fixture: FixtureDef): number {
   return (fixture.universe ?? 1) * 512 + fixture.channelStart
 }
 
+/** Deterministic shuffle (mulberry32 PRNG + Fisher-Yates): the same seed
+ *  always yields the same order, different seeds yield genuinely different
+ *  orders. A string hash cannot do this job — hashing the seed BEFORE the
+ *  fixture id (`${effect.id}:${seed}:${id}`) makes the seed a common prefix
+ *  that cancels out of the comparison, so for ids sharing a prefix (Jake's
+ *  demo fixtures: 'simger-q12bt-1'…'simger-q12bt-4') only 2 distinct orders
+ *  appear over 500 seeds. The shuffle gives 495. */
+export function seededShuffle<T>(items: T[], seed: number): T[] {
+  const out = [...items]
+  let s = seed | 0
+  const next = (): number => {
+    s = (s + 0x6d2b79f5) | 0
+    let t = Math.imul(s ^ (s >>> 15), s | 1)
+    t = (t + Math.imul(t ^ (t >>> 7), t | 61)) ^ t
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(next() * (i + 1))
+    const tmp = out[i]
+    out[i] = out[j]
+    out[j] = tmp
+  }
+  return out
+}
 /** Guide ch.10, pp.151-152: the order pixels are passed through. 'forward' is patch
  *  order; 'random' is the legacy stable hash (Random (Fixed)); 'random-variable'
  *  re-rolls per activation seed. Position-based orders use Preview positions;
@@ -169,17 +230,27 @@ export function orderedEffectFixtures(
       })
     }
     case 'custom': {
-      const rank = new Map((effect.customFixtureOrder ?? []).map((id, index) => [id, index]))
-      return [...fixtures].sort((a, b) => (rank.get(a.id) ?? 1e9) - (rank.get(b.id) ?? 1e9))
+      // Guide pp.152-153: the stored numbers are the order — lowest first.
+      // Fixtures without a number trail the numbered ones, in patch order.
+      const numbers = effect.customFixtureNumbers ?? {}
+      const rank = new Map(fixtures.map((f, i) => [f.id, i]))
+      return [...fixtures].sort((a, b) => {
+        const na = numbers[a.id] ?? Infinity
+        const nb = numbers[b.id] ?? Infinity
+        return na - nb || (rank.get(a.id) ?? 0) - (rank.get(b.id) ?? 0)
+      })
     }
     case 'random-variable': {
       // Re-rolls per activation seed (stable within one activation).
-      const hash = (id: string) =>
-        [...`${effect.id}:${activationSeed}:${id}`].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) | 0, 7)
-      return [...fixtures].sort((a, b) => hash(a.id) - hash(b.id))
+      return seededShuffle(fixtures, activationSeed)
     }
     case 'random':
     case 'random-fixed': {
+      // Guide p.151: the random order changes each time you select this
+      // option but stays the same afterwards. A stored seed shuffles with
+      // it; effects saved before the seed existed keep the legacy id-only
+      // hash, so their order never changes on upgrade.
+      if (effect.randomOrderSeed !== undefined) return seededShuffle(fixtures, effect.randomOrderSeed)
       const hash = (id: string) =>
         [...`${effect.id}:${id}`].reduce((n, ch) => (n * 31 + ch.charCodeAt(0)) | 0, 7)
       return [...fixtures].sort((a, b) => hash(a.id) - hash(b.id))
@@ -207,6 +278,31 @@ export interface EffectPixel {
   phaseIndex: number
 }
 
+/** Effective custom-order number per fixture id, for a custom order (Guide
+ *  pp.152-153): the stored number where one exists; a fixture without one
+ *  continues past the largest stored number (in order), so it trails the
+ *  numbered fixtures as its own step; with no numbers at all the fixtures
+ *  are numbered 1..n in order. `min`/`max` are over the effective numbers. */
+function customOrderNumbers(
+  effect: EffectDef,
+  ordered: FixtureDef[]
+): { numbers: Map<string, number>; min: number; max: number } {
+  const stored = effect.customFixtureNumbers ?? {}
+  let maxStored = 0
+  for (const fixture of ordered) {
+    const n = stored[fixture.id]
+    if (n !== undefined && n > maxStored) maxStored = n
+  }
+  const numbers = new Map<string, number>()
+  let next = maxStored + 1
+  for (const fixture of ordered) {
+    const n = stored[fixture.id]
+    numbers.set(fixture.id, n !== undefined ? n : next++)
+  }
+  const values = [...numbers.values()]
+  return { numbers, min: values.length ? Math.min(...values) : 0, max: values.length ? Math.max(...values) : 0 }
+}
+
 /**
  * Order the pixels of an effect (Guide pp.151-152). `attribute` is the channel attribute
  * each pixel writes; when pixelMode is 'fixtures' every fixture is one pixel (all its
@@ -220,7 +316,17 @@ export function orderedEffectPixels(
   activationSeed = 0
 ): EffectPixel[] {
   const ordered = orderedEffectFixtures(effect, fixtures, activationSeed)
-  const pixelMode = effect.pixelMode ?? 'beams'
+  // Guide pp.152-153: a custom order applies to whole fixtures only — the
+  // beams of a fixture are never split into separate pixels under it.
+  const pixelMode = effect.fixtureOrder === 'custom' ? 'fixtures' : (effect.pixelMode ?? 'beams')
+  // The custom numbers each fixture runs on, for a custom order: the stored
+  // number where one exists, otherwise sequential numbers continuing past
+  // the largest stored one (in order), so an unnumbered fixture trails the
+  // numbered ones as its own step; with no numbers at all the fixtures are
+  // numbered 1..n in order.
+  const customNumbers = effect.fixtureOrder === 'custom' && ordered.length > 0
+    ? customOrderNumbers(effect, ordered)
+    : null
   // Build one entry per pixel, in order.
   type RawPixel = { fixture: FixtureDef; attribute: string; beamId?: string }
   const raw: RawPixel[] = []
@@ -251,9 +357,20 @@ export function orderedEffectPixels(
   const count = raw.length
   const pixels: EffectPixel[] = indices.map((rawIndex, position) => {
     // Position along the order: by index, or by projected Preview distance when
-    // Consider Spacing is on (curve and movement effects).
+    // Consider Spacing is on (curve and movement effects). A custom order is
+    // different: the numbers define both the step (phaseIndex) and the
+    // normalised position, so a shared number is one pixel and a skipped
+    // number is a gap in every runtime (curve, movement, pattern, legacy
+    // oscillator) the same way. The first number is always step 0 — the
+    // numbers are relative, not absolute. Consider Spacing does not apply
+    // under a custom order: the numbers ARE the spacing.
     let normalized = count <= 1 ? 0 : position / (count - 1)
-    if (effect.considerSpacing && count > 1) {
+    let phaseIndex = position
+    if (customNumbers) {
+      const n = customNumbers.numbers.get(raw[rawIndex].fixture.id) ?? customNumbers.min
+      phaseIndex = n - customNumbers.min
+      normalized = customNumbers.max > customNumbers.min ? (n - customNumbers.min) / (customNumbers.max - customNumbers.min) : 0
+    } else if (effect.considerSpacing && count > 1) {
       const positions = raw.map((p) => fixturePreviewPosition(p.fixture))
       const first = positions[indices[0]]
       const last = positions[indices[count - 1]]
@@ -262,7 +379,7 @@ export function orderedEffectPixels(
       normalized =
         total > 0 ? Math.hypot(current.x - first.x, current.y - first.y) / total : normalized
     }
-    return { fixture: raw[rawIndex].fixture, attribute: raw[rawIndex].attribute, beamId: raw[rawIndex].beamId, position: normalized, phaseIndex: position }
+    return { fixture: raw[rawIndex].fixture, attribute: raw[rawIndex].attribute, beamId: raw[rawIndex].beamId, position: normalized, phaseIndex }
   })
   // Grouping: N adjacent pixels act like a single pixel.
   const grouping = Math.max(1, Math.floor(effect.fixtureGrouping ?? 1))
@@ -369,17 +486,22 @@ export function computeEffectPatch(
     // carries an empty list unless the editor emptied it on purpose.
     const targets = fixtures.filter((f) => ids.has(f.id))
     if (targets.length === 0) continue
+    // Per-effect activation seed (Guide p.151): a random-variable effect
+    // re-rolls on ITS OWN activation only — a shared seed would reshuffle
+    // every other random-variable effect running alongside it.
+    const effectSeed = options.activationSeeds?.[effect.id] ?? options.activationSeed ?? 0
+    const effectOptions: EffectPatchOptions = { ...options, activationSeed: effectSeed }
     const kind = effect.kind ?? 'curve'
     if (kind === 'pattern' && effect.pattern) {
-      computePatternPatch(targets, effect, timeSeconds, bpm, master, options.activationSeed ?? 0, channels, options.baseValues)
+      computePatternPatch(targets, effect, timeSeconds, bpm, master, effectSeed, channels, options.baseValues)
       continue
     }
     if (kind === 'movement' && effect.movementPathId) {
-      computeMovementPatch(targets, effect, timeSeconds, bpm, master, options, channels)
+      computeMovementPatch(targets, effect, timeSeconds, bpm, master, effectOptions, channels)
       continue
     }
     if (kind === 'curve' && effect.curveComponents && effect.curveComponents.length > 0) {
-      computeDrawableCurvePatch(targets, effect, timeSeconds, bpm, master, options, channels)
+      computeDrawableCurvePatch(targets, effect, timeSeconds, bpm, master, effectOptions, channels)
       continue
     }
     // Legacy waveform oscillator path (unchanged behaviour): when the effect's
@@ -387,7 +509,7 @@ export function computeEffectPatch(
     // With no phase spread every cell gets the same value (unison); with a
     // spread the wave chases across the cells. Any other attribute (a global
     // dimmer, pan, strobe) stays one target for the whole fixture.
-    const pixels = orderedEffectPixels(effect, targets, effect.attribute, options.activationSeed ?? 0)
+    const pixels = orderedEffectPixels(effect, targets, effect.attribute, effectSeed)
     if (pixels.length === 0) continue
     const frequency = effectFrequency(effect, bpm)
     const spread = Math.max(0, effect.phaseSpread) / 360

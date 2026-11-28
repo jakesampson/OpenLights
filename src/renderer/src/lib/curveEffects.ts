@@ -4,6 +4,7 @@ import { scaleAttribute } from './automationRuntime'
 import {
   effectDurationSeconds,
   orderedEffectPixels,
+  pixelTimeStagger,
   waveformValue,
   writeColourDimmer,
   writeEffectChannel,
@@ -184,10 +185,15 @@ export function computeDrawableCurvePatch(
   const midX = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0
   const midY = ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0
 
-  const localT = (pixel: EffectPixel) => {
+  const localT = (pixel: EffectPixel, count: number) => {
     // Guide p.154 / pp.163-164: each pixel changes LATER than the preceding
     // one — the offset is subtracted, so a later pixel trails (runs behind).
-    const t = timeSeconds - pixel.phaseIndex * timeOffset * duration
+    // Guide p.152: with Consider Spacing on, the stagger follows the
+    // fixtures' Preview distances instead of the uniform phase index. Not
+    // under a custom order (Guide pp.152-153): the numbers ARE the spacing,
+    // so the stagger comes from the number-derived phase index.
+    const stagger = pixelTimeStagger(pixel, count, (effect.considerSpacing ?? false) && effect.fixtureOrder !== 'custom')
+    const t = timeSeconds - stagger * timeOffset * duration
     return ((t / duration) % 1 + 1) % 1
   }
 
@@ -231,7 +237,7 @@ export function computeDrawableCurvePatch(
       const pixels = orderedEffectPixels(effect, fixtures, 'red', options.activationSeed ?? 0)
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
-        const t = localT(pixel)
+        const t = localT(pixel, pixels.length)
         const h = hue ? evaluateCurve(hue.points, hue.curvedSegments, t) * 360 : 0
         const s = saturation ? evaluateCurve(saturation.points, saturation.curvedSegments, t) : 1
         const v = brightness ? evaluateCurve(brightness.points, brightness.curvedSegments, t) : 1
@@ -251,7 +257,7 @@ export function computeDrawableCurvePatch(
       const pixels = orderedEffectPixels(effect, fixtures, component, options.activationSeed ?? 0)
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
-        const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
+        const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel, pixels.length)) * 255
         notePeak(pixel.fixture.id, value)
         writePixelChannel(into, pixel, value, effect, master, options)
       })
@@ -263,7 +269,7 @@ export function computeDrawableCurvePatch(
       const pixels = orderedEffectPixels(effect, fixtures, colorComponentAttribute(component), options.activationSeed ?? 0)
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
-        const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
+        const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel, pixels.length)) * 255
         notePeak(pixel.fixture.id, value)
         writePixelChannel(into, pixel, value, effect, master, options)
       })
@@ -279,7 +285,7 @@ export function computeDrawableCurvePatch(
       const pixels = orderedEffectPixels(effect, fixtures, component, options.activationSeed ?? 0)
       pixels.forEach((pixel) => {
         if (pixel.fixture.disabled) return
-        const raw = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel))
+        const raw = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel, pixels.length))
         const value = applyMirror(pixel, component, raw) * 255
         writePixelChannel(into, pixel, value, effect, master, options)
       })
@@ -293,7 +299,7 @@ export function computeDrawableCurvePatch(
   const pixels = orderedEffectPixels(effect, fixtures, effect.attribute, options.activationSeed ?? 0)
   pixels.forEach((pixel) => {
     if (pixel.fixture.disabled) return
-    const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel)) * 255
+    const value = evaluateCurve(curve.points, curve.curvedSegments, localT(pixel, pixels.length)) * 255
     writePixelChannel(into, pixel, value, effect, master, options)
   })
   return into

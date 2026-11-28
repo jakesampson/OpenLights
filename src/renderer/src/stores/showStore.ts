@@ -66,7 +66,7 @@ import { completePresetBaseColour } from '../lib/presetColor'
 import { effectiveIntensityLevels, liveIntensityLevels, resolvedActiveCueValues, withEffectiveIntensity } from '../lib/effectiveIntensity'
 import { allZeroPatch, completedSequenceIds, getCurrentPatch, getEffectTime, sendChannels, sendImmediate, setBlindOutput, setFreezeOutput, setHighlightOutput, setEffectBlackout, configureSequences, configurePresetOutput, configureLiveOutput, configureOverrideOutput, suppressPresetsForCue, patchBrightness, lerpLevels, reassertBase } from '../lib/output'
 import { resolveFadeMs, activeLivePageFadeMs } from '../lib/fadeTimes'
-import { computeEffectPatch } from '../lib/effects'
+import { computeEffectPatch, orderedEffectFixtures } from '../lib/effects'
 import { fixtureChannelMap } from '@shared/fixtureProfiles'
 import { LIVE_CUE_SIZE, LIVE_FADER_HORIZONTAL_SIZE, LIVE_FADER_VERTICAL_SIZE } from '@shared/liveObjectDefaults'
 
@@ -551,6 +551,16 @@ interface ShowState {
    *  Preview. Session-only: never persisted. */
   editingEffectId: string | null
   setEditingEffectId: (id: string | null) => void
+  /** Custom-order number editing in the Preview (Guide pp.152-153): the
+   *  effect being numbered and the draft numbers. Session-only: never
+   *  persisted — OK writes the numbers onto the effect, Cancel / Esc
+   *  discards the draft, and closing or switching the effect editor
+   *  cancels the mode. */
+  customOrderEditing: { effectId: string; numbers: Record<string, number> } | null
+  startCustomOrderEditing: (effectId: string) => void
+  setCustomOrderNumber: (fixtureId: string, value: number) => void
+  confirmCustomOrder: () => void
+  cancelCustomOrderEditing: () => void
   /** The property the effects chooser (Guide ch.10) is open for, below the
    *  Preview. Session-only: never persisted. */
   effectChooserAttribute: string | null
@@ -1428,8 +1438,45 @@ const actions: ShowState = {
       if (get().editingCueAdHocId) get().saveEditingCueAdHoc()
     }
     // Opening the editor is another panel: a chooser preview stops.
-    set({ editingEffectId: id, ...(id ? { previewEffect: null, previewEffectTemplateId: null } : {}) })
+    // Closing the editor — or switching to a different effect — cancels a
+    // custom-order numbering session: the draft belongs to the editor.
+    set({ editingEffectId: id, ...(id === state.editingEffectId ? {} : { customOrderEditing: null }), ...(id ? { previewEffect: null, previewEffectTemplateId: null } : {}) })
   },
+  customOrderEditing: null,
+  startCustomOrderEditing: (effectId) => {
+    const state = get()
+    const effect = state.effects.find((item) => item.id === effectId)
+    if (!effect) return
+    const fixtures = (state.show?.fixtures ?? []).filter((f) => effect.fixtureIds.includes(f.id))
+    // Initial numbers: the stored ones where the effect already has them,
+    // otherwise 1..n in the effect's current order.
+    const ordered = orderedEffectFixtures(effect, fixtures, 0)
+    const stored = effect.customFixtureNumbers ?? {}
+    let maxStored = 0
+    for (const f of ordered) {
+      const n = stored[f.id]
+      if (n !== undefined && n > maxStored) maxStored = n
+    }
+    const numbers: Record<string, number> = {}
+    let next = maxStored + 1
+    for (const f of ordered) {
+      const n = stored[f.id]
+      numbers[f.id] = n !== undefined ? n : next++
+    }
+    set({ customOrderEditing: { effectId, numbers } })
+  },
+  setCustomOrderNumber: (fixtureId, value) => {
+    const current = get().customOrderEditing
+    if (!current) return
+    set({ customOrderEditing: { ...current, numbers: { ...current.numbers, [fixtureId]: value } } })
+  },
+  confirmCustomOrder: () => {
+    const current = get().customOrderEditing
+    if (!current) return
+    get().updateEffect(current.effectId, { customFixtureNumbers: { ...current.numbers }, fixtureOrder: 'custom' })
+    set({ customOrderEditing: null })
+  },
+  cancelCustomOrderEditing: () => set({ customOrderEditing: null }),
   editingEffectTemplateId: null,
   effectChooserAttribute: null,
   previewEffect: null,
@@ -3412,7 +3459,7 @@ const actions: ShowState = {
       // Guide p.174: "Include fixture order" — without it the template
       // keeps only the effect itself, not how it runs across fixtures.
       delete template.fixtureOrder
-      delete template.customFixtureOrder
+      delete template.customFixtureNumbers
       delete template.fixtureOrderOrigin
       delete template.fixtureGrouping
       delete template.fixtureRepeat

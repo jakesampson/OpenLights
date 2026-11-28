@@ -73,8 +73,73 @@ function fixturePositions(count: number) {
   return demoArcPositions(count)
 }
 
+/** Guide pp.152-153: while numbering a custom order, each fixture in the
+ *  effect carries an editable number badge in the Preview — upper right of
+ *  its icon, clear of the beam above, the label below and the edit-mode
+ *  handles. The badge is a foreignObject input so it edits in place; it
+ *  stops its own pointer/key events, so typing a number never drags the
+ *  fixture or fires a number-key cue recall. Enter or blur commits the
+ *  number to the draft (1 or more; anything else reverts to the draft
+ *  number). Escape is left to bubble to the bar, which cancels the whole
+ *  session. */
+function CustomOrderBadge({ fixtureId, fixtureName, number, x, y }: { fixtureId: string; fixtureName: string; number: number; x: number; y: number }) {
+  const setCustomOrderNumber = useShowStore((s) => s.setCustomOrderNumber)
+  const [text, setText] = useState(String(number))
+  useEffect(() => { setText(String(number)) }, [number])
+  const commit = () => {
+    const parsed = Number.parseInt(text, 10)
+    if (Number.isInteger(parsed) && parsed >= 1) {
+      if (parsed !== number) setCustomOrderNumber(fixtureId, parsed)
+      else setText(String(number))
+    } else {
+      setText(String(number))
+    }
+  }
+  return (
+    <foreignObject x={x + 14} y={y - 30} width="32" height="20" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => event.stopPropagation()}>
+      <input
+        type="text"
+        inputMode="numeric"
+        aria-label={`Custom order number for ${fixtureName}`}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') { commit(); (event.target as HTMLInputElement).blur() }
+          else if (event.key !== 'Escape') event.stopPropagation()
+        }}
+        style={{ width: '100%', height: '100%', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#ffffff', background: '#0A84FF', border: '1.5px solid #ffffff', borderRadius: 10, outline: 'none', padding: 0 }}
+      />
+    </foreignObject>
+  )
+}
+
+/** Guide pp.152-153: while numbering a custom order, the Preview carries
+ *  an OK / Cancel bar — OK applies the numbers (and the custom order) to
+ *  the effect, Cancel or Esc discards the draft without touching it. */
+function CustomOrderBar() {
+  const customOrderEditing = useShowStore((s) => s.customOrderEditing)
+  const effectName = useShowStore((s) => s.effects.find((e) => e.id === s.customOrderEditing?.effectId)?.name ?? '')
+  const confirmCustomOrder = useShowStore((s) => s.confirmCustomOrder)
+  const cancelCustomOrderEditing = useShowStore((s) => s.cancelCustomOrderEditing)
+  useEffect(() => {
+    if (!customOrderEditing) return
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') cancelCustomOrderEditing() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [customOrderEditing, cancelCustomOrderEditing])
+  if (!customOrderEditing) return null
+  return (
+    <div className="absolute left-1/2 top-3 z-40 flex -translate-x-1/2 items-center gap-2 rounded-lg border border-line bg-panel2 px-3 py-1.5 text-xs shadow-xl" role="dialog" aria-label="Custom order numbers">
+      <span>Custom order for <strong>{effectName}</strong> — edit the numbers next to each fixture, then OK. Same number = one pixel; skipped numbers leave gaps.</span>
+      <button type="button" onClick={confirmCustomOrder} className="rounded bg-accent px-2 py-1 font-semibold text-white">OK</button>
+      <button type="button" onClick={cancelCustomOrderEditing} className="rounded border border-line bg-panel2 px-2 py-1">Cancel</button>
+    </div>
+  )
+}
+
 export function StagePreview({ designMode = true }: { designMode?: boolean }) {
-  const { locked, show, cueLists, activeCueRef, presets, previewPresetId, contentsPreview, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides } = useShowStore()
+  const { locked, show, cueLists, activeCueRef, presets, previewPresetId, contentsPreview, selectedFixtureIds, selectFixtures, setFixturePositions, setFixtureInstancePositions, newFixtureIds, clearNewFixtureIds, setPreviewTrusses, previewEditing, setPreviewEditing, selectedPreviewTrussId, setSelectedPreviewTrussId, selectedLayoutTrussIds, setSelectedLayoutTrussIds, selectedStageObjectId, setSelectedStageObjectId, setupWizardStep, manualOverrides, manualFans, showOverrideLabels, setShowOverrideLabels, releaseManualOverrides, customOrderEditing } = useShowStore()
   // Plain-click selection (Jake, 26 Nov 2026): 1 click selects the
   // fixture's group, clicking the same fixture again singles it out,
   // Shift-click toggles one fixture at a time. Non-edit clicks route
@@ -651,6 +716,7 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
           Inspector (Guide p.53) in edit mode. */}
       {fanDraft && <FanningHud draft={fanDraft} fixtures={fixtures} fans={savedFans} selectedCount={selectedFixtureIds.length} onCommit={commitFan} onEditFan={(fan) => setFanDraft(structuredClone(fan))} onNewFan={openFanHud} onDeleteFan={deleteFanFromHud} onClose={() => { setFanDraft(null); pendingAlsoFan.current = null }} />}
       {calibrationFixtureIds && <CalibrationDialog fixtureIds={calibrationFixtureIds} onClose={() => setCalibrationFixtureIds(null)} />}
+      {customOrderEditing && <CustomOrderBar />}
       <svg
         ref={svgRef}
         className="stage-preview h-full w-full select-none"
@@ -1024,6 +1090,12 @@ export function StagePreview({ designMode = true }: { designMode?: boolean }) {
                   fixture's drag/selection handlers below. */}
               {editing && selected && (() => { const rect = fixtureIconSelectionRect(kind); const scale = (f.iconSize ?? 10) / 10; const hw = rect.halfWidth * scale + 3; const hh = rect.halfHeight * scale + 3; return ([[x - hw, y - hh], [x + hw, y - hh], [x - hw, y + hh], [x + hw, y + hh]] as const).map(([hx, hy]) => <rect key={`${hx},${hy}`} x={hx - 3} y={hy - 3} width="6" height="6" fill="#0A84FF" stroke="#ffffff" strokeWidth="1" pointerEvents="none" />) })()}
               {editing && selected && f.instance === 0 && (['resize', 'rotate'] as const).map((mode) => <rect key={mode} x={x + (mode === 'resize' ? 12 : -4)} y={y + (mode === 'resize' ? 8 : -28)} width="8" height="8" fill="var(--text)" stroke="var(--accent)" style={{ cursor: mode === 'resize' ? 'nwse-resize' : 'grab' }} aria-label={`${mode} ${f.name}`} onPointerDown={(event) => { event.stopPropagation(); event.preventDefault(); const start = pointAt(event); if (!start) return; useShowStore.getState().beginHistoryGroup(); fixtureHandleRef.current = { fixture: f, mode, centre: { x, y }, start }; svgRef.current?.setPointerCapture(event.pointerId) }} />)}
+              {/* Custom order numbers (Guide pp.152-153): while numbering,
+                  the first instance of each fixture in the effect carries
+                  an editable number badge. */}
+              {customOrderEditing && f.instance === 0 && customOrderEditing.numbers[f.id] !== undefined && (
+                <CustomOrderBadge fixtureId={f.id} fixtureName={f.name} number={customOrderEditing.numbers[f.id]} x={x} y={y} />
+              )}
             </g>
           )
         })}

@@ -418,7 +418,15 @@ export interface EffectDef {
   relative?: boolean
   /** Fixture order (Guide pp.151-152). Absent = 'forward' (patch order). */
   fixtureOrder?: EffectFixtureOrder
-  customFixtureOrder?: string[]
+  /** Custom order numbers (Guide pp.152-153): per-fixture number, edited in
+   *  the Preview. Fixtures sharing a number act as a single pixel; a skipped
+   *  number leaves a gap in the effect. Absent = no custom numbers yet. */
+  customFixtureNumbers?: Record<string, number>
+  /** Random (Fixed) order seed (Guide p.151): re-rolled each time Random (Fixed)
+   *  is picked in the Fixture Order menu, and stored so the order stays fixed
+   *  afterwards, including across reloads. Absent = the legacy id-only hash,
+   *  so effects saved before the seed existed keep their order on upgrade. */
+  randomOrderSeed?: number
   /** Fixture order origin (Guide p.152). */
   fixtureOrderOrigin?: 'start-end' | 'from-center' | 'to-center'
   /** Fixture order grouping: treat N adjacent pixels as one (Guide p.152). */

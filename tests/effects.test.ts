@@ -74,7 +74,7 @@ describe('effect fixture order', () => {
     expect(orderedEffectFixtures(effect({ fixtureOrder: 'reverse' }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
     const random = orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)
     expect(orderedEffectFixtures(effect({ fixtureOrder: 'random' }), fixtures).map((item) => item.id)).toEqual(random)
-    expect(orderedEffectFixtures(effect({ fixtureOrder: 'custom', customFixtureOrder: ['f2', 'f1'] }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
+    expect(orderedEffectFixtures(effect({ fixtureOrder: 'custom', customFixtureNumbers: { f2: 1, f1: 2 } }), fixtures).map((item) => item.id)).toEqual(['f2', 'f1'])
   })
 })
 

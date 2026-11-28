@@ -4,6 +4,7 @@ import { degreesToChannel, panTiltRange } from './calibration'
 import {
   effectDurationSeconds,
   orderedEffectPixels,
+  pixelTimeStagger,
   writeEffectChannel,
   type EffectPatchOptions
 } from './effects'
@@ -264,7 +265,11 @@ export function computeMovementPatch(
       if (pixel.fixture.disabled) return
       // Guide p.154: the offset is subtracted — each pixel runs behind the
       // preceding one, so the path is traced in fixture order, not against it.
-      const t = cycleOf((timeSeconds - pixel.phaseIndex * timeOffset * duration) / duration)
+      // Guide p.152: with Consider Spacing on, the stagger follows the
+      // fixtures' Preview distances instead of the uniform phase index. Not
+      // under a custom order (Guide pp.152-153): the numbers ARE the spacing.
+      const stagger = pixelTimeStagger(pixel, pixels.length, (effect.considerSpacing ?? false) && effect.fixtureOrder !== 'custom')
+      const t = cycleOf((timeSeconds - stagger * timeOffset * duration) / duration)
       const point = pointAt(t)
       const { pan: panRange, tilt: tiltRange } = panTiltRange(pixel.fixture)
       const range = component === 'pan' ? panRange : tiltRange

@@ -1115,18 +1115,19 @@ function useClampedMenu(open: boolean, ref: React.RefObject<HTMLDivElement | nul
  *  Honest gaps, flagged (Jake, 21 Nov 2026): Custom Direction's drag
  *  across fixtures in the Preview is not built — the menu sets the
  *  order and the angle is edited in the menu's footer (LightKey sets
- *  it by dragging). Custom Order's number-editing in the Preview is
- *  not built — the menu sets the order and the numbers have nowhere
- *  to be edited yet. Change Fixtures… applies the fixtures currently
+ *  it by dragging). Change Fixtures… applies the fixtures currently
  *  selected in the Preview; LightKey opens a picking mode with an OK
  *  button instead. The Grouping/Repeat submenu contents (a number
  *  field each) are our own presentation — the guide defines the
  *  semantics, not the menu. The fixture-order hover preview (Guide
- *  p.151) is not built. */
+ *  p.151) is not built. Custom Order's number-editing in the Preview
+ *  IS built (Guide pp.152-153): picking Custom Order… opens editable
+ *  number badges in the Preview with OK / Cancel (Esc cancels). */
 function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (patch: Partial<EffectDef>) => void }) {
   const order = effect.fixtureOrder ?? 'forward'
   const kind = effect.kind ?? 'curve'
   const selectedFixtureIds = useShowStore((s) => s.selectedFixtureIds)
+  const startCustomOrderEditing = useShowStore((s) => s.startCustomOrderEditing)
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null)
   const [submenu, setSubmenu] = useState<{ kind: 'origin' | 'grouping' | 'repeat'; top: number; left: number } | null>(null)
@@ -1167,7 +1168,18 @@ function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (
     setMenuOpen(true)
   }
   const closeMenu = () => { setMenuOpen(false); setSubmenu(null) }
-  const pickOrder = (value: EffectFixtureOrder) => { update({ fixtureOrder: value }); closeMenu() }
+  const pickOrder = (value: EffectFixtureOrder) => {
+    // Guide p.151: picking Random (Fixed) re-rolls the order — a fresh seed
+    // is stored on the effect so the new order stays fixed afterwards
+    // (including across reloads); merely reopening the editor does not.
+    if (value === 'random-fixed') update({ fixtureOrder: value, randomOrderSeed: Math.floor(Math.random() * 0x7fffffff) })
+    // Guide pp.152-153: picking Custom Order… opens number editing in the
+    // Preview — the order itself only changes when OK is clicked, so
+    // cancelling leaves the effect exactly as it was.
+    else if (value === 'custom') startCustomOrderEditing(effect.id)
+    else update({ fixtureOrder: value })
+    closeMenu()
+  }
   const openSubmenu = (event: React.MouseEvent<HTMLButtonElement>, kind: 'origin' | 'grouping' | 'repeat') => {
     const rect = event.currentTarget.getBoundingClientRect()
     setSubmenu({ kind, top: rect.top - 4, left: rect.left - 196 })
@@ -1229,6 +1241,8 @@ function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (
           <FixtureOrderMenuItem
             label="Select Beams"
             checked={(effect.pixelMode ?? 'beams') === 'beams'}
+            disabled={order === 'custom'}
+            title={order === 'custom' ? 'A custom order applies to whole fixtures only (Guide p.153)' : undefined}
             onClick={() => { update({ pixelMode: 'beams' }); closeMenu() }}
           />
           <div role="separator" className="my-1 border-t border-line" />
@@ -1266,7 +1280,7 @@ function FixtureOrderControls({ effect, update }: { effect: EffectDef; update: (
           )}
           {order === 'custom' && (
             <div className="mt-1 border-t border-line px-2 pt-2 text-[11px] text-dim">
-              Custom Order is set by editing the fixture numbers in the Preview.
+              Custom Order is set by editing the fixture numbers in the Preview — click OK to apply, Cancel or Esc to discard.
             </div>
           )}
         </div>,
