@@ -532,7 +532,10 @@ describe('no background, no drag bar, drag from anywhere (Jake, 28 Nov 2026)', (
     expect(stepRow('002 Blue').className).toContain('bg-panel')
   })
 
-  it('Done enlarges the cuelist to fill the free space at the bottom', () => {
+  it('Done enlarges a cuelist in free space to the full width, height unchanged', () => {
+    // Jake, 28 Nov 2026 (refined rule): with no other objects the
+    // cuelist counts as underneath, so Done grows it RIGHT to the
+    // full width of the view — and the height stays exactly as placed.
     seedShow()
     // Move the widget to the bottom free space of a 1200x800 view.
     act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 500, 480, 300) })
@@ -552,11 +555,12 @@ describe('no background, no drag bar, drag from anywhere (Jake, 28 Nov 2026)', (
   })
 })
 
-describe('compact default height (Jake, 28 Nov 2026)', () => {
-  it('Insert Cuelist creates a 480x240 widget — LightKey\'s compact default, under 280px', () => {
-    // Jake's LightKey screenshot measures ~230 CSS px tall and is
-    // non-obtrusive with all controls laid out; ours inserted at
-    // 480x300, which he called annoying for a small cuelist.
+describe('LightKey minimum default (Jake, 28 Nov 2026)', () => {
+  it('Insert Cuelist creates a 600x240 widget — LightKey\'s default size', () => {
+    // Jake, 28 Nov 2026: LightKey's default cuelist is 600x240 and
+    // its minimum is 600x180 (the resize tooltip in his 1.08pm
+    // screenshot) — a fresh insert starts at the default, and the
+    // user expands from there rather than shrinking.
     seedShow([], [])
     renderInRoot(<App />)
     switchToLive()
@@ -571,12 +575,12 @@ describe('compact default height (Jake, 28 Nov 2026)', () => {
     act(() => { item!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
     const widgets = useShowStore.getState().show!.livePages![0].cueListWidgets!
     expect(widgets).toHaveLength(1)
-    expect(widgets[0].width).toBe(480)
+    expect(widgets[0].width).toBe(600)
     expect(widgets[0].height).toBe(240)
     const el = widgetEl() as HTMLElement
-    expect(el.style.width).toBe('480px')
+    expect(el.style.width).toBe('600px')
     expect(el.style.height).toBe('240px')
-    // The compact widget still carries everything: the placeholder,
+    // The minimum widget still carries everything: the placeholder,
     // the transport and the Xfade column are all present, not clipped
     // away by the smaller height.
     expect(el.textContent).toContain('Cuelist')
@@ -586,20 +590,69 @@ describe('compact default height (Jake, 28 Nov 2026)', () => {
     expect(el.textContent).toContain('Xfade')
   })
 
-  it('a 300-tall cuelist still compacts back to 240 without losing its controls', () => {
-    // The resize clamp lets a cuelist shrink to the compact default —
-    // the point of the smaller default is that a small list can sit
-    // compact, even after Done enlarged it or it was made taller.
+  it('a cuelist resized below the LightKey minimum clamps to 600x180', () => {
+    // The resize floor is the LightKey minimum on both dimensions —
+    // a drag below it snaps back to 600 wide and 180 tall, and the
+    // controls and step rows survive.
     seedShow()
-    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 20, 480, 240) })
+    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 20, 400, 100) })
     renderInRoot(<App />)
     switchToLive()
     const el = widgetEl() as HTMLElement
-    expect(el.style.height).toBe('240px')
+    expect(el.style.width).toBe('600px')
+    expect(el.style.height).toBe('180px')
     expect(el.querySelector('[aria-label="Go"]')).toBeTruthy()
     expect(el.querySelector('[aria-label="Pause cuelist"]')).toBeTruthy()
     expect(el.querySelector('[aria-label="Next cue"]')).toBeTruthy()
     expect(stepRow('001 Violet')).toBeTruthy()
     expect(stepRow('002 Blue')).toBeTruthy()
+  })
+
+  it('Done enlarges a cuelist underneath a row of buttons to full width, height unchanged', () => {
+    // Jake, 28 Nov 2026 (screenshots 3 -> 4): a cuelist placed
+    // underneath the row of cue buttons grows RIGHT to the full width
+    // on Done; the height does not move.
+    seedShow(undefined, [
+      { id: 'b1', name: 'Red', type: 'push', presetIds: [], x: 20, y: 20 },
+      { id: 'b2', name: 'Green', type: 'push', presetIds: [], x: 160, y: 20 },
+    ])
+    // Move the widget underneath the button row: its top (120) is
+    // below the buttons' bottom edge (60).
+    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 120, 600, 180) })
+    renderInRoot(<App />)
+    switchToLive()
+    const viewport = container!.querySelector('[aria-label="Live canvas viewport"]') as HTMLElement
+    Object.defineProperty(viewport, 'clientWidth', { value: 1200, configurable: true })
+    Object.defineProperty(viewport, 'clientHeight', { value: 800, configurable: true })
+    enterEditMode()
+    const done = Array.from(container!.querySelectorAll('.live-page-edit')).find((el) => el.textContent?.trim() === 'Done')
+    expect(done).toBeTruthy()
+    act(() => { done!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(useShowStore.getState().liveEditing).toBe(false)
+    const widget = useShowStore.getState().show!.livePages![0].cueListWidgets![0]
+    expect(widget.width).toBe(1180)
+    expect(widget.height).toBe(180)
+  })
+
+  it('Done leaves a cuelist on the line with the buttons exactly as placed', () => {
+    // Jake, 28 Nov 2026 (screenshot 2 + the Orange button): a button
+    // overlapping the cuelist's vertical band means no enlargement —
+    // the cuelist stayed 600 wide.
+    seedShow(undefined, [
+      { id: 'b1', name: 'Orange', type: 'push', presetIds: [], x: 700, y: 20 },
+    ])
+    act(() => { useShowStore.getState().resizePageObjectTo({ type: 'list', id: 'w1' }, 20, 20, 600, 180) })
+    renderInRoot(<App />)
+    switchToLive()
+    const viewport = container!.querySelector('[aria-label="Live canvas viewport"]') as HTMLElement
+    Object.defineProperty(viewport, 'clientWidth', { value: 1200, configurable: true })
+    Object.defineProperty(viewport, 'clientHeight', { value: 800, configurable: true })
+    enterEditMode()
+    const done = Array.from(container!.querySelectorAll('.live-page-edit')).find((el) => el.textContent?.trim() === 'Done')
+    expect(done).toBeTruthy()
+    act(() => { done!.dispatchEvent(new window.MouseEvent('click', { bubbles: true })) })
+    expect(useShowStore.getState().liveEditing).toBe(false)
+    const widget = useShowStore.getState().show!.livePages![0].cueListWidgets![0]
+    expect(widget).toMatchObject({ x: 20, y: 20, width: 600, height: 180 })
   })
 })

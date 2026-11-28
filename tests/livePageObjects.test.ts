@@ -137,8 +137,13 @@ describe('live page object resize and rename (7.6)', () => {
 
   it('resizes cue-list widgets and annotations through the same helper', () => {
     const page = makePage()
-    expect(resizeObject(page, { type: 'list', id: 'w1' }, 300, 250).cueListWidgets![0]).toMatchObject({ width: 300, height: 250 })
+    expect(resizeObject(page, { type: 'list', id: 'w1' }, 700, 250).cueListWidgets![0]).toMatchObject({ width: 700, height: 250 })
     expect(resizeObject(page, { type: 'annotation', id: 'a1' }, 500, 400).annotations![0]).toMatchObject({ width: 500, height: 400 })
+  })
+
+  it('clamps a cue-list widget to LightKey\'s 600x180 minimum (Jake, 28 Nov 2026)', () => {
+    const page = makePage()
+    expect(resizeObject(page, { type: 'list', id: 'w1' }, 300, 100).cueListWidgets![0]).toMatchObject({ width: 600, height: 180 })
   })
 
   it('reports an object\'s current size, falling back to defaults', () => {

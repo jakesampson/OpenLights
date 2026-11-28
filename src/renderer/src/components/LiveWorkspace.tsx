@@ -784,9 +784,10 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     // the origin to the clamped size so the opposite edge does not
     // drift. Cuelists use the uncapped clamp — LightKey's cuelist
     // fills the Live view, so a widget Done enlarged past 900px must
-    // not snap back to 900 on the next handle drag (Jake, 28 Nov 2026).
-    const clamp = r.ref.type === 'list' ? clampCuelistSize : clampLiveSize
-    width = clamp(width); height = clamp(height)
+    // not snap back to 900 on the next handle drag (Jake, 28 Nov 2026)
+    // — with LightKey's 600x180 minimum as the floor (same date).
+    const clamp = (v: number, d: 'width' | 'height') => r.ref.type === 'list' ? clampCuelistSize(v, d) : clampLiveSize(v)
+    width = clamp(width, 'width'); height = clamp(height, 'height')
     if (r.handle.includes('w')) x = r.x + (r.width - width)
     if (r.handle.includes('n')) y = r.y + (r.height - height)
     x = Math.max(0, snapCanvasValue(x)); y = Math.max(0, snapCanvasValue(y))
@@ -799,19 +800,19 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if (page && !liveAlignmentOff) {
       if (r.handle.includes('e')) {
         const edge = alignEdgeX(page, r.ref.id, draft.x + draft.width)
-        if (edge !== null) { draft.width = clamp(edge - draft.x); vertical.push(edge) }
+        if (edge !== null) { draft.width = clamp(edge - draft.x, 'width'); vertical.push(edge) }
       }
       if (r.handle.includes('w')) {
         const edge = alignEdgeX(page, r.ref.id, draft.x)
-        if (edge !== null) { draft.width = clamp(r.x + r.width - edge); draft.x = edge; vertical.push(edge) }
+        if (edge !== null) { draft.width = clamp(r.x + r.width - edge, 'width'); draft.x = edge; vertical.push(edge) }
       }
       if (r.handle.includes('s')) {
         const edge = alignEdgeY(page, r.ref.id, draft.y + draft.height)
-        if (edge !== null) { draft.height = clamp(edge - draft.y); horizontal.push(edge) }
+        if (edge !== null) { draft.height = clamp(edge - draft.y, 'height'); horizontal.push(edge) }
       }
       if (r.handle.includes('n')) {
         const edge = alignEdgeY(page, r.ref.id, draft.y)
-        if (edge !== null) { draft.height = clamp(r.y + r.height - edge); draft.y = edge; horizontal.push(edge) }
+        if (edge !== null) { draft.height = clamp(r.y + r.height - edge, 'height'); draft.y = edge; horizontal.push(edge) }
       }
     }
     setGuides({ vertical, horizontal })
@@ -953,12 +954,13 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if (page) savePage({ ...page, controls: page.controls.map((item) => item.id === id ? { ...item, ...patch } : item) })
   }
   // Auto-enlarge the cuelist on leaving edit mode (Guide ch.11 p.189;
-  // Jake, 28 Nov 2026): it grows right and down from where it was left
-  // to fill the free space, stopping at other objects or the edge of the
-  // visible Live view — full width when it sits at the bottom, the free
-  // strip when it sits at the side. Never shrinks; a cuelist already
-  // filling its space is left alone, so Done stays a no-op for it and
-  // writes nothing (no undo entry, no autosave dirt).
+  // Jake, 28 Nov 2026, from his own LightKey testing): ONLY when it
+  // sits entirely underneath the other objects on the page, in free
+  // space below the row of cue buttons — then it grows RIGHT to the
+  // full width and its height stays as placed. On the line with the
+  // buttons it is left exactly as placed. Never shrinks; a cuelist
+  // already filling its space is left alone, so Done stays a no-op
+  // for it and writes nothing (no undo entry, no autosave dirt).
   const autoEnlargeCuelist = () => {
     if (!page) return
     const widget = page.cueListWidgets?.[0]
@@ -967,9 +969,23 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
     if (!viewport) return
     const width = widget.width ?? LIVE_LIST_SIZE.width
     const height = widget.height ?? LIVE_LIST_SIZE.height
+    // The visible right edge in canvas coordinates is scrollLeft +
+    // the viewport's CONTENT width — clientWidth includes the
+    // horizontal padding, and the Master overlay's 98px left inset
+    // is padding, not canvas. Using clientWidth raw overstated the
+    // edge by 98px, so the enlarged cuelist ran 98px past the visible
+    // edge and its transport buttons + Xfade slider sat off-screen
+    // (probe §8, 28 Nov 2026). Same subtraction the viewportSize
+    // measurement above already does; the height side is untouched
+    // (the enlarge is right-only).
+    const style = getComputedStyle(viewport)
+    const visibleWidth =
+      viewport.clientWidth -
+      parseFloat(style.paddingLeft || '0') -
+      parseFloat(style.paddingRight || '0')
     const size = enlargeCuelistToFitView(
       { x: widget.x, y: widget.y, width, height },
-      { right: viewport.scrollLeft + viewport.clientWidth, bottom: viewport.scrollTop + viewport.clientHeight },
+      { right: viewport.scrollLeft + visibleWidth, bottom: viewport.scrollTop + viewport.clientHeight },
       positionedObjects(page).filter((o) => o.id !== widget.id),
     )
     if (size.width !== width || size.height !== height) {
@@ -980,9 +996,9 @@ export function LiveWorkspace({ masterOverlay = false, toolbarHost = null, inspe
   const toggleEditing = () => {
     if (editing) {
       // LightKey enlarges the cuelist to fit the Live view when you
-      // exit edit mode (Guide ch.11 p.189; Jake, 28 Nov 2026) — from
-      // where it was left, it grows right and down to fill the free
-      // space, stopping at other objects or the view edge.
+      // exit edit mode (Guide ch.11 p.189; Jake, 28 Nov 2026) — but
+      // only when it sits underneath the buttons; on the line with
+      // them it stays exactly as placed (see autoEnlargeCuelist).
       autoEnlargeCuelist()
       setLiveEditing(false)
       setPopupOpen(false)

@@ -10,18 +10,16 @@ export const LIVE_CUE_SIZE = { width: 120, height: 40 }
 export const LIVE_CUE_STEP = { x: 130, y: 50 }
 export const LIVE_LIST_SIZE = { width: 240, height: 240 }
 /** Size of a newly inserted cuelist widget (Jake, 28 Nov 2026):
- *  LightKey's default cuelist is compact and non-obtrusive — under
- *  280px high (his 10.32am LightKey screenshot measures ~230 CSS px:
- *  the Xfade track spans ~395 file px at DPR 2, plus the header row)
- *  — and its controls are NOT squashed at that height: the header,
- *  the step rows, the three transport pills and the Xfade slider all
- *  fit. Ours used to insert at 480x300, which Jake called annoying
- *  for a small cuelist. 480x240 is the nearest 10px-grid size under
- *  his 280 bound; the width stays 480 so the columns (Name / Hold /
- *  Fade / transport / Xfade) keep their room. The widget can still be
- *  resized smaller or larger afterwards, and Done still enlarges it
- *  to fill the free space — this only changes where it starts. */
-export const LIVE_LIST_DEFAULT_SIZE = { width: 480, height: 240 }
+ *  LightKey's DEFAULT cuelist size is 600x240; its MINIMUM is
+ *  600x180 (the resize tooltip in his 1.08pm screenshot). A fresh
+ *  insert starts at the default 600x240 — the user expands from
+ *  there (Done enlarges it to full width when it sits underneath
+ *  the buttons; a manual drag grows it any time) and can shrink it
+ *  back to the 600x180 minimum, never below. The earlier 480x240
+ *  default (LightKey's measured ~230px height, under his 280 bound)
+ *  is superseded by this: the width is now LightKey's 600, and the
+ *  height is LightKey's default 240. */
+export const LIVE_LIST_DEFAULT_SIZE = { width: 600, height: 240 }
 export const LIVE_LABEL_SIZE = { width: 160, height: 40 }
 export const LIVE_FRAME_SIZE = { width: 360, height: 200 }
 
@@ -77,14 +75,20 @@ export function clampLiveSize(value: number): number {
   return Math.max(MIN_LIVE_OBJECT_SIZE, Math.min(MAX_LIVE_OBJECT_SIZE, Math.round(value / 10) * 10))
 }
 
-/** Clamp a cuelist's size: snapped to the 10px grid with the same 40px
- *  floor, but NO 900px ceiling — LightKey's cuelist fills the Live
- *  view when you exit edit mode (Guide ch.11 p.189; Jake, 28 Nov
- *  2026), so on his screen it runs to ~2600px wide, far past the cap
- *  that keeps cue buttons and labels sane. */
-export function clampCuelistSize(value: number): number {
-  if (!Number.isFinite(value)) return MIN_LIVE_OBJECT_SIZE
-  return Math.max(MIN_LIVE_OBJECT_SIZE, Math.round(value / 10) * 10)
+/** Clamp a cuelist's size: snapped to the 10px grid, no 900px ceiling
+ *  — LightKey's cuelist fills the Live view when you exit edit mode
+ *  (Guide ch.11 p.189; Jake, 28 Nov 2026), so on his screen it runs
+ *  to ~2600px wide, far past the cap that keeps cue buttons and
+ *  labels sane — but with LightKey's minimum size as the floor
+ *  (Jake, 28 Nov 2026, from his own LightKey testing: the resize
+ *  tooltip reads "W: 600 H: 180"). The floor differs per dimension,
+ *  so the dimension is part of the call. */
+export const MIN_CUELIST_WIDTH = 600
+export const MIN_CUELIST_HEIGHT = 180
+export function clampCuelistSize(value: number, dimension: 'width' | 'height' = 'width'): number {
+  const floor = dimension === 'height' ? MIN_CUELIST_HEIGHT : MIN_CUELIST_WIDTH
+  if (!Number.isFinite(value)) return floor
+  return Math.max(floor, Math.round(value / 10) * 10)
 }
 
 export const validLiveSize = (value: unknown): value is number =>

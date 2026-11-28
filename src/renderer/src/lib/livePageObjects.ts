@@ -74,10 +74,11 @@ export function objectSize(page: LivePage, ref: PageObjectRef): { width: number;
  *  Cuelists use the uncapped clamp (clampCuelistSize) — LightKey's
  *  cuelist fills the Live view, so it must be able to grow past the
  *  900px ceiling that keeps cue buttons and labels sane (Jake,
- *  28 Nov 2026). */
+ *  28 Nov 2026) — with LightKey's 600x180 minimum as the floor
+ *  (same date, from his own LightKey testing). */
 export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, height: number): LivePage {
-  const clamp = ref.type === 'list' ? clampCuelistSize : clampLiveSize
-  const w = clamp(width), h = clamp(height)
+  const w = ref.type === 'list' ? clampCuelistSize(width, 'width') : clampLiveSize(width)
+  const h = ref.type === 'list' ? clampCuelistSize(height, 'height') : clampLiveSize(height)
   return {
     ...page,
     controls: page.controls.map((c) => ref.type === 'cue' && c.id === ref.id ? { ...c, width: w, height: h } : c),
@@ -93,8 +94,8 @@ export function resizeObject(page: LivePage, ref: PageObjectRef, width: number, 
  * 10px grid and never go below 0, like a drag.
  */
 export function resizeObjectTo(page: LivePage, ref: PageObjectRef, x: number, y: number, width: number, height: number): LivePage {
-  const clamp = ref.type === 'list' ? clampCuelistSize : clampLiveSize
-  const w = clamp(width), h = clamp(height)
+  const w = ref.type === 'list' ? clampCuelistSize(width, 'width') : clampLiveSize(width)
+  const h = ref.type === 'list' ? clampCuelistSize(height, 'height') : clampLiveSize(height)
   const left = Math.max(0, snapCanvasValue(x)), top = Math.max(0, snapCanvasValue(y))
   return {
     ...page,
